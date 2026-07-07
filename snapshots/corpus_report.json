@@ -1,0 +1,110 @@
+{
+  "corpus": {
+    "total_files": 387,
+    "mjcf": 387,
+    "include_fragment": 0,
+    "non_mjcf": 0,
+    "unparseable": 0
+  },
+  "usage": {
+    "elements": 30524,
+    "attributes": 92286,
+    "enum_values": 7451
+  },
+  "coverage": {
+    "distinct_elements": 154,
+    "unknown_elements": 0,
+    "elements_covered_pct": 100.0,
+    "distinct_attributes": 632,
+    "unknown_attributes": 5,
+    "attributes_covered_pct": 99.21,
+    "distinct_enum_values": 122,
+    "unknown_enum_values": 3,
+    "enum_values_covered_pct": 97.54
+  },
+  "unknown": {
+    "elements": [],
+    "attributes": [
+      {
+        "element": "replicate",
+        "attribute": "count",
+        "files_count": 42,
+        "example_files": [
+          "model/adhesion/active_adhesion.xml",
+          "model/flex/basket.xml",
+          "model/humanoid/100_humanoids.xml"
+        ]
+      },
+      {
+        "element": "replicate",
+        "attribute": "euler",
+        "files_count": 24,
+        "example_files": [
+          "model/humanoid/100_humanoids.xml",
+          "model/humanoid/22_humanoids.xml",
+          "model/humanoid/humanoid100.xml"
+        ]
+      },
+      {
+        "element": "replicate",
+        "attribute": "offset",
+        "files_count": 36,
+        "example_files": [
+          "model/adhesion/active_adhesion.xml",
+          "model/flex/basket.xml",
+          "model/humanoid/100_humanoids.xml"
+        ]
+      },
+      {
+        "element": "replicate",
+        "attribute": "prefix",
+        "files_count": 1,
+        "example_files": [
+          "test/engine/testdata/collision_primitive/spheres_cylinders.xml"
+        ]
+      },
+      {
+        "element": "replicate",
+        "attribute": "sep",
+        "files_count": 4,
+        "example_files": [
+          "model/humanoid/100_humanoids.xml",
+          "model/humanoid/22_humanoids.xml",
+          "model/sleep/100_humanoids.xml"
+        ]
+      }
+    ],
+    "enum_values": [
+      {
+        "element": "Rangefinder",
+        "attribute": "data",
+        "value": "dist dir origin point normal depth",
+        "enum": "RayData",
+        "files_count": 1,
+        "example_files": [
+          "test/testdata/model.xml"
+        ]
+      },
+      {
+        "element": "Rangefinder",
+        "attribute": "data",
+        "value": "dist normal",
+        "enum": "RayData",
+        "files_count": 1,
+        "example_files": [
+          "test/engine/testdata/ray/ray_swing.xml"
+        ]
+      },
+      {
+        "element": "Rangefinder",
+        "attribute": "data",
+        "value": "dist point normal",
+        "enum": "RayData",
+        "files_count": 1,
+        "example_files": [
+          "test/engine/testdata/sensor/rfcamera.xml"
+        ]
+      }
+    ]
+  }
+}
