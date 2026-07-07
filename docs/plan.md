@@ -234,12 +234,17 @@ every corpus model is compiled twice — `mj_loadXML(original)` vs `mj_loadXML(p
 trip)` — and the resulting `mjModel`s are field-diffed. That harness, not code review, is what
 makes an independent reader safe.
 
-**DR-7: Macro handling — expand structure, keep semantics first-class.**
+**DR-7: Macro handling — only `include` is a read-time pre-pass; everything else is first-class.**
 - `include`: expanded by ProtoSpec with MuJoCo's exact rules, provenance recorded per element.
+  It is the one construct that cannot pass through (it is file plumbing, not model content).
 - `frame`: first-class ProtoSpec element (it persists in mjSpec too).
-- `replicate` and `attach`: expanded by ProtoSpec (replicate = parse subtree once, clone N times
-  with accumulated pose and zero-padded suffix; attach = deep-copy with prefix namespacing).
-  Cloning a subtree is trivial under DR-2, and the generated `Clone()` makes both ~100 lines.
+- `replicate` and `attach`: **first-class ProtoSpec elements**, passed through verbatim.
+  Originally slated for read-time expansion, but pass-through is strictly better: the bridge
+  emits the tags into the canonical MJCF and MuJoCo's own reader performs the cloning and
+  prefix/suffix namespacing during compile, so ProtoSpec never reimplements either; the compact
+  authored form survives edits and saves; and the treatment is uniform with composite/flexcomp.
+  Binding reaches the generated copies via MuJoCo's deterministic suffix/prefix name patterns,
+  and `Expand()` (below) materializes them on demand.
 - `composite` / `flexcomp`: **first-class ProtoSpec elements**, and their expansion is NOT
   reimplemented. Both are ordinary rows in the schema table with attributes and typed children
   (`joint`/`geom`/`site`/`skin`/`pin`/`edge`/`elasticity`/`contact`/`plugin`), so they generate
@@ -462,9 +467,9 @@ Element families, all in scope for v1 unless marked:
   `ref<TendonAny>` makes fixed tendons valid targets of actuator transmissions, sensor slots, and
   tendon-equality constraints.
 - **Procedural**: composite (type, count, spacing, per-kind sub-defaults for joint/geom/site,
-  skin, plugin) and flexcomp (type, count/spacing/point/element data, pin list, edge/elasticity/
-  contact blocks, plugin) as first-class elements; replicate/attach as read-time expansions
-  (DR-7).
+  skin, plugin), flexcomp (type, count/spacing/point/element data, pin list, edge/elasticity/
+  contact blocks, plugin), replicate (count/offset/euler/sep + body-context children), and
+  attach (model ref/body/prefix) — all first-class pass-through elements (DR-7).
 - **Explicit non-goals v1**: URDF reading (MuJoCo's `xml_urdf.cc` path; convert externally),
   mjSpec→ProtoSpec import, binary .mjb.
 
@@ -503,7 +508,7 @@ Every known MJCF/mjSpec quirk and its single owner in ProtoSpec. Each entry beco
 | Q-SENS | ~50 sensor tags → (type, objtype, objname, reftype, refname, intprm) with per-tag attr routing (`xml_native_reader.cc:4181-4638`) | Table in the IDL: each sensor element declares its slot routing; generated binding handles all regular cases; hand code only for rangefinder (site-xor-camera + data bitmask), contact (multi-source slots + reduce/num), distance/normal/fromto (geomN-xor-bodyN) |
 | Q-KEY | Keyframe vector lengths depend on nq/nv/na/nu/nmocap, known only post-compile in MuJoCo | Vectors stored as authored; `core/sizes.cc` computes sizes from the tree (nq/nv per joint type: free 7/6, ball 4/3, slide/hinge 1/1; nu = actuators; na = Σ act dims; nmocap = mocap bodies); validation checks lengths; helper pads/truncates on request |
 | Q-INC | `<include>`: once per file globally, anywhere in tree, resolved model-dir-then-includer-dir, eager assetdir capture (`xml.cc:101-240`) | Reader pre-pass with identical rules + provenance; `assetdir` sets mesh+texture dirs, explicit `meshdir`/`texturedir` override (precedence as `xml_native_reader.cc:1215-1221`) |
-| Q-MACRO | `replicate`/`attach`/`composite`/`flexcomp` parse-time only; `frame` persists; `worldbody/frame/replicate` share the `body` schema row | DR-7: frame first-class; replicate/attach expanded natively (suffix zero-padding as `UpdateString`); composite/flexcomp via MuJoCo pre-expansion fallback |
+| Q-MACRO | `replicate`/`attach`/`composite`/`flexcomp` parse-time only in MuJoCo; `frame` persists; `worldbody/frame/replicate` share the `body` schema row | DR-7: all five first-class ProtoSpec elements; replicate/attach/composite/flexcomp pass through verbatim and MuJoCo expands them at compile; `Expand()` materializes on demand |
 | Q-REFS | All cross-refs are name strings resolved at compile; dangling names fail late | DR-8 typed refs; validation tier 2 resolves everything with provenance |
 | Q-TEX | Four texture load methods in one struct; material references textures by role array | `TextureSource` variant; material holds `opt<ref<Texture>>` per role |
 | Q-PLUGIN | Opaque `void*` configs; explicit-instance-before-implicit ordering rule (`xml_native_reader.cc:3148-3151`) | Ordered `(key,value)` string pairs; ordering rule = validation lint, not parse failure |
@@ -573,8 +578,8 @@ Each has an exit criterion; no milestone starts until the previous criterion is 
    (a) compiler/option/size/statistic/visual, (b) body/geom/joint/site/frame + Q-ORIENT/Q-ANGLE/
    Q-FROMTO/Q-INERTIA/Q-ARITY, (c) defaults + Q-AUTO, (d) assets + Q-TEX + include (Q-INC),
    (e) contact/equality/tendon (Q-EQ, path items), (f) actuators (Q-ACT), (g) sensors (Q-SENS),
-   (h) custom/keyframe/extension (Q-KEY, Q-PLUGIN), (i) replicate/attach expansion (Q-MACRO),
-   (j) composite/flexcomp as first-class elements, incl. cataloging MuJoCo's generated-name
+   (h) custom/keyframe/extension (Q-KEY, Q-PLUGIN), (i) replicate/attach/composite/flexcomp as
+   first-class pass-through elements (Q-MACRO), incl. cataloging MuJoCo's generated-name
    patterns for binding.
    *Exit per family: differential harness green for corpus models exercising it; fixpoint test
    green. Final exit: full corpus green, composite/flexcomp models included (pass-through).*
@@ -632,9 +637,10 @@ What parallelizes cleanly across subagents, and what must not:
    mutate in those terms; `General` is just one variant among eleven. Lowering exists only as a
    query helper and inside no critical path (Q-ACT).
 2. **Standalone repo** while iterating; the plugin adopts later as a dependency.
-3. **Composite/flexcomp are first-class from day one**, via pass-through: ProtoSpec represents
-   the compact authored form, MuJoCo expands at compile, binding reaches generated elements by
-   name pattern, `Expand()` materializes on demand (DR-7).
+3. **All macros except `include` are first-class**, via pass-through: composite, flexcomp,
+   replicate, and attach are represented in their compact authored form, MuJoCo expands at
+   compile, binding reaches generated elements by name pattern, `Expand()` materializes on
+   demand (DR-7).
 4. **Binding without the mjs compiler** is solved by name: `mj_name2id` over the compiled
    `mjModel`, auto-naming for unnamed elements, `Binding` object returned by `Compile()` (DR-10).
 
