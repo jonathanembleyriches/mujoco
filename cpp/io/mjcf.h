@@ -13,14 +13,25 @@
 #ifndef PROTOSPEC_IO_MJCF_H
 #define PROTOSPEC_IO_MJCF_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "protospec/core.h"
 #include "types.h"
 
 namespace ps::mjcf::io {
+
+// Serial-keyed auto-name overrides. An element whose creation serial is a key
+// here is emitted with the mapped `name="..."` attribute even if its own name
+// field is empty; the tree is never mutated. The compile bridge uses this to
+// give unnamed elements deterministic reserved names for binding (DR-10), so
+// the serialization-time naming lives here (in the serializer) with no tree
+// edit. Elements already carrying an authored name are unaffected (the bridge
+// only enters unnamed elements).
+using AutoNames = std::unordered_map<std::uint64_t, std::string>;
 
 // A single reader diagnostic, always carrying file:line provenance.
 struct Diagnostic {
@@ -64,6 +75,10 @@ ParseResult ParseMjcfFile(const std::string& path);
 // Serialize a Model to a deterministic MJCF string (2-space indent, radians,
 // shortest round-trip numeric formatting). Emits exactly the authored fields.
 std::string WriteMjcf(const Model& model);
+
+// As above, but unnamed elements whose serial appears in `auto_names` are
+// emitted with the mapped reserved name. Used by the compile bridge.
+std::string WriteMjcf(const Model& model, const AutoNames& auto_names);
 
 }  // namespace ps::mjcf::io
 

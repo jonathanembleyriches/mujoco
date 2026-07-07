@@ -144,7 +144,8 @@ std::optional<std::string> FormatValue(const Inner& v, bool keyword_set) {
 std::string Indent(int depth) { return std::string(2 * depth, ' '); }
 
 template <class E>
-void WriteElement(const E& e, std::string_view tag, int depth, std::string& out);
+void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
+                  const AutoNames* names);
 
 // Append ` name="value"` unless value is skipped.
 void AppendAttr(std::string& attrs, std::string_view name,
@@ -213,6 +214,7 @@ struct WriterVisitor {
   int depth;
   std::string* attrs;
   std::string* children;
+  const AutoNames* names;
 
   template <class T>
   void field(int id, const char*, T& value) {
@@ -269,7 +271,7 @@ struct WriterVisitor {
   void child(int cid, const char*, std::vector<std::unique_ptr<T>>& list) {
     std::string_view tag = b->children[cid].tag;
     for (const auto& item : list) {
-      if (item) WriteElement(*item, tag, depth + 1, *children);
+      if (item) WriteElement(*item, tag, depth + 1, *children, names);
     }
   }
 
@@ -281,7 +283,7 @@ struct WriterVisitor {
             using M = typename std::decay_t<decltype(p)>::element_type;
             if (p) {
               WriteElement(*p, Bind(element_type_of<M>::value).tag, depth + 1,
-                           *children);
+                           *children, names);
             }
           },
           item.node);
@@ -290,12 +292,28 @@ struct WriterVisitor {
 };
 
 template <class E>
-void WriteElement(const E& e, std::string_view tag, int depth, std::string& out) {
+void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
+                  const AutoNames* names) {
   const ElementBinding& b = Bind(element_type_of<E>::value);
   std::string attrs;
   std::string children;
-  WriterVisitor<E> v{&b, element_type_of<E>::value, depth, &attrs, &children};
+  WriterVisitor<E> v{&b,       element_type_of<E>::value,
+                     depth,    &attrs,
+                     &children, names};
   Visit(const_cast<E&>(e), v);
+
+  // Auto-name injection (DR-10): an unnamed bindable element whose serial the
+  // bridge recorded is emitted with its reserved name. The tree is untouched;
+  // the name exists only here in the emitted text. Prepended so it reads first.
+  if (names != nullptr) {
+    auto it = names->find(e.serial);
+    if (it != names->end()) {
+      std::string name_attr = " name=\"";
+      name_attr += Escape(it->second);
+      name_attr += '"';
+      attrs.insert(0, name_attr);
+    }
+  }
 
   out += Indent(depth);
   out += '<';
@@ -317,7 +335,13 @@ void WriteElement(const E& e, std::string_view tag, int depth, std::string& out)
 
 std::string WriteMjcf(const Model& model) {
   std::string out;
-  WriteElement(model, Bind(ElementType::Model).tag, 0, out);
+  WriteElement(model, Bind(ElementType::Model).tag, 0, out, nullptr);
+  return out;
+}
+
+std::string WriteMjcf(const Model& model, const AutoNames& auto_names) {
+  std::string out;
+  WriteElement(model, Bind(ElementType::Model).tag, 0, out, &auto_names);
   return out;
 }
 
