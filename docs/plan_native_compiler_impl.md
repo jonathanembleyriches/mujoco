@@ -100,22 +100,20 @@ class Binding {
   // Pattern queries for macro-generated elements (XML path; DR-10).
   std::vector<int> Find(int objtype, std::string_view glob) const;
 
-  bool valid() const;                     // mutation counter still matches
 };
 ```
 
-Storage per entry: `{const void* elem, uint64_t serial, mjtObj type, int id}` — the pointer is
-the lookup key, the serial is recorded for the ABA assert (§2). Binding also stores
-`const Model*` and the Model root's mutation-counter value observed at compile time.
+Storage per entry: `{const void* elem, uint64_t serial, mjtObj type, int id, name}` — the pointer
+is the lookup key, the serial is the loggable identity. Binding also stores `const Model*`.
 
-**Staleness mechanism, made concrete.** The generated `Model` root gains one field,
-`std::uint64_t mutations = 0` (emitter change, NC0 task T0.3 — the DR-10 "cheap edit counter",
-now a hard prerequisite rather than an M5 nicety). Contract: every SDK mutator (builders, attach,
-rename, delete, `ApplyDefault` on tree elements, any future setter surface) bumps it; readers
-never do; **Compile reads it and never bumps it** (purity). Binding accessors assert
-`model->mutations == stored` and the `serial` recorded per entry as a second line of defense.
-Documented residual: raw field pokes on the structs bypass the counter (they bypass every
-invariant; the SDK is the supported mutation surface).
+**Staleness — SUPERSEDED (owner decision, M5).** The mutation counter originally specified here
+was REJECTED and removed: the object model is plain data, so `body.pos = ...` and direct
+child-vector mutation cannot bump any counter — partial automatic detection is false confidence.
+There is no `Model.mutations` field, no `valid()`, no staleness assert. Binding validity is a
+DOCUMENTED CONTRACT (see `cpp/bridge/binding.h`): a Binding is a snapshot of one compile;
+field-VALUE edits never invalidate it (ids do not move); STRUCTURAL edits (add/delete/reorder
+elements) invalidate id mappings and require a fresh Compile. Any later reference to the counter
+in this document (T0.3, risk I1/I4) is superseded by this paragraph.
 
 Two constructors, one interface: the native path fills the maps directly at id-assignment time
 (stage S10, CDR-4); the XML path fills the same maps via `mj_name2id` over authored +
