@@ -1090,7 +1090,7 @@ constexpr FieldDescriptor kFields_Joint[] = {
     {"solimplimit", "solimplimit", "double", FieldKind::Double, ArityKind::Range, 0, 5, true, false},
     {"solreffriction", "solreffriction", "double", FieldKind::Double, ArityKind::Range, 0, 2, true, false},
     {"solimpfriction", "solimpfriction", "double", FieldKind::Double, ArityKind::Range, 0, 5, true, false},
-    {"stiffness", "stiffness", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
+    {"stiffness", "stiffness", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false},
     {"range", "range", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, false},
     {"actuatorfrcrange", "actuatorfrcrange", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, false},
     {"actuatorgravcomp", "actuatorgravcomp", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false},
@@ -1098,7 +1098,7 @@ constexpr FieldDescriptor kFields_Joint[] = {
     {"ref", "ref", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
     {"springref", "springref", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
     {"armature", "armature", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
-    {"damping", "damping", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
+    {"damping", "damping", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false},
     {"frictionloss", "frictionloss", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
     {"user", "user", "double", FieldKind::Double, ArityKind::Unbounded, 0, 0, true, false},
 };

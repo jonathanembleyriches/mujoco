@@ -1,0 +1,29 @@
+{
+  "families": ["blocks", "body_core"],
+  "elements": [
+    "mujoco",
+    "compiler",
+    "lengthrange",
+    "option",
+    "flag",
+    "size",
+    "visual",
+    "global",
+    "quality",
+    "headlight",
+    "map",
+    "scale",
+    "rgba",
+    "statistic",
+    "worldbody",
+    "body",
+    "frame",
+    "inertial",
+    "joint",
+    "freejoint",
+    "geom",
+    "site",
+    "camera",
+    "light"
+  ]
+}

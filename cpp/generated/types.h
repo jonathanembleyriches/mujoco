@@ -1828,7 +1828,7 @@ struct Joint {
   ps::opt<ps::InlineVec<double, 5>> solimplimit = {};
   ps::opt<ps::InlineVec<double, 2>> solreffriction = {};
   ps::opt<ps::InlineVec<double, 5>> solimpfriction = {};
-  ps::opt<std::array<double, 3>> stiffness = {};
+  ps::opt<ps::InlineVec<double, 3>> stiffness = {};
   ps::opt<std::array<double, 2>> range = {};
   ps::opt<std::array<double, 2>> actuatorfrcrange = {};
   ps::opt<bool> actuatorgravcomp = {};
@@ -1836,7 +1836,7 @@ struct Joint {
   ps::opt<double> ref = {};
   ps::opt<double> springref = {};
   ps::opt<double> armature = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> frictionloss = {};
   ps::opt<std::vector<double>> user = {};
 };

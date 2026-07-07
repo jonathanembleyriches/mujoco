@@ -17,6 +17,8 @@ emits the generated half of the object model into ``cpp/generated/``:
     keywords.cc  the keyword tables.
     defaults.h   ApplyDefault(elem) declarations.
     defaults.cc  the IDL `=` defaults applied field-by-field.
+    xml_binding.h  per-element MJCF binding table types (attr/variant/child rows).
+    xml_binding.cc the binding tables the handwritten reader/writer drive.
 
 Representation decisions (see the plan's DR-1..DR-11):
   * presence: optional element fields are ``ps::opt<T>``; required fields are
@@ -91,6 +93,14 @@ _CARDINALITY_CPP = {
     "one": "One",
 }
 
+# Child lists whose XML tag diverges from the child element's own tag. MJCF's
+# <worldbody> validates against the <body> row (plan Section 2): it is a Body
+# element written under the tag "worldbody" rather than "body". The child element
+# (Body) declares tag "body", so this one edge needs an explicit override; every
+# other child list's tag is the child element's own tag. Keyed by
+# (element name, child-list name).
+_CHILD_XML_OVERRIDE = {("Model", "worldbody"): "worldbody"}
+
 
 def ident(name: str) -> str:
     """A legal C++ identifier for an IDL name (keyword-safe)."""
@@ -121,6 +131,17 @@ class Schema:
 
     def field_xml(self, f: dict) -> str:
         return f.get("annotations", {}).get("xml", f["name"])
+
+    def child_xml(self, elem: dict, child: dict) -> str:
+        """The XML tag routing a child list. For a union child list this is empty
+        (dispatch is by member element tag). Otherwise it is the child element's
+        own tag, save the worldbody divergence recorded in _CHILD_XML_OVERRIDE."""
+        key = (elem["name"], child["name"])
+        if key in _CHILD_XML_OVERRIDE:
+            return _CHILD_XML_OVERRIDE[key]
+        if child.get("union") is not None:
+            return ""
+        return self.elem_xml(self.element_by_name[child["element"]])
 
 
 # --------------------------------------------------------------------------- #
@@ -899,6 +920,268 @@ def emit_defaults_cc(s: Schema) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# XML binding tables (the reader/writer contract; plan Section 3 xml_binding)   #
+# --------------------------------------------------------------------------- #
+# These describe, per element, exactly what an MJCF reader and writer need and
+# nothing they do not: the element's XML tag; every plain attribute (its XML
+# name, the Visit/reflect field id it targets, its storage kind + arity, whether
+# it is an angle unit converted deg->rad at IO, whether it is a space-separated
+# keyword set, whether it is carried as element text); every variant field with
+# its arms routed to XML attributes (the aliasing groups of DR-3 -- orientation,
+# geom shape, inertia, camera intrinsics, texture source); and every child list
+# with the XML tag that routes it (empty for union lists, which dispatch by
+# member tag). The tables are schema-complete: they cover every element, not
+# only the families a reader currently handles, so a later family's reader/writer
+# needs zero emitter changes -- it consumes the rows already emitted here.
+#
+# Field ids are the flattened-field indices the generated Visit hook and the
+# reflection tables use, so a table-driven reader can set fields by visiting the
+# element and matching ids. Variant fields are NOT attrs; they appear only in the
+# variants[] table. Children carry a resolved child ElementType (union members
+# are recovered through reflect::DescribeUnion) so a reader can decide support
+# and construct without a name lookup.
+
+
+def _attr_fields(elem: dict) -> list[tuple[int, dict]]:
+    """(field_id, field) for every non-variant field of an element."""
+    return [
+        (i, f)
+        for i, f in enumerate(elem["fields"])
+        if f["type"]["kind"] != "variant"
+    ]
+
+
+def _variant_fields(elem: dict) -> list[tuple[int, dict]]:
+    """(field_id, field) for every variant field of an element."""
+    return [
+        (i, f)
+        for i, f in enumerate(elem["fields"])
+        if f["type"]["kind"] == "variant"
+    ]
+
+
+def _field_unit_angle(f: dict) -> bool:
+    return f.get("annotations", {}).get("unit") == "angle"
+
+
+def _field_keyword_set(t: dict) -> bool:
+    # An enum reference carrying the unbounded arity is a space-separated keyword
+    # set (MapValues), stored as std::vector<Enum>.
+    return t["kind"] == "named" and t.get("arity") is not None
+
+
+def _field_element_text(f: dict) -> bool:
+    return "element_text" in f.get("annotations", {})
+
+
+def emit_xml_binding_h(s: Schema) -> str:
+    o: list[str] = []
+    w = o.append
+    w(BANNER)
+    w("//")
+    w("// Per-element MJCF binding tables: the data a table-driven reader/writer")
+    w("// needs, keyed to the generated Visit/reflect field ids. Schema-complete")
+    w("// (every element), so a later IO family adds no emitter code -- only the")
+    w("// handwritten quirk handlers its elements require. Storage kinds and arity")
+    w("// reuse reflect.h's enums.")
+    w("#ifndef PROTOSPEC_GENERATED_XML_BINDING_H")
+    w("#define PROTOSPEC_GENERATED_XML_BINDING_H")
+    w("")
+    w("#include <cstddef>")
+    w("#include <string_view>")
+    w("")
+    w('#include "reflect.h"')
+    w('#include "types.h"')
+    w("")
+    w("namespace ps::mjcf::xmlbind {")
+    w("")
+    w("using reflect::ArityKind;")
+    w("using reflect::FieldKind;")
+    w("")
+    w("// A plain (non-variant) attribute: an XML attribute bound to one field.")
+    w("struct AttrBinding {")
+    w("  std::string_view attr;        // MJCF attribute name")
+    w("  std::string_view type_name;   // enum / ref-target name (else prim name)")
+    w("  int field_id;                 // Visit/reflect flattened field id")
+    w("  FieldKind kind;")
+    w("  ArityKind arity;")
+    w("  int arity_min;")
+    w("  int arity_max;")
+    w("  bool unit_angle;              // deg->rad at IO (compiler.angle=degree)")
+    w("  bool keyword_set;             // space-separated enum keyword set")
+    w("  bool element_text;            // carried as element text, not attribute")
+    w("};")
+    w("")
+    w("// One arm of a variant field: its tag and the XML attribute that triggers")
+    w("// it. For every schema variant the trigger attribute is the arm tag; a")
+    w("// reader detects the authored arm by attribute presence and reports")
+    w("// multiple triggers as a single-form violation (Q-ORIENT et al.).")
+    w("struct VariantArmBinding {")
+    w("  std::string_view tag;")
+    w("  std::string_view attr;")
+    w("};")
+    w("")
+    w("// A variant field (an aliasing group, DR-3): its IR name, field id, the")
+    w("// variant type name, and the arm routing.")
+    w("struct VariantBinding {")
+    w("  std::string_view field;")
+    w("  std::string_view variant_name;")
+    w("  int field_id;")
+    w("  const VariantArmBinding* arms;")
+    w("  std::size_t arm_count;")
+    w("};")
+    w("")
+    w("// A child list: its IR name, the XML tag that routes it (empty for a union")
+    w("// list, which dispatches by member tag), the target element or union name,")
+    w("// and -- for an element list -- the resolved child ElementType.")
+    w("struct ChildBinding {")
+    w("  std::string_view name;")
+    w("  std::string_view tag;")
+    w("  std::string_view target;")
+    w("  ElementType child_type;   // valid when !is_union")
+    w("  bool is_union;")
+    w("};")
+    w("")
+    w("struct ElementBinding {")
+    w("  ElementType type;")
+    w("  std::string_view tag;")
+    w("  const AttrBinding* attrs;")
+    w("  std::size_t attr_count;")
+    w("  const VariantBinding* variants;")
+    w("  std::size_t variant_count;")
+    w("  const ChildBinding* children;")
+    w("  std::size_t child_count;")
+    w("};")
+    w("")
+    w("const ElementBinding& Bind(ElementType type);")
+    w("const ElementBinding* BindByTag(std::string_view tag);")
+    w("std::size_t BindingCount();")
+    w("const ElementBinding& BindingAt(std::size_t index);")
+    w("")
+    w("}  // namespace ps::mjcf::xmlbind")
+    w("")
+    w("#endif  // PROTOSPEC_GENERATED_XML_BINDING_H")
+    return "\n".join(o) + "\n"
+
+
+def emit_xml_binding_cc(s: Schema) -> str:
+    o: list[str] = []
+    w = o.append
+    w(BANNER)
+    w('#include "xml_binding.h"')
+    w("")
+    w("#include <array>")
+    w("#include <iterator>")
+    w("#include <string_view>")
+    w("#include <unordered_map>")
+    w("")
+    w("namespace ps::mjcf::xmlbind {")
+    w("namespace {")
+    w("")
+
+    for e in s.elements:
+        name = e["name"]
+        attrs = _attr_fields(e)
+        variants = _variant_fields(e)
+
+        if attrs:
+            w(f"constexpr AttrBinding kAttrs_{name}[] = {{")
+            for fid, f in attrs:
+                t = f["type"]
+                ak, amin, amax = field_arity(t)
+                w(
+                    f'    {{"{s.field_xml(f)}", "{field_type_name(t)}", {fid}, '
+                    f"FieldKind::{field_kind(t)}, ArityKind::{ak}, {amin}, {amax}, "
+                    f"{'true' if _field_unit_angle(f) else 'false'}, "
+                    f"{'true' if _field_keyword_set(t) else 'false'}, "
+                    f"{'true' if _field_element_text(f) else 'false'}}},"
+                )
+            w("};")
+
+        for fid, f in variants:
+            vname = f["type"]["target"]
+            v = s.variant_by_name[vname]
+            w(f"constexpr VariantArmBinding kArms_{name}_{ident(f['name'])}[] = {{")
+            for arm in v["arms"]:
+                w(f'    {{"{arm["tag"]}", "{arm["tag"]}"}},')
+            w("};")
+        if variants:
+            w(f"constexpr VariantBinding kVariants_{name}[] = {{")
+            for fid, f in variants:
+                vname = f["type"]["target"]
+                arm_count = len(s.variant_by_name[vname]["arms"])
+                w(
+                    f'    {{"{f["name"]}", "{vname}", {fid}, '
+                    f"kArms_{name}_{ident(f['name'])}, {arm_count}}},"
+                )
+            w("};")
+
+        if e["children"]:
+            w(f"constexpr ChildBinding kChildren_{name}[] = {{")
+            for c in e["children"]:
+                is_union = c.get("union") is not None
+                if is_union:
+                    target = c["union"]
+                    child_type = "ElementType::" + s.elements[0]["name"]
+                else:
+                    target = c["element"]
+                    child_type = f"ElementType::{c['element']}"
+                w(
+                    f'    {{"{c["name"]}", "{s.child_xml(e, c)}", "{target}", '
+                    f"{child_type}, {'true' if is_union else 'false'}}},"
+                )
+            w("};")
+        w("")
+
+    w("constexpr ElementBinding kBindings[] = {")
+    for e in s.elements:
+        name = e["name"]
+        attrs = _attr_fields(e)
+        variants = _variant_fields(e)
+        aptr = f"kAttrs_{name}" if attrs else "nullptr"
+        vptr = f"kVariants_{name}" if variants else "nullptr"
+        cptr = f"kChildren_{name}" if e["children"] else "nullptr"
+        w(
+            f'    {{ElementType::{name}, "{s.elem_xml(e)}", '
+            f"{aptr}, {len(attrs)}, {vptr}, {len(variants)}, "
+            f"{cptr}, {len(e['children'])}}},"
+        )
+    w("};")
+    w("")
+    w("const std::unordered_map<std::string_view, const ElementBinding*>&")
+    w("TagIndex() {")
+    w("  static const std::unordered_map<std::string_view, const ElementBinding*>")
+    w("      index = [] {")
+    w("        std::unordered_map<std::string_view, const ElementBinding*> m;")
+    w("        for (const auto& b : kBindings) m.emplace(b.tag, &b);")
+    w("        return m;")
+    w("      }();")
+    w("  return index;")
+    w("}")
+    w("")
+    w("}  // namespace")
+    w("")
+    w("const ElementBinding& Bind(ElementType type) {")
+    w("  return kBindings[static_cast<std::size_t>(type)];")
+    w("}")
+    w("")
+    w("const ElementBinding* BindByTag(std::string_view tag) {")
+    w("  const auto& index = TagIndex();")
+    w("  auto it = index.find(tag);")
+    w("  return it == index.end() ? nullptr : it->second;")
+    w("}")
+    w("")
+    w("std::size_t BindingCount() { return std::size(kBindings); }")
+    w("")
+    w("const ElementBinding& BindingAt(std::size_t index) {")
+    w("  return kBindings[index];")
+    w("}")
+    w("")
+    w("}  // namespace ps::mjcf::xmlbind")
+    return "\n".join(o) + "\n"
+
+
+# --------------------------------------------------------------------------- #
 # Driver                                                                        #
 # --------------------------------------------------------------------------- #
 def generate(schema_path: str = SCHEMA) -> dict[str, str]:
@@ -914,6 +1197,8 @@ def generate(schema_path: str = SCHEMA) -> dict[str, str]:
         "keywords.cc": emit_keywords_cc(s),
         "defaults.h": emit_defaults_h(s),
         "defaults.cc": emit_defaults_cc(s),
+        "xml_binding.h": emit_xml_binding_h(s),
+        "xml_binding.cc": emit_xml_binding_cc(s),
     }
 
 

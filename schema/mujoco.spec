@@ -948,7 +948,7 @@ element Joint {
   solimplimit        : double[0..5]   # solver impedance: joint limits
   solreffriction     : double[0..2]   # solver reference: dof friction
   solimpfriction     : double[0..5]   # solver impedance: dof friction
-  stiffness          : double[3]   # stiffness coefficients
+  stiffness          : double[0..3]   # stiffness coefficients (mjNPOLY+1)
   range              : double[2] (unit=angle)   # joint limits
   actuatorfrcrange   : double[2]   # actuator force limits
   actuatorgravcomp   : bool   # is gravcomp force applied via actuators
@@ -956,7 +956,7 @@ element Joint {
   ref                : double (unit=angle)   # value at reference configuration: qpos0
   springref          : double (unit=angle)   # spring reference value: qpos_spring
   armature           : double   # armature inertia (mass for slider)
-  damping            : double[3]   # damping coefficients
+  damping            : double[0..3]   # damping coefficients (mjNPOLY+1)
   frictionloss       : double   # friction loss
   user               : double[]   # user data
 }

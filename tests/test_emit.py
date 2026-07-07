@@ -27,6 +27,8 @@ EXPECTED_FILES = {
     "keywords.cc",
     "defaults.h",
     "defaults.cc",
+    "xml_binding.h",
+    "xml_binding.cc",
 }
 
 
@@ -96,6 +98,40 @@ def test_keyword_table_sanitizes_reserved_enumerators():
     keywords_cc = _generated()["keywords.cc"]
     # `auto` is a C++ keyword: enumerator sanitized, MJCF string preserved.
     assert 'case TriState::auto_: return "auto";' in keywords_cc
+
+
+def test_xml_binding_covers_every_element():
+    """Every element gets an ElementBinding row (schema-complete: a later IO
+    family reuses these rows with no emitter change)."""
+    schema = parse_spec(os.path.join(ROOT, "schema", "mujoco.spec")).to_json()
+    binding_cc = _generated()["xml_binding.cc"]
+    for e in schema["elements"]:
+        assert f"ElementType::{e['name']}," in binding_cc
+    n = len(schema["elements"])
+    # One ElementBinding literal per element in the kBindings table.
+    start = binding_cc.index("constexpr ElementBinding kBindings[]")
+    table = binding_cc[start : binding_cc.index("\n};", start)]
+    assert table.count("{ElementType::") == n
+
+
+def test_xml_binding_routes_variant_arms_and_worldbody():
+    binding_cc = _generated()["xml_binding.cc"]
+    # Orientation arms route quat/euler/... into the orient variant field.
+    assert '{"quat", "quat"}' in binding_cc
+    assert '{"euler", "euler"}' in binding_cc
+    # The worldbody child list diverges from the <body> tag (MJCF body-row share).
+    assert '{"worldbody", "worldbody", "Body", ElementType::Body, false}' in binding_cc
+    # Body-in-body recursion is routed under the <body> tag.
+    assert '{"bodies", "body", "Body", ElementType::Body, false}' in binding_cc
+
+
+def test_xml_binding_marks_angle_units():
+    binding_cc = _generated()["xml_binding.cc"]
+    # Joint reference angles carry the unit=angle flag (deg->rad at IO, Q-ANGLE).
+    start = binding_cc.index("kAttrs_Joint[]")
+    body = binding_cc[start : binding_cc.index("};", start)]
+    ref_row = [ln for ln in body.splitlines() if '"ref",' in ln][0]
+    assert ref_row.rstrip().endswith("true, false, false},")  # unit_angle set
 
 
 def test_defaults_only_where_idl_has_them():
