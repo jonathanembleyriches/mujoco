@@ -25,6 +25,9 @@ All MuJoCo file references below are relative to `third_party/MuJoCo/src` (so `s
 
 Last updated: 2026-07-07.
 
+Implementation plan: `docs/plan_native_compiler_impl.md` (public API, CDR-14 purity/binding
+architecture, CompileContext side tables, lifted-code registry mechanics, NC0/NC1 work breakdown).
+
 | Milestone | State | Evidence |
 |---|---|---|
 | NC0 infrastructure: lifted-code registry + gate, harness factoring, fallback skeleton | queued | |
@@ -277,6 +280,33 @@ our mesh compiles are equally independent. Revisit with numbers at NC6.
 sensor types, hashed with `mj_hashString(str, UINT64_MAX)`). The three-way harness diffs every
 field, so we reproduce it exactly (a small lift) rather than carve a diff exception. ProtoSpec's
 own edit detection stays the DR-10 edit counter; the signature is write-only output for us.
+
+**CDR-14: Compile is a pure function; Binding is a separate wrapper object; all intermediate
+state lives in compiler-internal side tables.** (Owner directive, 2026-07-07; supersedes any
+reading of CDR-4/CDR-6 that implies writing into the tree.)
+`Compile(const Model&, path)` MUST NOT modify the ProtoSpec tree in any way: no resolved values
+written back, no ids stamped on elements, no name mutations, no lazy caches on elements. Every
+intermediate/resolved quantity — effective defaults after class merge, resolved orientations,
+computed masses/inertias, id assignment, the interned name blob, keyframe padding — lives in
+side tables inside a compile-scoped `CompileContext`, keyed by element identity. This is the
+deliberate divergence from MuJoCo, whose compiler mutates its spec heavily (`CopyFromSpec`
+lifecycle, id stamping, keyframe resizing); the side-table architecture is named as such and is
+not negotiable per lift. Purity is enforced mechanically: a standing test deep-compares the tree
+(generated `operator==` plus a serial/SourceLoc sweep) before and after Compile, and the compiler
+is const-correct end to end — any `const_cast` (or `mutable` state on elements) in `cpp/compile/`
+is a review-rejected defect, backed by a grep gate. Documented caveat: Compile reads asset FILES
+from disk (mesh/texture/hfield), so it is pure with respect to the model object, not the
+filesystem.
+`Compile` returns `Compiled{ unique_ptr<mjModel>, Binding, CompileReport }`. `Binding` wraps the
+ProtoSpec model: it holds a const pointer to the Model plus side maps (element identity →
+`mjtObj` type + id, the reverse map, and address sugar: qposadr/dofadr/sensor_adr/actuator ids).
+Binding may not rely on Compile having stamped anything into the tree. Staleness mechanism: the
+Model root carries an SDK-maintained mutation counter (bumped by SDK mutators, never by Compile,
+which only READS it); Binding stores the counter value at compile time and every accessor asserts
+it is unchanged. Reconciliation with DR-10: on the native path the Binding is direct (we assigned
+the ids, CDR-4); on XML-path compiles it stays name-based (`mj_name2id` + auto-name serials) —
+two constructors behind one Binding interface. Full API, identity-key decision, and enforcement
+details: `docs/plan_native_compiler_impl.md`.
 
 ---
 
