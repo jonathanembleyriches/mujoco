@@ -15,7 +15,7 @@ IO work; test harnesses authored by a different agent than the code they test.
 | M3 wave 2: contact/equality/tendon + actuators | **IN FLIGHT** | |
 | M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | queued | |
 | M4 validation, M5 bridge+binding+recompile, M6 SDK, M7 pybind | queued | |
-| Native compiler (mjs_* walk replacing the XML hop; DR-5 swap point) | **survey in flight** | docs/native_compiler_survey.md (investigating mjs_attach policies, reusable mesh/BVH/inertia machinery, decode-surface mapping); golden = mjModel(native) == mjModel(XML path) over the full corpus |
+| Native compiler (mjs_* walk replacing the XML hop; DR-5 swap point) | **planned** | survey: docs/native_compiler_survey.md; plan: docs/plan_native_compiler.md (NDR-1..15, milestones N0-N4; XML path retained permanently as oracle/fallback; three-way harness; starts after M3 IO waves + M5 bridge signature) |
 
 Key facts a fresh session needs: repo is standalone at C:\Users\jonat\Documents\protospec (this
 file is the canonical plan; the copy in the UE plugin's docs/ is a stale scratch draft). Tests:
@@ -537,7 +537,7 @@ Every known MJCF/mjSpec quirk and its single owner in ProtoSpec. Each entry beco
 | Q-REFS | All cross-refs are name strings resolved at compile; dangling names fail late | DR-8 typed refs; validation tier 2 resolves everything with provenance |
 | Q-TEX | Four texture load methods in one struct; material references textures by role array | `TextureSource` variant; material holds `opt<ref<Texture>>` per role |
 | Q-PLUGIN | Opaque `void*` configs; explicit-instance-before-implicit ordering rule (`xml_native_reader.cc:3148-3151`) | Ordered `(key,value)` string pairs; ordering rule = validation lint, not parse failure |
-| Q-EQ | Equality = type enum + opaque `data[11]` (mjSpec shape) | Named per-type parameters in the IDL matching the XML spellings (`<connect>`, `<weld>`, ...); no data-vector handling anywhere — MJCF is the interchange form on both read and compile paths |
+| Q-EQ | Equality = type enum + opaque `data[11]` (mjSpec shape) | Named per-type parameters in the IDL matching the XML spellings (`<connect>`, `<weld>`, ...); no data-vector handling on the XML paths. AMENDED: the native compile path (plan_native_compiler.md NDR-6) owns a small typed→data[11] packer, golden-tested against MuJoCo-parsed specs, because that packing lives only in MuJoCo's XML reader |
 | Q-NAMES | Names unique per element type, empties allowed; top default class must be `main` | Validation tier 2; enforced exactly as MuJoCo does |
 | Q-NUM | `inf`/`nan` parsing, C-locale forcing, `memory` K/M/G suffixes | One numeric IO module mirroring `xml_util.cc` behavior (NaN warning included) |
 | Q-WRITE | MuJoCo writer drops attrs equal to class defaults; conditional inertial emission | Not inherited: ProtoSpec writes authored fields, period (DR-1). Bridge serialization for compile may emit fully-resolved canonical form; user-facing save preserves form |
