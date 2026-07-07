@@ -964,7 +964,7 @@ element Joint {
 element FreeJoint {
   name  : string   # element name
   group : int32   # group
-  align : int32   # align free joint with body com (mjtAlignFree)
+  align : TriState   # align free joint with body com (false/true/auto, TFAuto_map)
 }
 
 element Geom {

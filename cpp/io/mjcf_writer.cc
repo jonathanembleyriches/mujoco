@@ -1,9 +1,10 @@
 // MJCF writer: ps::Model -> canonical MJCF string, driven by the same generated
 // xml_binding tables and Visit hook as the reader. Deterministic output: 2-space
 // indent, attributes in schema field order, children in schema child order,
-// exactly the authored fields (DR-1, no default diffing). Angles are emitted in
-// radians (Q-WRITE); the compiler's angle attribute is pinned to "radian" so a
-// re-read applies no conversion.
+// exactly the authored fields (DR-1, no default diffing). Angle values are
+// emitted verbatim in their authored unit and the compiler's angle attribute
+// round trips as read (Q-ANGLE form preservation); MuJoCo applies the
+// degree->radian conversion at compile, per consuming element.
 //
 // Numeric formatting is shortest round-trip via std::to_chars (numeric.cc). This
 // deviates from MuJoCo's fixed-precision writer; the differential harness
@@ -197,8 +198,12 @@ void WriteVariantArm(std::string& attrs, const CameraIntrinsics& c) {
   }
 }
 
-void WriteVariantArm(std::string&, const TextureSource&) {
-  // Asset-family variant; its elements are not written by the body-core writer.
+void WriteVariantArm(std::string& attrs, const TextureSource& s) {
+  if (auto* b = std::get_if<TextureBuiltin>(&s)) {
+    AppendAttr(attrs, "builtin", std::string(ToMjcf(*b)));
+  } else if (auto* f = std::get_if<TexFile>(&s)) {
+    AppendAttr(attrs, "file", Escape(f->file));
+  }
 }
 
 template <class E>
@@ -229,11 +234,6 @@ struct WriterVisitor {
   void WriteAttrField(const AttrBinding& ab, const T& value) {
     auto emit = [&](const auto& inner) {
       using I = std::decay_t<decltype(inner)>;
-      // Q-WRITE: the compiler's angle is always radian on output.
-      if (type == ElementType::Compiler && ab.attr == "angle") {
-        AppendAttr(*attrs, ab.attr, std::string("radian"));
-        return;
-      }
       // The <flag> element spells booleans enable/disable, not true/false.
       if constexpr (std::is_same_v<I, bool>) {
         if (type == ElementType::Flag) {

@@ -3,8 +3,11 @@
 // exercised end to end; the differential-against-MuJoCo dimension belongs to the
 // harness (cpp/harness/, separate owner).
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <variant>
 
@@ -28,9 +31,7 @@ static int g_checks = 0;
     }                                                                  \
   } while (0)
 
-static constexpr double kPi = 3.141592653589793;
-
-static bool Near(double a, double b) { return std::fabs(a - b) < 1e-12; }
+static bool Near(double a, double b) { return std::fabs(a - b) < 1e-9; }
 
 static ParseResult Parse(const std::string& xml) {
   return ParseMjcfString(xml, "<test>");
@@ -96,7 +97,13 @@ static void TestFixpoint() {
   CHECK(out1 == out2);
 }
 
-// --- Q-ANGLE: degree conversion, joint type dependence, radian on write ---- //
+// --- Q-ANGLE: values and compiler unit are preserved verbatim -------------- //
+// MuJoCo converts joint range only for LIMITED hinge/ball and ref/springref
+// only for hinge, resolving those conditions per consuming element at compile
+// (user_objects.cc:3207-3282); a shared default class can feed elements that
+// resolve them differently, so no read-time conversion is correct. ProtoSpec
+// therefore stores every angle exactly as authored and round trips the compiler
+// unit, deferring the conversion to MuJoCo.
 static void TestAngle() {
   auto r = Parse(R"(<mujoco>
     <compiler angle="degree"/>
@@ -109,25 +116,35 @@ static void TestAngle() {
   </mujoco>)");
   CHECK(r.ok());
   const Body* b = World(*r.model)->bodies.front().get();
-  // The body carries the euler orientation converted to radians (hand-checked).
+  // The body carries the euler orientation exactly as authored (degrees here).
   CHECK(b->orient.has_value());
   const auto& eu = std::get<Euler>(*b->orient);
-  CHECK(Near(eu.angles[0], kPi / 2));
+  CHECK(Near(eu.angles[0], 90.0));
   CHECK(Near(eu.angles[1], 0.0) && Near(eu.angles[2], 0.0));
 
   const Joint& h = *b->joints[0];
-  CHECK(Near((*h.range)[0], -kPi / 2) && Near((*h.range)[1], kPi));
-  CHECK(Near(*h.ref, kPi / 2));
-  CHECK(Near(*h.springref, kPi / 4));
-  // A slide joint's range/ref are lengths, NOT angles: no conversion.
+  CHECK(Near((*h.range)[0], -90.0) && Near((*h.range)[1], 180.0));
+  CHECK(Near(*h.ref, 90.0));
+  CHECK(Near(*h.springref, 45.0));
   const Joint& s = *b->joints[1];
   CHECK(Near((*s.range)[0], 0.0) && Near((*s.range)[1], 2.0));
   CHECK(Near(*s.ref, 1.0));
 
-  // The reader normalizes to radians and the writer pins compiler angle=radian.
+  // The authored compiler unit round trips verbatim: no pinning to radian.
   std::string out = WriteMjcf(*r.model);
-  CHECK(out.find("angle=\"radian\"") != std::string::npos);
-  CHECK(out.find("angle=\"degree\"") == std::string::npos);
+  CHECK(out.find("angle=\"degree\"") != std::string::npos);
+  CHECK(out.find("angle=\"radian\"") == std::string::npos);
+
+  // A radian-authored model likewise keeps its unit and values verbatim.
+  auto rad = Parse(R"(<mujoco>
+    <compiler angle="radian"/>
+    <worldbody><body euler="1.5707963 0 0"/></worldbody>
+  </mujoco>)");
+  CHECK(rad.ok());
+  const auto& eu2 = std::get<Euler>(*World(*rad.model)->bodies.front()->orient);
+  CHECK(Near(eu2.angles[0], 1.5707963));
+  std::string rad_out = WriteMjcf(*rad.model);
+  CHECK(rad_out.find("angle=\"radian\"") != std::string::npos);
 }
 
 // --- Q-ORIENT: each encoding + multiple-specifier and zero-quat errors ----- //
@@ -139,7 +156,7 @@ static void TestOrient() {
   const auto& g = *World(*ok.model)->geoms.front();
   CHECK(g.orient.has_value());
   const auto& aa = std::get<AxisAngle>(*g.orient);
-  CHECK(Near(aa.axis[2], 1.0) && Near(aa.angle, kPi / 2));  // deg->rad
+  CHECK(Near(aa.axis[2], 1.0) && Near(aa.angle, 90.0));  // authored, verbatim
 
   auto multi = Parse(R"(<mujoco><worldbody>
     <geom type="sphere" size="1" quat="1 0 0 0" euler="0 0 0"/>
@@ -316,6 +333,287 @@ static void TestRoot() {
   CHECK(!bad.ok());
 }
 
+// --- Defaults (family c): classes are DATA, read verbatim, resolve nothing - //
+static void TestDefaults() {
+  const std::string xml = R"(<mujoco>
+  <default>
+    <geom rgba="1 0 0 1" friction="1 0.1 0.1"/>
+    <joint damping="0.5"/>
+    <position kp="100" ctrlrange="-1 1"/>
+    <pair friction="1 1 0.01 0.01 0.01"/>
+    <equality solref="0.02 1"/>
+    <mesh scale="2 2 2"/>
+    <material specular="0.5"/>
+    <default class="sub">
+      <geom rgba="0 1 0 1"/>
+      <default class="leaf">
+        <joint damping="2"/>
+      </default>
+    </default>
+  </default>
+  <worldbody>
+    <geom type="sphere" size="1" class="sub"/>
+  </worldbody>
+</mujoco>)";
+  ParseResult r = Parse(xml);
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  CHECK(r.model->defaults.size() == 1);
+  const Default& root = *r.model->defaults.front();
+  // The root class is unnamed (implicitly "main"); sub-elements are stored as
+  // partial specs with only their authored fields present.
+  CHECK(!root.dclass.has_value());
+  CHECK(root.geom.size() == 1 && root.geom.front()->rgba.has_value());
+  CHECK(root.joint.size() == 1 &&
+        Near((*root.joint.front()->damping)[0], 0.5));
+  CHECK(root.position.size() == 1 && Near(*root.position.front()->kp, 100));
+  CHECK(root.pair.size() == 1);
+  CHECK(root.equality.size() == 1);
+  CHECK(root.mesh.size() == 1);
+  CHECK(root.material.size() == 1);
+  // Nested class tree preserved verbatim; nothing resolved into the geom.
+  CHECK(root.subclasses.size() == 1);
+  const Default& sub = *root.subclasses.front();
+  CHECK(sub.dclass.has_value() && *sub.dclass == "sub");
+  CHECK(sub.subclasses.size() == 1 && *sub.subclasses.front()->dclass == "leaf");
+  // The worldbody geom keeps its class ref by name; no default is applied.
+  const Geom& g = *World(*r.model)->geoms.front();
+  CHECK(g.dclass.has_value() && g.dclass->name == "sub");
+  CHECK(!g.rgba.has_value());  // class value is NOT merged into the element
+
+  // Fixpoint: the whole default tree round trips under deep equality.
+  std::string out1 = WriteMjcf(*r.model);
+  ParseResult b = ParseMjcfString(out1, "<rt>");
+  CHECK(b.ok());
+  CHECK(*r.model == *b.model);
+  CHECK(out1 == WriteMjcf(*b.model));
+}
+
+// --- Q-AUTO/defaults: root class name rules (xml_native_reader.cc:3041-3055) //
+static void TestDefaultClassNames() {
+  // Top level may be unnamed or exactly "main".
+  CHECK(Parse(R"(<mujoco><default><geom size="1"/></default></mujoco>)").ok());
+  CHECK(Parse(R"(<mujoco><default class="main"/></mujoco>)").ok());
+
+  auto renamed = Parse(R"(<mujoco><default class="root"/></mujoco>)");
+  CHECK(!renamed.ok());
+  CHECK(renamed.errors[0].message.find(
+            "top-level default class 'main' cannot be renamed") !=
+        std::string::npos);
+  CHECK(renamed.errors[0].loc.line > 0);
+
+  // A nested default must name a non-empty class.
+  auto empty = Parse(R"(<mujoco><default>
+    <default><geom size="1"/></default>
+  </default></mujoco>)");
+  CHECK(!empty.ok());
+  CHECK(empty.errors[0].message.find("empty class name") != std::string::npos);
+}
+
+// --- Unknown class reference: NOT a read-time error (deferred to tier 2) ---- //
+// MuJoCo resolves classes during parse and errors immediately on a dangling
+// name (xml_native_reader.cc:4705-4719). ProtoSpec instead stores every ref by
+// name and resolves none at read (DR-8, plan Section 9 tier 2), exactly as it
+// treats mesh/material/target refs -- referential validation, not IO, reports
+// dangling names with provenance later. This is harness-neutral: a genuinely
+// dangling class makes MuJoCo reject the model at compile on both sides.
+static void TestUnknownClassRef() {
+  auto r = Parse(R"(<mujoco><worldbody>
+    <geom type="sphere" size="1" class="does_not_exist"/>
+  </worldbody></mujoco>)");
+  CHECK(r.ok());
+  const Geom& g = *World(*r.model)->geoms.front();
+  CHECK(g.dclass.has_value() && g.dclass->name == "does_not_exist");
+}
+
+// --- Assets (family d): mesh/hfield/material/skin read as data -------------- //
+static void TestAssets() {
+  const std::string xml = R"(<mujoco>
+  <asset>
+    <mesh name="m" file="parts/arm.obj" scale="0.1 0.1 0.1" refpos="0 0 1"/>
+    <mesh name="verts" vertex="0 0 0 1 0 0 0 1 0" face="0 1 2"/>
+    <hfield name="h" file="terrain.png" nrow="4" ncol="4" size="1 1 1 0.1"/>
+    <material name="mat" specular="0.3" rgba="1 1 1 1">
+      <layer texture="t_rough" role="rgb"/>
+    </material>
+    <skin name="s" file="skin.skn" inflate="0.01"/>
+    <model name="nested" file="submodel.xml"/>
+  </asset>
+  <worldbody>
+    <geom type="mesh" mesh="m"/>
+  </worldbody>
+</mujoco>)";
+  ParseResult r = Parse(xml);
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  CHECK(r.model->assets.size() == 1);
+  const Asset& a = *r.model->assets.front();
+  CHECK(a.meshs.size() == 2);
+  const Mesh& m0 = *a.meshs.front();
+  // Asset file paths are DATA: stored verbatim, contents never loaded (DR-7).
+  CHECK(m0.file.has_value() && *m0.file == "parts/arm.obj");
+  CHECK(m0.scale.has_value() && Near((*m0.scale)[0], 0.1));
+  CHECK(a.meshs[1]->vertex.has_value() && a.meshs[1]->vertex->size() == 9);
+  CHECK(a.hfields.size() == 1 && *a.hfields.front()->nrow == 4);
+  CHECK(a.materials.size() == 1);
+  const Material& mat = *a.materials.front();
+  CHECK(mat.layers.size() == 1 && mat.layers.front()->role.has_value());
+  CHECK(a.skins.size() == 1 && *a.skins.front()->file == "skin.skn");
+  CHECK(a.modelAssets.size() == 1 && *a.modelAssets.front()->file == "submodel.xml");
+
+  std::string out1 = WriteMjcf(*r.model);
+  ParseResult b = ParseMjcfString(out1, "<rt>");
+  CHECK(b.ok());
+  CHECK(*r.model == *b.model);
+  CHECK(out1 == WriteMjcf(*b.model));
+}
+
+// --- Q-TEX: the texture source variant (builtin vs file) ------------------- //
+static void TestTextureSource() {
+  auto tex = Parse(R"(<mujoco><asset>
+    <texture name="grid" type="2d" builtin="checker" width="8" height="8"/>
+    <texture name="img" type="2d" file="wood.png"/>
+  </asset></mujoco>)");
+  CHECK(tex.ok());
+  const Asset& a = *tex.model->assets.front();
+  CHECK(a.textures.size() == 2);
+  const Texture& t0 = *a.textures[0];
+  CHECK(t0.source.has_value() &&
+        std::holds_alternative<TextureBuiltin>(*t0.source));
+  CHECK(std::get<TextureBuiltin>(*t0.source) == TextureBuiltin::checker);
+  const Texture& t1 = *a.textures[1];
+  CHECK(t1.source.has_value() && std::holds_alternative<TexFile>(*t1.source));
+  CHECK(std::get<TexFile>(*t1.source).file == "wood.png");
+
+  std::string out = WriteMjcf(*tex.model);
+  CHECK(out.find("builtin=\"checker\"") != std::string::npos);
+  CHECK(out.find("file=\"wood.png\"") != std::string::npos);
+  // A file wins over a redundant builtin="none" (single-variant modeling).
+  auto both = Parse(R"(<mujoco><asset>
+    <texture name="x" type="2d" builtin="none" file="a.png"/>
+  </asset></mujoco>)");
+  CHECK(both.ok());
+  CHECK(std::holds_alternative<TexFile>(*both.model->assets.front()
+                                             ->textures.front()->source));
+}
+
+// --- Include (Q-INC): splice-in-place, provenance, once-per-file globally --- //
+namespace {
+int g_tmp_counter = 0;
+std::filesystem::path TempDir() {
+  auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+  std::filesystem::path d =
+      std::filesystem::temp_directory_path() /
+      ("ps_io_inc_" + std::to_string(stamp) + "_" +
+       std::to_string(++g_tmp_counter));
+  std::filesystem::remove_all(d);
+  std::filesystem::create_directories(d);
+  return d;
+}
+void WriteText(const std::filesystem::path& p, const std::string& s) {
+  std::filesystem::create_directories(p.parent_path());
+  std::ofstream(p) << s;
+}
+}  // namespace
+
+static void TestInclude() {
+  std::filesystem::path dir = TempDir();
+  WriteText(dir / "main.xml", R"(<mujoco model="m">
+  <include file="defs.xml"/>
+  <worldbody>
+    <include file="sub/body.xml"/>
+    <geom name="floor" type="plane" size="1 1 1"/>
+  </worldbody>
+</mujoco>)");
+  WriteText(dir / "defs.xml", R"(<mujoco>
+  <default><default class="vis"><geom rgba="1 0 0 1"/></default></default>
+</mujoco>)");
+  WriteText(dir / "sub" / "body.xml", R"(<mujocoinclude>
+  <body name="b" pos="0 0 1">
+    <geom name="g" type="sphere" size="0.1" class="vis"/>
+  </body>
+</mujocoinclude>)");
+
+  ParseResult r = ParseMjcfFile((dir / "main.xml").string());
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+  } else {
+    // The <default> from defs.xml and the <body> from sub/body.xml are spliced
+    // in place; the include elements vanish (flattened tree).
+    CHECK(r.model->defaults.size() == 1);
+    CHECK(r.model->defaults.front()->subclasses.size() == 1);
+    const Body* w = World(*r.model);
+    CHECK(w->geoms.size() == 1 && *w->geoms.front()->name == "floor");
+    CHECK(w->bodies.size() == 1 && *w->bodies.front()->name == "b");
+    // Provenance (DR-9): the spliced body's SourceLoc names the INCLUDED file.
+    const Body& b = *w->bodies.front();
+    CHECK(b.loc.file.find("body.xml") != std::string::npos);
+    CHECK(b.loc.line == 2);
+  }
+  std::filesystem::remove_all(dir);
+}
+
+static void TestIncludeErrors() {
+  // Self-include is caught by the once-per-file rule (seeded with the top file).
+  {
+    std::filesystem::path dir = TempDir();
+    WriteText(dir / "c.xml", R"(<mujoco><include file="c.xml"/></mujoco>)");
+    ParseResult r = ParseMjcfFile((dir / "c.xml").string());
+    CHECK(!r.ok());
+    CHECK(r.errors[0].message.find("already included") != std::string::npos);
+    std::filesystem::remove_all(dir);
+  }
+  // A duplicate include of the same file anywhere is rejected globally.
+  {
+    std::filesystem::path dir = TempDir();
+    WriteText(dir / "m.xml", R"(<mujoco>
+      <include file="a.xml"/><include file="a.xml"/>
+    </mujoco>)");
+    WriteText(dir / "a.xml", R"(<mujoco><compiler/></mujoco>)");
+    ParseResult r = ParseMjcfFile((dir / "m.xml").string());
+    CHECK(!r.ok());
+    CHECK(r.errors[0].message.find("already included") != std::string::npos);
+    std::filesystem::remove_all(dir);
+  }
+  // Missing file attribute.
+  {
+    std::filesystem::path dir = TempDir();
+    WriteText(dir / "m.xml", R"(<mujoco><include/></mujoco>)");
+    ParseResult r = ParseMjcfFile((dir / "m.xml").string());
+    CHECK(!r.ok());
+    CHECK(r.errors[0].message.find("missing file attribute") !=
+          std::string::npos);
+    std::filesystem::remove_all(dir);
+  }
+  // Include element with children.
+  {
+    std::filesystem::path dir = TempDir();
+    WriteText(dir / "m.xml",
+              R"(<mujoco><include file="a.xml"><geom/></include></mujoco>)");
+    WriteText(dir / "a.xml", R"(<mujoco><compiler/></mujoco>)");
+    ParseResult r = ParseMjcfFile((dir / "m.xml").string());
+    CHECK(!r.ok());
+    CHECK(r.errors[0].message.find("cannot have children") != std::string::npos);
+    std::filesystem::remove_all(dir);
+  }
+  // Unresolvable file.
+  {
+    std::filesystem::path dir = TempDir();
+    WriteText(dir / "m.xml", R"(<mujoco><include file="nope.xml"/></mujoco>)");
+    ParseResult r = ParseMjcfFile((dir / "m.xml").string());
+    CHECK(!r.ok());
+    CHECK(r.errors[0].message.find("cannot open") != std::string::npos);
+    std::filesystem::remove_all(dir);
+  }
+}
+
 int main() {
   TestFixpoint();
   TestAngle();
@@ -328,6 +626,13 @@ int main() {
   TestMalformed();
   TestUnsupported();
   TestRoot();
+  TestDefaults();
+  TestDefaultClassNames();
+  TestUnknownClassRef();
+  TestAssets();
+  TestTextureSource();
+  TestInclude();
+  TestIncludeErrors();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

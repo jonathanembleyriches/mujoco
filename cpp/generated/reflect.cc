@@ -949,7 +949,7 @@ constexpr FieldDescriptor kFields_Framezaxis[] = {
 constexpr FieldDescriptor kFields_FreeJoint[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"group", "group", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false},
-    {"align", "align", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false},
+    {"align", "align", "TriState", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false},
 };
 
 constexpr FieldDescriptor kFields_Fromto[] = {

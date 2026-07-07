@@ -1,5 +1,5 @@
 {
-  "families": ["blocks", "body_core"],
+  "families": ["blocks", "body_core", "defaults", "assets"],
   "elements": [
     "mujoco",
     "compiler",
@@ -24,6 +24,30 @@
     "geom",
     "site",
     "camera",
-    "light"
+    "light",
+    "include",
+    "default",
+    "mesh",
+    "material",
+    "layer",
+    "pair",
+    "equality",
+    "tendon",
+    "general",
+    "motor",
+    "position",
+    "velocity",
+    "intvelocity",
+    "damper",
+    "cylinder",
+    "muscle",
+    "adhesion",
+    "dcmotor",
+    "asset",
+    "hfield",
+    "skin",
+    "bone",
+    "texture",
+    "model"
   ]
 }

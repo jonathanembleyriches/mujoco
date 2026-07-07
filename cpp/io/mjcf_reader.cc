@@ -3,9 +3,20 @@
 // typed field access. Hand code appears only at the quirks the tables cannot
 // carry: numeric parsing (Q-NUM, in numeric.cc), the orientation / geom-shape /
 // inertia / camera-intrinsics aliasing groups (Q-ORIENT/Q-FROMTO/Q-INERTIA),
-// the degree->radian unit policy including the joint type-dependent case
-// (Q-ANGLE), variable arity (Q-ARITY), and the strict support boundary
+// variable arity (Q-ARITY), and the strict support boundary
 // (unsupported-element reporting).
+//
+// Q-ANGLE is handled by form preservation, not read-time conversion: angle
+// values are stored exactly as authored and the compiler's angle unit round
+// trips verbatim, so MuJoCo performs every degree->radian conversion at compile
+// time. This is necessary, not merely tidy: MuJoCo converts joint range only
+// for LIMITED hinge/ball joints (user_objects.cc:3207-3224) and ref/springref
+// only for hinge (:3279-3282) -- conditions resolved per consuming joint at
+// compile. A default class (data, DR-1) can be shared by joints that resolve
+// those conditions differently (e.g. auto_limits.xml's `range_defined` feeds
+// both a limited hinge, converted, and a free joint, not), so no single
+// pre-converted stored value is correct. Preserving the authored unit and
+// deferring to MuJoCo is the only round-trip-exact option.
 //
 // Presence (DR-1): only authored attributes set fields; a missing attribute
 // leaves the opt<T> empty. Provenance (DR-9): every element records {file, line}.
@@ -13,6 +24,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -22,6 +34,8 @@
 #include <variant>
 #include <vector>
 
+#include "defaults.h"
+#include "include.h"
 #include "keywords.h"
 #include "mjcf.h"
 #include "numeric.h"
@@ -40,8 +54,6 @@ using xmlbind::AttrBinding;
 using xmlbind::Bind;
 using xmlbind::ElementBinding;
 using xmlbind::VariantBinding;
-
-constexpr double kDeg2Rad = 0.017453292519943295;  // mjPI / 180
 
 // --- Storage-shape traits (mirror the emitter's type mapping) ------------- //
 template <class T>
@@ -71,8 +83,13 @@ struct is_vector : std::false_type {};
 template <class T>
 struct is_vector<std::vector<T>> : std::true_type {};
 
-// The supported families: Model-level blocks + the body tree. Everything else is
-// a well-formed but unsupported element (skip signal), never a malformed input.
+// The supported families: Model-level blocks, the body tree, defaults, and
+// assets. Everything else is a well-formed but unsupported element (skip
+// signal), never a malformed input. The default-only actuator/pair/equality/
+// tendon sub-elements are supported here as data: their top-level sections
+// (<actuator>/<contact>/<equality>/<tendon>) remain unsupported, so those
+// elements are only ever reached inside a <default>, which short-circuits on
+// its unsupported parent otherwise.
 bool IsSupported(ElementType t) {
   switch (t) {
     case ElementType::Model:
@@ -98,14 +115,35 @@ bool IsSupported(ElementType t) {
     case ElementType::Camera:
     case ElementType::Light:
     case ElementType::Frame:
+    // Defaults (family c): the class tree and its per-family sub-elements.
+    case ElementType::Default:
+    case ElementType::Pair:
+    case ElementType::EqualityDefault:
+    case ElementType::TendonDefault:
+    case ElementType::ActuatorGeneral:
+    case ElementType::Motor:
+    case ElementType::Position:
+    case ElementType::Velocity:
+    case ElementType::IntVelocity:
+    case ElementType::Damper:
+    case ElementType::Cylinder:
+    case ElementType::Muscle:
+    case ElementType::Adhesion:
+    case ElementType::DcMotor:
+    // Assets (family d).
+    case ElementType::Asset:
+    case ElementType::Mesh:
+    case ElementType::Hfield:
+    case ElementType::Skin:
+    case ElementType::SkinBone:
+    case ElementType::Texture:
+    case ElementType::Material:
+    case ElementType::MaterialLayer:
+    case ElementType::ModelAsset:
       return true;
     default:
       return false;
   }
-}
-
-bool JointAngleAttr(std::string_view attr) {
-  return attr == "range" || attr == "ref" || attr == "springref";
 }
 
 // --------------------------------------------------------------------------- //
@@ -114,13 +152,21 @@ bool JointAngleAttr(std::string_view attr) {
 class Reader {
  public:
   Reader(std::string filename, std::vector<Diagnostic>& errors,
-         std::vector<Diagnostic>& warnings)
-      : filename_(std::move(filename)), errors_(errors), warnings_(warnings) {}
+         std::vector<Diagnostic>& warnings,
+         const ProvenanceMap* provenance = nullptr)
+      : filename_(std::move(filename)),
+        errors_(errors),
+        warnings_(warnings),
+        provenance_(provenance) {}
 
-  void set_degree(bool degree) { degree_ = degree; }
-  bool degree() const { return degree_; }
-
+  // Provenance (DR-9): elements spliced from an included file carry that file's
+  // path and line via the pre-pass map; top-level elements take theirs from
+  // tinyxml2 against the model filename.
   ps::SourceLoc Loc(const XMLElement* e) const {
+    if (provenance_) {
+      auto it = provenance_->find(e);
+      if (it != provenance_->end()) return it->second;
+    }
     return ps::SourceLoc{filename_, e->GetLineNum()};
   }
 
@@ -149,7 +195,6 @@ class Reader {
     AttrVisitor<E> av{this, xml, &b};
     Visit(out, av);
 
-    if constexpr (std::is_same_v<E, Joint>) JointAngleFixup(out);
     if constexpr (std::is_same_v<E, Inertial>) InertialExclusion(xml, out);
     if constexpr (std::is_same_v<E, Size>) MemoryFixup(xml, out);
 
@@ -195,19 +240,17 @@ class Reader {
         ab.element_text ? xml->GetText() : xml->Attribute(attr.c_str());
     if (!raw) return;
     std::string_view text(raw);
-    const bool convert = ab.unit_angle && degree_ &&
-                         !(type == ElementType::Joint && JointAngleAttr(ab.attr));
     if constexpr (is_opt<T>::value) {
       typename is_opt<T>::inner tmp{};
-      if (ReadInner(xml, type, ab, text, tmp, convert)) value = std::move(tmp);
+      if (ReadInner(xml, type, ab, text, tmp)) value = std::move(tmp);
     } else {
-      ReadInner(xml, type, ab, text, value, convert);
+      ReadInner(xml, type, ab, text, value);
     }
   }
 
   template <class Inner>
   bool ReadInner(XMLElement* xml, ElementType type, const AttrBinding& ab,
-                 std::string_view text, Inner& out, bool convert) {
+                 std::string_view text, Inner& out) {
     if constexpr (is_ref<Inner>::value) {
       out.name = std::string(text);
       return true;
@@ -236,13 +279,13 @@ class Reader {
                    std::string(ab.attr) + "'");
       return false;
     } else if constexpr (is_std_array<Inner>::value) {
-      return ReadFixed(xml, ab, text, out, convert);
+      return ReadFixed(xml, ab, text, out);
     } else if constexpr (is_inline_vec<Inner>::value) {
-      return ReadRange(xml, ab, text, out, convert);
+      return ReadRange(xml, ab, text, out);
     } else if constexpr (is_vector<Inner>::value) {
-      return ReadVector(xml, ab, text, out, convert);
+      return ReadVector(xml, ab, text, out);
     } else if constexpr (std::is_arithmetic_v<Inner>) {
-      return ReadNumberN(xml, ab, text, &out, 1, 1, convert) == 1;
+      return ReadNumberN(xml, ab, text, &out, 1, 1) == 1;
     } else {
       // Variant field types never reach here (routed through ReadVariant); the
       // branch exists only so the field() dispatcher's odr-use type-checks.
@@ -253,10 +296,10 @@ class Reader {
   // Fixed-arity array: exactly N values (Q-ARITY exact=true).
   template <class S, std::size_t N>
   bool ReadFixed(XMLElement* xml, const AttrBinding& ab, std::string_view text,
-                 std::array<S, N>& out, bool convert) {
+                 std::array<S, N>& out) {
     S buf[N]{};
     int got = ReadNumberN(xml, ab, text, buf, static_cast<int>(N),
-                          static_cast<int>(N), convert);
+                          static_cast<int>(N));
     if (got != static_cast<int>(N)) return false;
     for (std::size_t i = 0; i < N; ++i) out[i] = buf[i];
     return true;
@@ -266,9 +309,9 @@ class Reader {
   // filled count), more is an error (Q-ARITY exact=false).
   template <class S, std::size_t N>
   bool ReadRange(XMLElement* xml, const AttrBinding& ab, std::string_view text,
-                 ps::InlineVec<S, N>& out, bool convert) {
+                 ps::InlineVec<S, N>& out) {
     S buf[N]{};
-    int got = ReadNumberN(xml, ab, text, buf, 0, static_cast<int>(N), convert);
+    int got = ReadNumberN(xml, ab, text, buf, 0, static_cast<int>(N));
     if (got < 0) return false;
     out.clear();
     for (int i = 0; i < got; ++i) out.push_back(buf[i]);
@@ -279,7 +322,7 @@ class Reader {
   // MapValues) when the element type is an enum.
   template <class S>
   bool ReadVector(XMLElement* xml, const AttrBinding& ab, std::string_view text,
-                  std::vector<S>& out, bool convert) {
+                  std::vector<S>& out) {
     if constexpr (std::is_enum_v<S>) {
       std::unordered_set<std::string> seen;
       std::vector<S> vals;
@@ -306,9 +349,6 @@ class Reader {
       for (std::size_t i = 0; i < toks.size(); ++i) {
         if (!ParseScalar(xml, ab, toks[i], vals[i])) return false;
       }
-      if (convert) {
-        for (S& v : vals) v = static_cast<S>(v * kDeg2Rad);
-      }
       out = std::move(vals);
       return true;
     }
@@ -318,7 +358,7 @@ class Reader {
   // error (already reported). min_count>0 enforces "not enough data".
   template <class S>
   int ReadNumberN(XMLElement* xml, const AttrBinding& ab, std::string_view text,
-                  S* buf, int min_count, int max_count, bool convert) {
+                  S* buf, int min_count, int max_count) {
     auto toks = num::Tokens(text);
     const int n = static_cast<int>(toks.size());
     if (n < min_count) {
@@ -332,9 +372,6 @@ class Reader {
     }
     for (int i = 0; i < n; ++i) {
       if (!ParseScalar(xml, ab, toks[i], buf[i])) return -1;
-    }
-    if (convert) {
-      for (int i = 0; i < n; ++i) buf[i] = static_cast<S>(buf[i] * kDeg2Rad);
     }
     return n;
   }
@@ -384,9 +421,9 @@ class Reader {
         MarshalInertiaSpec(xml, value);
       } else if constexpr (std::is_same_v<V, CameraIntrinsics>) {
         MarshalCameraIntrinsics(xml, value);
+      } else if constexpr (std::is_same_v<V, TextureSource>) {
+        MarshalTextureSource(xml, value);
       }
-      // TextureSource is an asset-family concern; its elements are unsupported
-      // and never reach the reader.
     }
   }
 
@@ -394,14 +431,16 @@ class Reader {
     return xml->Attribute(attr) != nullptr;
   }
 
-  // Read exactly n doubles from an attribute; convert deg->rad when asked.
-  bool ReadDoubleArr(XMLElement* xml, const char* attr, int n, double* out,
-                     bool convert) {
+  // Read exactly n doubles from an attribute (verbatim, no unit conversion).
+  bool ReadDoubleArr(XMLElement* xml, const char* attr, int n, double* out) {
     AttrBinding ab{};
     ab.attr = attr;
-    return ReadNumberN(xml, ab, xml->Attribute(attr), out, n, n, convert) == n;
+    return ReadNumberN(xml, ab, xml->Attribute(attr), out, n, n) == n;
   }
 
+  // Orientation encodings are stored exactly as authored (Q-ANGLE form
+  // preservation): euler/axisangle angles keep their unit, and MuJoCo applies
+  // compiler.angle at compile.
   void MarshalOrientation(XMLElement* xml, ps::opt<Orientation>& out) {
     int count = Has(xml, "quat") + Has(xml, "axisangle") + Has(xml, "xyaxes") +
                 Has(xml, "zaxis") + Has(xml, "euler");
@@ -412,7 +451,7 @@ class Reader {
     if (count == 0) return;
     if (Has(xml, "quat")) {
       double q[4]{};
-      if (!ReadDoubleArr(xml, "quat", 4, q, false)) return;
+      if (!ReadDoubleArr(xml, "quat", 4, q)) return;
       if (q[0] == 0 && q[1] == 0 && q[2] == 0 && q[3] == 0) {
         Err(xml, "zero quaternion is not allowed");
         return;
@@ -420,20 +459,19 @@ class Reader {
       out = Orientation{Quat{q[0], q[1], q[2], q[3]}};
     } else if (Has(xml, "axisangle")) {
       double a[4]{};
-      if (!ReadDoubleArr(xml, "axisangle", 4, a, false)) return;
-      double angle = degree_ ? a[3] * kDeg2Rad : a[3];
-      out = Orientation{AxisAngle{{a[0], a[1], a[2]}, angle}};
+      if (!ReadDoubleArr(xml, "axisangle", 4, a)) return;
+      out = Orientation{AxisAngle{{a[0], a[1], a[2]}, a[3]}};
     } else if (Has(xml, "xyaxes")) {
       double v[6]{};
-      if (!ReadDoubleArr(xml, "xyaxes", 6, v, false)) return;
+      if (!ReadDoubleArr(xml, "xyaxes", 6, v)) return;
       out = Orientation{XYAxes{{v[0], v[1], v[2], v[3], v[4], v[5]}}};
     } else if (Has(xml, "zaxis")) {
       double v[3]{};
-      if (!ReadDoubleArr(xml, "zaxis", 3, v, false)) return;
+      if (!ReadDoubleArr(xml, "zaxis", 3, v)) return;
       out = Orientation{ZAxis{{v[0], v[1], v[2]}}};
     } else {  // euler
       double e[3]{};
-      if (!ReadDoubleArr(xml, "euler", 3, e, degree_)) return;
+      if (!ReadDoubleArr(xml, "euler", 3, e)) return;
       out = Orientation{Euler{{e[0], e[1], e[2]}}};
     }
   }
@@ -444,7 +482,7 @@ class Reader {
     // attribute -- absence of fromto is the explicit form).
     if (!Has(xml, "fromto")) return;
     double ft[6]{};
-    if (!ReadDoubleArr(xml, "fromto", 6, ft, false)) return;
+    if (!ReadDoubleArr(xml, "fromto", 6, ft)) return;
     out = GeomShape{FromTo{{ft[0], ft[1], ft[2], ft[3], ft[4], ft[5]}}};
   }
 
@@ -457,11 +495,11 @@ class Reader {
     }
     if (diag) {
       double d[3]{};
-      if (!ReadDoubleArr(xml, "diaginertia", 3, d, false)) return;
+      if (!ReadDoubleArr(xml, "diaginertia", 3, d)) return;
       out = InertiaSpec{DiagInertia{{d[0], d[1], d[2]}}};
     } else if (full) {
       double f[6]{};
-      if (!ReadDoubleArr(xml, "fullinertia", 6, f, false)) return;
+      if (!ReadDoubleArr(xml, "fullinertia", 6, f)) return;
       out = InertiaSpec{FullInertia{{f[0], f[1], f[2], f[3], f[4], f[5]}}};
     }
   }
@@ -477,30 +515,37 @@ class Reader {
       // Camera fovy is a field of view in degrees in MuJoCo (mjModel.cam_fovy),
       // not converted to radians by compiler.angle.
       double f[1]{};
-      if (!ReadDoubleArr(xml, "fovy", 1, f, false)) return;
+      if (!ReadDoubleArr(xml, "fovy", 1, f)) return;
       out = CameraIntrinsics{Fovy{f[0]}};
     } else if (has_focal) {
       double f[2]{};
-      if (!ReadDoubleArr(xml, "focal", 2, f, false)) return;
+      if (!ReadDoubleArr(xml, "focal", 2, f)) return;
       out = CameraIntrinsics{Focal{{f[0], f[1]}}};
     }
   }
 
-  // ---- per-element quirk hooks -------------------------------------------- //
-  void JointAngleFixup(Joint& j) {
-    if (!degree_) return;
-    JointType type = j.type.value_or(JointType::hinge);
-    const bool rotational = type == JointType::hinge || type == JointType::ball;
-    if (type == JointType::hinge) {
-      if (j.ref) j.ref = *j.ref * kDeg2Rad;
-      if (j.springref) j.springref = *j.springref * kDeg2Rad;
-    }
-    if (rotational && j.range) {
-      (*j.range)[0] *= kDeg2Rad;
-      (*j.range)[1] *= kDeg2Rad;
+  // Q-TEX: a texture's source is either a single image file or a procedural
+  // builtin (gradient/checker/flat). MuJoCo reads `builtin` and `file` as
+  // independent attributes (xml_native_reader.cc:3473-3486); ProtoSpec models
+  // them as one variant, so `file` wins when both appear -- an explicit
+  // builtin="none" alongside a file is a file texture, and no real file texture
+  // sets a non-none builtin. Cube-face files (fileright/...) and buffer data
+  // are separate plain attributes, not part of this variant.
+  void MarshalTextureSource(XMLElement* xml, ps::opt<TextureSource>& out) {
+    if (const char* file = xml->Attribute("file")) {
+      out = TextureSource{TexFile{std::string(file)}};
+    } else if (const char* builtin = xml->Attribute("builtin")) {
+      TextureBuiltin b{};
+      if (!FromMjcf(std::string_view(builtin), b)) {
+        Err(xml, "invalid keyword '" + std::string(builtin) +
+                     "' for attribute 'builtin'");
+        return;
+      }
+      out = TextureSource{b};
     }
   }
 
+  // ---- per-element quirk hooks -------------------------------------------- //
   // Q-NUM: the `memory` size is authored as an integer with an optional
   // K/M/G/T/P/E binary suffix; the reader stores the canonical byte count (as a
   // string, the field's storage). "-1" or absent means unset.
@@ -602,37 +647,8 @@ class Reader {
   std::string filename_;
   std::vector<Diagnostic>& errors_;
   std::vector<Diagnostic>& warnings_;
-  bool degree_ = true;  // MuJoCo default: compiler.angle = degree
+  const ProvenanceMap* provenance_ = nullptr;
 };
-
-// Pre-scan the compiler section(s) for the angle unit, which governs the
-// degree->radian conversion applied while reading the rest of the document
-// (MuJoCo processes compiler before the body tree; default is degree).
-bool ScanAngle(XMLElement* root) {
-  bool degree = true;
-  for (XMLElement* c = root->FirstChildElement("compiler"); c;
-       c = c->NextSiblingElement("compiler")) {
-    const char* a = c->Attribute("angle");
-    if (a) degree = (std::strcmp(a, "radian") != 0);
-  }
-  return degree;
-}
-
-// Normalize the model's angle representation: values are stored in radians, so
-// ensure a compiler records angle="radian" for the writer (matching MuJoCo's
-// own writer, which always emits radians). Synthesize one when absent so the
-// round trip is a fixpoint.
-void NormalizeAngle(Model& m) {
-  if (m.compilers.empty()) {
-    auto c = std::make_unique<Compiler>();
-    c->angle = AngleUnit::radian;
-    m.compilers.push_back(std::move(c));
-    return;
-  }
-  // Pin every compiler's angle to radian so the writer (which always emits
-  // radian, Q-WRITE) round-trips as a fixpoint regardless of compiler count.
-  for (auto& c : m.compilers) c->angle = AngleUnit::radian;
-}
 
 void ValidateEulerseq(Reader& r, XMLElement* root, const Model& m) {
   // eulerseq must be length 3 (Q-ANGLE); MuJoCo enforces this at read.
@@ -642,6 +658,42 @@ void ValidateEulerseq(Reader& r, XMLElement* root, const Model& m) {
       r.Err(ce ? ce : root, "euler format must have length 3");
     }
   }
+}
+
+// Drive a parsed document through the include pre-pass and the table-driven
+// reader. `model_dir` is where relative includes resolve first (the top-level
+// file's directory); empty for string input with no real path.
+ParseResult ReadDocument(XMLDocument& doc, const std::string& filename,
+                         const std::string& model_dir) {
+  ParseResult result;
+
+  XMLElement* root = doc.RootElement();
+  if (!root || std::strcmp(root->Value(), "mujoco") != 0) {
+    Diagnostic d;
+    d.kind = Diagnostic::Kind::MalformedInput;
+    d.loc = ps::SourceLoc{filename, root ? root->GetLineNum() : 0};
+    d.message = "root element must be <mujoco>";
+    result.errors.push_back(std::move(d));
+    return result;
+  }
+
+  // Expand <include> before anything else, so the reader sees a flat document.
+  // Include failures are structural errors and abort the parse (MuJoCo throws).
+  IncludeResult inc = ExpandIncludes(doc, model_dir, filename);
+  if (!inc.errors.empty()) {
+    result.errors = std::move(inc.errors);
+    return result;
+  }
+
+  Reader reader(filename, result.errors, result.warnings, &inc.provenance);
+
+  auto model = std::make_unique<Model>();
+  reader.ReadElement(root, *model);
+  ValidateEulerseq(reader, root, *model);
+  ValidateDefaultClasses(*model, result.errors);
+
+  result.model = std::move(model);
+  return result;
 }
 
 }  // namespace
@@ -659,27 +711,10 @@ ParseResult ParseMjcfString(const std::string& xml, const std::string& filename)
     result.errors.push_back(std::move(d));
     return result;
   }
-
-  XMLElement* root = doc.RootElement();
-  if (!root || std::strcmp(root->Value(), "mujoco") != 0) {
-    Diagnostic d;
-    d.kind = Diagnostic::Kind::MalformedInput;
-    d.loc = ps::SourceLoc{filename, root ? root->GetLineNum() : 0};
-    d.message = "root element must be <mujoco>";
-    result.errors.push_back(std::move(d));
-    return result;
-  }
-
-  Reader reader(filename, result.errors, result.warnings);
-  reader.set_degree(ScanAngle(root));
-
-  auto model = std::make_unique<Model>();
-  reader.ReadElement(root, *model);
-  ValidateEulerseq(reader, root, *model);
-  NormalizeAngle(*model);
-
-  result.model = std::move(model);
-  return result;
+  // A pseudo-name like "<string>" yields an empty parent path, disabling
+  // relative include resolution; a real path resolves includes beside it.
+  std::string dir = std::filesystem::path(filename).parent_path().string();
+  return ReadDocument(doc, filename, dir);
 }
 
 ParseResult ParseMjcfFile(const std::string& path) {
@@ -694,11 +729,8 @@ ParseResult ParseMjcfFile(const std::string& path) {
     result.errors.push_back(std::move(d));
     return result;
   }
-  // Reparse through the string path so both share one code path for provenance.
-  tinyxml2::XMLPrinter printer;
-  doc.Print(&printer);
-  return ParseMjcfString(std::string(printer.CStr(), printer.CStrSize() - 1),
-                         path);
+  std::string dir = std::filesystem::path(path).parent_path().string();
+  return ReadDocument(doc, path, dir);
 }
 
 std::string Diagnostic::Render() const {

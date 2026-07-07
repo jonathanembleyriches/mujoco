@@ -1673,7 +1673,7 @@ struct FreeJoint {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
   ps::opt<int32_t> group = {};
-  ps::opt<int32_t> align = {};
+  ps::opt<TriState> align = {};
 };
 
 struct Fromto {

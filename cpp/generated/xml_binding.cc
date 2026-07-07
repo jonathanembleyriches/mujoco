@@ -980,7 +980,7 @@ constexpr AttrBinding kAttrs_Framezaxis[] = {
 constexpr AttrBinding kAttrs_FreeJoint[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false},
     {"group", "int32", 1, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false},
-    {"align", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false},
+    {"align", "TriState", 2, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false},
 };
 
 constexpr AttrBinding kAttrs_Fromto[] = {

@@ -37,6 +37,8 @@ target_include_directories(tinyxml2 PUBLIC
 # the core object model.
 add_library(protospec_io STATIC
   io/numeric.cc
+  io/include.cc
+  io/defaults.cc
   io/mjcf_reader.cc
   io/mjcf_writer.cc
 )
