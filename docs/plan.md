@@ -12,8 +12,8 @@ IO work; test harnesses authored by a different agent than the code they test.
 | M3 differential harness | **DONE** | ca512e8; mj_model_diff (mjxmacro full-field diff + mj_forward xpos/xquat invariant, vendored MuJoCo 3.10.0); 387-file pipeline |
 | M3 IO pathfinder (blocks + body tree) | **DONE** | 41001b6; schema-complete xml_binding tables; ps_roundtrip (exit 3 = unsupported-skip); 26 corpus files passing live differential |
 | M3 wave 1: defaults + assets/include | **DONE** | 604c042; 89 corpus files identical / 0 differ; Q-ANGLE amended to form preservation (see quirk register); FreeJoint.align tri-state schema fix; dangling class refs = validation tier-2, not read errors |
-| M3 wave 2: contact/equality/tendon + actuators | **IN FLIGHT** | |
-| M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | queued | |
+| M3 wave 2: contact/equality/tendon + actuators | **DONE** | 7f1d4cb; 162 identical / 0 differ; 8 arity schema fixes + ActuatorPlugin.plugin type fix |
+| M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | **DONE** | a7fbd1d; FINAL: 359/387 identical, 0 differ, 28 honest skips (plugins/malformed fixtures); all 142 element types supported; Body/Frame/Replicate children unified into ordered `subtree : BodyChildAny *` (mutual document order is id-semantic) |
 | M4 validation, M5 bridge+binding+recompile, M6 SDK, M7 pybind | queued | |
 | Native compiler (RAW ProtoSpec->mjModel; NO mjSpec/mjs_*/mjC* anywhere) | **planned** | cd0998a: docs/plan_native_compiler.md — 62-row reuse ledger (18% call-as-is public API, 39% lift-verbatim with provenance registry + drift gate, 35% re-plumb, 5 rows deleted-hazard-classes); direct id-assignment Binding; phases NC1(10% corpus)→NC2(35%)→NC3(62%)→NC4(~80%)→NC5(~100%); XML path retained as oracle/fallback; survey: docs/native_compiler_survey.md (its mjs decode mapping is historical) |
 
