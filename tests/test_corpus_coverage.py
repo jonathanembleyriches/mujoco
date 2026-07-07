@@ -55,23 +55,12 @@ def _corpus_root() -> Path | None:
 # Reviewed gaps                                                                 #
 # --------------------------------------------------------------------------- #
 # Attributes the corpus uses that no schema field covers. Each is a deliberate,
-# understood decision -- not a silent omission.
-
-_REPLICATE_REASON = (
-    "`<replicate>` is a parse-time macro (plan DR-7 / Q-MACRO): the reader clones "
-    "the enclosed subtree `count` times with accumulated `offset`/`euler` and a "
-    "zero-padded `sep` suffix, and the element never persists in the object model. "
-    "It has no schema row -- and no MJCF[] row either: snapshots/mjcf_schema.json "
-    "(MuJoCo's own attribute table) has no `replicate` element, because the reader "
-    "handles it specially against the body row (xml_util.cc). These are the macro's "
-    "control attributes, expanded away at read time; correctly absent from the model."
-)
+# understood decision -- not a silent omission. Empty: `<replicate>` is now a
+# first-class `Replicate` schema element (plan DR-7 / Q-MACRO) whose curated
+# attributes (count/offset/euler/sep/prefix/childclass) cover every corpus use.
 
 # key: (element_tag, attribute) -> reason
-KNOWN_GAP_ATTRIBUTES: dict[tuple[str, str], str] = {
-    ("replicate", attr): _REPLICATE_REASON
-    for attr in ("count", "offset", "euler", "sep", "prefix")
-}
+KNOWN_GAP_ATTRIBUTES: dict[tuple[str, str], str] = {}
 
 # Enum attributes whose corpus values fall outside the schema enum. Each is a
 # reviewed decision. key: (element, attribute) -> reason (covers all values).

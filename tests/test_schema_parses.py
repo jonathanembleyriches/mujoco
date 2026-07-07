@@ -159,6 +159,49 @@ def test_default_is_recursive_with_family_children(index):
 
 
 # --------------------------------------------------------------------------- #
+# Replicate is a first-class pass-through element (plan DR-7 / Q-MACRO)         #
+# --------------------------------------------------------------------------- #
+def test_replicate_control_attributes(index):
+    # <replicate> owns no MJCF[] row (the reader validates it against the body
+    # row, xml_util.cc:492); its control attributes come from the reader's
+    # replicate branch (xml_native_reader.cc:3806-3874): count (3812, required),
+    # offset (3813), euler (3814, accumulated rotation -> unit=angle), sep (3815)
+    # and childclass (3826). prefix is corpus-written (namespaces the clones) and
+    # modelled for pass-through fidelity though this vendored reader hardcodes it.
+    rep = index["elements"]["Replicate"]
+    fields = {f["name"]: f for f in rep["fields"]}
+    assert set(fields) == {"count", "offset", "euler", "sep", "prefix", "childclass"}
+    # count int32 and required -- the reader reads it with exact/required = true
+    assert fields["count"]["type"]["kind"] == "prim"
+    assert fields["count"]["type"]["prim"] == "int32"
+    assert fields["count"]["optional"] is False
+    # offset/euler are double[3]; euler carries unit=angle
+    for arm in ("offset", "euler"):
+        t = fields[arm]["type"]
+        assert t["prim"] == "double"
+        assert t["arity"] == {"kind": "fixed", "size": 3}
+    assert fields["euler"]["annotations"]["unit"] == "angle"
+    assert fields["sep"]["type"]["prim"] == "string"
+    assert fields["prefix"]["type"]["prim"] == "string"
+    assert fields["childclass"]["type"]["kind"] == "ref"
+    assert fields["childclass"]["type"]["target"] == "Default"
+
+
+def test_replicate_mirrors_body_children(index):
+    # replicate wraps body-context content, so it mirrors Body's children exactly
+    # (bodies via the shared body row, geoms/joints/sites/frames, nested
+    # replicates and attach).
+    rep = index["elements"]["Replicate"]
+    body = index["elements"]["Body"]
+    rep_targets = {c["element"] for c in rep["children"]}
+    assert rep_targets == {c["element"] for c in body["children"]}
+    for fam in ("Geom", "Joint", "Site", "Frame", "Attach", "Replicate"):
+        assert fam in rep_targets, f"Replicate missing {fam} child"
+    # Body reaches replicate too (so worldbody/body/frame contexts all do)
+    assert "Replicate" in {c["element"] for c in body["children"]}
+
+
+# --------------------------------------------------------------------------- #
 # Keyword enums match the snapshot mjMap tables                                #
 # --------------------------------------------------------------------------- #
 def _map(name):

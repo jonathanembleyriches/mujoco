@@ -1039,6 +1039,35 @@ def build():
     elements["Frame"] = frame
     body.children.append(("frames", "Frame", "*"))
 
+    # Replicate is a first-class pass-through element (plan DR-7 / Q-MACRO): the
+    # bridge emits the tag and MuJoCo clones the enclosed subtree at compile. Like
+    # frame it validates against the body row (mjXSchema::NameMatch,
+    # xml_util.cc:492) rather than owning an MJCF[] row, so it is added
+    # explicitly. Its control attributes come from the reader's replicate branch
+    # (xml_native_reader.cc:3806-3874): count (3812, required), offset (3813),
+    # euler (3814, accumulated as a rotation so unit=angle), sep (3815), and
+    # childclass (3826). prefix is written in the corpus (and namespaces the
+    # clones) but is not consumed by this vendored reader; it is modelled for
+    # pass-through and round-trip fidelity. It wraps body-context content, so it
+    # mirrors Body's children exactly (including frames and nested replicates).
+    replicate = Element("Replicate", "replicate")
+    replicate.fields.append(Field("count", "int32", {"required": True},
+                                  doc="number of copies to generate"))
+    replicate.fields.append(Field("offset", "double[3]",
+                                  doc="position offset accumulated per copy"))
+    replicate.fields.append(Field("euler", "double[3]", {"unit": "angle"},
+                                  doc="rotation offset accumulated per copy"))
+    replicate.fields.append(Field("sep", "string",
+                                  doc="separator for the cloned element name suffix"))
+    replicate.fields.append(Field("prefix", "string",
+                                  doc="prefix applied to cloned element names"))
+    replicate.fields.append(Field("childclass", "ref<Default>",
+                                  doc="default class applied to descendants"))
+    body.children.append(("replicates", "Replicate", "*"))
+    for fld, cname, card in body.children:
+        replicate.children.append((fld, cname, card))
+    elements["Replicate"] = replicate
+
     # Collapse the interleaved-order container sections into union child lists.
     # The members are the container's per-tag child targets in source order.
     unions = OrderedDict()
@@ -1198,7 +1227,12 @@ def _render_element(w, elem):
             parts = []
             for k in sorted(f.annots):
                 v = f.annots[k]
-                parts.append(f'{k}="{v}"' if k == "xml" else f"{k}={v}")
+                if k == "xml":
+                    parts.append(f'{k}="{v}"')
+                elif v is True:
+                    parts.append(k)  # bare flag (required, element_text)
+                else:
+                    parts.append(f"{k}={v}")
             line += f" ({', '.join(parts)})"
         line += f.default
         if f.doc:

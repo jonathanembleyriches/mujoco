@@ -17,6 +17,12 @@ Coverage mapping rules (plan Section 5 / task brief):
 * a plain child list covers its one child element;
 * a ``union`` child list covers every member element's XML tag (the ordered
   heterogeneous sections: actuator/sensor/equality/tendon and the spatial path).
+
+worldbody/frame/replicate own no MJCF[] row; MuJoCo validates them against the
+body row (``special_cases.body_row_aliases``). Each still resolves to a covering
+schema element -- worldbody -> Body, frame -> Frame, replicate -> Replicate (a
+first-class pass-through element, plan DR-7) -- asserted by
+``test_body_row_aliases_resolve_to_elements``.
 """
 
 import json
@@ -119,6 +125,24 @@ def test_schema_covers_mjcf_tree():
             f"{len(missing)} uncovered MJCF item(s) (add a field/child or a "
             "WAIVERS entry):\n" + "\n".join(lines)
         )
+
+
+def test_body_row_aliases_resolve_to_elements():
+    # worldbody/frame/replicate have no MJCF[] row of their own; MuJoCo validates
+    # them against the body row (special_cases.body_row_aliases). Each must still
+    # resolve to a covering schema element so the alias usages are modelled:
+    # worldbody -> Body, frame -> Frame, replicate -> Replicate (first-class, DR-7).
+    elements, tag_of, _, _ = _schema_index()
+    name_by_tag = {tag: name for name, tag in tag_of.items()}
+    aliases = json.loads(MJCF.read_text("utf-8"))["special_cases"][
+        "body_row_aliases"
+    ]["aliases"]
+    expected = {"worldbody": "Body", "frame": "Frame", "replicate": "Replicate"}
+    for alias in aliases:
+        assert alias in expected, f"new body-row alias {alias!r} needs a schema mapping"
+        assert expected[alias] in elements, f"{alias} -> {expected[alias]} missing"
+    # replicate is now a real element (its own tag), not a bare body-row passthrough
+    assert name_by_tag.get("replicate") == "Replicate"
 
 
 def test_waivers_are_justified():

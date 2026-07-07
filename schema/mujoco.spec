@@ -923,6 +923,7 @@ element Body {
   children composites : Composite *
   children flexcomps : Flexcomp *
   children frames : Frame *
+  children replicates : Replicate *
 }
 
 element Inertial {
@@ -2406,5 +2407,27 @@ element Frame {
   children plugin : PluginRef *
   children composites : Composite *
   children flexcomps : Flexcomp *
+}
+
+element Replicate {
+  count      : int32 (required)   # number of copies to generate
+  offset     : double[3]   # position offset accumulated per copy
+  euler      : double[3] (unit=angle)   # rotation offset accumulated per copy
+  sep        : string   # separator for the cloned element name suffix
+  prefix     : string   # prefix applied to cloned element names
+  childclass : ref<Default>   # default class applied to descendants
+  children inertial : Inertial ?
+  children joints : Joint *
+  children freejoint : FreeJoint *
+  children geoms : Geom *
+  children attach : Attach *
+  children sites : Site *
+  children cameras : Camera *
+  children lights : Light *
+  children plugin : PluginRef *
+  children composites : Composite *
+  children flexcomps : Flexcomp *
+  children frames : Frame *
+  children replicates : Replicate *
 }
 

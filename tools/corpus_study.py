@@ -29,8 +29,10 @@ MuJoCo's own reader does, so they are never miscounted as unknown structure:
   table omits body/frame as children of body too. Validated against ``Body``.
 * ``<frame>``    -- persists; own attributes validate against the ``Frame`` row,
   but its children are resolved in body context (a frame may hold bodies/frames).
-* ``<replicate>``-- a parse-time macro with no schema (nor MJCF[]) row; its own
-  attributes are surfaced as gaps, its children resolved in body context.
+* ``<replicate>``-- a first-class pass-through element (DR-7); it has no MJCF[]
+  row (the reader handles it against the body row, xml_util.cc:492), so it is a
+  curated ``Replicate`` schema element. Own attributes validate against that row,
+  its children are resolved in body context.
 
 Output is ``snapshots/corpus_report.json``: deterministic ordering, LF line
 endings, 2-space indent, repo-relative example paths capped at three per item.
@@ -147,8 +149,8 @@ class _SchemaIndex:
         return self._info[name]
 
     def child_targets_for(self, ctx_name: str) -> dict:
-        # Body and Frame both expose the full body-context child set.
-        if ctx_name in ("Body", "Frame"):
+        # Body, Frame and Replicate all expose the full body-context child set.
+        if ctx_name in ("Body", "Frame", "Replicate"):
             return self._info["Body"].child_targets
         return self._info[ctx_name].child_targets
 
@@ -202,7 +204,9 @@ class _Inventory:
             # (the arbiter) likewise omits body/frame as children of body.
             return "Body", "Body", None
         if tag == "replicate":
-            return None, "Body", "replicate"
+            # replicate is a first-class element (DR-7); its own attributes are
+            # validated against the Replicate row and its children in body context.
+            return "Replicate", "Replicate", None
         if tag == "frame":
             return "Frame", "Frame", None
         target = self._index.child_targets_for(parent_ctx).get(tag)
@@ -246,11 +250,7 @@ class _Inventory:
             self.elem_kinds.add((ctx_name, tag))
             attr_elem, child_ctx, construct = self._resolve(tag, ctx_name)
             if construct == "include":
-                self._record_construct_attrs(child, relpath, check=False)
-                continue
-            if construct == "replicate":
-                self._record_construct_attrs(child, relpath, check=True)
-                self._descend(child, child_ctx, relpath)
+                self._record_construct_attrs(child, relpath)
                 continue
             if attr_elem is None:
                 self._flag(self.unknown_elements, (ctx_name, tag), relpath)
@@ -259,15 +259,12 @@ class _Inventory:
             self._record_attrs(child, info, relpath)
             self._descend(child, child_ctx, relpath)
 
-    def _record_construct_attrs(self, elem, relpath: str, *, check: bool) -> None:
-        # Attributes of a non-schema read-time construct (include / replicate).
-        # Usage is counted; ``replicate`` (check=True) additionally surfaces each
-        # attribute as an unknown, since it has no schema (nor MJCF[]) row.
+    def _record_construct_attrs(self, elem, relpath: str) -> None:
+        # Attributes of the read-time include construct: usage is counted but not
+        # attribute-checked (include resolves file plumbing, not model content).
         for attr in sorted(elem.attrib):
             self.n_attributes += 1
             self.attr_kinds.add((elem.tag, attr))
-            if check:
-                self._flag(self.unknown_attributes, (elem.tag, attr), relpath)
 
     def walk_fragment(self, root, relpath: str) -> None:
         # Body-context-agnostic inventory for a bare / mujocoinclude fragment:
@@ -283,9 +280,7 @@ class _Inventory:
                 tag = child.tag
                 self.elem_kinds.add(("<fragment>", tag))
                 if tag in ("include", "mujocoinclude"):
-                    self._record_construct_attrs(child, relpath, check=False)
-                elif tag == "replicate":
-                    self._record_construct_attrs(child, relpath, check=True)
+                    self._record_construct_attrs(child, relpath)
                 elif tag in gmap:
                     self._record_attrs(child, self._index.info(gmap[tag]), relpath)
                 else:
