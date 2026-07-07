@@ -9,7 +9,7 @@
   "usage": {
     "elements": 30524,
     "attributes": 92286,
-    "enum_values": 7451
+    "enum_values": 7484
   },
   "coverage": {
     "distinct_elements": 154,
@@ -18,9 +18,9 @@
     "distinct_attributes": 632,
     "unknown_attributes": 5,
     "attributes_covered_pct": 99.21,
-    "distinct_enum_values": 122,
-    "unknown_enum_values": 3,
-    "enum_values_covered_pct": 97.54
+    "distinct_enum_values": 131,
+    "unknown_enum_values": 0,
+    "enum_values_covered_pct": 100.0
   },
   "unknown": {
     "elements": [],
@@ -74,37 +74,6 @@
         ]
       }
     ],
-    "enum_values": [
-      {
-        "element": "Rangefinder",
-        "attribute": "data",
-        "value": "dist dir origin point normal depth",
-        "enum": "RayData",
-        "files_count": 1,
-        "example_files": [
-          "test/testdata/model.xml"
-        ]
-      },
-      {
-        "element": "Rangefinder",
-        "attribute": "data",
-        "value": "dist normal",
-        "enum": "RayData",
-        "files_count": 1,
-        "example_files": [
-          "test/engine/testdata/ray/ray_swing.xml"
-        ]
-      },
-      {
-        "element": "Rangefinder",
-        "attribute": "data",
-        "value": "dist point normal",
-        "enum": "RayData",
-        "files_count": 1,
-        "example_files": [
-          "test/engine/testdata/sensor/rfcamera.xml"
-        ]
-      }
-    ]
+    "enum_values": []
   }
 }

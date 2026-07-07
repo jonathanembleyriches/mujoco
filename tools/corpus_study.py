@@ -15,7 +15,10 @@ Coverage-mapping conventions (plan Section 5; identical to the drift gate in
   positions -- e.g. body/joint vs equality/joint vs tendon/fixed/joint);
 * an IDL field covers the attribute named by its ``xml=`` annotation, else its
   own name; a ``variant`` field additionally covers every attribute named by its
-  variant arms; children cover child elements.
+  variant arms; children cover child elements. An enum-typed field records every
+  value of its attribute against the enum's keyword set; a keyword-set field
+  (``EnumName[]``, MuJoCo's ``MapValues`` bitmask attributes) is split on
+  whitespace and each token counted and checked individually.
 
 Read-time constructs (plan Section 8, DR-7 / Q-MACRO / Q-INC) are handled the way
 MuJoCo's own reader does, so they are never miscounted as unknown structure:
@@ -77,6 +80,7 @@ class _ElemInfo:
     attrs: set  # covered attribute names
     enum_attrs: dict  # attr name -> frozenset of legal enum values
     enum_of: dict  # attr name -> enum type name
+    enum_list_attrs: set  # enum attrs typed EnumName[] (space-separated keyword set)
     child_targets: dict  # xml tag -> child element name
 
 
@@ -106,6 +110,7 @@ class _SchemaIndex:
         attrs: set = set()
         enum_attrs: dict = {}
         enum_of: dict = {}
+        enum_list_attrs: set = set()
         for f in e["fields"]:
             t = f["type"]
             if t["kind"] == "variant":
@@ -121,6 +126,10 @@ class _SchemaIndex:
                 if t["kind"] == "named" and t.get("category") == "enum":
                     enum_attrs[attr] = self._enum_values[t["name"]]
                     enum_of[attr] = t["name"]
+                    # An EnumName[] field is a space-separated keyword set (a
+                    # MapValues bitmask); each token is checked against the enum.
+                    if (t.get("arity") or {}).get("kind") == "unbounded":
+                        enum_list_attrs.add(attr)
         # A child list targets either a single element or a union of member
         # elements (plan Section 5: "union child lists cover member tags").
         child_targets: dict = {}
@@ -132,7 +141,7 @@ class _SchemaIndex:
             for m in members:
                 child_targets[self._tag_of[m]] = m
         return _ElemInfo(name, self._tag_of[name], attrs, enum_attrs, enum_of,
-                         child_targets)
+                         enum_list_attrs, child_targets)
 
     def info(self, name: str) -> _ElemInfo:
         return self._info[name]
@@ -218,11 +227,15 @@ class _Inventory:
                 continue
             legal = info.enum_attrs.get(attr)
             if legal is not None:
-                self.n_enum_values += 1
-                key = (info.name, attr, value)
-                self.enum_kinds.add(key)
-                if value not in legal:
-                    self._flag(self.unknown_enum_values, key, relpath)
+                # A keyword-set (EnumName[]) attr is space-separated; each token
+                # is a distinct enum-value observation. Scalar enums yield one.
+                tokens = value.split() if attr in info.enum_list_attrs else [value]
+                for token in tokens:
+                    self.n_enum_values += 1
+                    key = (info.name, attr, token)
+                    self.enum_kinds.add(key)
+                    if token not in legal:
+                        self._flag(self.unknown_enum_values, key, relpath)
 
     def _descend(self, elem, ctx_name: str, relpath: str) -> None:
         for child in elem:

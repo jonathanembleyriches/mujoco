@@ -129,9 +129,20 @@ ATTR_ENUM = {
     ("SensorUser", "datatype"): "DataType",
     ("SensorUser", "needstage"): "NeedStage",
     ("SensorContact", "reduce"): "ContactReduce",
+    ("SensorContact", "data"): "ContactData",
     ("Rangefinder", "data"): "RayData",
     ("LengthRange", "mode"): "LRMode",
     ("Body", "sleep"): "BodySleep",
+}
+# Attributes MuJoCo reads with `MapValues` (space-separated keyword LISTS OR'd
+# into an intprm/output bitmask, not scalar enums): each is typed `EnumName[]`.
+# Sites in src/xml/xml_native_reader.cc: camera `output` (camout_map, ~2078),
+# rangefinder `data` (raydata_map, ~4254), contact-sensor `data` (condata_map,
+# ~4517). Keyed by (IDL element, xml attr); the enum itself is set in ATTR_ENUM.
+ENUM_LIST_ATTRS = {
+    ("Camera", "output"),
+    ("Rangefinder", "data"),
+    ("SensorContact", "data"),
 }
 # Tri-state limit flags (false/true/auto), unambiguous by attr name.
 _TRISTATE_ATTRS = {
@@ -842,6 +853,10 @@ def build():
         if enum is None:
             enum = _GLOBAL_ENUM.get(attr)
         if enum is not None:
+            if (elem_name, attr) in ENUM_LIST_ATTRS:
+                # MapValues bitmask: a space-separated keyword set, no scalar
+                # default (the bitmask default is a read-time concern).
+                return Field(attr, enum_ref(enum) + "[]", doc=_doc(elem_name, attr))
             return Field(attr, enum_ref(enum), doc=_doc(elem_name, attr),
                          default=_enum_default(elem_name, attr, enum))
         # actuator shortcut params (Q-ACT)

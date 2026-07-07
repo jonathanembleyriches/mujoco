@@ -135,6 +135,14 @@ def test_arity_forms():
     assert fields["range13"]["type"]["arity"] == {"kind": "range", "min": 1, "max": 3}
     assert fields["unbounded"]["type"]["arity"] == {"kind": "unbounded"}
     assert "arity" not in fields["scalar_d"]["type"]
+    # An enum reference may carry the unbounded form: a space-separated keyword
+    # set (a bitmask over the enum's keywords). It stays a `named` ref.
+    kw = fields["keywords"]["type"]
+    assert kw["kind"] == "named" and kw["name"] == "Mode"
+    assert kw["category"] == "enum"
+    assert kw["arity"] == {"kind": "unbounded"}
+    # A scalar enum reference has no arity key.
+    assert "arity" not in fields["mode"]["type"]
 
 
 def test_defaults_kinds():
@@ -405,6 +413,50 @@ def test_error_arity_on_named_type():
         "element E {\n  f : M[3]\n}"
     )
     assert "only valid on primitive types" in exc.message
+
+
+def test_error_range_arity_on_enum():
+    # A range arity on an enum is still a parse error (only unbounded is allowed).
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        'enum M { a = "a" }\n'
+        "element E {\n  f : M[0..3]\n}"
+    )
+    assert "only valid on primitive types" in exc.message
+
+
+def test_enum_unbounded_arity_is_allowed():
+    # `EnumName[]` is a keyword set (bitmask); parses and validates clean.
+    schema = parse_spec(
+        'mujoco_version "3.10.0"\n'
+        'enum M { a = "a"  b = "b" }\n'
+        "element E {\n  f : M[]\n}"
+    )
+    f = schema.elements[0].fields[0]
+    assert f.type.kind == "named"
+    assert f.type.name == "M"
+    assert f.type.arity == {"kind": "unbounded"}
+    assert f.type.category == "enum"
+
+
+def test_error_unbounded_arity_on_struct():
+    # Only enum references may carry `[]`; a struct reference may not.
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "struct S { x : int32 }\n"
+        "element E {\n  f : S[]\n}"
+    )
+    assert "only valid on an enum reference" in exc.message
+
+
+def test_error_scalar_default_on_enum_keyword_set():
+    # A keyword-set (list) enum field has no scalar default.
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        'enum M { a = "a"  b = "b" }\n'
+        "element E {\n  f : M[] = a\n}"
+    )
+    assert "keyword-set field" in exc.message
 
 
 def test_error_enum_default_not_a_member():

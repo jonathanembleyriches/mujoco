@@ -75,18 +75,11 @@ KNOWN_GAP_ATTRIBUTES: dict[tuple[str, str], str] = {
 
 # Enum attributes whose corpus values fall outside the schema enum. Each is a
 # reviewed decision. key: (element, attribute) -> reason (covers all values).
-KNOWN_GAP_ENUM_VALUES: dict[tuple[str, str], str] = {
-    ("Rangefinder", "data"): (
-        "rangefinder `data` is a space-separated keyword bitmask, not a scalar "
-        "enum. MuJoCo reads it with MapValues(elem, \"data\", ..., raydata_map, "
-        "mjNRAYDATA) and ORs the keywords into intprm "
-        "(src/xml/xml_native_reader.cc:4254), so values like \"dist point normal\" "
-        "are legal. The schema's RayData keyword set (dist/dir/origin/point/normal/"
-        "depth) is exactly right, but the field is typed as a scalar enum; it should "
-        "be a list/bitmask of RayData keywords. Genuine schema modeling gap, not a "
-        "corpus oddity -- these are valid MJCF models."
-    ),
-}
+#
+# The MapValues keyword-set attributes (rangefinder/contact `data`, camera
+# `output`) are no longer gaps: they are typed `EnumName[]` (a space-separated
+# keyword set) in the schema, and the study tokenizes and checks each keyword.
+KNOWN_GAP_ENUM_VALUES: dict[tuple[str, str], str] = {}
 
 
 # --------------------------------------------------------------------------- #

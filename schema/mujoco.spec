@@ -68,6 +68,16 @@ enum Cone {
   elliptic       = "elliptic"
 }
 
+enum ContactData {
+  found          = "found"
+  force          = "force"
+  torque         = "torque"
+  dist           = "dist"
+  pos            = "pos"
+  normal         = "normal"
+  tangent        = "tangent"
+}
+
 enum ContactReduce {
   none           = "none"
   mindist        = "mindist"
@@ -1013,7 +1023,7 @@ element Camera {
   projection     : CameraProjection
   ipd            : double = 0.068   # inter-pupillary distance
   resolution     : int32[2] = {1, 1}   # resolution (pixel)
-  output         : CameraOutput = rgb   # bit flags for output type
+  output         : CameraOutput[]   # bit flags for output type
   mode           : CamLightMode = fixed   # tracking mode
   target         : ref<Body>   # target body for tracking/targeting
   focalpixel     : float[2]   # focal length (pixel)
@@ -1836,7 +1846,7 @@ element Rangefinder {
   name     : string   # element name
   site     : ref<Site>
   camera   : ref<Camera>
-  data     : RayData
+  data     : RayData[]
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2286,7 +2296,7 @@ element SensorContact (xml="contact") {
   subtree2 : ref<Body>
   site     : ref<Site>
   num      : int32
-  data     : string
+  data     : ContactData[]
   reduce   : ContactReduce
   nsample  : int32
   interp   : InterpType

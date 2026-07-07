@@ -25,7 +25,7 @@ resolved conservatively and noted):
     child      := "children" NAME ":" NAME cardinality             # NAME: element | union
     field      := NAME ":" type annots? default? comment?
     type       := prim ("[" INT "]" | "[" INT ".." INT "]" | "[]")?
-                | "ref" "<" NAME ">" | "variant" NAME | NAME       # ref<NAME>: element | union
+                | "ref" "<" NAME ">" | "variant" NAME | NAME "[]"? # ref<NAME>: element | union
     annots     := "(" (key ("=" value)?),* ")"
     default    := "=" (literal | NAME | "{" literal,* "}")
 
@@ -57,8 +57,14 @@ Grammar decisions beyond the plan
   otherwise a field) and may interleave; flattening still injects mixin fields
   before local fields, so semantics are unchanged. Source order of fields and of
   children is preserved (it is significant for serialization/flattening).
-* Arity attaches to primitives only, exactly as the grammar's ``prim "[" ... "]"``
-  productions state. ``NAME[3]`` on an enum/struct is a parse error.
+* Sized arity (``[N]`` / ``[N..M]``) attaches to primitives only, exactly as the
+  grammar's ``prim "[" ... "]"`` productions state. ``NAME[3]`` on an enum/struct
+  is a parse error. The one exception is the *unbounded* form: a bare ``NAME[]``
+  is permitted on an enum reference and denotes a space-separated keyword set --
+  the keywords are OR'd into a bitmask (MJCF reads these via MuJoCo's
+  ``MapValues``, e.g. a rangefinder's ``data="dist point normal"``). ``NAME[]`` on
+  a struct reference is a validation error; sized arity on any named type is a
+  parse error.
 * ``required`` is folded into the field's ``optional`` boolean (DR-1: everything
   not ``required`` is presence-tracked); it is not echoed as an annotation.
 * The default XML tag for an element/field is ``lower(name)`` and is NOT
@@ -102,7 +108,8 @@ them, so ``to_json -> from_json -> to_json`` is a fixpoint.
                                 | {kind=unbounded}
                   kind=ref     -> {target}            # target: element or union
                   kind=variant -> {target}            # target is a variant name
-                  kind=named   -> {name, category}    # category: enum|struct
+                  kind=named   -> {name, arity?, category}  # category: enum|struct
+                    arity      -> {kind=unbounded}     # enum keyword set only
     DefaultValue {kind, ..., line, col}
                   kind=scalar  -> {value}             # number | bool | str
                   kind=enum    -> {member}            # bare identifier
@@ -212,6 +219,8 @@ class TypeRef:
             d["target"] = self.target
         elif self.kind == "named":
             d["name"] = self.name
+            if self.arity is not None:
+                d["arity"] = self.arity
             if self.category is not None:
                 d["category"] = self.category
         d["line"] = self.line
@@ -983,14 +992,27 @@ class _Parser:
                 kind="variant", line=tok.line, col=tok.col, target=target.value
             )
         # A bare name: an enum or struct reference (resolved during validation).
+        # Sized arities (``[N]`` / ``[N..M]``) are only valid on primitives; a
+        # named type may carry the unbounded form ``[]`` alone, denoting a
+        # space-separated keyword set (a bitmask over an enum's keywords, e.g.
+        # ``data : RayData[]``). The enum-only restriction is enforced during
+        # validation, once the name resolves.
         self._advance()
+        arity = None
         if self._check("PUNCT", "["):
-            raise self._error(
-                "array arity '[...]' is only valid on primitive types "
-                f"(int32, uint64, float, double, bool, string), not {tok.value!r}",
-                self._peek(),
-            )
-        return TypeRef(kind="named", line=tok.line, col=tok.col, name=tok.value)
+            open_bracket = self._peek()
+            arity = self._parse_arity()
+            if arity["kind"] != "unbounded":
+                raise self._error(
+                    "a sized array arity ('[N]' / '[N..M]') is only valid on "
+                    "primitive types (int32, uint64, float, double, bool, string), "
+                    f"not {tok.value!r}; an enum reference may only carry the "
+                    "unbounded form '[]' (a space-separated keyword set)",
+                    open_bracket,
+                )
+        return TypeRef(
+            kind="named", line=tok.line, col=tok.col, name=tok.value, arity=arity
+        )
 
     def _parse_arity(self) -> dict:
         self._expect_punct("[")
@@ -1310,6 +1332,13 @@ def _resolve_type(t: TypeRef, symbols: _Symbols, ctx: _SourceCtx) -> None:
             t.line,
             t.col,
         )
+    if t.arity is not None and cat != "enum":
+        raise ctx.error(
+            f"unbounded arity '[]' is only valid on an enum reference "
+            f"(a space-separated keyword set), not the {cat} {t.name!r}",
+            t.line,
+            t.col,
+        )
     t.category = cat  # 'enum' | 'struct'
 
 
@@ -1353,6 +1382,14 @@ def _validate_default(f: Field, symbols: _Symbols, ctx: _SourceCtx) -> None:
             raise ctx.error(
                 f"bare-identifier default {d.member!r} is only valid on an "
                 f"enum-typed field, but {f.name!r} is not enum-typed",
+                d.line,
+                d.col,
+            )
+        if t.arity is not None:
+            raise ctx.error(
+                f"bare-identifier default {d.member!r} is not valid on the "
+                f"keyword-set field {f.name!r}; a list-typed enum has no scalar "
+                "default",
                 d.line,
                 d.col,
             )

@@ -179,6 +179,36 @@ def test_enum_values_match_snapshot(enum_name, map_name, index):
     assert values == _map(map_name)
 
 
+@pytest.mark.parametrize("elem,attr", [
+    ("Rangefinder", "data"),
+    ("SensorContact", "data"),
+    ("Camera", "output"),
+])
+def test_mapvalues_attrs_are_enum_keyword_lists(elem, attr, index):
+    # MuJoCo reads these attributes with MapValues -- space-separated keyword
+    # LISTS OR'd into a bitmask, not scalar enums. The schema types them as
+    # `EnumName[]` (an unbounded-arity enum reference).
+    field = _field(index["elements"][elem], attr)
+    assert field is not None, f"{elem}.{attr} missing"
+    t = field["type"]
+    assert t["kind"] == "named", f"{elem}.{attr} is not an enum reference"
+    assert t.get("category") == "enum"
+    assert t.get("arity") == {"kind": "unbounded"}, (
+        f"{elem}.{attr} should be a keyword list (EnumName[])"
+    )
+    # No scalar default survives the list retype (the bitmask default is a
+    # read-time concern).
+    assert "default" not in field
+
+
+def test_contactdata_and_raydata_enum_values(index):
+    # The keyword sets match MuJoCo's condata_map / raydata_map surface.
+    ray = [m["value"] for m in index["enums"]["RayData"]["members"]]
+    assert ray == ["dist", "dir", "origin", "point", "normal", "depth"]
+    con = [m["value"] for m in index["enums"]["ContactData"]["members"]]
+    assert con == ["found", "force", "torque", "dist", "pos", "normal", "tangent"]
+
+
 def test_tristate_enum(index):
     # limited-style tri-states are an enum {false,true,auto}, not a variant.
     values = [m["value"] for m in index["enums"]["TriState"]["members"]]

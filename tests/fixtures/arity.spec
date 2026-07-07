@@ -18,4 +18,5 @@ element Sample {
   count     : int32 = 7
   on        : bool = true
   mode      : Mode = a
+  keywords  : Mode[]
 }
