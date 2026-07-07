@@ -11,8 +11,8 @@ IO work; test harnesses authored by a different agent than the code they test.
 | M2 emitters + generated C++ | **DONE** | 660eeab (+recursion fix 5451b46); ~22k generated lines, /W4 clean, zero deps; 74 ctest checks |
 | M3 differential harness | **DONE** | ca512e8; mj_model_diff (mjxmacro full-field diff + mj_forward xpos/xquat invariant, vendored MuJoCo 3.10.0); 387-file pipeline |
 | M3 IO pathfinder (blocks + body tree) | **DONE** | 41001b6; schema-complete xml_binding tables; ps_roundtrip (exit 3 = unsupported-skip); 26 corpus files passing live differential |
-| M3 wave 1: defaults + assets/include | **IN FLIGHT** | families (c)+(d); defaults are data (never applied); include = MuJoCo-exact splice with provenance |
-| M3 wave 2: contact/equality/tendon + actuators | queued | |
+| M3 wave 1: defaults + assets/include | **DONE** | 604c042; 89 corpus files identical / 0 differ; Q-ANGLE amended to form preservation (see quirk register); FreeJoint.align tri-state schema fix; dangling class refs = validation tier-2, not read errors |
+| M3 wave 2: contact/equality/tendon + actuators | **IN FLIGHT** | |
 | M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | queued | |
 | M4 validation, M5 bridge+binding+recompile, M6 SDK, M7 pybind | queued | |
 | Native compiler (mjs_* walk replacing the XML hop; DR-5 swap point) | **survey in flight** | docs/native_compiler_survey.md (investigating mjs_attach policies, reusable mesh/BVH/inertia machinery, decode-surface mapping); golden = mjModel(native) == mjModel(XML path) over the full corpus |
@@ -524,7 +524,7 @@ Every known MJCF/mjSpec quirk and its single owner in ProtoSpec. Each entry beco
 | ID | Quirk (source) | ProtoSpec handling |
 |---|---|---|
 | Q-ORIENT | 5 orientation encodings; `quat` field + `alt` override; MuJoCo resolves at compile (`user_objects.cc:241-330`) | One `Orientation` variant per posed element (DR-3); resolver takes `eulerseq`; reader rejects multiple specifiers (as `ReadAlternative` does) |
-| Q-ANGLE | `compiler.degree` + `eulerseq` deferred to compile | Reader converts all `unit=angle` fields to radians at parse; `eulerseq` kept in compiler block; writer always emits `angle="radian"` |
+| Q-ANGLE | `compiler.degree` + `eulerseq` deferred to compile; conversion is PER-CONSUMER (joint range only for limited hinge/ball, ref/springref only for hinge — `user_objects.cc:3207-3282`) | AMENDED (wave 1): form preservation. Angles are stored exactly as authored and the `angle` unit round-trips verbatim; MuJoCo converts at compile. Read-time conversion was proven wrong by `auto_limits.xml`: one defaults class is consumed by both a hinge (converted) and a free joint (not), so no single pre-converted value is correct. Consumers wanting radians use a resolver that takes the compiler block |
 | Q-FROMTO | `fromto` vs pos/quat (+ site variant) sentinel-guarded | `GeomShape` variant; resolver implements the capsule/cylinder/box axis math |
 | Q-INERTIA | `fullinertia[6]` vs `inertia+iquat` vs `ialt`, NaN sentinels, mutual exclusions (`user_objects.cc:2705-2716`) | `InertiaSpec` variant; exclusivity is structural; eigen-decomposition in resolver |
 | Q-AUTO | `limited`/`actlimited`/`ctrllimited`/`forcelimited`/`inertiafromgeom`/`align` tri-states | `TriState` enum {False,True,Auto}; never resolved in the tree; `Resolve(autolimits, ...)` helper mirrors `checklimited` (`user_objects.cc:175-187`) |
