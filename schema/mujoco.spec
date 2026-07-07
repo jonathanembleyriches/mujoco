@@ -343,6 +343,90 @@ mixin Posed {
   orient : variant Orientation     # quat | axisangle | xyaxes | zaxis | euler
 }
 
+# --- Unions (ordered heterogeneous child lists / any-of refs) -------------
+
+union ActuatorAny =
+    ActuatorGeneral
+  | Motor
+  | Position
+  | Velocity
+  | IntVelocity
+  | Damper
+  | Cylinder
+  | Muscle
+  | Adhesion
+  | DcMotor
+  | ActuatorPlugin
+
+union SensorAny =
+    Touch
+  | Accelerometer
+  | Velocimeter
+  | Gyro
+  | Force
+  | Torque
+  | Magnetometer
+  | Camprojection
+  | Rangefinder
+  | Jointpos
+  | Jointvel
+  | Tendonpos
+  | Tendonvel
+  | Actuatorpos
+  | Actuatorvel
+  | Actuatorfrc
+  | Jointactuatorfrc
+  | Tendonactuatorfrc
+  | Ballquat
+  | Ballangvel
+  | Jointlimitpos
+  | Jointlimitvel
+  | Jointlimitfrc
+  | Tendonlimitpos
+  | Tendonlimitvel
+  | Tendonlimitfrc
+  | Framepos
+  | Framequat
+  | Framexaxis
+  | Frameyaxis
+  | Framezaxis
+  | Framelinvel
+  | Frameangvel
+  | Framelinacc
+  | Frameangacc
+  | Subtreecom
+  | Subtreelinvel
+  | Subtreeangmom
+  | Insidesite
+  | Distance
+  | Normal
+  | Fromto
+  | SensorContact
+  | EPotential
+  | EKinetic
+  | Clock
+  | Tactile
+  | SensorUser
+  | SensorPlugin
+
+union EqualityAny =
+    Connect
+  | Weld
+  | EqualityJoint
+  | EqualityTendon
+  | EqualityFlex
+  | Flexvert
+  | Flexstrain
+
+union TendonAny =
+    Spatial
+  | Fixed
+
+union PathItemAny =
+    SpatialSite
+  | SpatialGeom
+  | Pulley
+
 # --- Elements -------------------------------------------------------------
 
 element Model (xml="mujoco") {
@@ -1168,13 +1252,7 @@ element Exclude {
 }
 
 element Equality {
-  children connects : Connect *
-  children welds : Weld *
-  children equalityJoints : EqualityJoint *
-  children equalityTendons : EqualityTendon *
-  children equalityFlexs : EqualityFlex *
-  children flexverts : Flexvert *
-  children flexstrains : Flexstrain *
+  children equalities : EqualityAny *
 }
 
 element Connect {
@@ -1219,8 +1297,8 @@ element EqualityJoint (xml="joint") {
 element EqualityTendon (xml="tendon") {
   name     : string   # element name
   dclass   : ref<Default> (xml="class")   # default class
-  tendon1  : ref<Spatial>
-  tendon2  : ref<Spatial>
+  tendon1  : ref<TendonAny>
+  tendon2  : ref<TendonAny>
   polycoef : double[]
   active   : bool = true   # is equality initially active
   solref   : double[0..2]   # solver reference
@@ -1256,8 +1334,7 @@ element Flexstrain {
 }
 
 element Tendon {
-  children spatials : Spatial *
-  children fixeds : Fixed *
+  children tendons : TendonAny *
 }
 
 element Spatial {
@@ -1282,9 +1359,7 @@ element Spatial {
   armature           : double   # inertia associated with tendon velocity
   rgba               : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   user               : double[]   # user data
-  children spatialSites : SpatialSite *
-  children spatialGeoms : SpatialGeom *
-  children pulleys : Pulley *
+  children path : PathItemAny *
 }
 
 element SpatialSite (xml="site") {
@@ -1328,17 +1403,7 @@ element FixedJoint (xml="joint") {
 }
 
 element Actuator {
-  children actuatorGenerals : ActuatorGeneral *
-  children motors : Motor *
-  children positions : Position *
-  children velocitys : Velocity *
-  children intVelocitys : IntVelocity *
-  children dampers : Damper *
-  children cylinders : Cylinder *
-  children muscles : Muscle *
-  children adhesions : Adhesion *
-  children dcMotors : DcMotor *
-  children actuatorPlugins : ActuatorPlugin *
+  children actuators : ActuatorAny *
 }
 
 element ActuatorGeneral (xml="general") {
@@ -1362,7 +1427,7 @@ element ActuatorGeneral (xml="general") {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1397,7 +1462,7 @@ element Motor {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1424,7 +1489,7 @@ element Position {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1454,7 +1519,7 @@ element Velocity {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1483,7 +1548,7 @@ element IntVelocity {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1511,7 +1576,7 @@ element Damper {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1538,7 +1603,7 @@ element Cylinder {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1568,7 +1633,7 @@ element Muscle {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   timeconst     : double   # time constant of the activation dynamics
@@ -1615,7 +1680,7 @@ element DcMotor {
   user          : double[]   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
   site          : ref<Site>
@@ -1658,7 +1723,7 @@ element ActuatorPlugin (xml="plugin") {
   actdim        : int32   # number of activation variables
   dyntype       : DynType   # dynamics type
   dynprm        : double[10]   # dynamics parameters
-  tendon        : ref<Spatial>
+  tendon        : ref<TendonAny>
   cranksite     : ref<Site>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   user          : double[]   # user data
@@ -1667,55 +1732,7 @@ element ActuatorPlugin (xml="plugin") {
 }
 
 element Sensor {
-  children touchs : Touch *
-  children accelerometers : Accelerometer *
-  children velocimeters : Velocimeter *
-  children gyros : Gyro *
-  children forces : Force *
-  children torques : Torque *
-  children magnetometers : Magnetometer *
-  children camprojections : Camprojection *
-  children rangefinders : Rangefinder *
-  children jointpos : Jointpos *
-  children jointvels : Jointvel *
-  children tendonpos : Tendonpos *
-  children tendonvels : Tendonvel *
-  children actuatorpos : Actuatorpos *
-  children actuatorvels : Actuatorvel *
-  children actuatorfrcs : Actuatorfrc *
-  children jointactuatorfrcs : Jointactuatorfrc *
-  children tendonactuatorfrcs : Tendonactuatorfrc *
-  children ballquats : Ballquat *
-  children ballangvels : Ballangvel *
-  children jointlimitpos : Jointlimitpos *
-  children jointlimitvels : Jointlimitvel *
-  children jointlimitfrcs : Jointlimitfrc *
-  children tendonlimitpos : Tendonlimitpos *
-  children tendonlimitvels : Tendonlimitvel *
-  children tendonlimitfrcs : Tendonlimitfrc *
-  children framepos : Framepos *
-  children framequats : Framequat *
-  children framexaxis : Framexaxis *
-  children frameyaxis : Frameyaxis *
-  children framezaxis : Framezaxis *
-  children framelinvels : Framelinvel *
-  children frameangvels : Frameangvel *
-  children framelinaccs : Framelinacc *
-  children frameangaccs : Frameangacc *
-  children subtreecoms : Subtreecom *
-  children subtreelinvels : Subtreelinvel *
-  children subtreeangmoms : Subtreeangmom *
-  children insidesites : Insidesite *
-  children distances : Distance *
-  children normals : Normal *
-  children fromtos : Fromto *
-  children sensorContacts : SensorContact *
-  children ePotentials : EPotential *
-  children eKinetics : EKinetic *
-  children clocks : Clock *
-  children tactiles : Tactile *
-  children sensorUsers : SensorUser *
-  children sensorPlugins : SensorPlugin *
+  children sensors : SensorAny *
 }
 
 element Touch {
@@ -1855,7 +1872,7 @@ element Jointvel {
 
 element Tendonpos {
   name     : string   # element name
-  tendon   : ref<Spatial>
+  tendon   : ref<TendonAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -1867,7 +1884,7 @@ element Tendonpos {
 
 element Tendonvel {
   name     : string   # element name
-  tendon   : ref<Spatial>
+  tendon   : ref<TendonAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -1927,7 +1944,7 @@ element Jointactuatorfrc {
 
 element Tendonactuatorfrc {
   name     : string   # element name
-  tendon   : ref<Spatial>
+  tendon   : ref<TendonAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -1999,7 +2016,7 @@ element Jointlimitfrc {
 
 element Tendonlimitpos {
   name     : string   # element name
-  tendon   : ref<Spatial>
+  tendon   : ref<TendonAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2011,7 +2028,7 @@ element Tendonlimitpos {
 
 element Tendonlimitvel {
   name     : string   # element name
-  tendon   : ref<Spatial>
+  tendon   : ref<TendonAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2023,7 +2040,7 @@ element Tendonlimitvel {
 
 element Tendonlimitfrc {
   name     : string   # element name
-  tendon   : ref<Spatial>
+  tendon   : ref<TendonAny>
   nsample  : int32
   interp   : InterpType
   delay    : double

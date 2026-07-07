@@ -12,18 +12,20 @@ The normative grammar is plan Section 5. It is reproduced here with the addition
 and clarifications this implementation commits to (all underspecified points are
 resolved conservatively and noted):
 
-    schema     := header (enumdef | structdef | variantdef | mixindef | elemdef)*
+    schema     := header (enumdef | structdef | variantdef | uniondef
+                          | mixindef | elemdef)*
     header     := "mujoco_version" STRING
     enumdef    := "enum" NAME "{" (NAME "=" STRING)+ "}"
     structdef  := "struct" NAME "{" field* "}"
     variantdef := "variant" NAME "{" (NAME ":" type)+ "}"          # ADDED (see below)
+    uniondef   := "union" NAME "=" NAME ("|" NAME)*                 # ADDED (see below)
     mixindef   := "mixin" NAME "{" field* "}"
     elemdef    := "element" NAME annots? "{" (usestmt | field | child)* "}"
     usestmt    := "use" NAME
-    child      := "children" NAME ":" NAME cardinality             # cardinality: * ? !
+    child      := "children" NAME ":" NAME cardinality             # NAME: element | union
     field      := NAME ":" type annots? default? comment?
     type       := prim ("[" INT "]" | "[" INT ".." INT "]" | "[]")?
-                | "ref" "<" NAME ">" | "variant" NAME | NAME
+                | "ref" "<" NAME ">" | "variant" NAME | NAME       # ref<NAME>: element | union
     annots     := "(" (key ("=" value)?),* ")"
     default    := "=" (literal | NAME | "{" literal,* "}")
 
@@ -37,6 +39,19 @@ Grammar decisions beyond the plan
   ``variant NAME`` usage untouched. ``variant`` at the top level is a definition;
   ``variant NAME`` after ``field ":"`` is a type reference -- the two never
   collide because they occur in disjoint syntactic positions.
+* union definition form (ADDED). MJCF has sections whose *document order across
+  different element tags* is semantic (the ids/data-addresses of actuators,
+  sensors, equality constraints and tendons all follow interleaved source
+  order, and a spatial tendon's routing IS the interleave of site/geom/pulley
+  path items). A per-type child list cannot express that. A ``union NAME = A |
+  B | C`` names an ordered heterogeneous set of member *elements*; it is usable
+  in exactly two positions and nowhere else:
+    - ``children NAME : UnionName cardinality`` -- one ordered child list whose
+      items may be any member element, source order preserved; and
+    - ``ref<UnionName>`` -- a reference that may target any member element's
+      namespace (e.g. ``ref<TendonAny>`` = "any tendon", spatial or fixed).
+  A union used as a plain field type is a diagnosed error. Members must resolve
+  to elements, must be unique, and a union may not contain another union.
 * Element body order is relaxed. The plan writes ``("use" NAME)* field* child*``.
   Members are instead dispatched by leading token (``use`` / ``children`` /
   otherwise a field) and may interleave; flattening still injects mixin fields
@@ -61,16 +76,23 @@ source order (which is semantic). Every node carries integer ``line``/``col``
 (1-based). Keys that are null/empty/false are omitted; ``from_json`` restores
 them, so ``to_json -> from_json -> to_json`` is a fixpoint.
 
-    Schema      {mujoco_version, enums[], structs[], variants[], mixins[],
-                 elements[], line, col}
+    Schema      {mujoco_version, enums[], structs[], variants[], unions[],
+                 mixins[], elements[], line, col}
     EnumDef     {name, members[], line, col}
     EnumMember  {name, value, doc?, line, col}          # value = XML keyword
     StructDef   {name, fields[], line, col}
     VariantDef  {name, arms[], line, col}
     VariantArm  {tag, type, doc?, line, col}
+    UnionDef    {name, members[], line, col}            # members[]: element
+                                                        #   names, source order
     MixinDef    {name, fields[], line, col}
     ElementDef  {name, annotations?{xml}, uses[], fields[], children[], line, col}
-    ChildDef    {name, element, cardinality, line, col}  # cardinality:
+    ChildDef    {name, (element | union), cardinality, line, col}
+                                                         # element XOR union;
+                                                         #   union -> a union
+                                                         #   name (heterogeneous
+                                                         #   child list).
+                                                         # cardinality:
                                                          #   zero_or_more|zero_or_one|one
     Field       {name, type, optional, annotations?, default?, doc?,
                  source_mixin?, line, col}
@@ -78,7 +100,7 @@ them, so ``to_json -> from_json -> to_json`` is a fixpoint.
                   kind=prim    -> {prim, arity?}
                     arity      -> {kind=fixed, size} | {kind=range, min, max}
                                 | {kind=unbounded}
-                  kind=ref     -> {target}            # target is an element name
+                  kind=ref     -> {target}            # target: element or union
                   kind=variant -> {target}            # target is a variant name
                   kind=named   -> {name, category}    # category: enum|struct
     DefaultValue {kind, ..., line, col}
@@ -406,6 +428,41 @@ class VariantDef:
 
 
 @dataclass
+class _UnionMember:
+    """A ``union`` member (an element name plus provenance for member errors).
+
+    Serialized as a bare name in the union's ``members`` list; line/col are not
+    part of the JSON contract (mirrors :class:`_Use`)."""
+
+    name: str
+    line: int
+    col: int
+
+
+@dataclass
+class UnionDef:
+    name: str
+    line: int
+    col: int
+    members: list[_UnionMember] = _dc_field(default_factory=list)
+
+    def to_json(self) -> dict:
+        return {
+            "name": self.name,
+            "members": [m.name for m in self.members],
+            "line": self.line,
+            "col": self.col,
+        }
+
+    @staticmethod
+    def from_json(d: dict) -> "UnionDef":
+        return UnionDef(
+            name=d["name"], line=d["line"], col=d["col"],
+            members=[_UnionMember(name=n, line=0, col=0) for n in d["members"]],
+        )
+
+
+@dataclass
 class MixinDef:
     name: str
     line: int
@@ -430,26 +487,36 @@ class MixinDef:
 
 @dataclass
 class ChildDef:
+    """An ordered child list. Its items are all one ``element``, or -- when
+    ``union`` is set instead -- any member of that union (a heterogeneous list
+    preserving source order). Exactly one of ``element``/``union`` is set; at
+    parse time the target name lands in ``element`` and validation reclassifies
+    it to ``union`` once the symbol resolves."""
+
     name: str
-    element: str
     cardinality: str
     line: int
     col: int
+    element: Optional[str] = None
+    union: Optional[str] = None
 
     def to_json(self) -> dict:
-        return {
-            "name": self.name,
-            "element": self.element,
-            "cardinality": self.cardinality,
-            "line": self.line,
-            "col": self.col,
-        }
+        d: dict[str, Any] = {"name": self.name}
+        if self.union is not None:
+            d["union"] = self.union
+        else:
+            d["element"] = self.element
+        d["cardinality"] = self.cardinality
+        d["line"] = self.line
+        d["col"] = self.col
+        return d
 
     @staticmethod
     def from_json(d: dict) -> "ChildDef":
         return ChildDef(
-            name=d["name"], element=d["element"], cardinality=d["cardinality"],
+            name=d["name"], cardinality=d["cardinality"],
             line=d["line"], col=d["col"],
+            element=d.get("element"), union=d.get("union"),
         )
 
 
@@ -510,6 +577,7 @@ class Schema:
     enums: list[EnumDef] = _dc_field(default_factory=list)
     structs: list[StructDef] = _dc_field(default_factory=list)
     variants: list[VariantDef] = _dc_field(default_factory=list)
+    unions: list[UnionDef] = _dc_field(default_factory=list)
     mixins: list[MixinDef] = _dc_field(default_factory=list)
     elements: list[ElementDef] = _dc_field(default_factory=list)
 
@@ -522,6 +590,7 @@ class Schema:
             "enums": [e.to_json() for e in by_name(self.enums)],
             "structs": [s.to_json() for s in by_name(self.structs)],
             "variants": [v.to_json() for v in by_name(self.variants)],
+            "unions": [u.to_json() for u in by_name(self.unions)],
             "mixins": [m.to_json() for m in by_name(self.mixins)],
             "elements": [e.to_json() for e in by_name(self.elements)],
             "line": self.line,
@@ -537,6 +606,7 @@ class Schema:
             enums=[EnumDef.from_json(x) for x in d["enums"]],
             structs=[StructDef.from_json(x) for x in d["structs"]],
             variants=[VariantDef.from_json(x) for x in d["variants"]],
+            unions=[UnionDef.from_json(x) for x in d.get("unions", [])],
             mixins=[MixinDef.from_json(x) for x in d["mixins"]],
             elements=[ElementDef.from_json(x) for x in d["elements"]],
         )
@@ -564,7 +634,7 @@ _TOKEN_RE = re.compile(
     | (?P<NUMBER>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)
     | (?P<NAME>[A-Za-z_][A-Za-z0-9_]*)
     | (?P<RANGE>\.\.)
-    | (?P<PUNCT>[{}()\[\]<>:=,*?!])
+    | (?P<PUNCT>[{}()\[\]<>:=,*?!|])
     """,
     re.VERBOSE,
 )
@@ -689,7 +759,7 @@ class _Parser:
             if tok.type != "NAME":
                 raise self._error(
                     "expected a top-level definition "
-                    "(enum, struct, variant, mixin, element)",
+                    "(enum, struct, variant, union, mixin, element)",
                     tok,
                 )
             kw = tok.value
@@ -699,6 +769,8 @@ class _Parser:
                 schema.structs.append(self._parse_struct())
             elif kw == "variant":
                 schema.variants.append(self._parse_variant_def())
+            elif kw == "union":
+                schema.unions.append(self._parse_union_def())
             elif kw == "mixin":
                 schema.mixins.append(self._parse_mixin())
             elif kw == "element":
@@ -706,7 +778,7 @@ class _Parser:
             else:
                 raise self._error(
                     f"unexpected {kw!r}: expected "
-                    "enum, struct, variant, mixin, or element",
+                    "enum, struct, variant, union, mixin, or element",
                     tok,
                 )
         return schema
@@ -796,6 +868,21 @@ class _Parser:
             )
         return node
 
+    def _parse_union_def(self) -> UnionDef:
+        self._advance()  # 'union'
+        name = self._expect_name("a union name")
+        node = UnionDef(name=name.value, line=name.line, col=name.col)
+        self._expect_punct("=")
+        first = self._expect_name("a union member element name")
+        node.members.append(
+            _UnionMember(name=first.value, line=first.line, col=first.col)
+        )
+        while self._check("PUNCT", "|"):
+            self._advance()
+            m = self._expect_name("a union member element name")
+            node.members.append(_UnionMember(name=m.value, line=m.line, col=m.col))
+        return node
+
     def _parse_element(self) -> ElementDef:
         self._advance()  # 'element'
         name = self._expect_name("an element name")
@@ -835,6 +922,8 @@ class _Parser:
             )
         self._advance()
         # Located at the child element type so resolution errors point there.
+        # The target lands in ``element``; validation reclassifies it to
+        # ``union`` if the name resolves to a union.
         return ChildDef(
             name=fname.value,
             element=elem.value,
@@ -1110,6 +1199,7 @@ def _validate(schema: Schema, ctx: _SourceCtx) -> None:
         ("enum", schema.enums),
         ("struct", schema.structs),
         ("variant", schema.variants),
+        ("union", schema.unions),
         ("mixin", schema.mixins),
         ("element", schema.elements),
     ):
@@ -1131,6 +1221,9 @@ def _validate(schema: Schema, ctx: _SourceCtx) -> None:
 
     for variant in schema.variants:
         _validate_variant(variant, symbols, ctx)
+
+    for union in schema.unions:
+        _validate_union(union, symbols, ctx)
 
     for elem in schema.elements:
         for f in elem.fields:
@@ -1170,7 +1263,9 @@ def _resolve_type(t: TypeRef, symbols: _Symbols, ctx: _SourceCtx) -> None:
                 t.line,
                 t.col,
             )
-        if entry[0] != "element":
+        # A ref may target an element (one namespace) or a union (the union of
+        # its members' namespaces, e.g. ref<TendonAny> = spatial or fixed).
+        if entry[0] not in ("element", "union"):
             raise ctx.error(
                 f"ref<{t.target}> target {t.target!r} is a {entry[0]}, not an element",
                 t.line,
@@ -1200,6 +1295,14 @@ def _resolve_type(t: TypeRef, symbols: _Symbols, ctx: _SourceCtx) -> None:
     if cat == "variant":
         raise ctx.error(
             f"{t.name!r} is a variant; write 'variant {t.name}'", t.line, t.col
+        )
+    if cat == "union":
+        raise ctx.error(
+            f"{t.name!r} is a union and cannot be used as a field type; use it in "
+            f"a child list ('children NAME : {t.name} *') or a reference "
+            f"('ref<{t.name}>')",
+            t.line,
+            t.col,
         )
     if cat == "mixin":
         raise ctx.error(
@@ -1290,6 +1393,39 @@ def _validate_variant(variant: VariantDef, symbols: _Symbols, ctx: _SourceCtx) -
         _resolve_type(t, symbols, ctx)
 
 
+def _validate_union(union: UnionDef, symbols: _Symbols, ctx: _SourceCtx) -> None:
+    seen: dict[str, _UnionMember] = {}
+    for m in union.members:
+        if m.name in seen:
+            raise ctx.error(
+                f"duplicate member {m.name!r} in union {union.name!r}",
+                m.line,
+                m.col,
+            )
+        seen[m.name] = m
+        entry = symbols.get(m.name)
+        if entry is None:
+            raise ctx.error(
+                f"union {union.name!r} references unknown element {m.name!r}",
+                m.line,
+                m.col,
+            )
+        cat = entry[0]
+        if cat == "union":
+            raise ctx.error(
+                f"union {union.name!r} cannot contain another union "
+                f"({m.name!r}); unions may only contain elements",
+                m.line,
+                m.col,
+            )
+        if cat != "element":
+            raise ctx.error(
+                f"union member {m.name!r} is a {cat}, not an element",
+                m.line,
+                m.col,
+            )
+
+
 def _flatten_element(elem: ElementDef, symbols: _Symbols, ctx: _SourceCtx) -> None:
     """Inject mixin fields (in ``use`` order, then mixin field order) before the
     element's local fields, detecting duplicate field names across the union."""
@@ -1354,6 +1490,12 @@ def _validate_children(elem: ElementDef, symbols: _Symbols, ctx: _SourceCtx) -> 
                 c.line,
                 c.col,
             )
+        if entry[0] == "union":
+            # A union child list: a single ordered, heterogeneous list whose
+            # items are any member element (source order preserved).
+            c.union = c.element
+            c.element = None
+            continue
         if entry[0] != "element":
             raise ctx.error(
                 f"child list {c.name!r} target {c.element!r} is a {entry[0]}, "

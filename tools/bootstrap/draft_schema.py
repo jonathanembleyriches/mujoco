@@ -277,6 +277,22 @@ CHILD_NAMES = {
     ("Default", "Default"): "subclasses",
 }
 
+# Ordered heterogeneous child lists (union child lists). MJCF has sections whose
+# element ids AND data addresses follow interleaved *document order across
+# different tags*: actuator ids, sensor ids + sensor_adr, equality ids, tendon
+# ids, and -- crucially -- the site/geom/pulley path of a spatial tendon, whose
+# interleave IS the routing. A per-type child list cannot express that, so each
+# of these container elements' per-tag child lists collapse into one union child
+# list whose members preserve source order.
+#   container element -> (union name, collapsed child-list field name)
+UNION_CHILD_LISTS = OrderedDict([
+    ("Actuator", ("ActuatorAny", "actuators")),
+    ("Sensor", ("SensorAny", "sensors")),
+    ("Equality", ("EqualityAny", "equalities")),
+    ("Tendon", ("TendonAny", "tendons")),
+    ("Spatial", ("PathItemAny", "path")),
+])
+
 # Elements that mix in Posed (pos + orientation variant).
 POSED = {"Body", "Geom", "Site", "Camera", "Frame"}
 
@@ -307,8 +323,8 @@ REFS = {
     ("Weld", "site2"): "Site",
     ("EqualityJoint", "joint1"): "Joint",
     ("EqualityJoint", "joint2"): "Joint",
-    ("EqualityTendon", "tendon1"): "Spatial",
-    ("EqualityTendon", "tendon2"): "Spatial",
+    ("EqualityTendon", "tendon1"): "TendonAny",
+    ("EqualityTendon", "tendon2"): "TendonAny",
     ("EqualityFlex", "flex"): "Flex",
     ("Flexvert", "flex"): "Flex",
     ("Flexstrain", "flex"): "Flex",
@@ -332,7 +348,7 @@ _ACTUATOR_TRANSMISSION = {
     "jointinparent": "Joint",
     "site": "Site",
     "refsite": "Site",
-    "tendon": "Spatial",
+    "tendon": "TendonAny",
     "slidersite": "Site",
     "cranksite": "Site",
     "body": "Body",
@@ -409,9 +425,9 @@ GLOBAL_ATTR_TYPE = {
 # unambiguous (DR-8). Fallback after explicit REFS; scopes the sensor object
 # slots and similar. `body`, `actuator`, `objname` stay names (ambiguous target).
 GLOBAL_REF = {
-    "site": "Site", "joint": "Joint", "tendon": "Spatial", "geom": "Geom",
+    "site": "Site", "joint": "Joint", "tendon": "TendonAny", "geom": "Geom",
     "camera": "Camera", "geom1": "Geom", "geom2": "Geom", "joint1": "Joint",
-    "joint2": "Joint", "tendon1": "Spatial", "tendon2": "Spatial",
+    "joint2": "Joint", "tendon1": "TendonAny", "tendon2": "TendonAny",
     "body1": "Body", "body2": "Body", "subtree1": "Body", "subtree2": "Body",
     "mesh": "Mesh",
 }
@@ -1008,7 +1024,19 @@ def build():
     elements["Frame"] = frame
     body.children.append(("frames", "Frame", "*"))
 
-    return elements, keyword_maps, used_enums
+    # Collapse the interleaved-order container sections into union child lists.
+    # The members are the container's per-tag child targets in source order.
+    unions = OrderedDict()
+    for container, (uname, fld) in UNION_CHILD_LISTS.items():
+        elem = elements[container]
+        members = []
+        for _fname, target, _card in elem.children:
+            if target not in members:
+                members.append(target)
+        unions[uname] = members
+        elem.children = [(fld, uname, "*")]
+
+    return elements, keyword_maps, used_enums, unions
 
 
 _CHILD_SINGULAR = {"PluginRef": "plugin", "Config": "config", "Attach": "attach",
@@ -1046,7 +1074,7 @@ def _enum_member(key):
 # --------------------------------------------------------------------------- #
 # Emit                                                                         #
 # --------------------------------------------------------------------------- #
-def render(elements, keyword_maps, used_enums):
+def render(elements, keyword_maps, used_enums, unions):
     out = []
     w = out.append
     w('mujoco_version "3.10.0"')
@@ -1123,6 +1151,15 @@ def render(elements, keyword_maps, used_enums):
     w("}")
     w("")
 
+    # Unions (interleaved-order sections + any-tendon refs; see UNION_CHILD_LISTS)
+    w("# --- Unions (ordered heterogeneous child lists / any-of refs) " + "-" * 13)
+    w("")
+    for uname, members in unions.items():
+        w(f"union {uname} =")
+        for i, m in enumerate(members):
+            w(("    " if i == 0 else "  | ") + m)
+        w("")
+
     # Elements, in tree order (Model first), section comment.
     w("# --- Elements " + "-" * 61)
     w("")
@@ -1164,8 +1201,8 @@ def main():
                     help="verify schema/mujoco.spec is up to date, do not write")
     args = ap.parse_args()
 
-    elements, keyword_maps, used_enums = build()
-    text = render(elements, keyword_maps, used_enums)
+    elements, keyword_maps, used_enums, unions = build()
+    text = render(elements, keyword_maps, used_enums, unions)
 
     if args.check:
         with open(OUT, "r", encoding="utf-8") as fh:
@@ -1183,7 +1220,8 @@ def main():
     n_children = sum(len(e.children) for e in elements.values())
     print(f"wrote {OUT}")
     print(f"  {len(elements)} elements, {n_fields} fields, "
-          f"{n_children} child links, {len(used_enums)} enums")
+          f"{n_children} child links, {len(used_enums)} enums, "
+          f"{len(unions)} unions")
 
 
 if __name__ == "__main__":

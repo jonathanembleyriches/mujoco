@@ -14,7 +14,9 @@ Coverage mapping rules (plan Section 5 / task brief):
   by default, its own name;
 * a ``variant`` field covers every XML attribute named by its variant
   definition's arm tags (Orientation's quat/axisangle/xyaxes/zaxis/euler);
-* children cover child elements.
+* a plain child list covers its one child element;
+* a ``union`` child list covers every member element's XML tag (the ordered
+  heterogeneous sections: actuator/sensor/equality/tendon and the spatial path).
 """
 
 import json
@@ -46,6 +48,7 @@ def _schema_index():
     schema = parse_spec(SCHEMA).to_json()
     elements = {e["name"]: e for e in schema["elements"]}
     variants = {v["name"]: v for v in schema["variants"]}
+    unions = {u["name"]: u for u in schema["unions"]}
 
     def xml_tag(elem):
         return (elem.get("annotations") or {}).get("xml", elem["name"].lower())
@@ -63,7 +66,20 @@ def _schema_index():
                 attrs.add((f.get("annotations") or {}).get("xml", f["name"]))
         return attrs
 
-    return elements, tag_of, covered_attrs
+    def child_targets(elem):
+        # child MJCF tag -> covering IDL element. A plain child list contributes
+        # its one element; a union child list contributes every member element.
+        targets = {}
+        for c in elem["children"]:
+            if "union" in c:
+                members = unions[c["union"]]["members"]
+            else:
+                members = [c["element"]]
+            for member in members:
+                targets[tag_of[member]] = member
+        return targets
+
+    return elements, tag_of, covered_attrs, child_targets
 
 
 def _mjcf_root():
@@ -71,7 +87,7 @@ def _mjcf_root():
 
 
 def test_schema_covers_mjcf_tree():
-    elements, tag_of, covered_attrs = _schema_index()
+    elements, tag_of, covered_attrs, child_targets = _schema_index()
     # tag -> idl element name, restricted to the children reachable from a node
     root = _mjcf_root()
 
@@ -84,12 +100,12 @@ def test_schema_covers_mjcf_tree():
             if attr not in have and attr not in WAIVERS_ATTRIBUTES:
                 missing.append((path, "attribute", attr))
         # child tag -> idl element target, from this element's child links
-        child_targets = {tag_of[c["element"]]: c["element"] for c in idl["children"]}
+        targets = child_targets(idl)
         for child in mjcf_node["children"]:
             tag = child["name"]
             if tag in WAIVERS_ELEMENTS:
                 continue
-            target = child_targets.get(tag)
+            target = targets.get(tag)
             if target is None:
                 missing.append((path, "element", tag))
                 continue
@@ -116,7 +132,7 @@ def test_waivers_are_justified():
 def test_waivers_are_used():
     # A waiver that no longer corresponds to an uncovered MJCF item is dead
     # weight -- it should be removed so the list stays honest.
-    elements, tag_of, covered_attrs = _schema_index()
+    elements, tag_of, covered_attrs, child_targets = _schema_index()
     root = _mjcf_root()
 
     present_tags = set()

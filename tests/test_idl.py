@@ -56,7 +56,9 @@ def test_section5_shape_spotchecks():
 # --------------------------------------------------------------------------- #
 # Round-trip                                                                    #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("name", ["section5", "annotations", "cardinality", "arity"])
+@pytest.mark.parametrize(
+    "name", ["section5", "annotations", "cardinality", "arity", "unions"]
+)
 def test_json_roundtrip_fixpoint(name):
     schema = _load(name)
     first = schema.to_json()
@@ -226,6 +228,51 @@ def test_variant_definition():
     assert orient.arms[0].type.name == "Quat"
     assert orient.arms[0].type.category == "struct"
     assert orient.arms[0].doc == "unit quaternion (canonical form)"
+
+
+# --------------------------------------------------------------------------- #
+# Union definition form                                                        #
+# --------------------------------------------------------------------------- #
+def test_union_definition_and_positions():
+    j = _load("unions").to_json()
+    # Members are element names in source order.
+    u = next(u for u in j["unions"] if u["name"] == "ActuatorAny")
+    assert u["members"] == ["Motor", "Position", "Plugin"]
+    # A union child list carries `union` (heterogeneous, ordered), not `element`.
+    actuator = next(e for e in j["elements"] if e["name"] == "Actuator")
+    child = actuator["children"][0]
+    assert child["union"] == "ActuatorAny"
+    assert "element" not in child
+    assert child["cardinality"] == "zero_or_more"
+    # ref<UnionName> resolves to a plain ref whose target is the union name.
+    trans = next(e for e in j["elements"] if e["name"] == "Transmission")
+    target = next(f for f in trans["fields"] if f["name"] == "target")
+    assert target["type"]["kind"] == "ref"
+    assert target["type"]["target"] == "ActuatorAny"
+
+
+def test_union_members_serialize_as_bare_names():
+    # from_json restores a union with the same members (fixpoint already covers
+    # this; this pins the flat member-name shape explicitly).
+    u = next(u for u in _load("unions").unions if u.name == "ActuatorAny")
+    assert [m.name for m in u.members] == ["Motor", "Position", "Plugin"]
+
+
+def test_union_child_list_and_element_child_list_coexist():
+    schema = parse_spec(
+        'mujoco_version "3.10.0"\n'
+        "element A { name : string }\n"
+        "element B { name : string }\n"
+        "union U = A | B\n"
+        "element E {\n"
+        "  children plain : A *\n"
+        "  children mixed : U *\n"
+        "}"
+    )
+    e = next(el for el in schema.elements if el.name == "E")
+    plain, mixed = e.children
+    assert plain.element == "A" and plain.union is None
+    assert mixed.union == "U" and mixed.element is None
 
 
 # --------------------------------------------------------------------------- #
@@ -416,3 +463,64 @@ def test_error_duplicate_child_and_field_collision():
         "}"
     )
     assert "duplicate member 'dup'" in exc.message
+
+
+def test_error_union_unknown_member():
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "element A { name : string }\n"
+        "union U = A | Nope\n"
+    )
+    assert "union 'U' references unknown element 'Nope'" in exc.message
+    assert exc.line == 3
+
+
+def test_error_union_duplicate_member():
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "element A { name : string }\n"
+        "union U = A | A\n"
+    )
+    assert "duplicate member 'A' in union 'U'" in exc.message
+    assert exc.line == 3
+
+
+def test_error_union_contains_union():
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "element A { name : string }\n"
+        "union Inner = A\n"
+        "union Outer = A | Inner\n"
+    )
+    assert "cannot contain another union" in exc.message
+    assert "Inner" in exc.message
+    assert exc.line == 4
+
+
+def test_error_union_member_not_element():
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "struct S { x : int32 }\n"
+        "union U = S\n"
+    )
+    assert "union member 'S' is a struct, not an element" in exc.message
+
+
+def test_error_union_as_field_type():
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "element A { name : string }\n"
+        "union U = A\n"
+        "element E {\n"
+        "  f : U\n"
+        "}"
+    )
+    assert "'U' is a union and cannot be used as a field type" in exc.message
+    assert "ref<U>" in exc.message  # message points at the two legal positions
+    assert (exc.line, exc.col) == (5, 7)  # located at the type token, not the name
+
+
+def test_error_union_empty_members():
+    # `union U =` with no member is a parse error (at least one element required).
+    exc = _expect_error('mujoco_version "3.10.0"\nunion U =\n')
+    assert "union member element name" in exc.message
