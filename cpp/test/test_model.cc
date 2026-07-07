@@ -43,6 +43,36 @@ static std::unique_ptr<Geom> MakeGeom(const std::string& name, double density) {
   return g;
 }
 
+// Body/Frame children are one ordered `subtree : BodyChildAny *` list
+// (document order is id-semantic). These wrap the push/query the tests used to
+// do against per-type lists.
+template <class Child>
+static void PushChild(std::vector<BodyChildAny>& subtree,
+                      std::unique_ptr<Child> c) {
+  BodyChildAny item;
+  item.node = std::move(c);
+  subtree.push_back(std::move(item));
+}
+
+template <class Child>
+static Child* FirstChild(const std::vector<BodyChildAny>& subtree) {
+  for (const auto& item : subtree) {
+    if (auto* p = std::get_if<std::unique_ptr<Child>>(&item.node)) {
+      return p->get();
+    }
+  }
+  return nullptr;
+}
+
+template <class Child>
+static int CountChild(const std::vector<BodyChildAny>& subtree) {
+  int n = 0;
+  for (const auto& item : subtree) {
+    if (std::holds_alternative<std::unique_ptr<Child>>(item.node)) ++n;
+  }
+  return n;
+}
+
 // Build: world -> torso(body) { geom, joint, link(body){ geom, joint },
 // wrist_frame{ geom, joint } }, plus an actuator section with an interleaved
 // union child list. The link body nests a Body directly (body-in-body
@@ -54,41 +84,41 @@ static std::unique_ptr<Model> BuildRobot() {
 
   auto torso = std::make_unique<Body>();
   torso->name = "torso";
-  torso->geoms.push_back(MakeGeom("torso_geom", 1000.0));
+  PushChild(torso->subtree, MakeGeom("torso_geom", 1000.0));
   {
     auto j = std::make_unique<Joint>();
     j->name = "torso_joint";
     j->type = JointType::free;
-    torso->joints.push_back(std::move(j));
+    PushChild(torso->subtree, std::move(j));
   }
 
   // Nest a child Body directly inside torso: Body.bodies is the body-in-body
   // recursion wired from the MJCF body row's R self-reference.
   auto link = std::make_unique<Body>();
   link->name = "link";
-  link->geoms.push_back(MakeGeom("link_geom", 500.0));
+  PushChild(link->subtree, MakeGeom("link_geom", 500.0));
   {
     auto j = std::make_unique<Joint>();
     j->name = "link_joint";
     j->type = JointType::hinge;
     j->axis = std::array<double, 3>{{0.0, 1.0, 0.0}};
-    link->joints.push_back(std::move(j));
+    PushChild(link->subtree, std::move(j));
   }
-  torso->bodies.push_back(std::move(link));
+  PushChild(torso->subtree, std::move(link));
 
   // Also nest through a frame (the schema's persistent grouping element),
   // keeping the body-context-through-Frame path covered.
   auto frame = std::make_unique<Frame>();
   frame->name = "wrist_frame";
-  frame->geoms.push_back(MakeGeom("wrist_geom", 250.0));
+  PushChild(frame->subtree, MakeGeom("wrist_geom", 250.0));
   {
     auto j = std::make_unique<Joint>();
     j->name = "wrist_joint";
     j->type = JointType::hinge;
     j->axis = std::array<double, 3>{{1.0, 0.0, 0.0}};
-    frame->joints.push_back(std::move(j));
+    PushChild(frame->subtree, std::move(j));
   }
-  torso->frames.push_back(std::move(frame));
+  PushChild(torso->subtree, std::move(frame));
   m->worldbody.push_back(std::move(torso));
 
   // Actuator section: interleave Motor / Position / Motor to exercise the
@@ -199,8 +229,8 @@ static void TestClone() {
   CHECK(*orig_torso == *clone_torso);
 
   // Mutating the clone does not touch the original (true deep copy).
-  clone_torso->geoms.front()->density = 7.0;
-  CHECK(m->worldbody.front()->geoms.front()->density.value() == 1000.0);
+  FirstChild<Geom>(clone_torso->subtree)->density = 7.0;
+  CHECK(FirstChild<Geom>(m->worldbody.front()->subtree)->density.value() == 1000.0);
   CHECK(!(*m == *c));
 }
 
@@ -327,33 +357,33 @@ static void TestBodyNesting() {
   Body* torso = m->worldbody.front().get();
 
   // torso holds a directly-nested child Body via Body.bodies.
-  CHECK(torso->bodies.size() == 1);
-  Body* link = torso->bodies.front().get();
+  CHECK(CountChild<Body>(torso->subtree) == 1);
+  Body* link = FirstChild<Body>(torso->subtree);
   CHECK(link && link->name.has_value() && link->name.value() == "link");
-  CHECK(link->joints.size() == 1);
-  CHECK(link->geoms.size() == 1);
+  CHECK(CountChild<Joint>(link->subtree) == 1);
+  CHECK(CountChild<Geom>(link->subtree) == 1);
 
   // Recursion is unbounded: nest another Body under the child.
   auto hand = std::make_unique<Body>();
   hand->name = "hand";
-  hand->bodies.push_back(std::make_unique<Body>());
-  hand->bodies.front()->name = "finger";
-  link->bodies.push_back(std::move(hand));
-  CHECK(link->bodies.size() == 1);
-  CHECK(link->bodies.front()->bodies.front()->name.value() == "finger");
+  PushChild(hand->subtree, std::make_unique<Body>());
+  FirstChild<Body>(hand->subtree)->name = "finger";
+  PushChild(link->subtree, std::move(hand));
+  CHECK(CountChild<Body>(link->subtree) == 1);
+  CHECK(FirstChild<Body>(FirstChild<Body>(link->subtree)->subtree)->name.value() == "finger");
 
   // Deep clone copies the whole nested body chain independently.
   auto c = Clone(*m);
   Body* c_torso = c->worldbody.front().get();
-  Body* c_link = c_torso->bodies.front().get();
-  CHECK(c_link->bodies.front()->bodies.front()->name.value() == "finger");
+  Body* c_link = FirstChild<Body>(c_torso->subtree);
+  CHECK(FirstChild<Body>(FirstChild<Body>(c_link->subtree)->subtree)->name.value() == "finger");
   CHECK(c_link != link);  // distinct storage
 
   // Frame mirrors the body-context set: a Frame can hold nested bodies too.
   Frame frame;
-  frame.bodies.push_back(std::make_unique<Body>());
-  frame.bodies.front()->name = "in_frame";
-  CHECK(frame.bodies.front()->name.value() == "in_frame");
+  PushChild(frame.subtree, std::make_unique<Body>());
+  FirstChild<Body>(frame.subtree)->name = "in_frame";
+  CHECK(FirstChild<Body>(frame.subtree)->name.value() == "in_frame");
 }
 
 // --- keyword tables round-trip -------------------------------------------- //
