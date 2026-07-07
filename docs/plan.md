@@ -15,7 +15,7 @@ IO work; test harnesses authored by a different agent than the code they test.
 | M3 wave 2: contact/equality/tendon + actuators | **IN FLIGHT** | |
 | M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | queued | |
 | M4 validation, M5 bridge+binding+recompile, M6 SDK, M7 pybind | queued | |
-| Native compiler (mjs_* walk replacing the XML hop; DR-5 swap point) | **planned** | survey: docs/native_compiler_survey.md; plan: docs/plan_native_compiler.md (NDR-1..15, milestones N0-N4; XML path retained permanently as oracle/fallback; three-way harness; starts after M3 IO waves + M5 bridge signature) |
+| Native compiler (RAW ProtoSpec->mjModel; NO mjSpec/mjs_*/mjC* anywhere) | **planned** | cd0998a: docs/plan_native_compiler.md — 62-row reuse ledger (18% call-as-is public API, 39% lift-verbatim with provenance registry + drift gate, 35% re-plumb, 5 rows deleted-hazard-classes); direct id-assignment Binding; phases NC1(10% corpus)→NC2(35%)→NC3(62%)→NC4(~80%)→NC5(~100%); XML path retained as oracle/fallback; survey: docs/native_compiler_survey.md (its mjs decode mapping is historical) |
 
 Key facts a fresh session needs: repo is standalone at C:\Users\jonat\Documents\protospec (this
 file is the canonical plan; the copy in the UE plugin's docs/ is a stale scratch draft). Tests:
