@@ -3,9 +3,19 @@
 For every ``.xml`` model in MuJoCo's source tree this walks the document in
 parallel with the ProtoSpec schema (loaded through ``protospec_gen.parse_spec``)
 and inventories what the corpus actually uses: every element tag in its parent
-context, every attribute per element, and every value of a schema-typed enum
-attribute. It then reports what the schema does NOT cover, so each gap is a
-visible, actionable data point rather than a silent omission.
+context, every distinct (parent element, child element) containment PAIR, every
+attribute per element, and every value of a schema-typed enum attribute. It then
+reports what the schema does NOT cover, so each gap is a visible, actionable data
+point rather than a silent omission.
+
+The pair dimension exists because element-tag resolution alone cannot catch a
+missing *containment* edge: MuJoCo encodes body-in-body (and default-in-default)
+recursion via the MJCF[] R type-code self-reference, so a nested ``<body>``
+always *resolves* to the Body element (the reader's body-row special case), even
+when the schema's Body has no child link back to Body. The pair check verifies
+each observed (parent, child) edge against the schema's actual child links
+(through body-context aliasing, worldbody/frame/replicate -> Body), so a missing
+self-recursive link surfaces as an unknown pair instead of passing silently.
 
 Coverage-mapping conventions (plan Section 5; identical to the drift gate in
 ``tests/test_schema_coverage.py``):
@@ -185,10 +195,13 @@ class _Inventory:
         self.n_elements = 0
         self.n_attributes = 0
         self.n_enum_values = 0
+        self.n_pairs = 0
         self.elem_kinds: set = set()  # distinct (context, tag)
+        self.pair_kinds: set = set()  # distinct (parent element, child element)
         self.attr_kinds: set = set()  # distinct (element, attr)
         self.enum_kinds: set = set()  # distinct (element, attr, value)
         self.unknown_elements: dict = {}  # (context, tag) -> _Gap
+        self.unknown_pairs: dict = {}  # (parent element, child element) -> _Gap
         self.unknown_attributes: dict = {}  # (element, attr) -> _Gap
         self.unknown_enum_values: dict = {}  # (element, attr, value) -> _Gap
 
@@ -255,9 +268,23 @@ class _Inventory:
             if attr_elem is None:
                 self._flag(self.unknown_elements, (ctx_name, tag), relpath)
                 continue
+            self._record_pair(ctx_name, attr_elem, relpath)
             info = self._index.info(attr_elem)
             self._record_attrs(child, info, relpath)
             self._descend(child, child_ctx, relpath)
+
+    def _record_pair(self, parent_ctx: str, child_elem: str, relpath: str) -> None:
+        # A (parent element, child element) containment edge. Verified against
+        # the schema's own child links (body-context aliasing applied via
+        # child_targets_for), so a self-recursive edge (body-in-body) that the
+        # reader's body-row special case masks still surfaces here if the schema
+        # lacks the link.
+        self.n_pairs += 1
+        key = (parent_ctx, child_elem)
+        self.pair_kinds.add(key)
+        reachable = set(self._index.child_targets_for(parent_ctx).values())
+        if child_elem not in reachable:
+            self._flag(self.unknown_pairs, key, relpath)
 
     def _record_construct_attrs(self, elem, relpath: str) -> None:
         # Attributes of the read-time include construct: usage is counted but not
@@ -387,10 +414,21 @@ def build_report(corpus: Path, schema_path: Path) -> dict:
             })
         return sorted(out, key=lambda d: (d["element"], d["attribute"], d["value"]))
 
+    def pair_items():
+        out = []
+        for (parent, child), gap in inv.unknown_pairs.items():
+            out.append({
+                "parent": parent, "child": child,
+                "files_count": len(gap.files), "example_files": gap.examples(),
+            })
+        return sorted(out, key=lambda d: (d["parent"], d["child"]))
+
     n_elem_kinds = len(inv.elem_kinds)
+    n_pair_kinds = len(inv.pair_kinds)
     n_attr_kinds = len(inv.attr_kinds)
     n_enum_kinds = len(inv.enum_kinds)
     u_elem = len(inv.unknown_elements)
+    u_pair = len(inv.unknown_pairs)
     u_attr = len(inv.unknown_attributes)
     u_enum = len(inv.unknown_enum_values)
 
@@ -404,6 +442,7 @@ def build_report(corpus: Path, schema_path: Path) -> dict:
         },
         "usage": {
             "elements": inv.n_elements,
+            "pairs": inv.n_pairs,
             "attributes": inv.n_attributes,
             "enum_values": inv.n_enum_values,
         },
@@ -411,6 +450,9 @@ def build_report(corpus: Path, schema_path: Path) -> dict:
             "distinct_elements": n_elem_kinds,
             "unknown_elements": u_elem,
             "elements_covered_pct": _pct(n_elem_kinds - u_elem, n_elem_kinds),
+            "distinct_pairs": n_pair_kinds,
+            "unknown_pairs": u_pair,
+            "pairs_covered_pct": _pct(n_pair_kinds - u_pair, n_pair_kinds),
             "distinct_attributes": n_attr_kinds,
             "unknown_attributes": u_attr,
             "attributes_covered_pct": _pct(n_attr_kinds - u_attr, n_attr_kinds),
@@ -420,6 +462,7 @@ def build_report(corpus: Path, schema_path: Path) -> dict:
         },
         "unknown": {
             "elements": elem_items(),
+            "pairs": pair_items(),
             "attributes": attr_items(),
             "enum_values": enum_items(),
         },
@@ -462,6 +505,8 @@ def main(argv: Optional[list] = None) -> int:
           f"{c['unparseable']} unparseable")
     print(f"elements {cov['elements_covered_pct']}% covered "
           f"({cov['unknown_elements']} unknown of {cov['distinct_elements']}); "
+          f"pairs {cov['pairs_covered_pct']}% "
+          f"({cov['unknown_pairs']} unknown of {cov['distinct_pairs']}); "
           f"attributes {cov['attributes_covered_pct']}% "
           f"({cov['unknown_attributes']} unknown of {cov['distinct_attributes']}); "
           f"enum values {cov['enum_values_covered_pct']}% "

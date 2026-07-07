@@ -535,6 +535,7 @@ std::unique_ptr<Body> Clone(const Body& src) {
   out->plugin = ps::PtrVecClone(src.plugin);
   out->composites = ps::PtrVecClone(src.composites);
   out->flexcomps = ps::PtrVecClone(src.flexcomps);
+  out->bodies = ps::PtrVecClone(src.bodies);
   out->frames = ps::PtrVecClone(src.frames);
   out->replicates = ps::PtrVecClone(src.replicates);
   return out;
@@ -560,6 +561,7 @@ bool operator==(const Body& a, const Body& b) {
          ps::PtrVecEq(a.plugin, b.plugin) &&
          ps::PtrVecEq(a.composites, b.composites) &&
          ps::PtrVecEq(a.flexcomps, b.flexcomps) &&
+         ps::PtrVecEq(a.bodies, b.bodies) &&
          ps::PtrVecEq(a.frames, b.frames) &&
          ps::PtrVecEq(a.replicates, b.replicates);
 }
@@ -1836,6 +1838,9 @@ std::unique_ptr<Frame> Clone(const Frame& src) {
   out->plugin = ps::PtrVecClone(src.plugin);
   out->composites = ps::PtrVecClone(src.composites);
   out->flexcomps = ps::PtrVecClone(src.flexcomps);
+  out->bodies = ps::PtrVecClone(src.bodies);
+  out->frames = ps::PtrVecClone(src.frames);
+  out->replicates = ps::PtrVecClone(src.replicates);
   return out;
 }
 
@@ -1854,7 +1859,10 @@ bool operator==(const Frame& a, const Frame& b) {
          ps::PtrVecEq(a.lights, b.lights) &&
          ps::PtrVecEq(a.plugin, b.plugin) &&
          ps::PtrVecEq(a.composites, b.composites) &&
-         ps::PtrVecEq(a.flexcomps, b.flexcomps);
+         ps::PtrVecEq(a.flexcomps, b.flexcomps) &&
+         ps::PtrVecEq(a.bodies, b.bodies) &&
+         ps::PtrVecEq(a.frames, b.frames) &&
+         ps::PtrVecEq(a.replicates, b.replicates);
 }
 
 std::unique_ptr<Frameangacc> Clone(const Frameangacc& src) {
@@ -3377,6 +3385,7 @@ std::unique_ptr<Replicate> Clone(const Replicate& src) {
   out->plugin = ps::PtrVecClone(src.plugin);
   out->composites = ps::PtrVecClone(src.composites);
   out->flexcomps = ps::PtrVecClone(src.flexcomps);
+  out->bodies = ps::PtrVecClone(src.bodies);
   out->frames = ps::PtrVecClone(src.frames);
   out->replicates = ps::PtrVecClone(src.replicates);
   return out;
@@ -3400,6 +3409,7 @@ bool operator==(const Replicate& a, const Replicate& b) {
          ps::PtrVecEq(a.plugin, b.plugin) &&
          ps::PtrVecEq(a.composites, b.composites) &&
          ps::PtrVecEq(a.flexcomps, b.flexcomps) &&
+         ps::PtrVecEq(a.bodies, b.bodies) &&
          ps::PtrVecEq(a.frames, b.frames) &&
          ps::PtrVecEq(a.replicates, b.replicates);
 }

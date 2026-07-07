@@ -1026,6 +1026,14 @@ def build():
     root = mjcf["elements"]
     walk(root, "")
 
+    # Body-in-body recursion. MuJoCo's MJCF[] table encodes the body tree via
+    # the R type-code self-reference on the body row rather than an explicit
+    # <body> child row (the reader recurses into nested <body> at
+    # xml_native_reader.cc:3877-3925), so _wire_children -- which walks snapshot
+    # child rows -- never adds it. Wire the recursion here as curation data.
+    body = elements["Body"]
+    body.children.append(("bodies", "Body", "*"))
+
     # Frame is first-class (persists in mjSpec) but validates against the body
     # row, so it is not a distinct MJCF tree node. Add it explicitly.
     frame = Element("Frame", "frame")
@@ -1033,9 +1041,6 @@ def build():
     frame.fields.append(Field("name", "string"))
     frame.fields.append(Field(CLASS_FIELD, "ref<Default>", {"xml": "class"},
                               doc="childclass applied to descendants"))
-    body = elements["Body"]
-    for fld, cname, card in body.children:
-        frame.children.append((fld, cname, card))
     elements["Frame"] = frame
     body.children.append(("frames", "Frame", "*"))
 
@@ -1048,8 +1053,7 @@ def build():
     # euler (3814, accumulated as a rotation so unit=angle), sep (3815), and
     # childclass (3826). prefix is written in the corpus (and namespaces the
     # clones) but is not consumed by this vendored reader; it is modelled for
-    # pass-through and round-trip fidelity. It wraps body-context content, so it
-    # mirrors Body's children exactly (including frames and nested replicates).
+    # pass-through and round-trip fidelity.
     replicate = Element("Replicate", "replicate")
     replicate.fields.append(Field("count", "int32", {"required": True},
                                   doc="number of copies to generate"))
@@ -1063,10 +1067,16 @@ def build():
                                   doc="prefix applied to cloned element names"))
     replicate.fields.append(Field("childclass", "ref<Default>",
                                   doc="default class applied to descendants"))
-    body.children.append(("replicates", "Replicate", "*"))
-    for fld, cname, card in body.children:
-        replicate.children.append((fld, cname, card))
     elements["Replicate"] = replicate
+    body.children.append(("replicates", "Replicate", "*"))
+
+    # Frame and Replicate both wrap body-context content, which the reader
+    # resolves through recursive Body() calls (frame at xml_native_reader.cc:3803,
+    # replicate at :3843). They therefore mirror Body's complete body-context
+    # child set -- now including nested bodies, frames and replicates, and attach.
+    for fld, cname, card in body.children:
+        frame.children.append((fld, cname, card))
+        replicate.children.append((fld, cname, card))
 
     # Collapse the interleaved-order container sections into union child lists.
     # The members are the container's per-tag child targets in source order.

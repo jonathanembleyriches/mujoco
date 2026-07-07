@@ -6,6 +6,12 @@ vendored tree is absent) and asserts three things:
 * the study actually inventories a large corpus (> 350 MJCF files);
 * **zero unknown elements** -- every element tag in every file, in its parent
   context, maps to a schema element or a recognized read-time construct;
+* **zero unknown containment pairs** -- every distinct (parent element, child
+  element) edge in the corpus is representable as a schema child link (through
+  body-context aliasing, worldbody/frame/replicate -> Body), unless listed in
+  ``KNOWN_GAP_PAIRS`` with a reason. This dimension catches missing *recursion*
+  edges (body-in-body via the MJCF[] R type-code) that element-tag resolution
+  alone masks;
 * every unknown **attribute** and every unknown **enum value** is a reviewed,
   reasoned entry in ``KNOWN_GAPS`` below -- silence is not allowed, so each gap
   is a visible decision (plan Section 10.5, task brief).
@@ -62,6 +68,13 @@ def _corpus_root() -> Path | None:
 # key: (element_tag, attribute) -> reason
 KNOWN_GAP_ATTRIBUTES: dict[tuple[str, str], str] = {}
 
+# Containment pairs the corpus uses that no schema child link represents. Each
+# is a reviewed decision. Empty: body-in-body recursion is now wired (Body gets
+# `children bodies : Body *`, mirrored onto Frame/Replicate), and the corpus
+# study confirms every observed (parent, child) edge is representable.
+# key: (parent_element, child_element) -> reason
+KNOWN_GAP_PAIRS: dict[tuple[str, str], str] = {}
+
 # Enum attributes whose corpus values fall outside the schema enum. Each is a
 # reviewed decision. key: (element, attribute) -> reason (covers all values).
 #
@@ -101,6 +114,23 @@ def test_zero_unknown_elements(report):
     )
 
 
+def test_unknown_pairs_are_reviewed(report):
+    unlisted = [
+        u for u in report["unknown"]["pairs"]
+        if (u["parent"], u["child"]) not in KNOWN_GAP_PAIRS
+    ]
+    assert not unlisted, (
+        "unreviewed unknown containment pair(s); every (parent, child) edge must "
+        "be representable as a schema child link (add the link or a "
+        "KNOWN_GAP_PAIRS entry with a reason):\n"
+        + "\n".join(
+            f"  {u['parent']} -> {u['child']} "
+            f"({u['files_count']} files, e.g. {u['example_files']})"
+            for u in unlisted
+        )
+    )
+
+
 def test_unknown_attributes_are_reviewed(report):
     unlisted = [
         u for u in report["unknown"]["attributes"]
@@ -134,7 +164,11 @@ def test_unknown_enum_values_are_reviewed(report):
 
 
 def test_known_gaps_carry_reasons():
-    for key, reason in {**KNOWN_GAP_ATTRIBUTES, **KNOWN_GAP_ENUM_VALUES}.items():
+    for key, reason in {
+        **KNOWN_GAP_ATTRIBUTES,
+        **KNOWN_GAP_ENUM_VALUES,
+        **KNOWN_GAP_PAIRS,
+    }.items():
         assert isinstance(reason, str) and reason.strip(), key
 
 

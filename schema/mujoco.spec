@@ -922,6 +922,7 @@ element Body {
   children plugin : PluginRef *
   children composites : Composite *
   children flexcomps : Flexcomp *
+  children bodies : Body *
   children frames : Frame *
   children replicates : Replicate *
 }
@@ -2407,6 +2408,9 @@ element Frame {
   children plugin : PluginRef *
   children composites : Composite *
   children flexcomps : Flexcomp *
+  children bodies : Body *
+  children frames : Frame *
+  children replicates : Replicate *
 }
 
 element Replicate {
@@ -2427,6 +2431,7 @@ element Replicate {
   children plugin : PluginRef *
   children composites : Composite *
   children flexcomps : Flexcomp *
+  children bodies : Body *
   children frames : Frame *
   children replicates : Replicate *
 }

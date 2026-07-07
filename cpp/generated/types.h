@@ -844,6 +844,7 @@ struct Body {
   std::vector<std::unique_ptr<PluginRef>> plugin;
   std::vector<std::unique_ptr<Composite>> composites;
   std::vector<std::unique_ptr<Flexcomp>> flexcomps;
+  std::vector<std::unique_ptr<Body>> bodies;
   std::vector<std::unique_ptr<Frame>> frames;
   std::vector<std::unique_ptr<Replicate>> replicates;
 };
@@ -1513,6 +1514,9 @@ struct Frame {
   std::vector<std::unique_ptr<PluginRef>> plugin;
   std::vector<std::unique_ptr<Composite>> composites;
   std::vector<std::unique_ptr<Flexcomp>> flexcomps;
+  std::vector<std::unique_ptr<Body>> bodies;
+  std::vector<std::unique_ptr<Frame>> frames;
+  std::vector<std::unique_ptr<Replicate>> replicates;
 };
 
 struct Frameangacc {
@@ -2308,6 +2312,7 @@ struct Replicate {
   std::vector<std::unique_ptr<PluginRef>> plugin;
   std::vector<std::unique_ptr<Composite>> composites;
   std::vector<std::unique_ptr<Flexcomp>> flexcomps;
+  std::vector<std::unique_ptr<Body>> bodies;
   std::vector<std::unique_ptr<Frame>> frames;
   std::vector<std::unique_ptr<Replicate>> replicates;
 };

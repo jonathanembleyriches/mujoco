@@ -210,6 +210,7 @@ constexpr ChildDescriptor kChildren_Body[] = {
     {"plugin", "PluginRef", false, Cardinality::ZeroOrMore},
     {"composites", "Composite", false, Cardinality::ZeroOrMore},
     {"flexcomps", "Flexcomp", false, Cardinality::ZeroOrMore},
+    {"bodies", "Body", false, Cardinality::ZeroOrMore},
     {"frames", "Frame", false, Cardinality::ZeroOrMore},
     {"replicates", "Replicate", false, Cardinality::ZeroOrMore},
 };
@@ -809,6 +810,9 @@ constexpr ChildDescriptor kChildren_Frame[] = {
     {"plugin", "PluginRef", false, Cardinality::ZeroOrMore},
     {"composites", "Composite", false, Cardinality::ZeroOrMore},
     {"flexcomps", "Flexcomp", false, Cardinality::ZeroOrMore},
+    {"bodies", "Body", false, Cardinality::ZeroOrMore},
+    {"frames", "Frame", false, Cardinality::ZeroOrMore},
+    {"replicates", "Replicate", false, Cardinality::ZeroOrMore},
 };
 
 constexpr FieldDescriptor kFields_Frameangacc[] = {
@@ -1528,6 +1532,7 @@ constexpr ChildDescriptor kChildren_Replicate[] = {
     {"plugin", "PluginRef", false, Cardinality::ZeroOrMore},
     {"composites", "Composite", false, Cardinality::ZeroOrMore},
     {"flexcomps", "Flexcomp", false, Cardinality::ZeroOrMore},
+    {"bodies", "Body", false, Cardinality::ZeroOrMore},
     {"frames", "Frame", false, Cardinality::ZeroOrMore},
     {"replicates", "Replicate", false, Cardinality::ZeroOrMore},
 };
@@ -6900,7 +6905,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Attach", "attach", ElementType::Attach, kFields_Attach, 3, nullptr, 0, &Present_Attach, &Clear_Attach},
     {"Ballangvel", "ballangvel", ElementType::Ballangvel, kFields_Ballangvel, 9, nullptr, 0, &Present_Ballangvel, &Clear_Ballangvel},
     {"Ballquat", "ballquat", ElementType::Ballquat, kFields_Ballquat, 9, nullptr, 0, &Present_Ballquat, &Clear_Ballquat},
-    {"Body", "body", ElementType::Body, kFields_Body, 8, kChildren_Body, 13, &Present_Body, &Clear_Body},
+    {"Body", "body", ElementType::Body, kFields_Body, 8, kChildren_Body, 14, &Present_Body, &Clear_Body},
     {"Camera", "camera", ElementType::Camera, kFields_Camera, 16, nullptr, 0, &Present_Camera, &Clear_Camera},
     {"Camprojection", "camprojection", ElementType::Camprojection, kFields_Camprojection, 10, nullptr, 0, &Present_Camprojection, &Clear_Camprojection},
     {"Clock", "clock", ElementType::Clock, kFields_Clock, 8, nullptr, 0, &Present_Clock, &Clear_Clock},
@@ -6942,7 +6947,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Flexstrain", "flexstrain", ElementType::Flexstrain, kFields_Flexstrain, 7, nullptr, 0, &Present_Flexstrain, &Clear_Flexstrain},
     {"Flexvert", "flexvert", ElementType::Flexvert, kFields_Flexvert, 6, nullptr, 0, &Present_Flexvert, &Clear_Flexvert},
     {"Force", "force", ElementType::Force, kFields_Force, 9, nullptr, 0, &Present_Force, &Clear_Force},
-    {"Frame", "frame", ElementType::Frame, kFields_Frame, 4, kChildren_Frame, 11, &Present_Frame, &Clear_Frame},
+    {"Frame", "frame", ElementType::Frame, kFields_Frame, 4, kChildren_Frame, 14, &Present_Frame, &Clear_Frame},
     {"Frameangacc", "frameangacc", ElementType::Frameangacc, kFields_Frameangacc, 10, nullptr, 0, &Present_Frameangacc, &Clear_Frameangacc},
     {"Frameangvel", "frameangvel", ElementType::Frameangvel, kFields_Frameangvel, 12, nullptr, 0, &Present_Frameangvel, &Clear_Frameangvel},
     {"Framelinacc", "framelinacc", ElementType::Framelinacc, kFields_Framelinacc, 10, nullptr, 0, &Present_Framelinacc, &Clear_Framelinacc},
@@ -6989,7 +6994,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Position", "position", ElementType::Position, kFields_Position, 28, nullptr, 0, &Present_Position, &Clear_Position},
     {"Pulley", "pulley", ElementType::Pulley, kFields_Pulley, 1, nullptr, 0, &Present_Pulley, &Clear_Pulley},
     {"Rangefinder", "rangefinder", ElementType::Rangefinder, kFields_Rangefinder, 11, nullptr, 0, &Present_Rangefinder, &Clear_Rangefinder},
-    {"Replicate", "replicate", ElementType::Replicate, kFields_Replicate, 6, kChildren_Replicate, 13, &Present_Replicate, &Clear_Replicate},
+    {"Replicate", "replicate", ElementType::Replicate, kFields_Replicate, 6, kChildren_Replicate, 14, &Present_Replicate, &Clear_Replicate},
     {"Sensor", "sensor", ElementType::Sensor, nullptr, 0, kChildren_Sensor, 1, &Present_Sensor, &Clear_Sensor},
     {"SensorContact", "contact", ElementType::SensorContact, kFields_SensorContact, 18, nullptr, 0, &Present_SensorContact, &Clear_SensorContact},
     {"SensorPlugin", "plugin", ElementType::SensorPlugin, kFields_SensorPlugin, 9, kChildren_SensorPlugin, 1, &Present_SensorPlugin, &Clear_SensorPlugin},

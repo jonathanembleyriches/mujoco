@@ -628,8 +628,9 @@ template <class V> void Visit(Body& e, V&& v) {
   v.child(8, "plugin", e.plugin);
   v.child(9, "composites", e.composites);
   v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "frames", e.frames);
-  v.child(12, "replicates", e.replicates);
+  v.child(11, "bodies", e.bodies);
+  v.child(12, "frames", e.frames);
+  v.child(13, "replicates", e.replicates);
   (void)v;
 }
 
@@ -653,8 +654,9 @@ template <class V> void Visit(const Body& e, V&& v) {
   v.child(8, "plugin", e.plugin);
   v.child(9, "composites", e.composites);
   v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "frames", e.frames);
-  v.child(12, "replicates", e.replicates);
+  v.child(11, "bodies", e.bodies);
+  v.child(12, "frames", e.frames);
+  v.child(13, "replicates", e.replicates);
   (void)v;
 }
 
@@ -1886,6 +1888,9 @@ template <class V> void Visit(Frame& e, V&& v) {
   v.child(8, "plugin", e.plugin);
   v.child(9, "composites", e.composites);
   v.child(10, "flexcomps", e.flexcomps);
+  v.child(11, "bodies", e.bodies);
+  v.child(12, "frames", e.frames);
+  v.child(13, "replicates", e.replicates);
   (void)v;
 }
 
@@ -1905,6 +1910,9 @@ template <class V> void Visit(const Frame& e, V&& v) {
   v.child(8, "plugin", e.plugin);
   v.child(9, "composites", e.composites);
   v.child(10, "flexcomps", e.flexcomps);
+  v.child(11, "bodies", e.bodies);
+  v.child(12, "frames", e.frames);
+  v.child(13, "replicates", e.replicates);
   (void)v;
 }
 
@@ -3380,8 +3388,9 @@ template <class V> void Visit(Replicate& e, V&& v) {
   v.child(8, "plugin", e.plugin);
   v.child(9, "composites", e.composites);
   v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "frames", e.frames);
-  v.child(12, "replicates", e.replicates);
+  v.child(11, "bodies", e.bodies);
+  v.child(12, "frames", e.frames);
+  v.child(13, "replicates", e.replicates);
   (void)v;
 }
 
@@ -3403,8 +3412,9 @@ template <class V> void Visit(const Replicate& e, V&& v) {
   v.child(8, "plugin", e.plugin);
   v.child(9, "composites", e.composites);
   v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "frames", e.frames);
-  v.child(12, "replicates", e.replicates);
+  v.child(11, "bodies", e.bodies);
+  v.child(12, "frames", e.frames);
+  v.child(13, "replicates", e.replicates);
   (void)v;
 }
 

@@ -127,6 +127,37 @@ def test_schema_covers_mjcf_tree():
         )
 
 
+def test_r_typed_rows_have_self_recursive_child_link():
+    # MuJoCo encodes recursion in MJCF[] via the R type-code self-reference
+    # (body-in-body, default-in-default) rather than an explicit child row. The
+    # schema must wire each such row back to itself with a child link, or nesting
+    # is silently unrepresentable -- exactly the body-in-body gap this closes.
+    elements, tag_of, _, child_targets = _schema_index()
+    name_by_tag = {tag: name for name, tag in tag_of.items()}
+    root = _mjcf_root()
+
+    r_rows = []
+
+    def collect(node):
+        if node.get("typecode") == "R":
+            r_rows.append(node["name"])
+        for c in node["children"]:
+            collect(c)
+
+    collect(root)
+    assert r_rows, "expected at least the body and default R-typed rows"
+    for tag in r_rows:
+        elem_name = name_by_tag.get(tag)
+        assert elem_name in elements, (
+            f"R-typed MJCF row {tag!r} has no covering schema element"
+        )
+        targets = child_targets(elements[elem_name])
+        assert elem_name in targets.values(), (
+            f"R-typed MJCF row {tag!r} (schema element {elem_name}) is self-"
+            f"recursive, but the schema element has no child link back to itself"
+        )
+
+
 def test_body_row_aliases_resolve_to_elements():
     # worldbody/frame/replicate have no MJCF[] row of their own; MuJoCo validates
     # them against the body row (special_cases.body_row_aliases). Each must still
