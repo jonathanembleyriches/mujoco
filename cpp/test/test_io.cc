@@ -42,6 +42,34 @@ static const Body* World(const Model& m) {
   return m.worldbody.empty() ? nullptr : m.worldbody.front().get();
 }
 
+// A body's children (geoms, joints, sites, sub-bodies, frames, macros, ...)
+// live in one ordered BodyChildAny list to preserve document order. NthOf<T>
+// returns the n-th child of the requested element type, or null.
+template <class T>
+static const T* NthOf(const Body& parent, std::size_t n) {
+  for (const auto& item : parent.subtree) {
+    if (auto* p = std::get_if<std::unique_ptr<T>>(&item.node)) {
+      if (n-- == 0) return p->get();
+    }
+  }
+  return nullptr;
+}
+template <class T>
+static const T* FirstOf(const Body& parent) {
+  return NthOf<T>(parent, 0);
+}
+static const Body* FirstBody(const Body& parent) { return FirstOf<Body>(parent); }
+
+// Count children of a given element type in a body's subtree.
+template <class T>
+static std::size_t CountOf(const Body& parent) {
+  std::size_t c = 0;
+  for (const auto& item : parent.subtree) {
+    if (std::holds_alternative<std::unique_ptr<T>>(item.node)) ++c;
+  }
+  return c;
+}
+
 // --- fixpoint: Read(Write(Read(x))) == Read(x); Write is deterministic ----- //
 static void TestFixpoint() {
   const std::string xml = R"(<mujoco model="rig">
@@ -115,18 +143,18 @@ static void TestAngle() {
     </worldbody>
   </mujoco>)");
   CHECK(r.ok());
-  const Body* b = World(*r.model)->bodies.front().get();
+  const Body* b = FirstBody(*World(*r.model));
   // The body carries the euler orientation exactly as authored (degrees here).
   CHECK(b->orient.has_value());
   const auto& eu = std::get<Euler>(*b->orient);
   CHECK(Near(eu.angles[0], 90.0));
   CHECK(Near(eu.angles[1], 0.0) && Near(eu.angles[2], 0.0));
 
-  const Joint& h = *b->joints[0];
+  const Joint& h = *NthOf<Joint>(*b, 0);
   CHECK(Near((*h.range)[0], -90.0) && Near((*h.range)[1], 180.0));
   CHECK(Near(*h.ref, 90.0));
   CHECK(Near(*h.springref, 45.0));
-  const Joint& s = *b->joints[1];
+  const Joint& s = *NthOf<Joint>(*b, 1);
   CHECK(Near((*s.range)[0], 0.0) && Near((*s.range)[1], 2.0));
   CHECK(Near(*s.ref, 1.0));
 
@@ -141,7 +169,7 @@ static void TestAngle() {
     <worldbody><body euler="1.5707963 0 0"/></worldbody>
   </mujoco>)");
   CHECK(rad.ok());
-  const auto& eu2 = std::get<Euler>(*World(*rad.model)->bodies.front()->orient);
+  const auto& eu2 = std::get<Euler>(*FirstBody(*World(*rad.model))->orient);
   CHECK(Near(eu2.angles[0], 1.5707963));
   std::string rad_out = WriteMjcf(*rad.model);
   CHECK(rad_out.find("angle=\"radian\"") != std::string::npos);
@@ -153,7 +181,7 @@ static void TestOrient() {
     <geom name="g" type="sphere" size="1" axisangle="0 0 1 90"/>
   </worldbody></mujoco>)");
   CHECK(ok.ok());
-  const auto& g = *World(*ok.model)->geoms.front();
+  const auto& g = *FirstOf<Geom>(*World(*ok.model));
   CHECK(g.orient.has_value());
   const auto& aa = std::get<AxisAngle>(*g.orient);
   CHECK(Near(aa.axis[2], 1.0) && Near(aa.angle, 90.0));  // authored, verbatim
@@ -179,12 +207,12 @@ static void TestFromto() {
     <geom name="s" type="sphere" size="0.2"/>
   </worldbody></mujoco>)");
   CHECK(r.ok());
-  const auto& c = *World(*r.model)->geoms[0];
+  const auto& c = *NthOf<Geom>(*World(*r.model), 0);
   CHECK(c.shape.has_value() && std::holds_alternative<FromTo>(*c.shape));
   CHECK(Near(std::get<FromTo>(*c.shape).fromto[5], 1.0));
   CHECK(c.size.has_value() && Near((*c.size)[0], 0.1));
   // No fromto -> shape unset (implicit explicit form), size present.
-  const auto& s = *World(*r.model)->geoms[1];
+  const auto& s = *NthOf<Geom>(*World(*r.model), 1);
   CHECK(!s.shape.has_value());
   CHECK(s.size.has_value() && Near((*s.size)[0], 0.2));
 }
@@ -195,7 +223,7 @@ static void TestInertia() {
     <inertial pos="0 0 0" mass="1" fullinertia="1 2 3 0.1 0.2 0.3"/>
   </body></worldbody></mujoco>)");
   CHECK(full.ok());
-  const auto& body = *World(*full.model)->bodies.front();
+  const auto& body = *FirstBody(*World(*full.model));
   CHECK(!body.inertial.empty());
   const auto& in = *body.inertial.front();
   CHECK(in.inertia.has_value() && std::holds_alternative<FullInertia>(*in.inertia));
@@ -214,7 +242,7 @@ static void TestArity() {
     <geom name="g" type="sphere" size="1" friction="1.5"/>
   </worldbody></mujoco>)");
   CHECK(r.ok());
-  const auto& g = *World(*r.model)->geoms.front();
+  const auto& g = *FirstOf<Geom>(*World(*r.model));
   CHECK(g.friction.has_value() && g.friction->size() == 1);  // filled count = 1
   CHECK(Near((*g.friction)[0], 1.5));
 
@@ -236,7 +264,7 @@ static void TestNumeric() {
   CHECK(r.ok());
   CHECK(r.model->sizes.front()->memory.has_value());
   CHECK(*r.model->sizes.front()->memory == std::to_string(2ull << 20));
-  const auto& j = *World(*r.model)->bodies.front()->joints.front();
+  const auto& j = *FirstOf<Joint>(*FirstBody(*World(*r.model)));
   CHECK(j.armature.has_value() && std::isinf(*j.armature));
 
   // Integer overflow is an error.
@@ -264,7 +292,7 @@ static void TestPresence() {
     <geom name="g" type="box" size="1 1 1"/>
   </worldbody></mujoco>)");
   CHECK(r.ok());
-  const auto& g = *World(*r.model)->geoms.front();
+  const auto& g = *FirstOf<Geom>(*World(*r.model));
   CHECK(g.type.has_value() && *g.type == GeomType::box);
   CHECK(g.size.has_value());
   CHECK(!g.mass.has_value());       // unauthored -> unset (no default written)
@@ -299,27 +327,35 @@ static void TestMalformed() {
         std::string::npos);
 }
 
-// --- unsupported element: distinct, machine-detectable skip signal --------- //
+// --- support boundary: the whole MJCF surface is covered after wave 3 ------- //
 static void TestUnsupported() {
+  // Families that were unsupported skip signals before wave 3 now parse: the
+  // <sensor> section and a geom's <plugin> child are first-class.
   auto r = Parse(R"(<mujoco>
     <worldbody><geom type="sphere" size="1"/></worldbody>
     <sensor/>
   </mujoco>)");
-  CHECK(!r.ok());
-  CHECK(r.unsupported_only());
-  bool found = false;
-  for (const auto& e : r.errors) {
-    if (e.kind == Diagnostic::Kind::UnsupportedElement && e.element == "sensor")
-      found = true;
-  }
-  CHECK(found);
+  CHECK(r.ok());
 
-  // An unsupported child of a supported element also signals skip (geom plugin).
   auto plug = Parse(R"(<mujoco><worldbody>
     <geom type="sphere" size="1"><plugin plugin="x"/></geom>
   </worldbody></mujoco>)");
-  CHECK(!plug.ok());
-  CHECK(plug.unsupported_only());
+  CHECK(plug.ok());
+
+  // A genuinely unknown tag is malformed input (not an unsupported-element
+  // skip): it maps to no child list at all.
+  auto bogus = Parse(R"(<mujoco><worldbody>
+    <notanelement/>
+  </worldbody></mujoco>)");
+  CHECK(!bogus.ok());
+  CHECK(!bogus.unsupported_only());
+  bool unknown = false;
+  for (const auto& e : bogus.errors) {
+    if (e.kind == Diagnostic::Kind::MalformedInput &&
+        e.message.find("unknown element") != std::string::npos)
+      unknown = true;
+  }
+  CHECK(unknown);
 }
 
 // --- root must be <mujoco> ------------------------------------------------- //
@@ -380,7 +416,7 @@ static void TestDefaults() {
   CHECK(sub.dclass.has_value() && *sub.dclass == "sub");
   CHECK(sub.subclasses.size() == 1 && *sub.subclasses.front()->dclass == "leaf");
   // The worldbody geom keeps its class ref by name; no default is applied.
-  const Geom& g = *World(*r.model)->geoms.front();
+  const Geom& g = *FirstOf<Geom>(*World(*r.model));
   CHECK(g.dclass.has_value() && g.dclass->name == "sub");
   CHECK(!g.rgba.has_value());  // class value is NOT merged into the element
 
@@ -425,7 +461,7 @@ static void TestUnknownClassRef() {
     <geom type="sphere" size="1" class="does_not_exist"/>
   </worldbody></mujoco>)");
   CHECK(r.ok());
-  const Geom& g = *World(*r.model)->geoms.front();
+  const Geom& g = *FirstOf<Geom>(*World(*r.model));
   CHECK(g.dclass.has_value() && g.dclass->name == "does_not_exist");
 }
 
@@ -550,10 +586,10 @@ static void TestInclude() {
     CHECK(r.model->defaults.size() == 1);
     CHECK(r.model->defaults.front()->subclasses.size() == 1);
     const Body* w = World(*r.model);
-    CHECK(w->geoms.size() == 1 && *w->geoms.front()->name == "floor");
-    CHECK(w->bodies.size() == 1 && *w->bodies.front()->name == "b");
+    CHECK(CountOf<Geom>(*w) == 1 && *FirstOf<Geom>(*w)->name == "floor");
+    CHECK(CountOf<Body>(*w) == 1 && *FirstBody(*w)->name == "b");
     // Provenance (DR-9): the spliced body's SourceLoc names the INCLUDED file.
-    const Body& b = *w->bodies.front();
+    const Body& b = *FirstBody(*w);
     CHECK(b.loc.file.find("body.xml") != std::string::npos);
     CHECK(b.loc.line == 2);
   }
@@ -898,6 +934,227 @@ static void TestUnionOrderRoundTrip() {
   CHECK(out1 == WriteMjcf(*b.model));
 }
 
+// --- (g) sensors: ordered union, per-tag slot routing, fixpoint ------------ //
+static void TestSensors() {
+  auto r = Parse(R"(<mujoco><sensor>
+    <accelerometer name="a" site="s0" cutoff="5" noise="0.1"/>
+    <gyro name="g" site="s0" interval="0.01"/>
+    <rangefinder name="rf" site="s0" data="dist normal"/>
+    <jointpos name="jp" joint="j0"/>
+    <framepos name="fp" objtype="site" objname="s0" reftype="body" refname="b0"/>
+    <framelinacc name="fa" objtype="body" objname="b0"/>
+    <distance name="d" geom1="g0" body2="b0"/>
+    <contact name="ct" subtree1="b0" geom2="g0" num="3" data="found force"
+             reduce="mindist"/>
+    <clock name="ck"/>
+    <user name="u" objtype="body" objname="b0" datatype="axis" needstage="vel"
+          dim="3"/>
+    <plugin name="pp" plugin="mujoco.sensor.touch_grid" objtype="site"
+            objname="s0"/>
+  </sensor></mujoco>)");
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  const auto& list = r.model->sensors.front()->sensors;
+  CHECK(list.size() == 11);
+  using K = SensorAny::Kind;
+  CHECK(list[0].kind() == K::Accelerometer && list[2].kind() == K::Rangefinder);
+  CHECK(list[10].kind() == K::SensorPlugin);
+  // A `interval` shorter than 2 (Q-ARITY exact=false) is accepted.
+  const Gyro* g = Member<Gyro>(list[1]);
+  CHECK(g && g->interval && g->interval->size() == 1);
+  const Rangefinder* rf = Member<Rangefinder>(list[2]);
+  CHECK(rf && rf->data && rf->data->size() == 2 &&
+        (*rf->data)[0] == RayData::dist && (*rf->data)[1] == RayData::normal);
+  const Framepos* fp = Member<Framepos>(list[4]);
+  CHECK(fp && *fp->objtype == "site" && *fp->reftype == "body" &&
+        *fp->refname == "b0");
+  const SensorContact* ct = Member<SensorContact>(list[7]);
+  CHECK(ct && ct->subtree1->name == "b0" && *ct->num == 3 &&
+        ct->data->size() == 2 && *ct->reduce == ContactReduce::mindist);
+  Fixpoint(r);
+}
+
+static void TestSensorNegatives() {
+  // rangefinder: exactly one of site/camera (here: both).
+  auto rf = Parse(R"(<mujoco><sensor>
+    <rangefinder site="s0" camera="c0"/></sensor></mujoco>)");
+  CHECK(!rf.ok());
+  CHECK(rf.errors[0].message.find("exactly one of 'site' or 'camera'") !=
+        std::string::npos);
+
+  // distance: exactly one of (geom1, body1).
+  auto dist = Parse(R"(<mujoco><sensor>
+    <distance geom1="g0" body1="b0" geom2="g1"/></sensor></mujoco>)");
+  CHECK(!dist.ok());
+  CHECK(dist.errors[0].message.find("exactly one of (geom1, body1)") !=
+        std::string::npos);
+
+  // contact: at most one first source.
+  auto ct = Parse(R"(<mujoco><sensor>
+    <contact site="s0" geom1="g0"/></sensor></mujoco>)");
+  CHECK(!ct.ok());
+  CHECK(ct.errors[0].message.find("at most one of (geom1, body1, subtree1, site)")
+        != std::string::npos);
+
+  // frame sensor: refname without reftype.
+  auto fr = Parse(R"(<mujoco><sensor>
+    <framepos objtype="site" objname="s0" refname="b0"/></sensor></mujoco>)");
+  CHECK(!fr.ok());
+  CHECK(fr.errors[0].message.find("reftype is missing") != std::string::npos);
+
+  // user sensor: objname without objtype.
+  auto us = Parse(R"(<mujoco><sensor>
+    <user objname="b0" dim="1"/></sensor></mujoco>)");
+  CHECK(!us.ok());
+  CHECK(us.errors[0].message.find("objtype is missing") != std::string::npos);
+}
+
+// --- (h) custom + keyframe + extension ------------------------------------- //
+static void TestCustomKeyframeExtension() {
+  auto r = Parse(R"(<mujoco>
+    <extension>
+      <plugin plugin="mujoco.elasticity.cable">
+        <instance name="inst0">
+          <config key="twist" value="1e6"/>
+          <config key="bend" value="1e9"/>
+        </instance>
+      </plugin>
+    </extension>
+    <custom>
+      <numeric name="n0" size="5" data="1 2 3"/>
+      <numeric name="n1" data="7 8"/>
+      <text name="t0" data="hello"/>
+      <tuple name="tp">
+        <element objtype="body" objname="b0" prm="0.5"/>
+        <element objtype="geom" objname="g0"/>
+      </tuple>
+    </custom>
+    <keyframe>
+      <key name="home" time="0.5" qpos="0 0 1 1 0 0 0" ctrl="1 2"/>
+    </keyframe>
+  </mujoco>)");
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  const Custom& c = *r.model->customs.front();
+  CHECK(c.numerics.size() == 2 && c.texts.size() == 1 && c.tuples.size() == 1);
+  // Numeric keeps size and data as authored; MuJoCo re-pads at compile (Q-KEY).
+  CHECK(*c.numerics[0]->size == 5 && c.numerics[0]->data->size() == 3);
+  CHECK(!c.numerics[1]->size.has_value() && c.numerics[1]->data->size() == 2);
+  // Tuple element children: parallel objtype/objname/optional prm rows.
+  const Tuple& tp = *c.tuples.front();
+  CHECK(tp.tupleElements.size() == 2);
+  CHECK(*tp.tupleElements[0]->objtype == "body" && Near(*tp.tupleElements[0]->prm, 0.5));
+  CHECK(!tp.tupleElements[1]->prm.has_value());
+  // Keyframe vectors stored verbatim, no size validation at read.
+  const Key& k = *r.model->keyframes.front()->keys.front();
+  CHECK(Near(*k.time, 0.5) && k.qpos->size() == 7 && k.ctrl->size() == 2);
+  // Extension: plugin/instance/config nesting.
+  const PluginInstance& inst =
+      *r.model->extensions.front()->pluginDefs.front()->pluginInstances.front();
+  CHECK(*inst.name == "inst0" && inst.config.size() == 2);
+  Fixpoint(r);
+
+  // Negative: duplicate config key (Q-PLUGIN, ReadPluginConfigs).
+  auto dup = Parse(R"(<mujoco><extension>
+    <plugin plugin="p"><instance name="i">
+      <config key="k" value="1"/>
+      <config key="k" value="2"/>
+    </instance></plugin></extension></mujoco>)");
+  CHECK(!dup.ok());
+  CHECK(dup.errors[0].message.find("duplicate config key: k") != std::string::npos);
+
+  // Negative: text field cannot be empty is a MuJoCo compile check, but the
+  // reader still round-trips an empty-string data as authored -- verify a
+  // non-empty text stays exact.
+  auto txt = Parse(R"(<mujoco><custom>
+    <text name="t" data="abc"/></custom></mujoco>)");
+  CHECK(txt.ok() && *txt.model->customs.front()->texts.front()->data == "abc");
+}
+
+// --- (i) macros + deformable: verbatim pass-through + subtree ordering ------ //
+static void TestMacrosDeformable() {
+  // Composite with per-kind sub-defaults and a plugin child, written verbatim.
+  auto comp = Parse(R"(<mujoco><worldbody><body>
+    <composite prefix="C" type="grid" count="4 4 1" offset="0 0 1">
+      <joint kind="main" damping="0.1"/>
+      <geom type="sphere" size="0.02" rgba="1 0 0 1"/>
+      <skin texcoord="true" material="m" inflate="0.01"/>
+    </composite>
+  </body></worldbody></mujoco>)");
+  CHECK(comp.ok());
+  if (!comp.ok())
+    for (const auto& e : comp.errors) std::printf("  err: %s\n", e.Render().c_str());
+  const Body* cb = FirstBody(*World(*comp.model));
+  const Composite* cc = FirstOf<Composite>(*cb);
+  CHECK(cc && *cc->prefix == "C" && cc->count && cc->count->size() == 3);
+  CHECK(cc->compositeJoints.size() == 1 && cc->compositeGeoms.size() == 1);
+  CHECK(cc->compositeSkins.size() == 1 &&
+        *cc->compositeSkins.front()->texcoord == true);
+  Fixpoint(comp);
+
+  // Flexcomp with edge/elasticity/contact/pin children, written verbatim.
+  auto fc = Parse(R"(<mujoco><worldbody><body>
+    <flexcomp name="F" type="grid" count="3 3 3" spacing="0.1 0.1 0.1"
+              dim="3" mass="1">
+      <edge equality="true" stiffness="100"/>
+      <elasticity young="1e5" poisson="0.3"/>
+      <contact internal="true" selfcollide="bvh" passive="false"/>
+      <pin id="0 1 2"/>
+    </flexcomp>
+  </body></worldbody></mujoco>)");
+  CHECK(fc.ok());
+  if (!fc.ok())
+    for (const auto& e : fc.errors) std::printf("  err: %s\n", e.Render().c_str());
+  const Flexcomp* ff = FirstOf<Flexcomp>(*FirstBody(*World(*fc.model)));
+  CHECK(ff && ff->count && ff->count->size() == 3 && ff->element.has_value() == false);
+  CHECK(ff->flexcompEdges.size() == 1 && ff->flexcompPins.size() == 1);
+  CHECK(ff->flexcompPins.front()->id->size() == 3);
+  Fixpoint(fc);
+
+  // Deformable flex, written verbatim (element is int connectivity, node text).
+  auto df = Parse(R"(<mujoco>
+    <deformable>
+      <flex name="fx" dim="2" body="b0 b1 b2" vertex="0 0 0 1 0 0 0 1 0"
+            element="0 1 2">
+        <contact selfcollide="none"/>
+        <edge stiffness="5"/>
+      </flex>
+    </deformable>
+  </mujoco>)");
+  CHECK(df.ok());
+  if (!df.ok())
+    for (const auto& e : df.errors) std::printf("  err: %s\n", e.Render().c_str());
+  const Flex& fx = *df.model->deformables.front()->flexs.front();
+  CHECK(*fx.body == "b0 b1 b2" && fx.element->size() == 3);
+  Fixpoint(df);
+
+  // Body-subtree document order: a geom, then a frame holding a geom, then a
+  // sub-body -- all one ordered union, so the interleave survives round-trip.
+  auto ord = Parse(R"(<mujoco><worldbody>
+    <geom name="g0" type="sphere" size="1"/>
+    <frame name="fr"><geom name="g1" type="box" size="1 1 1"/></frame>
+    <body name="b1"/>
+    <geom name="g2" type="sphere" size="1"/>
+  </worldbody></mujoco>)");
+  CHECK(ord.ok());
+  const auto& sub = World(*ord.model)->subtree;
+  CHECK(sub.size() == 4);
+  CHECK(std::holds_alternative<std::unique_ptr<Geom>>(sub[0].node));
+  CHECK(std::holds_alternative<std::unique_ptr<Frame>>(sub[1].node));
+  CHECK(std::holds_alternative<std::unique_ptr<Body>>(sub[2].node));
+  CHECK(std::holds_alternative<std::unique_ptr<Geom>>(sub[3].node));
+  std::string out = WriteMjcf(*ord.model);
+  CHECK(out.find("g0") < out.find("fr") && out.find("fr") < out.find("b1") &&
+        out.find("b1") < out.find("g2"));
+  Fixpoint(ord);
+}
+
 int main() {
   TestFixpoint();
   TestAngle();
@@ -924,6 +1181,10 @@ int main() {
   TestActuators();
   TestActuatorNegatives();
   TestUnionOrderRoundTrip();
+  TestSensors();
+  TestSensorNegatives();
+  TestCustomKeyframeExtension();
+  TestMacrosDeformable();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

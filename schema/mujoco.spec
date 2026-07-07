@@ -437,6 +437,30 @@ union PathItemAny =
   | SpatialGeom
   | Pulley
 
+# Every body child whose document order affects MuJoCo's id assignment shares
+# one ordered union list. MuJoCo walks a body's children in document order,
+# assigning geom/joint/site/... ids as it goes and splicing a <frame>'s contents
+# (and the pass-through macros' expansions) into the enclosing body at their
+# authored position. Per-type lists lose that interleave -- e.g. a <geom> before
+# a <frame> that itself holds a <geom> compiles to a different geom id order than
+# the reverse -- so all id-producing children (and the body/frame/macro nodes
+# that create or wrap them) are one union; only the unique <inertial> stays a
+# separate optional child (it produces no id and its position is irrelevant).
+union BodyChildAny =
+    Geom
+  | Joint
+  | FreeJoint
+  | Site
+  | Camera
+  | Light
+  | PluginRef
+  | Body
+  | Frame
+  | Composite
+  | Flexcomp
+  | Replicate
+  | Attach
+
 # --- Elements -------------------------------------------------------------
 
 element Model (xml="mujoco") {
@@ -780,7 +804,7 @@ element Tuple {
 element TupleElement (xml="element") {
   objtype : string
   objname : string
-  prm     : double[]
+  prm     : double
 }
 
 element Asset {
@@ -912,19 +936,7 @@ element Body {
   sleep      : BodySleep   # sleep policy
   user       : double[]   # user data
   children inertial : Inertial ?
-  children joints : Joint *
-  children freejoint : FreeJoint *
-  children geoms : Geom *
-  children attach : Attach *
-  children sites : Site *
-  children cameras : Camera *
-  children lights : Light *
-  children plugin : PluginRef *
-  children composites : Composite *
-  children flexcomps : Flexcomp *
-  children bodies : Body *
-  children frames : Frame *
-  children replicates : Replicate *
+  children subtree : BodyChildAny *
 }
 
 element Inertial {
@@ -1062,12 +1074,12 @@ element Light {
 element Composite {
   prefix  : string
   type    : CompositeType
-  count   : int32
+  count   : int32[0..3]
   offset  : double[3]
   vertex  : double[]   # vertex positions
   initial : string
   curve   : string
-  size    : double[3]   # vertex bounding box half sizes in qpos0
+  size    : double[0..3]   # vertex bounding box half sizes in qpos0
   quat    : double[4]
   children compositeJoints : CompositeJoint *
   children compositeSkins : CompositeSkin ?
@@ -1097,7 +1109,7 @@ element CompositeJoint (xml="joint") {
 }
 
 element CompositeSkin (xml="skin") {
-  texcoord : float[]   # texture coordinates
+  texcoord : bool   # emit skin texture coordinates
   material : string   # name of material used for rendering
   group    : int32   # group for visualization
   rgba     : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
@@ -1138,7 +1150,7 @@ element Flexcomp {
   group      : int32   # group for visualization
   dim        : int32 = 2   # element dimensionality
   dof        : FlexDof
-  count      : int32
+  count      : int32[3]
   cellcount  : int32[3] = {1, 1, 1}   # grid cell count for finite cell method
   spacing    : double[3]
   radius     : double = 0.005   # radius around primitive element
@@ -1148,7 +1160,7 @@ element Flexcomp {
   scale      : double[3]
   file       : string
   point      : double[]
-  element    : double   # element type
+  element    : int32[]   # element connectivity
   texcoord   : float[]   # vertex texture coordinates
   material   : string   # name of material used for rendering
   rgba       : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
@@ -1197,12 +1209,12 @@ element FlexContact (xml="contact") {
   internal     : bool = false   # enable internal collisions
   selfcollide  : FlexSelfCollide = auto   # mode for flex self collision
   activelayers : int32 = 1   # number of active element layers in 3D
-  passive      : int32   # mode for passive collisions
+  passive      : bool   # enable passive collisions
 }
 
 element FlexcompPin (xml="pin") {
   id        : int32[]
-  range     : double[2]
+  range     : int32[]
   grid      : int32[]
   gridrange : int32[]
 }
@@ -1222,10 +1234,10 @@ element Flex {
   flatskin     : bool   # render flex skin with flat shading
   body         : string
   vertex       : double[]   # vertex positions
-  element      : double   # element type
+  element      : int32[]   # element connectivity
   texcoord     : float[]   # vertex texture coordinates
   elemtexcoord : int32[]   # element texture coordinates
-  node         : double[]   # node positions
+  node         : string   # node body names
   cellcount    : int32[3] = {1, 1, 1}   # grid cell count for finite cell method
   dof          : FlexDof
   children flexContacts : FlexContact ?
@@ -1753,7 +1765,7 @@ element Touch {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1765,7 +1777,7 @@ element Accelerometer {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1777,7 +1789,7 @@ element Velocimeter {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1789,7 +1801,7 @@ element Gyro {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1801,7 +1813,7 @@ element Force {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1813,7 +1825,7 @@ element Torque {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1825,7 +1837,7 @@ element Magnetometer {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1838,7 +1850,7 @@ element Camprojection {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1852,7 +1864,7 @@ element Rangefinder {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1864,7 +1876,7 @@ element Jointpos {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1876,7 +1888,7 @@ element Jointvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1888,7 +1900,7 @@ element Tendonpos {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1900,7 +1912,7 @@ element Tendonvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1912,7 +1924,7 @@ element Actuatorpos {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1924,7 +1936,7 @@ element Actuatorvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1936,7 +1948,7 @@ element Actuatorfrc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1948,7 +1960,7 @@ element Jointactuatorfrc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1960,7 +1972,7 @@ element Tendonactuatorfrc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1972,7 +1984,7 @@ element Ballquat {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1984,7 +1996,7 @@ element Ballangvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -1996,7 +2008,7 @@ element Jointlimitpos {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2008,7 +2020,7 @@ element Jointlimitvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2020,7 +2032,7 @@ element Jointlimitfrc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2032,7 +2044,7 @@ element Tendonlimitpos {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2044,7 +2056,7 @@ element Tendonlimitvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2056,7 +2068,7 @@ element Tendonlimitfrc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2071,7 +2083,7 @@ element Framepos {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2086,7 +2098,7 @@ element Framequat {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2101,7 +2113,7 @@ element Framexaxis {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2116,7 +2128,7 @@ element Frameyaxis {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2131,7 +2143,7 @@ element Framezaxis {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2146,7 +2158,7 @@ element Framelinvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2161,7 +2173,7 @@ element Frameangvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2174,7 +2186,7 @@ element Framelinacc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2187,7 +2199,7 @@ element Frameangacc {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2199,7 +2211,7 @@ element Subtreecom {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2211,7 +2223,7 @@ element Subtreelinvel {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2223,7 +2235,7 @@ element Subtreeangmom {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2237,7 +2249,7 @@ element Insidesite {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2252,7 +2264,7 @@ element Distance {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2267,7 +2279,7 @@ element Normal {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2282,7 +2294,7 @@ element Fromto {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2303,7 +2315,7 @@ element SensorContact (xml="contact") {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2314,7 +2326,7 @@ element EPotential (xml="e_potential") {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2325,7 +2337,7 @@ element EKinetic (xml="e_kinetic") {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2336,7 +2348,7 @@ element Clock {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   cutoff   : double
   noise    : double
   user     : double[]
@@ -2349,7 +2361,7 @@ element Tactile {
   nsample  : int32
   interp   : InterpType
   delay    : double
-  interval : double[2]
+  interval : double[0..2]
   user     : double[]
 }
 
@@ -2398,19 +2410,7 @@ element Frame {
   name   : string
   dclass : ref<Default> (xml="class")   # childclass applied to descendants
   children inertial : Inertial ?
-  children joints : Joint *
-  children freejoint : FreeJoint *
-  children geoms : Geom *
-  children attach : Attach *
-  children sites : Site *
-  children cameras : Camera *
-  children lights : Light *
-  children plugin : PluginRef *
-  children composites : Composite *
-  children flexcomps : Flexcomp *
-  children bodies : Body *
-  children frames : Frame *
-  children replicates : Replicate *
+  children subtree : BodyChildAny *
 }
 
 element Replicate {
@@ -2421,18 +2421,6 @@ element Replicate {
   prefix     : string   # prefix applied to cloned element names
   childclass : ref<Default>   # default class applied to descendants
   children inertial : Inertial ?
-  children joints : Joint *
-  children freejoint : FreeJoint *
-  children geoms : Geom *
-  children attach : Attach *
-  children sites : Site *
-  children cameras : Camera *
-  children lights : Light *
-  children plugin : PluginRef *
-  children composites : Composite *
-  children flexcomps : Flexcomp *
-  children bodies : Body *
-  children frames : Frame *
-  children replicates : Replicate *
+  children subtree : BodyChildAny *
 }
 

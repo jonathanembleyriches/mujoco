@@ -30,6 +30,29 @@ bool operator==(const ActuatorAny& a, const ActuatorAny& b) {
       a.node);
 }
 
+BodyChildAny Clone(const BodyChildAny& src) {
+  BodyChildAny out;
+  std::visit(
+      [&](const auto& p) {
+        if (p) out.node = Clone(*p);
+      },
+      src.node);
+  return out;
+}
+
+bool operator==(const BodyChildAny& a, const BodyChildAny& b) {
+  if (a.node.index() != b.node.index()) return false;
+  return std::visit(
+      [&](const auto& pa) {
+        const auto& pb = std::get<std::decay_t<decltype(pa)>>(b.node);
+        const bool ha = static_cast<bool>(pa);
+        const bool hb = static_cast<bool>(pb);
+        if (ha != hb) return false;
+        return !ha || (*pa == *pb);
+      },
+      a.node);
+}
+
 EqualityAny Clone(const EqualityAny& src) {
   EqualityAny out;
   std::visit(
@@ -525,19 +548,8 @@ std::unique_ptr<Body> Clone(const Body& src) {
   out->sleep = src.sleep;
   out->user = src.user;
   out->inertial = ps::PtrVecClone(src.inertial);
-  out->joints = ps::PtrVecClone(src.joints);
-  out->freejoint = ps::PtrVecClone(src.freejoint);
-  out->geoms = ps::PtrVecClone(src.geoms);
-  out->attach = ps::PtrVecClone(src.attach);
-  out->sites = ps::PtrVecClone(src.sites);
-  out->cameras = ps::PtrVecClone(src.cameras);
-  out->lights = ps::PtrVecClone(src.lights);
-  out->plugin = ps::PtrVecClone(src.plugin);
-  out->composites = ps::PtrVecClone(src.composites);
-  out->flexcomps = ps::PtrVecClone(src.flexcomps);
-  out->bodies = ps::PtrVecClone(src.bodies);
-  out->frames = ps::PtrVecClone(src.frames);
-  out->replicates = ps::PtrVecClone(src.replicates);
+  for (const auto& item : src.subtree)
+    out->subtree.push_back(Clone(item));
   return out;
 }
 
@@ -551,19 +563,7 @@ bool operator==(const Body& a, const Body& b) {
          a.sleep == b.sleep &&
          a.user == b.user &&
          ps::PtrVecEq(a.inertial, b.inertial) &&
-         ps::PtrVecEq(a.joints, b.joints) &&
-         ps::PtrVecEq(a.freejoint, b.freejoint) &&
-         ps::PtrVecEq(a.geoms, b.geoms) &&
-         ps::PtrVecEq(a.attach, b.attach) &&
-         ps::PtrVecEq(a.sites, b.sites) &&
-         ps::PtrVecEq(a.cameras, b.cameras) &&
-         ps::PtrVecEq(a.lights, b.lights) &&
-         ps::PtrVecEq(a.plugin, b.plugin) &&
-         ps::PtrVecEq(a.composites, b.composites) &&
-         ps::PtrVecEq(a.flexcomps, b.flexcomps) &&
-         ps::PtrVecEq(a.bodies, b.bodies) &&
-         ps::PtrVecEq(a.frames, b.frames) &&
-         ps::PtrVecEq(a.replicates, b.replicates);
+         a.subtree == b.subtree;
 }
 
 std::unique_ptr<Camera> Clone(const Camera& src) {
@@ -1828,19 +1828,8 @@ std::unique_ptr<Frame> Clone(const Frame& src) {
   out->name = src.name;
   out->dclass = src.dclass;
   out->inertial = ps::PtrVecClone(src.inertial);
-  out->joints = ps::PtrVecClone(src.joints);
-  out->freejoint = ps::PtrVecClone(src.freejoint);
-  out->geoms = ps::PtrVecClone(src.geoms);
-  out->attach = ps::PtrVecClone(src.attach);
-  out->sites = ps::PtrVecClone(src.sites);
-  out->cameras = ps::PtrVecClone(src.cameras);
-  out->lights = ps::PtrVecClone(src.lights);
-  out->plugin = ps::PtrVecClone(src.plugin);
-  out->composites = ps::PtrVecClone(src.composites);
-  out->flexcomps = ps::PtrVecClone(src.flexcomps);
-  out->bodies = ps::PtrVecClone(src.bodies);
-  out->frames = ps::PtrVecClone(src.frames);
-  out->replicates = ps::PtrVecClone(src.replicates);
+  for (const auto& item : src.subtree)
+    out->subtree.push_back(Clone(item));
   return out;
 }
 
@@ -1850,19 +1839,7 @@ bool operator==(const Frame& a, const Frame& b) {
          a.name == b.name &&
          a.dclass == b.dclass &&
          ps::PtrVecEq(a.inertial, b.inertial) &&
-         ps::PtrVecEq(a.joints, b.joints) &&
-         ps::PtrVecEq(a.freejoint, b.freejoint) &&
-         ps::PtrVecEq(a.geoms, b.geoms) &&
-         ps::PtrVecEq(a.attach, b.attach) &&
-         ps::PtrVecEq(a.sites, b.sites) &&
-         ps::PtrVecEq(a.cameras, b.cameras) &&
-         ps::PtrVecEq(a.lights, b.lights) &&
-         ps::PtrVecEq(a.plugin, b.plugin) &&
-         ps::PtrVecEq(a.composites, b.composites) &&
-         ps::PtrVecEq(a.flexcomps, b.flexcomps) &&
-         ps::PtrVecEq(a.bodies, b.bodies) &&
-         ps::PtrVecEq(a.frames, b.frames) &&
-         ps::PtrVecEq(a.replicates, b.replicates);
+         a.subtree == b.subtree;
 }
 
 std::unique_ptr<Frameangacc> Clone(const Frameangacc& src) {
@@ -3375,19 +3352,8 @@ std::unique_ptr<Replicate> Clone(const Replicate& src) {
   out->prefix = src.prefix;
   out->childclass = src.childclass;
   out->inertial = ps::PtrVecClone(src.inertial);
-  out->joints = ps::PtrVecClone(src.joints);
-  out->freejoint = ps::PtrVecClone(src.freejoint);
-  out->geoms = ps::PtrVecClone(src.geoms);
-  out->attach = ps::PtrVecClone(src.attach);
-  out->sites = ps::PtrVecClone(src.sites);
-  out->cameras = ps::PtrVecClone(src.cameras);
-  out->lights = ps::PtrVecClone(src.lights);
-  out->plugin = ps::PtrVecClone(src.plugin);
-  out->composites = ps::PtrVecClone(src.composites);
-  out->flexcomps = ps::PtrVecClone(src.flexcomps);
-  out->bodies = ps::PtrVecClone(src.bodies);
-  out->frames = ps::PtrVecClone(src.frames);
-  out->replicates = ps::PtrVecClone(src.replicates);
+  for (const auto& item : src.subtree)
+    out->subtree.push_back(Clone(item));
   return out;
 }
 
@@ -3399,19 +3365,7 @@ bool operator==(const Replicate& a, const Replicate& b) {
          a.prefix == b.prefix &&
          a.childclass == b.childclass &&
          ps::PtrVecEq(a.inertial, b.inertial) &&
-         ps::PtrVecEq(a.joints, b.joints) &&
-         ps::PtrVecEq(a.freejoint, b.freejoint) &&
-         ps::PtrVecEq(a.geoms, b.geoms) &&
-         ps::PtrVecEq(a.attach, b.attach) &&
-         ps::PtrVecEq(a.sites, b.sites) &&
-         ps::PtrVecEq(a.cameras, b.cameras) &&
-         ps::PtrVecEq(a.lights, b.lights) &&
-         ps::PtrVecEq(a.plugin, b.plugin) &&
-         ps::PtrVecEq(a.composites, b.composites) &&
-         ps::PtrVecEq(a.flexcomps, b.flexcomps) &&
-         ps::PtrVecEq(a.bodies, b.bodies) &&
-         ps::PtrVecEq(a.frames, b.frames) &&
-         ps::PtrVecEq(a.replicates, b.replicates);
+         a.subtree == b.subtree;
 }
 
 std::unique_ptr<Sensor> Clone(const Sensor& src) {

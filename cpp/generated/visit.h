@@ -165,6 +165,22 @@ template <class V> void Visit(const ActuatorAny& a, V&& v) {
       a.node);
 }
 
+template <class V> void Visit(BodyChildAny& a, V&& v) {
+  std::visit(
+      [&](auto& p) {
+        if (p) Visit(*p, v);
+      },
+      a.node);
+}
+
+template <class V> void Visit(const BodyChildAny& a, V&& v) {
+  std::visit(
+      [&](auto& p) {
+        if (p) Visit(*p, v);
+      },
+      a.node);
+}
+
 template <class V> void Visit(EqualityAny& a, V&& v) {
   std::visit(
       [&](auto& p) {
@@ -618,19 +634,7 @@ template <class V> void Visit(Body& e, V&& v) {
   v.field(6, "sleep", e.sleep);
   v.field(7, "user", e.user);
   v.child(0, "inertial", e.inertial);
-  v.child(1, "joints", e.joints);
-  v.child(2, "freejoint", e.freejoint);
-  v.child(3, "geoms", e.geoms);
-  v.child(4, "attach", e.attach);
-  v.child(5, "sites", e.sites);
-  v.child(6, "cameras", e.cameras);
-  v.child(7, "lights", e.lights);
-  v.child(8, "plugin", e.plugin);
-  v.child(9, "composites", e.composites);
-  v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "bodies", e.bodies);
-  v.child(12, "frames", e.frames);
-  v.child(13, "replicates", e.replicates);
+  v.union_child(1, "subtree", e.subtree);
   (void)v;
 }
 
@@ -644,19 +648,7 @@ template <class V> void Visit(const Body& e, V&& v) {
   v.field(6, "sleep", e.sleep);
   v.field(7, "user", e.user);
   v.child(0, "inertial", e.inertial);
-  v.child(1, "joints", e.joints);
-  v.child(2, "freejoint", e.freejoint);
-  v.child(3, "geoms", e.geoms);
-  v.child(4, "attach", e.attach);
-  v.child(5, "sites", e.sites);
-  v.child(6, "cameras", e.cameras);
-  v.child(7, "lights", e.lights);
-  v.child(8, "plugin", e.plugin);
-  v.child(9, "composites", e.composites);
-  v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "bodies", e.bodies);
-  v.child(12, "frames", e.frames);
-  v.child(13, "replicates", e.replicates);
+  v.union_child(1, "subtree", e.subtree);
   (void)v;
 }
 
@@ -1878,19 +1870,7 @@ template <class V> void Visit(Frame& e, V&& v) {
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.child(0, "inertial", e.inertial);
-  v.child(1, "joints", e.joints);
-  v.child(2, "freejoint", e.freejoint);
-  v.child(3, "geoms", e.geoms);
-  v.child(4, "attach", e.attach);
-  v.child(5, "sites", e.sites);
-  v.child(6, "cameras", e.cameras);
-  v.child(7, "lights", e.lights);
-  v.child(8, "plugin", e.plugin);
-  v.child(9, "composites", e.composites);
-  v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "bodies", e.bodies);
-  v.child(12, "frames", e.frames);
-  v.child(13, "replicates", e.replicates);
+  v.union_child(1, "subtree", e.subtree);
   (void)v;
 }
 
@@ -1900,19 +1880,7 @@ template <class V> void Visit(const Frame& e, V&& v) {
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.child(0, "inertial", e.inertial);
-  v.child(1, "joints", e.joints);
-  v.child(2, "freejoint", e.freejoint);
-  v.child(3, "geoms", e.geoms);
-  v.child(4, "attach", e.attach);
-  v.child(5, "sites", e.sites);
-  v.child(6, "cameras", e.cameras);
-  v.child(7, "lights", e.lights);
-  v.child(8, "plugin", e.plugin);
-  v.child(9, "composites", e.composites);
-  v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "bodies", e.bodies);
-  v.child(12, "frames", e.frames);
-  v.child(13, "replicates", e.replicates);
+  v.union_child(1, "subtree", e.subtree);
   (void)v;
 }
 
@@ -3378,19 +3346,7 @@ template <class V> void Visit(Replicate& e, V&& v) {
   v.field(4, "prefix", e.prefix);
   v.field(5, "childclass", e.childclass);
   v.child(0, "inertial", e.inertial);
-  v.child(1, "joints", e.joints);
-  v.child(2, "freejoint", e.freejoint);
-  v.child(3, "geoms", e.geoms);
-  v.child(4, "attach", e.attach);
-  v.child(5, "sites", e.sites);
-  v.child(6, "cameras", e.cameras);
-  v.child(7, "lights", e.lights);
-  v.child(8, "plugin", e.plugin);
-  v.child(9, "composites", e.composites);
-  v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "bodies", e.bodies);
-  v.child(12, "frames", e.frames);
-  v.child(13, "replicates", e.replicates);
+  v.union_child(1, "subtree", e.subtree);
   (void)v;
 }
 
@@ -3402,19 +3358,7 @@ template <class V> void Visit(const Replicate& e, V&& v) {
   v.field(4, "prefix", e.prefix);
   v.field(5, "childclass", e.childclass);
   v.child(0, "inertial", e.inertial);
-  v.child(1, "joints", e.joints);
-  v.child(2, "freejoint", e.freejoint);
-  v.child(3, "geoms", e.geoms);
-  v.child(4, "attach", e.attach);
-  v.child(5, "sites", e.sites);
-  v.child(6, "cameras", e.cameras);
-  v.child(7, "lights", e.lights);
-  v.child(8, "plugin", e.plugin);
-  v.child(9, "composites", e.composites);
-  v.child(10, "flexcomps", e.flexcomps);
-  v.child(11, "bodies", e.bodies);
-  v.child(12, "frames", e.frames);
-  v.child(13, "replicates", e.replicates);
+  v.union_child(1, "subtree", e.subtree);
   (void)v;
 }
 

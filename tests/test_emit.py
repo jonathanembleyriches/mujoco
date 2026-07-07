@@ -121,8 +121,9 @@ def test_xml_binding_routes_variant_arms_and_worldbody():
     assert '{"euler", "euler"}' in binding_cc
     # The worldbody child list diverges from the <body> tag (MJCF body-row share).
     assert '{"worldbody", "worldbody", "Body", ElementType::Body, false}' in binding_cc
-    # Body-in-body recursion is routed under the <body> tag.
-    assert '{"bodies", "body", "Body", ElementType::Body, false}' in binding_cc
+    # Body-in-body recursion (and geom/joint/frame/macro interleave) is routed
+    # through the ordered BodyChildAny union child, not a per-<body> list.
+    assert '{"subtree", "", "BodyChildAny", ElementType::' in binding_cc
 
 
 def test_xml_binding_marks_angle_units():

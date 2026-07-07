@@ -187,18 +187,28 @@ def test_replicate_control_attributes(index):
     assert fields["childclass"]["type"]["target"] == "Default"
 
 
-def test_replicate_mirrors_body_children(index):
-    # replicate wraps body-context content, so it mirrors Body's children exactly
-    # (bodies via the shared body row, geoms/joints/sites/frames, nested
-    # replicates and attach).
+def _child_key(c):
+    return c.get("element") or c.get("union")
+
+
+def test_replicate_mirrors_body_children(index, schema):
+    # replicate/frame/body all wrap body-context content, so they share the same
+    # children shape: a unique optional <inertial> plus one ordered BodyChildAny
+    # union (geom/joint/site/camera/light/plugin + body/frame and the macros),
+    # whose interleave preserves MuJoCo's document-order id assignment.
     rep = index["elements"]["Replicate"]
     body = index["elements"]["Body"]
-    rep_targets = {c["element"] for c in rep["children"]}
-    assert rep_targets == {c["element"] for c in body["children"]}
-    for fam in ("Geom", "Joint", "Site", "Frame", "Attach", "Replicate"):
-        assert fam in rep_targets, f"Replicate missing {fam} child"
-    # Body reaches replicate too (so worldbody/body/frame contexts all do)
-    assert "Replicate" in {c["element"] for c in body["children"]}
+    frame = index["elements"]["Frame"]
+    body_shape = {_child_key(c) for c in body["children"]}
+    assert body_shape == {"Inertial", "BodyChildAny"}
+    assert {_child_key(c) for c in rep["children"]} == body_shape
+    assert {_child_key(c) for c in frame["children"]} == body_shape
+
+    unions = {u["name"]: u for u in schema["unions"]}
+    members = set(unions["BodyChildAny"]["members"])
+    for fam in ("Geom", "Joint", "Site", "Camera", "Light", "PluginRef",
+                "Body", "Frame", "Composite", "Flexcomp", "Replicate", "Attach"):
+        assert fam in members, f"BodyChildAny missing {fam} member"
 
 
 # --------------------------------------------------------------------------- #

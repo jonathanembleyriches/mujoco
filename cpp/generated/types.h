@@ -531,6 +531,26 @@ struct ActuatorAny {
   Kind kind() const { return static_cast<Kind>(node.index()); }
 };
 
+struct BodyChildAny {
+  enum class Kind {
+    Geom,
+    Joint,
+    FreeJoint,
+    Site,
+    Camera,
+    Light,
+    PluginRef,
+    Body,
+    Frame,
+    Composite,
+    Flexcomp,
+    Replicate,
+    Attach,
+  };
+  std::variant<std::unique_ptr<Geom>, std::unique_ptr<Joint>, std::unique_ptr<FreeJoint>, std::unique_ptr<Site>, std::unique_ptr<Camera>, std::unique_ptr<Light>, std::unique_ptr<PluginRef>, std::unique_ptr<Body>, std::unique_ptr<Frame>, std::unique_ptr<Composite>, std::unique_ptr<Flexcomp>, std::unique_ptr<Replicate>, std::unique_ptr<Attach>> node;
+  Kind kind() const { return static_cast<Kind>(node.index()); }
+};
+
 struct EqualityAny {
   enum class Kind {
     Connect,
@@ -629,7 +649,7 @@ struct Accelerometer {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -724,7 +744,7 @@ struct Actuatorfrc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -738,7 +758,7 @@ struct Actuatorpos {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -752,7 +772,7 @@ struct Actuatorvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -802,7 +822,7 @@ struct Ballangvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -816,7 +836,7 @@ struct Ballquat {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -834,19 +854,7 @@ struct Body {
   ps::opt<BodySleep> sleep = {};
   ps::opt<std::vector<double>> user = {};
   std::vector<std::unique_ptr<Inertial>> inertial;
-  std::vector<std::unique_ptr<Joint>> joints;
-  std::vector<std::unique_ptr<FreeJoint>> freejoint;
-  std::vector<std::unique_ptr<Geom>> geoms;
-  std::vector<std::unique_ptr<Attach>> attach;
-  std::vector<std::unique_ptr<Site>> sites;
-  std::vector<std::unique_ptr<Camera>> cameras;
-  std::vector<std::unique_ptr<Light>> lights;
-  std::vector<std::unique_ptr<PluginRef>> plugin;
-  std::vector<std::unique_ptr<Composite>> composites;
-  std::vector<std::unique_ptr<Flexcomp>> flexcomps;
-  std::vector<std::unique_ptr<Body>> bodies;
-  std::vector<std::unique_ptr<Frame>> frames;
-  std::vector<std::unique_ptr<Replicate>> replicates;
+  std::vector<BodyChildAny> subtree;
 };
 
 struct Camera {
@@ -879,7 +887,7 @@ struct Camprojection {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -892,7 +900,7 @@ struct Clock {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -929,12 +937,12 @@ struct Composite {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> prefix = {};
   ps::opt<CompositeType> type = {};
-  ps::opt<int32_t> count = {};
+  ps::opt<ps::InlineVec<int32_t, 3>> count = {};
   ps::opt<std::array<double, 3>> offset = {};
   ps::opt<std::vector<double>> vertex = {};
   ps::opt<std::string> initial = {};
   ps::opt<std::string> curve = {};
-  ps::opt<std::array<double, 3>> size = {};
+  ps::opt<ps::InlineVec<double, 3>> size = {};
   ps::opt<std::array<double, 4>> quat = {};
   std::vector<std::unique_ptr<CompositeJoint>> compositeJoints;
   std::vector<std::unique_ptr<CompositeSkin>> compositeSkins;
@@ -999,7 +1007,7 @@ struct CompositeSite {
 struct CompositeSkin {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
-  ps::opt<std::vector<float>> texcoord = {};
+  ps::opt<bool> texcoord = {};
   ps::opt<std::string> material = {};
   ps::opt<int32_t> group = {};
   ps::opt<std::array<float, 4>> rgba = {};
@@ -1185,7 +1193,7 @@ struct Distance {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1198,7 +1206,7 @@ struct EKinetic {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1211,7 +1219,7 @@ struct EPotential {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1356,10 +1364,10 @@ struct Flex {
   ps::opt<bool> flatskin = {};
   ps::opt<std::string> body = {};
   ps::opt<std::vector<double>> vertex = {};
-  ps::opt<double> element = {};
+  ps::opt<std::vector<int32_t>> element = {};
   ps::opt<std::vector<float>> texcoord = {};
   ps::opt<std::vector<int32_t>> elemtexcoord = {};
-  ps::opt<std::vector<double>> node = {};
+  ps::opt<std::string> node = {};
   ps::opt<std::array<int32_t, 3>> cellcount = {};
   ps::opt<FlexDof> dof = {};
   std::vector<std::unique_ptr<FlexContact>> flexContacts;
@@ -1383,7 +1391,7 @@ struct FlexContact {
   ps::opt<bool> internal = {};
   ps::opt<FlexSelfCollide> selfcollide = {};
   ps::opt<int32_t> activelayers = {};
-  ps::opt<int32_t> passive = {};
+  ps::opt<bool> passive = {};
 };
 
 struct FlexEdge {
@@ -1411,7 +1419,7 @@ struct Flexcomp {
   ps::opt<int32_t> group = {};
   ps::opt<int32_t> dim = {};
   ps::opt<FlexDof> dof = {};
-  ps::opt<int32_t> count = {};
+  ps::opt<std::array<int32_t, 3>> count = {};
   ps::opt<std::array<int32_t, 3>> cellcount = {};
   ps::opt<std::array<double, 3>> spacing = {};
   ps::opt<double> radius = {};
@@ -1421,7 +1429,7 @@ struct Flexcomp {
   ps::opt<std::array<double, 3>> scale = {};
   ps::opt<std::string> file = {};
   ps::opt<std::vector<double>> point = {};
-  ps::opt<double> element = {};
+  ps::opt<std::vector<int32_t>> element = {};
   ps::opt<std::vector<float>> texcoord = {};
   ps::opt<std::string> material = {};
   ps::opt<std::array<float, 4>> rgba = {};
@@ -1454,7 +1462,7 @@ struct FlexcompPin {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::vector<int32_t>> id = {};
-  ps::opt<std::array<double, 2>> range = {};
+  ps::opt<std::vector<int32_t>> range = {};
   ps::opt<std::vector<int32_t>> grid = {};
   ps::opt<std::vector<int32_t>> gridrange = {};
 };
@@ -1490,7 +1498,7 @@ struct Force {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1504,19 +1512,7 @@ struct Frame {
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
   std::vector<std::unique_ptr<Inertial>> inertial;
-  std::vector<std::unique_ptr<Joint>> joints;
-  std::vector<std::unique_ptr<FreeJoint>> freejoint;
-  std::vector<std::unique_ptr<Geom>> geoms;
-  std::vector<std::unique_ptr<Attach>> attach;
-  std::vector<std::unique_ptr<Site>> sites;
-  std::vector<std::unique_ptr<Camera>> cameras;
-  std::vector<std::unique_ptr<Light>> lights;
-  std::vector<std::unique_ptr<PluginRef>> plugin;
-  std::vector<std::unique_ptr<Composite>> composites;
-  std::vector<std::unique_ptr<Flexcomp>> flexcomps;
-  std::vector<std::unique_ptr<Body>> bodies;
-  std::vector<std::unique_ptr<Frame>> frames;
-  std::vector<std::unique_ptr<Replicate>> replicates;
+  std::vector<BodyChildAny> subtree;
 };
 
 struct Frameangacc {
@@ -1528,7 +1524,7 @@ struct Frameangacc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1545,7 +1541,7 @@ struct Frameangvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1560,7 +1556,7 @@ struct Framelinacc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1577,7 +1573,7 @@ struct Framelinvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1594,7 +1590,7 @@ struct Framepos {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1611,7 +1607,7 @@ struct Framequat {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1628,7 +1624,7 @@ struct Framexaxis {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1645,7 +1641,7 @@ struct Frameyaxis {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1662,7 +1658,7 @@ struct Framezaxis {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1687,7 +1683,7 @@ struct Fromto {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1736,7 +1732,7 @@ struct Gyro {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1773,7 +1769,7 @@ struct Insidesite {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1849,7 +1845,7 @@ struct Jointactuatorfrc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1863,7 +1859,7 @@ struct Jointlimitfrc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1877,7 +1873,7 @@ struct Jointlimitpos {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1891,7 +1887,7 @@ struct Jointlimitvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1905,7 +1901,7 @@ struct Jointpos {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1919,7 +1915,7 @@ struct Jointvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -1992,7 +1988,7 @@ struct Magnetometer {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2152,7 +2148,7 @@ struct Normal {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2286,7 +2282,7 @@ struct Rangefinder {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2302,19 +2298,7 @@ struct Replicate {
   ps::opt<std::string> prefix = {};
   ps::opt<ps::Ref<Default>> childclass = {};
   std::vector<std::unique_ptr<Inertial>> inertial;
-  std::vector<std::unique_ptr<Joint>> joints;
-  std::vector<std::unique_ptr<FreeJoint>> freejoint;
-  std::vector<std::unique_ptr<Geom>> geoms;
-  std::vector<std::unique_ptr<Attach>> attach;
-  std::vector<std::unique_ptr<Site>> sites;
-  std::vector<std::unique_ptr<Camera>> cameras;
-  std::vector<std::unique_ptr<Light>> lights;
-  std::vector<std::unique_ptr<PluginRef>> plugin;
-  std::vector<std::unique_ptr<Composite>> composites;
-  std::vector<std::unique_ptr<Flexcomp>> flexcomps;
-  std::vector<std::unique_ptr<Body>> bodies;
-  std::vector<std::unique_ptr<Frame>> frames;
-  std::vector<std::unique_ptr<Replicate>> replicates;
+  std::vector<BodyChildAny> subtree;
 };
 
 struct Sensor {
@@ -2340,7 +2324,7 @@ struct SensorContact {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2493,7 +2477,7 @@ struct Subtreeangmom {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2507,7 +2491,7 @@ struct Subtreecom {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2521,7 +2505,7 @@ struct Subtreelinvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2536,7 +2520,7 @@ struct Tactile {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<std::vector<double>> user = {};
 };
 
@@ -2575,7 +2559,7 @@ struct Tendonactuatorfrc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2589,7 +2573,7 @@ struct Tendonlimitfrc {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2603,7 +2587,7 @@ struct Tendonlimitpos {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2617,7 +2601,7 @@ struct Tendonlimitvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2631,7 +2615,7 @@ struct Tendonpos {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2645,7 +2629,7 @@ struct Tendonvel {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2694,7 +2678,7 @@ struct Torque {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2708,7 +2692,7 @@ struct Touch {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -2726,7 +2710,7 @@ struct TupleElement {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> objtype = {};
   ps::opt<std::string> objname = {};
-  ps::opt<std::vector<double>> prm = {};
+  ps::opt<double> prm = {};
 };
 
 struct Velocimeter {
@@ -2737,7 +2721,7 @@ struct Velocimeter {
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
-  ps::opt<std::array<double, 2>> interval = {};
+  ps::opt<ps::InlineVec<double, 2>> interval = {};
   ps::opt<double> cutoff = {};
   ps::opt<double> noise = {};
   ps::opt<std::vector<double>> user = {};
@@ -3200,6 +3184,8 @@ template <> struct element_type_of<Weld> { static constexpr ElementType value = 
 // --- Deep clone + field-wise equality (defined in types.cc) ---
 ActuatorAny Clone(const ActuatorAny& src);
 bool operator==(const ActuatorAny& a, const ActuatorAny& b);
+BodyChildAny Clone(const BodyChildAny& src);
+bool operator==(const BodyChildAny& a, const BodyChildAny& b);
 EqualityAny Clone(const EqualityAny& src);
 bool operator==(const EqualityAny& a, const EqualityAny& b);
 PathItemAny Clone(const PathItemAny& src);

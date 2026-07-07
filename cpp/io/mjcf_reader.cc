@@ -159,6 +159,85 @@ bool IsSupported(ElementType t) {
     case ElementType::Material:
     case ElementType::MaterialLayer:
     case ElementType::ModelAsset:
+    // Sensors (family g): the full <sensor> section as an ordered union.
+    case ElementType::Sensor:
+    case ElementType::Touch:
+    case ElementType::Accelerometer:
+    case ElementType::Velocimeter:
+    case ElementType::Gyro:
+    case ElementType::Force:
+    case ElementType::Torque:
+    case ElementType::Magnetometer:
+    case ElementType::Camprojection:
+    case ElementType::Rangefinder:
+    case ElementType::Jointpos:
+    case ElementType::Jointvel:
+    case ElementType::Tendonpos:
+    case ElementType::Tendonvel:
+    case ElementType::Actuatorpos:
+    case ElementType::Actuatorvel:
+    case ElementType::Actuatorfrc:
+    case ElementType::Jointactuatorfrc:
+    case ElementType::Tendonactuatorfrc:
+    case ElementType::Ballquat:
+    case ElementType::Ballangvel:
+    case ElementType::Jointlimitpos:
+    case ElementType::Jointlimitvel:
+    case ElementType::Jointlimitfrc:
+    case ElementType::Tendonlimitpos:
+    case ElementType::Tendonlimitvel:
+    case ElementType::Tendonlimitfrc:
+    case ElementType::Framepos:
+    case ElementType::Framequat:
+    case ElementType::Framexaxis:
+    case ElementType::Frameyaxis:
+    case ElementType::Framezaxis:
+    case ElementType::Framelinvel:
+    case ElementType::Frameangvel:
+    case ElementType::Framelinacc:
+    case ElementType::Frameangacc:
+    case ElementType::Subtreecom:
+    case ElementType::Subtreelinvel:
+    case ElementType::Subtreeangmom:
+    case ElementType::Insidesite:
+    case ElementType::Distance:
+    case ElementType::Normal:
+    case ElementType::Fromto:
+    case ElementType::SensorContact:
+    case ElementType::EPotential:
+    case ElementType::EKinetic:
+    case ElementType::Clock:
+    case ElementType::Tactile:
+    case ElementType::SensorUser:
+    case ElementType::SensorPlugin:
+    // Custom + keyframe + extension (family h).
+    case ElementType::Custom:
+    case ElementType::Numeric:
+    case ElementType::Text:
+    case ElementType::Tuple:
+    case ElementType::TupleElement:
+    case ElementType::Keyframe:
+    case ElementType::Key:
+    case ElementType::Extension:
+    case ElementType::PluginDef:
+    case ElementType::PluginInstance:
+    case ElementType::PluginRef:
+    // Macros + deformable (family i): first-class pass-through (DR-7).
+    case ElementType::Composite:
+    case ElementType::CompositeJoint:
+    case ElementType::CompositeSkin:
+    case ElementType::CompositeGeom:
+    case ElementType::CompositeSite:
+    case ElementType::Flexcomp:
+    case ElementType::FlexcompEdge:
+    case ElementType::FlexElasticity:
+    case ElementType::FlexContact:
+    case ElementType::FlexcompPin:
+    case ElementType::Attach:
+    case ElementType::Replicate:
+    case ElementType::Deformable:
+    case ElementType::Flex:
+    case ElementType::FlexEdge:
       return true;
     default:
       return false;
@@ -218,6 +297,40 @@ struct is_actuator<DcMotor> : std::true_type {};
 template <>
 struct is_actuator<ActuatorPlugin> : std::true_type {};
 
+// Frame sensors carrying the generic objtype/objname slot plus the optional
+// reftype/refname pair (Sensor(), xml_native_reader.cc:4348-4432). framelinacc
+// and frameangacc omit the reference pair and are excluded here.
+template <class E>
+struct is_frame_ref_sensor : std::false_type {};
+template <>
+struct is_frame_ref_sensor<Framepos> : std::true_type {};
+template <>
+struct is_frame_ref_sensor<Framequat> : std::true_type {};
+template <>
+struct is_frame_ref_sensor<Framexaxis> : std::true_type {};
+template <>
+struct is_frame_ref_sensor<Frameyaxis> : std::true_type {};
+template <>
+struct is_frame_ref_sensor<Framezaxis> : std::true_type {};
+template <>
+struct is_frame_ref_sensor<Framelinvel> : std::true_type {};
+template <>
+struct is_frame_ref_sensor<Frameangvel> : std::true_type {};
+
+// Elements that hold a <config> key/value list (a plugin reference or instance):
+// MuJoCo rejects duplicate config keys (ReadPluginConfigs,
+// xml_native_reader.cc:128-153).
+template <class E>
+struct has_config_children : std::false_type {};
+template <>
+struct has_config_children<PluginInstance> : std::true_type {};
+template <>
+struct has_config_children<PluginRef> : std::true_type {};
+template <>
+struct has_config_children<ActuatorPlugin> : std::true_type {};
+template <>
+struct has_config_children<SensorPlugin> : std::true_type {};
+
 // --------------------------------------------------------------------------- //
 // Reader                                                                        //
 // --------------------------------------------------------------------------- //
@@ -272,6 +385,15 @@ class Reader {
     if constexpr (std::is_same_v<E, Connect>) ConnectExclusion(xml);
     if constexpr (std::is_same_v<E, Weld>) WeldExclusion(xml);
     if constexpr (is_actuator<E>::value) ActuatorTransmission(xml);
+    if constexpr (std::is_same_v<E, Rangefinder>) RangefinderExclusion(xml);
+    if constexpr (std::is_same_v<E, Distance> ||
+                  std::is_same_v<E, Normal> || std::is_same_v<E, Fromto>)
+      GeomDistanceExclusion(xml);
+    if constexpr (std::is_same_v<E, SensorContact>) ContactSensorExclusion(xml);
+    if constexpr (is_frame_ref_sensor<E>::value) FrameSensorRefPairing(xml);
+    if constexpr (std::is_same_v<E, SensorUser>) UserSensorPairing(xml);
+    if constexpr (std::is_same_v<E, SensorPlugin>) PluginSensorPairing(xml);
+    if constexpr (has_config_children<E>::value) ConfigKeyUnique(xml);
 
     ClassifyChildren(xml, b, out);
     ChildVisitor<E> cv{this, xml, &b};
@@ -749,6 +871,101 @@ class Reader {
     }
     if (Has(xml, "refsite") && cnt == 1 && !Has(xml, "site")) {
       Err(xml, "refsite can only be used with site transmission");
+    }
+  }
+
+  // Q-SENS: sensor object/reference slot exclusivity, mirroring the hand-coded
+  // dispatch in Sensor() (xml_native_reader.cc:4181-4638). ProtoSpec stores each
+  // slot as a plain field, so the "exactly one of" / "at most one of" rules are
+  // read checks rather than an objtype/reftype tag assignment.
+
+  // A rangefinder attaches to exactly one of site or camera (:4243-4249).
+  void RangefinderExclusion(XMLElement* xml) {
+    if (Has(xml, "site") == Has(xml, "camera")) {
+      Err(xml, "rangefinder requires exactly one of 'site' or 'camera'");
+    }
+  }
+
+  // distance/normal/fromto: exactly one of (geom1, body1) and exactly one of
+  // (geom2, body2) (:4483-4501).
+  void GeomDistanceExclusion(XMLElement* xml) {
+    if (Has(xml, "geom1") == Has(xml, "body1")) {
+      Err(xml, "exactly one of (geom1, body1) must be specified");
+      return;
+    }
+    if (Has(xml, "geom2") == Has(xml, "body2")) {
+      Err(xml, "exactly one of (geom2, body2) must be specified");
+    }
+  }
+
+  // contact sensor: at most one first source (geom1/body1/subtree1/site) and at
+  // most one second source (geom2/body2/subtree2), num positive (:4505-4560).
+  void ContactSensorExclusion(XMLElement* xml) {
+    if (Has(xml, "site") + Has(xml, "body1") + Has(xml, "subtree1") +
+            Has(xml, "geom1") >
+        1) {
+      Err(xml, "at most one of (geom1, body1, subtree1, site) can be specified");
+      return;
+    }
+    if (Has(xml, "body2") + Has(xml, "subtree2") + Has(xml, "geom2") > 1) {
+      Err(xml, "at most one of (geom2, body2, subtree2) can be specified");
+      return;
+    }
+    if (const char* num = xml->Attribute("num")) {
+      int n = 0;
+      if (num::ParseInt<int>(num, n) == num::Status::Ok && n <= 0) {
+        Err(xml, "'num' must be positive in sensor");
+      }
+    }
+  }
+
+  // Frame sensors: a refname requires a matching reftype (:4356-4361 and peers).
+  void FrameSensorRefPairing(XMLElement* xml) {
+    if (Has(xml, "refname") && !Has(xml, "reftype")) {
+      Err(xml, "refname '" + std::string(xml->Attribute("refname")) +
+                   "' given but reftype is missing");
+    }
+  }
+
+  // user sensor: objtype and objname must both be present or both absent
+  // (:4577-4586).
+  void UserSensorPairing(XMLElement* xml) {
+    bool objtype = Has(xml, "objtype"), objname = Has(xml, "objname");
+    if (objtype && !objname) {
+      Err(xml, "objtype '" + std::string(xml->Attribute("objtype")) +
+                   "' given but objname is missing");
+    } else if (objname && !objtype) {
+      Err(xml, "objname '" + std::string(xml->Attribute("objname")) +
+                   "' given but objtype is missing");
+    }
+  }
+
+  // plugin sensor: objtype/objname and reftype/refname pair up (:4607-4626).
+  void PluginSensorPairing(XMLElement* xml) {
+    bool objtype = Has(xml, "objtype"), objname = Has(xml, "objname");
+    if (objtype && !objname) {
+      Err(xml, "objtype is specified but objname is not");
+    } else if (objname && !objtype) {
+      Err(xml, "objname is specified but objtype is not");
+    }
+    bool reftype = Has(xml, "reftype"), refname = Has(xml, "refname");
+    if (reftype && !refname) {
+      Err(xml, "reftype is specified but refname is not");
+    } else if (refname && !reftype) {
+      Err(xml, "refname is specified but reftype is not");
+    }
+  }
+
+  // Q-PLUGIN: a plugin/instance element's <config> keys must be unique
+  // (ReadPluginConfigs, xml_native_reader.cc:135-141).
+  void ConfigKeyUnique(XMLElement* xml) {
+    std::unordered_set<std::string> seen;
+    for (XMLElement* c = xml->FirstChildElement("config"); c;
+         c = c->NextSiblingElement("config")) {
+      const char* key = c->Attribute("key");
+      if (key && !seen.insert(key).second) {
+        Err(c, "duplicate config key: " + std::string(key));
+      }
     }
   }
 
