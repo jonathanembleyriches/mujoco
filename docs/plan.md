@@ -450,6 +450,17 @@ Element families, all in scope for v1 unless marked:
 - **Blocks**: compiler (all flags incl. eulerseq, dirs, LROpt), option (+ flag bitmasks), size
   (nuser_*, nkey, memory with K/M/G suffix parsing), visual (global/quality/headlight/map/scale/
   rgba sub-blocks), statistic (all presence-tracked; MuJoCo's NaN sentinels become absent fields).
+- **Ordering (union child lists).** MJCF assigns ids — and for sensors, `sensor_adr` data
+  addresses — in interleaved document order across different tags within a section. The IDL
+  therefore has `union` types, and the actuator, sensor, equality, and tendon sections plus the
+  spatial-tendon path are each a single ordered union child list (`union ActuatorAny = Motor |
+  Position | ...`; `union PathItemAny = SpatialSite | SpatialGeom | Pulley`), not per-type lists
+  (which silently lose the interleave — site-geom-site is unrepresentable). Emitters and IO must
+  preserve list order to reproduce MuJoCo's id assignment. Contact (pair/exclude) is deliberately
+  NOT a union: MuJoCo re-sorts pairs/excludes by body signature at compile, so pre-compile
+  document order there is not authoritative. Unions also serve as reference targets:
+  `ref<TendonAny>` makes fixed tendons valid targets of actuator transmissions, sensor slots, and
+  tendon-equality constraints.
 - **Procedural**: composite (type, count, spacing, per-kind sub-defaults for joint/geom/site,
   skin, plugin) and flexcomp (type, count/spacing/point/element data, pin list, edge/elasticity/
   contact blocks, plugin) as first-class elements; replicate/attach as read-time expansions
