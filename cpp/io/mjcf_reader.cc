@@ -83,13 +83,10 @@ struct is_vector : std::false_type {};
 template <class T>
 struct is_vector<std::vector<T>> : std::true_type {};
 
-// The supported families: Model-level blocks, the body tree, defaults, and
-// assets. Everything else is a well-formed but unsupported element (skip
-// signal), never a malformed input. The default-only actuator/pair/equality/
-// tendon sub-elements are supported here as data: their top-level sections
-// (<actuator>/<contact>/<equality>/<tendon>) remain unsupported, so those
-// elements are only ever reached inside a <default>, which short-circuits on
-// its unsupported parent otherwise.
+// The supported families: Model-level blocks, the body tree, defaults, assets,
+// and (wave 2) the contact/equality/tendon/actuator sections. Everything else
+// is a well-formed but unsupported element (skip signal), never a malformed
+// input.
 bool IsSupported(ElementType t) {
   switch (t) {
     case ElementType::Model:
@@ -130,6 +127,28 @@ bool IsSupported(ElementType t) {
     case ElementType::Muscle:
     case ElementType::Adhesion:
     case ElementType::DcMotor:
+    // Contact / equality / tendon sections (family e).
+    case ElementType::Contact:
+    case ElementType::Exclude:
+    case ElementType::Equality:
+    case ElementType::Connect:
+    case ElementType::Weld:
+    case ElementType::EqualityJoint:
+    case ElementType::EqualityTendon:
+    case ElementType::EqualityFlex:
+    case ElementType::Flexvert:
+    case ElementType::Flexstrain:
+    case ElementType::Tendon:
+    case ElementType::Spatial:
+    case ElementType::SpatialSite:
+    case ElementType::SpatialGeom:
+    case ElementType::Pulley:
+    case ElementType::Fixed:
+    case ElementType::FixedJoint:
+    // Actuator section (family f).
+    case ElementType::Actuator:
+    case ElementType::ActuatorPlugin:
+    case ElementType::Config:
     // Assets (family d).
     case ElementType::Asset:
     case ElementType::Mesh:
@@ -145,6 +164,59 @@ bool IsSupported(ElementType t) {
       return false;
   }
 }
+
+// The element type carried by the I-th arm of a union item's node variant
+// (each arm is a std::unique_ptr<Member>).
+template <class Var, std::size_t I>
+using union_member_t =
+    typename std::variant_alternative_t<I, Var>::element_type;
+
+// Append (member tag, is-supported) for every arm of a union node variant.
+// Drives both child classification (unknown vs unsupported) and the ordered
+// union reader below off the same compile-time membership.
+template <class Var, std::size_t... Is>
+void AddUnionClaimsImpl(
+    std::vector<std::pair<std::string_view, bool>>& claims,
+    std::index_sequence<Is...>) {
+  (claims.push_back(
+       {Bind(element_type_of<union_member_t<Var, Is>>::value).tag,
+        IsSupported(element_type_of<union_member_t<Var, Is>>::value)}),
+   ...);
+}
+
+template <class U>
+void AddUnionClaims(std::vector<std::pair<std::string_view, bool>>& claims) {
+  using Var = std::decay_t<decltype(std::declval<U>().node)>;
+  AddUnionClaimsImpl<Var>(claims,
+                          std::make_index_sequence<std::variant_size_v<Var>>{});
+}
+
+// The eleven actuator spellings share the common transmission attributes and so
+// the same target-exclusivity quirk (Q-ACT); this tags them for the hook.
+template <class E>
+struct is_actuator : std::false_type {};
+template <>
+struct is_actuator<ActuatorGeneral> : std::true_type {};
+template <>
+struct is_actuator<Motor> : std::true_type {};
+template <>
+struct is_actuator<Position> : std::true_type {};
+template <>
+struct is_actuator<Velocity> : std::true_type {};
+template <>
+struct is_actuator<IntVelocity> : std::true_type {};
+template <>
+struct is_actuator<Damper> : std::true_type {};
+template <>
+struct is_actuator<Cylinder> : std::true_type {};
+template <>
+struct is_actuator<Muscle> : std::true_type {};
+template <>
+struct is_actuator<Adhesion> : std::true_type {};
+template <>
+struct is_actuator<DcMotor> : std::true_type {};
+template <>
+struct is_actuator<ActuatorPlugin> : std::true_type {};
 
 // --------------------------------------------------------------------------- //
 // Reader                                                                        //
@@ -197,13 +269,46 @@ class Reader {
 
     if constexpr (std::is_same_v<E, Inertial>) InertialExclusion(xml, out);
     if constexpr (std::is_same_v<E, Size>) MemoryFixup(xml, out);
+    if constexpr (std::is_same_v<E, Connect>) ConnectExclusion(xml);
+    if constexpr (std::is_same_v<E, Weld>) WeldExclusion(xml);
+    if constexpr (is_actuator<E>::value) ActuatorTransmission(xml);
 
-    ClassifyChildren(xml, b);
+    ClassifyChildren(xml, b, out);
     ChildVisitor<E> cv{this, xml, &b};
     Visit(out, cv);
   }
 
+  // Construct and read the union member whose tag matches `tag`, storing it in
+  // item.node. Returns false (item untouched) for a tag that matches no member
+  // or a member whose type is unsupported (both already diagnosed).
+  template <class U>
+  bool ReadUnionItem(XMLElement* c, std::string_view tag, U& item) {
+    using Var = std::decay_t<decltype(item.node)>;
+    bool done = false;
+    ReadUnionArms<Var>(c, tag, item, done,
+                       std::make_index_sequence<std::variant_size_v<Var>>{});
+    return done;
+  }
+
  private:
+  template <class Var, class U, std::size_t... Is>
+  void ReadUnionArms(XMLElement* c, std::string_view tag, U& item, bool& done,
+                     std::index_sequence<Is...>) {
+    (ReadUnionArm<Var, Is>(c, tag, item, done), ...);
+  }
+
+  template <class Var, std::size_t I, class U>
+  void ReadUnionArm(XMLElement* c, std::string_view tag, U& item, bool& done) {
+    if (done) return;
+    using M = union_member_t<Var, I>;
+    if (Bind(element_type_of<M>::value).tag != tag) return;
+    if (!IsSupported(element_type_of<M>::value)) return;
+    auto member = std::make_unique<M>();
+    ReadElement(c, *member);
+    item.node = std::move(member);
+    done = true;
+  }
+
   // ---- attribute / variant field reading ---------------------------------- //
   template <class E>
   struct AttrVisitor {
@@ -579,6 +684,74 @@ class Reader {
     }
   }
 
+  // Q-EQ: connect/weld carry two mutually exclusive attribute sets -- a body
+  // form (body1[+body2][+anchor]) and a site form (site1+site2). ProtoSpec
+  // stores each attribute as a plain field, so the exclusivity is a read check
+  // mirroring OneEquality (xml_native_reader.cc:2209-2285).
+  void ConnectExclusion(XMLElement* xml) {
+    bool s1 = Has(xml, "site1"), s2 = Has(xml, "site2");
+    bool b1 = Has(xml, "body1"), b2 = Has(xml, "body2"),
+         anchor = Has(xml, "anchor");
+    bool maybe_site = s1 || s2;
+    bool maybe_body = b1 || b2 || anchor;
+    if (maybe_site && maybe_body) {
+      Err(xml, "body and site semantics cannot be mixed");
+      return;
+    }
+    bool site_semantic = s1 && s2;
+    bool body_semantic = b1 && anchor;
+    if (site_semantic == body_semantic) {
+      Err(xml,
+          "either both body1 and anchor must be defined, or both site1 and "
+          "site2 must be defined");
+    }
+  }
+
+  void WeldExclusion(XMLElement* xml) {
+    bool s1 = Has(xml, "site1"), s2 = Has(xml, "site2");
+    bool b1 = Has(xml, "body1"), b2 = Has(xml, "body2");
+    bool anchor = Has(xml, "anchor"), relpose = Has(xml, "relpose");
+    bool maybe_site = s1 || s2;
+    bool maybe_body = b1 || b2 || anchor || relpose;
+    if (maybe_site && maybe_body) {
+      Err(xml, "body and site semantics cannot be mixed");
+      return;
+    }
+    bool site_semantic = s1 && s2;
+    bool body_semantic = b1;
+    if (site_semantic == body_semantic) {
+      Err(xml,
+          "either body1 must be defined and optionally {body2, anchor, "
+          "relpose}, or site1 and site2 must be defined");
+    }
+  }
+
+  // Q-ACT: an actuator has at most one transmission target, and the
+  // slidercrank-only (cranklength/slidersite) and site-only (refsite)
+  // attributes require the matching transmission (xml_native_reader.cc:
+  // 2415-2470). trntype is undefined with no target, slidercrank with
+  // cranksite, site with site.
+  void ActuatorTransmission(XMLElement* xml) {
+    int cnt = Has(xml, "joint") + Has(xml, "jointinparent") +
+              Has(xml, "tendon") + Has(xml, "cranksite") + Has(xml, "site") +
+              Has(xml, "body");
+    if (cnt > 1) {
+      Err(xml, "actuator can have at most one of transmission target");
+      return;
+    }
+    bool cranklength = Has(xml, "cranklength");
+    bool slidersite = Has(xml, "slidersite");
+    if ((cranklength || slidersite) && cnt == 1 && !Has(xml, "cranksite")) {
+      Err(xml,
+          "cranklength and slidersite can only be used in slidercrank "
+          "transmission");
+      return;
+    }
+    if (Has(xml, "refsite") && cnt == 1 && !Has(xml, "site")) {
+      Err(xml, "refsite can only be used with site transmission");
+    }
+  }
+
   // ---- children ----------------------------------------------------------- //
   void CheckUnknownAttributes(XMLElement* xml, const ElementBinding& b) {
     std::unordered_set<std::string_view> known;
@@ -596,24 +769,51 @@ class Reader {
     }
   }
 
-  // Diagnose child tags that map to no child list (malformed) or to an
-  // unsupported / union child list (skip signal). Supported element children
-  // are read by ChildVisitor.
-  void ClassifyChildren(XMLElement* xml, const ElementBinding& b) {
+  // Collects every tag the element's child lists can hold, paired with whether
+  // that child type is supported. Regular lists contribute their one tag; union
+  // lists contribute every member tag (compile-time membership). This is the
+  // only place with the type info to classify a union child, so it drives the
+  // runtime scan below.
+  struct ClaimVisitor {
+    std::vector<std::pair<std::string_view, bool>>* claims;
+    const ElementBinding* b;
+    template <class T>
+    void field(int, const char*, T&) {}
+    template <class T>
+    void child(int cid, const char*, std::vector<std::unique_ptr<T>>&) {
+      claims->push_back(
+          {b->children[cid].tag, IsSupported(element_type_of<T>::value)});
+    }
+    template <class U>
+    void union_child(int, const char*, std::vector<U>&) {
+      AddUnionClaims<U>(*claims);
+    }
+  };
+
+  // Diagnose child tags that map to no child list (malformed, an error) or to
+  // an unsupported child type (skip signal). Supported children are read by
+  // ChildVisitor. Union members are classified by member tag, so an unsupported
+  // member of a supported union still signals skip rather than a false unknown.
+  template <class E>
+  void ClassifyChildren(XMLElement* xml, const ElementBinding& b, E& out) {
+    std::vector<std::pair<std::string_view, bool>> claims;
+    ClaimVisitor v{&claims, &b};
+    Visit(out, v);
     for (XMLElement* c = xml->FirstChildElement(); c;
          c = c->NextSiblingElement()) {
       std::string_view tag = c->Value();
-      const xmlbind::ChildBinding* cb = nullptr;
-      for (std::size_t i = 0; i < b.child_count; ++i) {
-        if (!b.children[i].is_union && b.children[i].tag == tag) {
-          cb = &b.children[i];
+      bool known = false, supported = false;
+      for (const auto& [t, s] : claims) {
+        if (t == tag) {
+          known = true;
+          supported = s;
           break;
         }
       }
-      if (!cb) {
+      if (!known) {
         Err(c, "unknown element '" + std::string(tag) + "' in '" +
                    std::string(b.tag) + "'");
-      } else if (!IsSupported(cb->child_type)) {
+      } else if (!supported) {
         Unsupported(c, std::string(tag));
       }
     }
@@ -640,8 +840,20 @@ class Reader {
         list.push_back(std::move(child));
       }
     }
+
+    // Union child list (Section 6 interleave): a single ordered list holding
+    // several element spellings, read in document order so MuJoCo's id
+    // assignment is reproduced. Each XML child is routed to the member whose
+    // tag it carries; unknown/unsupported tags were already diagnosed by
+    // ClassifyChildren and are skipped here.
     template <class U>
-    void union_child(int, const char*, std::vector<U>&) {}
+    void union_child(int, const char*, std::vector<U>& list) {
+      for (XMLElement* c = xml->FirstChildElement(); c;
+           c = c->NextSiblingElement()) {
+        U item;
+        if (r->ReadUnionItem(c, c->Value(), item)) list.push_back(std::move(item));
+      }
+    }
   };
 
   std::string filename_;

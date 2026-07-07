@@ -658,7 +658,7 @@ struct ActuatorGeneral {
   ps::opt<std::array<double, 2>> actrange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -674,9 +674,9 @@ struct ActuatorGeneral {
   ps::opt<DynType> dyntype = {};
   ps::opt<GainType> gaintype = {};
   ps::opt<BiasType> biastype = {};
-  ps::opt<std::array<double, 10>> dynprm = {};
-  ps::opt<std::array<double, 10>> gainprm = {};
-  ps::opt<std::array<double, 10>> biasprm = {};
+  ps::opt<ps::InlineVec<double, 10>> dynprm = {};
+  ps::opt<ps::InlineVec<double, 10>> gainprm = {};
+  ps::opt<ps::InlineVec<double, 10>> biasprm = {};
   ps::opt<bool> actearly = {};
 };
 
@@ -685,7 +685,7 @@ struct ActuatorPlugin {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
-  ps::opt<double> plugin = {};
+  ps::opt<std::string> plugin = {};
   ps::opt<ps::Ref<PluginInstance>> instance = {};
   ps::opt<int32_t> group = {};
   ps::opt<int32_t> nsample = {};
@@ -699,7 +699,7 @@ struct ActuatorPlugin {
   ps::opt<std::array<double, 2>> actrange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<ps::Ref<Joint>> joint = {};
@@ -707,7 +707,7 @@ struct ActuatorPlugin {
   ps::opt<ps::Ref<Site>> site = {};
   ps::opt<int32_t> actdim = {};
   ps::opt<DynType> dyntype = {};
-  ps::opt<std::array<double, 10>> dynprm = {};
+  ps::opt<ps::InlineVec<double, 10>> dynprm = {};
   ps::opt<ps::Ref<TendonAny>> tendon = {};
   ps::opt<ps::Ref<Site>> cranksite = {};
   ps::opt<ps::Ref<Site>> slidersite = {};
@@ -1059,7 +1059,7 @@ struct Cylinder {
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -1090,7 +1090,7 @@ struct Damper {
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -1117,7 +1117,7 @@ struct DcMotor {
   ps::opt<std::array<double, 2>> ctrlrange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -1128,15 +1128,15 @@ struct DcMotor {
   ps::opt<ps::Ref<Site>> cranksite = {};
   ps::opt<ps::Ref<Site>> site = {};
   ps::opt<ps::Ref<Site>> refsite = {};
-  ps::opt<double> motorconst = {};
+  ps::opt<ps::InlineVec<double, 2>> motorconst = {};
   ps::opt<double> resistance = {};
-  ps::opt<double> nominal = {};
-  ps::opt<double> saturation = {};
-  ps::opt<double> inductance = {};
-  ps::opt<double> cogging = {};
-  ps::opt<std::array<double, 3>> controller = {};
-  ps::opt<std::array<double, 2>> thermal = {};
-  ps::opt<std::array<double, 5>> lugre = {};
+  ps::opt<ps::InlineVec<double, 3>> nominal = {};
+  ps::opt<ps::InlineVec<double, 3>> saturation = {};
+  ps::opt<ps::InlineVec<double, 2>> inductance = {};
+  ps::opt<ps::InlineVec<double, 3>> cogging = {};
+  ps::opt<ps::InlineVec<double, 6>> controller = {};
+  ps::opt<ps::InlineVec<double, 6>> thermal = {};
+  ps::opt<ps::InlineVec<double, 5>> lugre = {};
   ps::opt<DcMotorInput> input = {};
 };
 
@@ -1297,10 +1297,10 @@ struct Fixed {
   ps::opt<ps::InlineVec<double, 2>> solreffriction = {};
   ps::opt<ps::InlineVec<double, 5>> solimpfriction = {};
   ps::opt<double> frictionloss = {};
-  ps::opt<std::array<double, 2>> springlength = {};
+  ps::opt<ps::InlineVec<double, 2>> springlength = {};
   ps::opt<double> margin = {};
-  ps::opt<std::array<double, 3>> stiffness = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> stiffness = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<std::vector<double>> user = {};
   std::vector<std::unique_ptr<FixedJoint>> fixedJoints;
@@ -1465,7 +1465,7 @@ struct Flexstrain {
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
   ps::opt<ps::Ref<Flex>> flex = {};
-  ps::opt<int32_t> cell = {};
+  ps::opt<std::array<double, 3>> cell = {};
   ps::opt<bool> active = {};
   ps::opt<ps::InlineVec<double, 2>> solref = {};
   ps::opt<ps::InlineVec<double, 5>> solimp = {};
@@ -1796,7 +1796,7 @@ struct IntVelocity {
   ps::opt<double> inheritrange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -2092,7 +2092,7 @@ struct Motor {
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -2120,7 +2120,7 @@ struct Muscle {
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -2129,7 +2129,7 @@ struct Muscle {
   ps::opt<ps::Ref<TendonAny>> tendon = {};
   ps::opt<ps::Ref<Site>> slidersite = {};
   ps::opt<ps::Ref<Site>> cranksite = {};
-  ps::opt<double> timeconst = {};
+  ps::opt<std::array<double, 2>> timeconst = {};
   ps::opt<double> tausmooth = {};
   ps::opt<std::array<double, 2>> range = {};
   ps::opt<double> force = {};
@@ -2207,7 +2207,7 @@ struct Pair {
   ps::opt<ps::Ref<Geom>> geom1 = {};
   ps::opt<ps::Ref<Geom>> geom2 = {};
   ps::opt<int32_t> condim = {};
-  ps::opt<std::array<double, 5>> friction = {};
+  ps::opt<ps::InlineVec<double, 5>> friction = {};
   ps::opt<ps::InlineVec<double, 2>> solref = {};
   ps::opt<ps::InlineVec<double, 2>> solreffriction = {};
   ps::opt<ps::InlineVec<double, 5>> solimp = {};
@@ -2253,7 +2253,7 @@ struct Position {
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};
@@ -2450,12 +2450,12 @@ struct Spatial {
   ps::opt<ps::InlineVec<double, 2>> solreffriction = {};
   ps::opt<ps::InlineVec<double, 5>> solimpfriction = {};
   ps::opt<double> frictionloss = {};
-  ps::opt<std::array<double, 2>> springlength = {};
+  ps::opt<ps::InlineVec<double, 2>> springlength = {};
   ps::opt<double> width = {};
   ps::opt<ps::Ref<Material>> material = {};
   ps::opt<double> margin = {};
-  ps::opt<std::array<double, 3>> stiffness = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> stiffness = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<std::vector<double>> user = {};
@@ -2758,7 +2758,7 @@ struct Velocity {
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> lengthrange = {};
   ps::opt<ps::InlineVec<double, 6>> gear = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<double> armature = {};
   ps::opt<double> cranklength = {};
   ps::opt<std::vector<double>> user = {};

@@ -303,13 +303,13 @@ static void TestMalformed() {
 static void TestUnsupported() {
   auto r = Parse(R"(<mujoco>
     <worldbody><geom type="sphere" size="1"/></worldbody>
-    <actuator/>
+    <sensor/>
   </mujoco>)");
   CHECK(!r.ok());
   CHECK(r.unsupported_only());
   bool found = false;
   for (const auto& e : r.errors) {
-    if (e.kind == Diagnostic::Kind::UnsupportedElement && e.element == "actuator")
+    if (e.kind == Diagnostic::Kind::UnsupportedElement && e.element == "sensor")
       found = true;
   }
   CHECK(found);
@@ -614,6 +614,290 @@ static void TestIncludeErrors() {
   }
 }
 
+// Fetch a union member pointer of type M from an item, or nullptr.
+template <class M, class U>
+static const M* Member(const U& item) {
+  auto* p = std::get_if<std::unique_ptr<M>>(&item.node);
+  return p ? p->get() : nullptr;
+}
+
+// Round-trip a whole model under deep equality + deterministic output.
+static void Fixpoint(const ParseResult& a) {
+  CHECK(a.ok());
+  if (!a.ok()) {
+    for (const auto& e : a.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  std::string out1 = WriteMjcf(*a.model);
+  ParseResult b = ParseMjcfString(out1, "<rt>");
+  CHECK(b.ok());
+  if (!b.ok()) {
+    for (const auto& e : b.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  CHECK(*a.model == *b.model);
+  CHECK(out1 == WriteMjcf(*b.model));
+}
+
+// --- Contact (family e): pair 5-value friction + solreffriction, exclude ---- //
+static void TestContact() {
+  auto r = Parse(R"(<mujoco>
+    <contact>
+      <pair name="p" geom1="a" geom2="b" condim="6"
+            friction="1 1 0.01 0.02 0.03" solreffriction="0.01 1" gap="0.001"/>
+      <exclude name="e" body1="t" body2="l"/>
+    </contact>
+  </mujoco>)");
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  const Contact& c = *r.model->contacts.front();
+  CHECK(c.pairs.size() == 1 && c.excludes.size() == 1);
+  const Pair& p = *c.pairs.front();
+  CHECK(*p.condim == 6);
+  CHECK(p.friction.has_value() && p.friction->size() == 5);
+  CHECK(Near((*p.friction)[4], 0.03));
+  CHECK(p.solreffriction.has_value() && p.solreffriction->size() == 2);
+  CHECK(p.geom1->name == "a" && p.geom2->name == "b");
+  CHECK(c.excludes.front()->body1->name == "t");
+  Fixpoint(r);
+
+  // 3-value pair friction (Q-ARITY, fewer than the 5 max) round trips.
+  auto few = Parse(R"(<mujoco><contact>
+    <pair geom1="a" geom2="b" friction="1 1 0.01"/>
+  </contact></mujoco>)");
+  CHECK(few.ok());
+  CHECK(few.model->contacts.front()->pairs.front()->friction->size() == 3);
+  Fixpoint(few);
+}
+
+// --- Equality (family e): every spelling, document order, alt attr sets ----- //
+static void TestEquality() {
+  auto r = Parse(R"(<mujoco>
+    <equality>
+      <connect name="cb" body1="b1" body2="b2" anchor="0 0 1"/>
+      <weld name="w" body1="b1" relpose="0 0 0 1 0 0 0" torquescale="2"/>
+      <joint name="ej" joint1="j1" joint2="j2" polycoef="0 1 0 0 0"/>
+      <tendon name="et" tendon1="t1" tendon2="t2"/>
+      <connect name="cs" site1="s1" site2="s2"/>
+      <flex name="ef" flex="f1"/>
+      <flexvert name="fv" flex="f1"/>
+      <flexstrain name="fs" flex="f1" cell="0 1 2"/>
+    </equality>
+  </mujoco>)");
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  const Equality& eq = *r.model->equalitys.front();
+  CHECK(eq.equalities.size() == 8);
+  // Union child list keeps document order across spellings (Section 6).
+  using K = EqualityAny::Kind;
+  CHECK(eq.equalities[0].kind() == K::Connect);
+  CHECK(eq.equalities[1].kind() == K::Weld);
+  CHECK(eq.equalities[2].kind() == K::EqualityJoint);
+  CHECK(eq.equalities[3].kind() == K::EqualityTendon);
+  CHECK(eq.equalities[4].kind() == K::Connect);
+  CHECK(eq.equalities[5].kind() == K::EqualityFlex);
+  CHECK(eq.equalities[6].kind() == K::Flexvert);
+  CHECK(eq.equalities[7].kind() == K::Flexstrain);
+  // Body-form connect keeps anchor+bodies; site-form connect keeps sites.
+  const Connect* cb = Member<Connect>(eq.equalities[0]);
+  CHECK(cb && cb->anchor.has_value() && cb->body1->name == "b1");
+  CHECK(!cb->site1.has_value());
+  const Connect* cs = Member<Connect>(eq.equalities[4]);
+  CHECK(cs && cs->site1->name == "s1" && !cs->anchor.has_value());
+  const Weld* w = Member<Weld>(eq.equalities[1]);
+  CHECK(w && Near(*w->torquescale, 2.0) && w->relpose.has_value());
+  const Flexstrain* fs = Member<Flexstrain>(eq.equalities[7]);
+  CHECK(fs && fs->cell.has_value() && Near((*fs->cell)[2], 2.0));
+  Fixpoint(r);
+}
+
+static void TestEqualityNegatives() {
+  // connect: body and site semantics cannot be mixed.
+  auto mixed = Parse(R"(<mujoco><equality>
+    <connect body1="b" anchor="0 0 0" site1="s"/>
+  </equality></mujoco>)");
+  CHECK(!mixed.ok());
+  CHECK(mixed.errors[0].message.find("cannot be mixed") != std::string::npos);
+
+  // connect: neither complete body form nor complete site form.
+  auto neither = Parse(R"(<mujoco><equality>
+    <connect body1="b"/>
+  </equality></mujoco>)");
+  CHECK(!neither.ok());
+  CHECK(neither.errors[0].message.find(
+            "either both body1 and anchor") != std::string::npos);
+
+  // weld: site1 without site2 is not a complete site form (and no body form).
+  auto weld = Parse(R"(<mujoco><equality>
+    <weld site1="s"/>
+  </equality></mujoco>)");
+  CHECK(!weld.ok());
+  CHECK(weld.errors[0].message.find("body1 must be defined") !=
+        std::string::npos);
+}
+
+// --- Tendon (family e): spatial path interleave (THE ordering test) + fixed - //
+static void TestTendon() {
+  auto r = Parse(R"(<mujoco>
+    <tendon>
+      <spatial name="sp" width="0.005" limited="true" range="0 1"
+               stiffness="10" damping="0.1" springlength="0.2">
+        <site site="s0"/>
+        <geom geom="g0" sidesite="sd"/>
+        <pulley divisor="2"/>
+        <site site="s1"/>
+      </spatial>
+      <fixed name="fx">
+        <joint joint="j0" coef="1"/>
+        <joint joint="j1" coef="-1"/>
+      </fixed>
+    </tendon>
+  </mujoco>)");
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  const Tendon& t = *r.model->tendons.front();
+  CHECK(t.tendons.size() == 2);
+  CHECK(t.tendons[0].kind() == TendonAny::Kind::Spatial);
+  CHECK(t.tendons[1].kind() == TendonAny::Kind::Fixed);
+  const Spatial* sp = Member<Spatial>(t.tendons[0]);
+  CHECK(sp && sp->path.size() == 4);
+  // The interleaved site/geom/pulley order is preserved exactly (the schema was
+  // redesigned around this: a per-type list would lose site-geom-pulley-site).
+  using PK = PathItemAny::Kind;
+  CHECK(sp->path[0].kind() == PK::SpatialSite);
+  CHECK(sp->path[1].kind() == PK::SpatialGeom);
+  CHECK(sp->path[2].kind() == PK::Pulley);
+  CHECK(sp->path[3].kind() == PK::SpatialSite);
+  CHECK(Member<SpatialGeom>(sp->path[1])->sidesite->name == "sd");
+  CHECK(Near(Member<Pulley>(sp->path[2])->divisor.value(), 2.0));
+  CHECK(sp->stiffness->size() == 1 && Near((*sp->stiffness)[0], 10.0));
+  const Fixed* fx = Member<Fixed>(t.tendons[1]);
+  CHECK(fx && fx->fixedJoints.size() == 2);
+  CHECK(fx->fixedJoints[0]->joint->name == "j0" &&
+        Near(*fx->fixedJoints[0]->coef, 1.0));
+  Fixpoint(r);
+}
+
+// --- Actuators (family f): id order, typed-stays-typed, params, plugin ------ //
+static void TestActuators() {
+  auto r = Parse(R"(<mujoco>
+    <actuator>
+      <motor name="m" joint="j0" gear="2 0 0 0 0 0" ctrllimited="true"
+             ctrlrange="-1 1"/>
+      <position name="p" joint="j0" kp="100" kv="5" inheritrange="1"/>
+      <general name="g" joint="j1" dyntype="filter" gaintype="fixed"
+               biastype="affine" gainprm="35" biasprm="0 -35 0" actdim="1"/>
+      <velocity name="v" joint="j1" kv="7"/>
+      <intvelocity name="iv" joint="j0" kp="3" actrange="-2 2"/>
+      <damper name="d" joint="j1" kv="4" ctrlrange="0 1"/>
+      <cylinder name="cy" joint="j0" timeconst="0.1" area="2" bias="1 0 0"/>
+      <muscle name="mu" joint="j1" timeconst="0.01 0.04" force="500" scale="200"/>
+      <adhesion name="ad" body="b0" gain="1" ctrlrange="0 1"/>
+      <dcmotor name="dc" joint="j0" motorconst="0.5 0" resistance="1.2"
+               controller="1 2 3 4 5 6" thermal="1 2 3 4 5 6" input="velocity"/>
+      <plugin name="pl" joint="j1" plugin="mujoco.pid" actdim="1">
+        <config key="kp" value="10"/>
+        <config key="ki" value="1"/>
+      </plugin>
+    </actuator>
+  </mujoco>)");
+  CHECK(r.ok());
+  if (!r.ok()) {
+    for (const auto& e : r.errors) std::printf("  err: %s\n", e.Render().c_str());
+    return;
+  }
+  const Actuator& a = *r.model->actuators.front();
+  CHECK(a.actuators.size() == 11);
+  // Document order == compile id order; each spelling stays its own type
+  // (DR-3/Q-ACT: no lowering to <general> in IO).
+  using K = ActuatorAny::Kind;
+  const K expect[] = {K::Motor,       K::Position, K::ActuatorGeneral,
+                      K::Velocity,    K::IntVelocity, K::Damper,
+                      K::Cylinder,    K::Muscle,   K::Adhesion,
+                      K::DcMotor,     K::ActuatorPlugin};
+  for (int i = 0; i < 11; ++i) CHECK(a.actuators[i].kind() == expect[i]);
+
+  const Motor* m = Member<Motor>(a.actuators[0]);
+  CHECK(m && m->joint->name == "j0" && m->gear->size() == 6);
+  CHECK(*m->ctrllimited == TriState::true_);  // tri-state stays a tri-state
+  const Position* p = Member<Position>(a.actuators[1]);
+  CHECK(p && Near(*p->kp, 100) && Near(*p->kv, 5) && Near(*p->inheritrange, 1));
+  const ActuatorGeneral* g = Member<ActuatorGeneral>(a.actuators[2]);
+  CHECK(g && *g->dyntype == DynType::filter && *g->biastype == BiasType::affine);
+  CHECK(g->gainprm->size() == 1 && g->biasprm->size() == 3);
+  const Muscle* mu = Member<Muscle>(a.actuators[7]);
+  CHECK(mu && mu->timeconst->size() == 2 && Near(*mu->force, 500));
+  const DcMotor* dc = Member<DcMotor>(a.actuators[9]);
+  CHECK(dc && dc->motorconst->size() == 2 && dc->controller->size() == 6 &&
+        dc->thermal->size() == 6 && *dc->input == DcMotorInput::velocity);
+  const ActuatorPlugin* pl = Member<ActuatorPlugin>(a.actuators[10]);
+  CHECK(pl && *pl->plugin == "mujoco.pid" && pl->config.size() == 2);
+  CHECK(*pl->config[0]->key == "kp" && *pl->config[1]->value == "1");
+  Fixpoint(r);
+}
+
+static void TestActuatorNegatives() {
+  // At most one transmission target.
+  auto two = Parse(R"(<mujoco><actuator>
+    <motor joint="j0" site="s0"/>
+  </actuator></mujoco>)");
+  CHECK(!two.ok());
+  CHECK(two.errors[0].message.find("at most one of transmission") !=
+        std::string::npos);
+
+  // refsite requires a site transmission.
+  auto refsite = Parse(R"(<mujoco><actuator>
+    <position joint="j0" refsite="r"/>
+  </actuator></mujoco>)");
+  CHECK(!refsite.ok());
+  CHECK(refsite.errors[0].message.find("refsite can only be used") !=
+        std::string::npos);
+
+  // slidersite requires a slidercrank transmission.
+  auto slider = Parse(R"(<mujoco><actuator>
+    <motor joint="j0" slidersite="s"/>
+  </actuator></mujoco>)");
+  CHECK(!slider.ok());
+  CHECK(slider.errors[0].message.find("slidercrank transmission") !=
+        std::string::npos);
+}
+
+// --- Union interleave preserved through Write->Read (both directions) ------- //
+static void TestUnionOrderRoundTrip() {
+  // A spelling sequence with repeats; the written MJCF must re-read to the same
+  // ordered union, and re-writing must be byte-identical.
+  auto r = Parse(R"(<mujoco><actuator>
+    <position name="a" joint="j"/>
+    <motor name="b" joint="j"/>
+    <position name="c" joint="j"/>
+    <velocity name="d" joint="j"/>
+    <motor name="e" joint="j"/>
+  </actuator></mujoco>)");
+  CHECK(r.ok());
+  const auto& list = r.model->actuators.front()->actuators;
+  CHECK(list.size() == 5);
+  std::string out1 = WriteMjcf(*r.model);
+  // The five spellings appear in the written order motor/position after position.
+  CHECK(out1.find("name=\"a\"") < out1.find("name=\"b\""));
+  CHECK(out1.find("name=\"b\"") < out1.find("name=\"c\""));
+  ParseResult b = ParseMjcfString(out1, "<rt>");
+  CHECK(b.ok());
+  const auto& list2 = b.model->actuators.front()->actuators;
+  CHECK(list2.size() == 5);
+  for (std::size_t i = 0; i < list.size(); ++i)
+    CHECK(list[i].kind() == list2[i].kind());
+  CHECK(out1 == WriteMjcf(*b.model));
+}
+
 int main() {
   TestFixpoint();
   TestAngle();
@@ -633,6 +917,13 @@ int main() {
   TestTextureSource();
   TestInclude();
   TestIncludeErrors();
+  TestContact();
+  TestEquality();
+  TestEqualityNegatives();
+  TestTendon();
+  TestActuators();
+  TestActuatorNegatives();
+  TestUnionOrderRoundTrip();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

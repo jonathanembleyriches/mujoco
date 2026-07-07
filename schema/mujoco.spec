@@ -1249,7 +1249,7 @@ element Pair {
   geom1          : ref<Geom>   # name of geom 1
   geom2          : ref<Geom>   # name of geom 2
   condim         : int32 = 3   # contact dimensionality
-  friction       : double[5] = {1, 1, 0.005, 0.0001, 0.0001}   # full contact friction
+  friction       : double[0..5] = {1, 1, 0.005, 0.0001, 0.0001}   # full contact friction
   solref         : double[0..2]   # solver reference, normal direction
   solreffriction : double[0..2]
   solimp         : double[0..5]   # solver impedance
@@ -1339,7 +1339,7 @@ element Flexstrain {
   name   : string   # element name
   dclass : ref<Default> (xml="class")   # default class
   flex   : ref<Flex>
-  cell   : int32
+  cell   : double[3]
   active : bool = true   # is equality initially active
   solref : double[0..2]   # solver reference
   solimp : double[0..5]   # solver impedance
@@ -1362,12 +1362,12 @@ element Spatial {
   solreffriction     : double[0..2]   # solver reference: tendon friction
   solimpfriction     : double[0..5]   # solver impedance: tendon friction
   frictionloss       : double   # friction loss
-  springlength       : double[2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
+  springlength       : double[0..2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
   width              : double = 0.003   # width for rendering
   material           : ref<Material>   # name of material for rendering
   margin             : double   # margin value for tendon limit detection
-  stiffness          : double[3]   # stiffness coefficients
-  damping            : double[3]   # damping coefficients
+  stiffness          : double[0..3]   # stiffness coefficients
+  damping            : double[0..3]   # damping coefficients
   armature           : double   # inertia associated with tendon velocity
   rgba               : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   user               : double[]   # user data
@@ -1400,10 +1400,10 @@ element Fixed {
   solreffriction     : double[0..2]   # solver reference: tendon friction
   solimpfriction     : double[0..5]   # solver impedance: tendon friction
   frictionloss       : double   # friction loss
-  springlength       : double[2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
+  springlength       : double[0..2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
   margin             : double   # margin value for tendon limit detection
-  stiffness          : double[3]   # stiffness coefficients
-  damping            : double[3]   # damping coefficients
+  stiffness          : double[0..3]   # stiffness coefficients
+  damping            : double[0..3]   # damping coefficients
   armature           : double   # inertia associated with tendon velocity
   user               : double[]   # user data
   children fixedJoints : FixedJoint *
@@ -1433,7 +1433,7 @@ element ActuatorGeneral (xml="general") {
   actrange      : double[2]   # activation range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1449,9 +1449,9 @@ element ActuatorGeneral (xml="general") {
   dyntype       : DynType = none   # dynamics type
   gaintype      : GainType = fixed   # gain type
   biastype      : BiasType = none   # bias type
-  dynprm        : double[10]   # dynamics parameters
-  gainprm       : double[10]   # gain parameters
-  biasprm       : double[10]   # bias parameters
+  dynprm        : double[0..10]   # dynamics parameters
+  gainprm       : double[0..10]   # gain parameters
+  biasprm       : double[0..10]   # bias parameters
   actearly      : bool   # apply next activations to qfrc
 }
 
@@ -1468,7 +1468,7 @@ element Motor {
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1495,7 +1495,7 @@ element Position {
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1525,7 +1525,7 @@ element Velocity {
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1554,7 +1554,7 @@ element IntVelocity {
   inheritrange  : double   # automatic range setting for position and intvelocity
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1582,7 +1582,7 @@ element Damper {
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1609,7 +1609,7 @@ element Cylinder {
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1639,7 +1639,7 @@ element Muscle {
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1648,7 +1648,7 @@ element Muscle {
   tendon        : ref<TendonAny>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
   cranksite     : ref<Site>
-  timeconst     : double   # time constant of the activation dynamics
+  timeconst     : double[2]   # time constant of the activation dynamics
   tausmooth     : double
   range         : double[2]   # muscle operating length range
   force         : double   # peak active force (muscle); <0: automatic
@@ -1686,7 +1686,7 @@ element DcMotor {
   ctrlrange     : double[2]   # control range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   user          : double[]   # user data
@@ -1697,22 +1697,22 @@ element DcMotor {
   cranksite     : ref<Site>
   site          : ref<Site>
   refsite       : ref<Site>   # reference site, for site transmission
-  motorconst    : double   # motor torque constant
+  motorconst    : double[0..2]   # motor torque constant
   resistance    : double   # armature resistance
-  nominal       : double   # nominal supply voltage
-  saturation    : double   # voltage saturation
-  inductance    : double   # armature inductance
-  cogging       : double   # cogging torque amplitude
-  controller    : double[3]   # controller gains
-  thermal       : double[2]   # thermal model parameters
-  lugre         : double[5]   # LuGre friction parameters
+  nominal       : double[0..3]   # nominal supply voltage
+  saturation    : double[0..3]   # voltage saturation
+  inductance    : double[0..2]   # armature inductance
+  cogging       : double[0..3]   # cogging torque amplitude
+  controller    : double[0..6]   # controller gains
+  thermal       : double[0..6]   # thermal model parameters
+  lugre         : double[0..5]   # LuGre friction parameters
   input         : DcMotorInput
 }
 
 element ActuatorPlugin (xml="plugin") {
   name          : string   # element name
   dclass        : ref<Default> (xml="class")   # default class
-  plugin        : double   # actuator plugin
+  plugin        : string   # plugin name
   instance      : ref<PluginInstance>
   group         : int32   # group
   nsample       : int32   # number of samples in history buffer
@@ -1726,7 +1726,7 @@ element ActuatorPlugin (xml="plugin") {
   actrange      : double[2]   # activation range
   lengthrange   : double[2]   # transmission length range
   gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[3]   # damping coefficients
+  damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
   joint         : ref<Joint>
@@ -1734,7 +1734,7 @@ element ActuatorPlugin (xml="plugin") {
   site          : ref<Site>
   actdim        : int32   # number of activation variables
   dyntype       : DynType   # dynamics type
-  dynprm        : double[10]   # dynamics parameters
+  dynprm        : double[0..10]   # dynamics parameters
   tendon        : ref<TendonAny>
   cranksite     : ref<Site>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank

@@ -182,7 +182,7 @@ void ApplyDefault(Extension& e) {
 }
 
 void ApplyDefault(Fixed& e) {
-  e.springlength = std::array<double, 2>{{-1.0, -1.0}};
+  e.springlength = ps::InlineVec<double, 2>{-1.0, -1.0};
 }
 
 void ApplyDefault(FixedJoint& e) {
@@ -433,7 +433,7 @@ void ApplyDefault(Option& e) {
 
 void ApplyDefault(Pair& e) {
   e.condim = 3;
-  e.friction = std::array<double, 5>{{1.0, 1.0, 0.005, 0.0001, 0.0001}};
+  e.friction = ps::InlineVec<double, 5>{1.0, 1.0, 0.005, 0.0001, 0.0001};
 }
 
 void ApplyDefault(PluginDef& e) {
@@ -500,7 +500,7 @@ void ApplyDefault(SkinBone& e) {
 }
 
 void ApplyDefault(Spatial& e) {
-  e.springlength = std::array<double, 2>{{-1.0, -1.0}};
+  e.springlength = ps::InlineVec<double, 2>{-1.0, -1.0};
   e.width = 0.003;
   e.rgba = std::array<float, 4>{{0.5f, 0.5f, 0.5f, 1.0f}};
 }
