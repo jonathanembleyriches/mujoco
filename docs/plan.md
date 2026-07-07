@@ -1,5 +1,30 @@
 # ProtoSpec: Implementation Plan (Audited)
 
+## STATUS (living section — update on every milestone commit)
+
+Last updated: 2026-07-07. Execution: all code by Opus subagents; sequential waves for shared-file
+IO work; test harnesses authored by a different agent than the code they test.
+
+| Milestone | State | Evidence |
+|---|---|---|
+| M1 schema + IDL + drift gate | **DONE** | commits 03d1451..1326c1c; corpus study 100% on elements/attributes/enum-values/pairs over all 387 vendored MuJoCo MJCF files |
+| M2 emitters + generated C++ | **DONE** | 660eeab (+recursion fix 5451b46); ~22k generated lines, /W4 clean, zero deps; 74 ctest checks |
+| M3 differential harness | **DONE** | ca512e8; mj_model_diff (mjxmacro full-field diff + mj_forward xpos/xquat invariant, vendored MuJoCo 3.10.0); 387-file pipeline |
+| M3 IO pathfinder (blocks + body tree) | **DONE** | 41001b6; schema-complete xml_binding tables; ps_roundtrip (exit 3 = unsupported-skip); 26 corpus files passing live differential |
+| M3 wave 1: defaults + assets/include | **IN FLIGHT** | families (c)+(d); defaults are data (never applied); include = MuJoCo-exact splice with provenance |
+| M3 wave 2: contact/equality/tendon + actuators | queued | |
+| M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | queued | |
+| M4 validation, M5 bridge+binding+recompile, M6 SDK, M7 pybind | queued | |
+| Native compiler (mjs_* walk replacing the XML hop; DR-5 swap point) | **survey in flight** | docs/native_compiler_survey.md (investigating mjs_attach policies, reusable mesh/BVH/inertia machinery, decode-surface mapping); golden = mjModel(native) == mjModel(XML path) over the full corpus |
+
+Key facts a fresh session needs: repo is standalone at C:\Users\jonat\Documents\protospec (this
+file is the canonical plan; the copy in the UE plugin's docs/ is a stale scratch draft). Tests:
+`uv run pytest` (Python) and cmake+ctest under cpp/ (VS2022 generator; MUJOCO_ROOT points at the
+vendored prebuilt 3.10.0 in the UE plugin's third_party/MuJoCo/src). supported.json under cpp/io/
+is the IO coverage manifest the differential harness keys off. Regeneration entry points:
+`python -m protospec_gen.emit --check` and `python tools/bootstrap/draft_schema.py --check`.
+
+
 A single, clean, IDL-generated C++ object model for MuJoCo models. The plugin (and any other
 consumer) works only with ProtoSpec objects. MJCF XML is a wire format handled inside one IO
 module. mjSpec appears in exactly one bridge function and nowhere else.
