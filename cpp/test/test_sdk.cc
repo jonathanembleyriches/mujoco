@@ -346,6 +346,155 @@ static void TestExtractClass() {
   CHECK(eff->size.has_value() && (*eff->size)[0] == 1.0);
 }
 
+// --- multiple top-level <default> blocks merge into one `main` ------------- //
+//
+// After an <include> merges two files, Model.defaults holds several top-level
+// <default> blocks. MuJoCo has one root default (`main`) and feeds every
+// top-level section to it in document order: root-level partials merge into
+// `main` (later blocks overwrite per field), nested classes share one flat
+// namespace, and a class snapshots `main` as it stood when parsed. The builders
+// only ever produce a single `main` block, so these fixtures are assembled by
+// hand. Expected values below were cross-checked against mujoco 3.10.0
+// mj_loadXML on the equivalent MJCF.
+
+static Default& AddTopBlock(Model& m) {
+  m.defaults.push_back(std::make_unique<Default>());
+  return *m.defaults.back();
+}
+static Default& AddSubclass(Default& parent, const std::string& name) {
+  auto d = std::make_unique<Default>();
+  d->dclass = name;
+  parent.subclasses.push_back(std::move(d));
+  return *parent.subclasses.back();
+}
+static Geom& DefGeom(Default& d) {
+  d.geom.push_back(std::make_unique<Geom>());
+  return *d.geom.back();
+}
+static Joint& DefJoint(Default& d) {
+  d.joint.push_back(std::make_unique<Joint>());
+  return *d.joint.back();
+}
+
+static void TestMultiBlockDefaults() {
+  // Two top-level blocks with distinct root partials and distinct classes.
+  //   block0: geom{rgba=red}          class "a": geom{size=0.1}
+  //   block1: joint{damping=0.5}      class "b": geom{size=0.2}
+  // mj_loadXML: ga.rgba=red size=0.1, gb.rgba=red size=0.2, groot.rgba=red,
+  // and the class-free joint gets damping 0.5 -- i.e. both blocks live in main.
+  {
+    auto m = std::make_unique<Model>();
+    m->model = "multi";
+    Default& b0 = AddTopBlock(*m);
+    DefGeom(b0).rgba = std::array<float, 4>{{1.0f, 0.0f, 0.0f, 1.0f}};
+    DefGeom(AddSubclass(b0, "a")).size = ps::InlineVec<double, 3>{0.1};
+    Default& b1 = AddTopBlock(*m);
+    DefJoint(b1).damping = ps::InlineVec<double, 3>{0.5};
+    DefGeom(AddSubclass(b1, "b")).size = ps::InlineVec<double, 3>{0.2};
+
+    Body& world = sdk::World(*m);
+    Body& body = sdk::AddBody(world, "body");
+    Joint& j0 = sdk::AddJoint(body, JointType::hinge, "j0");
+    Geom& ga = sdk::AddGeom(body, GeomType::sphere, "ga");
+    ga.dclass = ps::Ref<Default>("a");
+    Geom& gb = sdk::AddGeom(body, GeomType::sphere, "gb");
+    gb.dclass = ps::Ref<Default>("b");
+    Geom& groot = sdk::AddGeom(body, GeomType::box, "groot");
+
+    auto ega = sdk::Effective(*m, ga);
+    CHECK(ega->rgba.has_value() && (*ega->rgba)[0] == 1.0f &&
+          (*ega->rgba)[2] == 0.0f);              // red, from block0's main merge
+    CHECK(ega->size.has_value() && (*ega->size)[0] == 0.1);  // from class "a"
+
+    auto egb = sdk::Effective(*m, gb);
+    CHECK(egb->rgba.has_value() && (*egb->rgba)[0] == 1.0f);  // block0 -> main
+    CHECK(egb->size.has_value() && (*egb->size)[0] == 0.2);   // from class "b"
+
+    auto egr = sdk::Effective(*m, groot);
+    CHECK(egr->rgba.has_value() && (*egr->rgba)[0] == 1.0f);  // class-free -> main
+
+    auto ej = sdk::Effective(*m, j0);
+    CHECK(ej->damping.has_value() && (*ej->damping)[0] == 0.5);  // block1 -> main
+  }
+
+  // Unnamed + unnamed: disjoint root partials both land in main.
+  //   block0: geom{rgba=red}   block1: geom{size=0.3}
+  // mj_loadXML: class-free geom -> rgba=red, size=0.3.
+  {
+    auto m = std::make_unique<Model>();
+    Default& b0 = AddTopBlock(*m);
+    DefGeom(b0).rgba = std::array<float, 4>{{1.0f, 0.0f, 0.0f, 1.0f}};
+    Default& b1 = AddTopBlock(*m);
+    DefGeom(b1).size = ps::InlineVec<double, 3>{0.3};
+
+    Body& body = sdk::AddBody(sdk::World(*m), "body");
+    Geom& g = sdk::AddGeom(body, GeomType::sphere, "g");
+    auto e = sdk::Effective(*m, g);
+    CHECK(e->rgba.has_value() && (*e->rgba)[0] == 1.0f);  // block0
+    CHECK(e->size.has_value() && (*e->size)[0] == 0.3);   // block1
+  }
+
+  // Same field in two blocks: the LATER block wins in main (the XML reader
+  // overwrites the shared main default in document order).
+  //   block0: geom{rgba=red, size=0.05}   block1: geom{rgba=blue}
+  // mj_loadXML: class-free geom -> rgba=blue, size=0.05.
+  {
+    auto m = std::make_unique<Model>();
+    Default& b0 = AddTopBlock(*m);
+    Geom& g0 = DefGeom(b0);
+    g0.rgba = std::array<float, 4>{{1.0f, 0.0f, 0.0f, 1.0f}};
+    g0.size = ps::InlineVec<double, 3>{0.05};
+    Default& b1 = AddTopBlock(*m);
+    DefGeom(b1).rgba = std::array<float, 4>{{0.0f, 0.0f, 1.0f, 1.0f}};
+
+    Body& body = sdk::AddBody(sdk::World(*m), "body");
+    Geom& g = sdk::AddGeom(body, GeomType::sphere, "g");
+    auto e = sdk::Effective(*m, g);
+    CHECK(e->rgba.has_value() && (*e->rgba)[2] == 1.0f &&
+          (*e->rgba)[0] == 0.0f);                            // blue (block1 wins)
+    CHECK(e->size.has_value() && (*e->size)[0] == 0.05);     // block0's field
+  }
+
+  // Parse-time snapshot: a class defined in block0 does NOT inherit a root-level
+  // field authored by a LATER block1 (mjCModel::AddDefault -> CopyWithoutChildren
+  // snapshots main when the class is parsed).
+  //   block0: class "a": geom{size=0.05}   block1: geom{rgba=green}
+  // mj_loadXML: geom class="a" -> rgba is the compiler default gray, NOT green.
+  // At the SDK class layer (IDL defaults off) rgba stays unset.
+  {
+    auto m = std::make_unique<Model>();
+    Default& b0 = AddTopBlock(*m);
+    DefGeom(AddSubclass(b0, "a")).size = ps::InlineVec<double, 3>{0.05};
+    Default& b1 = AddTopBlock(*m);
+    DefGeom(b1).rgba = std::array<float, 4>{{0.0f, 1.0f, 0.0f, 1.0f}};
+
+    Body& body = sdk::AddBody(sdk::World(*m), "body");
+    Geom& g = sdk::AddGeom(body, GeomType::sphere, "g");
+    g.dclass = ps::Ref<Default>("a");
+    auto e = sdk::Effective(*m, g, /*apply_idl_defaults=*/false);
+    CHECK(e->size.has_value() && (*e->size)[0] == 0.05);  // from class "a"
+    CHECK(!e->rgba.has_value());  // block1's root rgba never reaches class "a"
+  }
+
+  // Duplicate class name across blocks: MuJoCo rejects this model ("repeated
+  // default class name"); the SDK does not validate and deterministically keeps
+  // the first occurrence.
+  //   block0: class "a": geom{size=0.1}   block1: class "a": geom{size=0.2}
+  {
+    auto m = std::make_unique<Model>();
+    Default& b0 = AddTopBlock(*m);
+    DefGeom(AddSubclass(b0, "a")).size = ps::InlineVec<double, 3>{0.1};
+    Default& b1 = AddTopBlock(*m);
+    DefGeom(AddSubclass(b1, "a")).size = ps::InlineVec<double, 3>{0.2};
+
+    Body& body = sdk::AddBody(sdk::World(*m), "body");
+    Geom& g = sdk::AddGeom(body, GeomType::sphere, "g");
+    g.dclass = ps::Ref<Default>("a");
+    auto e = sdk::Effective(*m, g);
+    CHECK(e->size.has_value() && (*e->size)[0] == 0.1);  // first "a" kept
+  }
+}
+
 // --- attach: namespaced deep-clone splice --------------------------------- //
 static void TestAttach() {
   auto m = BuildRobot();
@@ -405,6 +554,7 @@ int main() {
   TestDelete();
   TestEffectiveAndFlatten();
   TestExtractClass();
+  TestMultiBlockDefaults();
   TestAttach();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failed);

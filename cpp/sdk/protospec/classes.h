@@ -120,15 +120,42 @@ void MergeUnset(T& dst, const T& src) {
 }
 
 // Index of the <default> class tree: name -> node, node -> parent, plus the
-// root (`main` or the unnamed top class).
+// top-level blocks that make up the root `main` class.
+//
+// A model may carry SEVERAL top-level <default> blocks -- the norm once
+// <include> merges two files' top-level blocks into one Model.defaults list.
+// MuJoCo's reader has exactly one root default (`main`, created once in the
+// mjCModel constructor) and feeds every top-level <default> section to it in
+// document order: each block's direct element defaults merge field-wise into
+// `main` (later blocks overwrite earlier per field) and each block's nested
+// classes are added to the one shared, flat class namespace
+// (xml/xml_native_reader.cc mjXReader::Default: at top level `def==nullptr`,
+// so it takes `def = mjs_getSpecDefault(spec)` -- the single main -- rather than
+// allocating a new one, and a top-level class name other than "" / "main" is
+// rejected). Same-named classes across blocks are invalid: mjs_addDefault ->
+// mjCModel::AddDefault checks the flat defaults_ list and returns null on a
+// repeat, which the reader turns into "repeated default class name". The SDK
+// does not validate, so it keeps the first occurrence of a duplicate key.
+//
+// A nested class snapshots `main` at the point it is parsed
+// (mjCModel::AddDefault -> CopyWithoutChildren of the parent), so a class only
+// inherits the root-level fields of the top-level blocks up to and including its
+// own (later blocks' root fields never reach an earlier block's class). Roots()
+// preserves that document order and RootRank() locates a block within it so
+// MergeClassChain can reproduce the snapshot.
 class DefaultIndex {
  public:
   explicit DefaultIndex(const mj::Model& m) {
-    for (const auto& d : m.defaults)
-      if (d) Add(*d, nullptr);
+    for (const auto& d : m.defaults) {
+      if (!d) continue;
+      roots_.push_back(d.get());
+      Add(*d, nullptr);
+    }
   }
   const mj::Default* ByNameOrRoot(const std::string& n) const {
-    if (n.empty()) return root_;
+    // "" and "main" both name the root; with multiple top-level blocks it is the
+    // LAST one, so a class-free element sees `main` with every block merged in.
+    if (n.empty() || n == "main") return root_;
     auto it = by_name_.find(n);
     return it != by_name_.end() ? it->second : root_;
   }
@@ -136,11 +163,19 @@ class DefaultIndex {
     auto it = parent_.find(d);
     return it != parent_.end() ? it->second : nullptr;
   }
+  // Top-level <default> blocks in document order; together they form `main`.
+  const std::vector<const mj::Default*>& Roots() const { return roots_; }
+  // Document position of a top-level block in Roots(), or -1 if `d` is nested.
+  int RootRank(const mj::Default* d) const {
+    for (int i = 0; i < static_cast<int>(roots_.size()); ++i)
+      if (roots_[i] == d) return i;
+    return -1;
+  }
 
  private:
   void Add(const mj::Default& d, const mj::Default* par) {
     std::string name = d.dclass ? *d.dclass : std::string();
-    by_name_[name] = &d;
+    by_name_.emplace(name, &d);  // first occurrence wins (duplicate is invalid)
     parent_[&d] = par;
     if (name.empty() || name == "main") root_ = &d;
     for (const auto& s : d.subclasses)
@@ -148,6 +183,7 @@ class DefaultIndex {
   }
   std::unordered_map<std::string, const mj::Default*> by_name_;
   std::unordered_map<const mj::Default*, const mj::Default*> parent_;
+  std::vector<const mj::Default*> roots_;
   const mj::Default* root_ = nullptr;
 };
 
@@ -180,15 +216,39 @@ inline std::string ResolveClassName(const ParentMap& pm,
   return "";
 }
 
-// Merge the class chain (className -> ... -> root) into `target`.
+// Fill `target`'s unauthored fields from one <default> node's class partial for
+// family T (its single class element for that family, if any).
+template <class T>
+void MergeNode(const mj::Default& d, T& target) {
+  if (const auto* vec = DefaultVec<T>(d))
+    if (!vec->empty() && vec->front()) MergeUnset(target, *vec->front());
+}
+
+// Merge the class chain (className -> ... -> root) into `target`, highest
+// priority first (MergeUnset fills only-still-unset fields, so an earlier merge
+// wins). The chain climbs nested classes by parent pointer; its terminal is a
+// top-level block, at which point `main` is the merge of every top-level block
+// up to and including that one. Later blocks overwrite earlier per field
+// (document order), so within the root layer we apply the highest-ranked block
+// first. A class-free element resolves to the last block, hence merges them all;
+// a class defined in block k sees only blocks 0..k (the parse-time snapshot).
 template <class T>
 void MergeClassChain(const DefaultIndex& idx, const std::string& className,
                      T& target) {
   for (const mj::Default* d = idx.ByNameOrRoot(className); d;
        d = idx.ParentOf(d)) {
-    if (const auto* vec = DefaultVec<T>(*d)) {
-      if (!vec->empty() && vec->front()) MergeUnset(target, *vec->front());
+    if (idx.ParentOf(d) == nullptr) {  // terminal: a top-level block -> `main`
+      int rank = idx.RootRank(d);
+      if (rank < 0) {
+        MergeNode(*d, target);
+      } else {
+        const auto& roots = idx.Roots();
+        for (int i = rank; i >= 0; --i)
+          if (roots[i]) MergeNode(*roots[i], target);
+      }
+      break;
     }
+    MergeNode(*d, target);
   }
 }
 
