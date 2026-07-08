@@ -1,0 +1,81 @@
+void mjCKey::Compile(const mjModel* m) {
+  CopyFromSpec();
+
+  // qpos: allocate or check size
+  if (qpos_.empty()) {
+    qpos_.resize(m->nq);
+    for (int i=0; i < m->nq; i++) {
+      qpos_[i] = (double)m->qpos0[i];
+    }
+  } else if (qpos_.size() != m->nq) {
+    throw mjCError(this, "keyframe '%s': invalid qpos size, expected %d, got %d",
+                   name.c_str(), m->nq, qpos_.size());
+  }
+
+  // qvel: allocate or check size
+  if (qvel_.empty()) {
+    qvel_.resize(m->nv);
+    for (int i=0; i < m->nv; i++) {
+      qvel_[i] = 0;
+    }
+  } else if (qvel_.size() != m->nv) {
+    throw mjCError(this, "keyframe '%s': invalid qvel size, expected %d, got %d",
+                   name.c_str(), m->nv, qvel_.size());
+  }
+
+  // act: allocate or check size
+  if (act_.empty()) {
+    act_.resize(m->na);
+    for (int i=0; i < m->na; i++) {
+      act_[i] = 0;
+    }
+  } else if (act_.size() != m->na) {
+    throw mjCError(this, "keyframe '%s': invalid act size, expected %d, got %d",
+                   name.c_str(), m->na, act_.size());
+  }
+
+  // mpos: allocate or check size
+  if (mpos_.empty()) {
+    mpos_.resize(3*m->nmocap);
+    if (m->nmocap) {
+      for (int i=0; i < m->nbody; i++) {
+        if (m->body_mocapid[i] >= 0) {
+          int mocapid = m->body_mocapid[i];
+          mpos_[3*mocapid]   = m->body_pos[3*i];
+          mpos_[3*mocapid+1] = m->body_pos[3*i+1];
+          mpos_[3*mocapid+2] = m->body_pos[3*i+2];
+        }
+      }
+    }
+  } else if (mpos_.size() != 3*m->nmocap) {
+    throw mjCError(this, "keyframe %d: invalid mpos size, expected length %d", nullptr, id, 3*m->nmocap);
+  }
+
+  // mquat: allocate or check size
+  if (mquat_.empty()) {
+    mquat_.resize(4*m->nmocap);
+    if (m->nmocap) {
+      for (int i=0; i < m->nbody; i++) {
+        if (m->body_mocapid[i] >= 0) {
+          int mocapid = m->body_mocapid[i];
+          mquat_[4*mocapid]   = m->body_quat[4*i];
+          mquat_[4*mocapid+1] = m->body_quat[4*i+1];
+          mquat_[4*mocapid+2] = m->body_quat[4*i+2];
+          mquat_[4*mocapid+3] = m->body_quat[4*i+3];
+        }
+      }
+    }
+  } else if (mquat_.size() != 4*m->nmocap) {
+    throw mjCError(this, "keyframe %d: invalid mquat size, expected length %d", nullptr, id, 4*m->nmocap);
+  }
+
+  // ctrl: allocate or check size
+  if (ctrl_.empty()) {
+    ctrl_.resize(m->nu);
+    for (int i=0; i < m->nu; i++) {
+      ctrl_[i] = 0;
+    }
+  } else if (ctrl_.size() != m->nu) {
+    throw mjCError(this, "keyframe %d: invalid ctrl size, expected length %d", nullptr, id, m->nu);
+  }
+}

@@ -123,13 +123,14 @@ class FeatureCollector {
 
 }  // namespace
 
-// Finer-than-family geom scan: a geom is native-compilable in NC1 only if it is
-// a PRIMITIVE (no mesh/hfield/sdf type) with no asset/plugin references. Anything
-// else routes the whole model to the XML fallback with an explicit sub-feature
-// key (so the fallback reason names what is missing, e.g. "geom.mesh").
-class GeomScanner {
+// Finer-than-family sub-feature scan: some models use an admitted family in a
+// way the native path cannot yet compile -- a mesh/asset geom, a site material
+// or light texture (uncompiled assets), or free-joint alignment (align="true"
+// rewrites frames). Each routes the whole model to the XML fallback with an
+// explicit sub-feature key (so the fallback reason names what is missing).
+class SubFeatureScanner {
  public:
-  explicit GeomScanner(std::unordered_map<std::string, FeatureUse>& out)
+  explicit SubFeatureScanner(std::unordered_map<std::string, FeatureUse>& out)
       : out_(out) {}
 
   void operator()(const Model& m) { Recurse rec{this}; Visit(m, rec); }
@@ -141,6 +142,10 @@ class GeomScanner {
       return;  // class templates are not compiled objects
     } else {
       if constexpr (std::is_same_v<E, Geom>) Check(e);
+      else if constexpr (std::is_same_v<E, Site>) CheckSite(e);
+      else if constexpr (std::is_same_v<E, Light>) CheckLight(e);
+      else if constexpr (std::is_same_v<E, FreeJoint>) CheckFreeJoint(e);
+      else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
       Recurse rec{this};
       Visit(e, rec);
     }
@@ -151,6 +156,23 @@ class GeomScanner {
     FeatureUse& u = out_[key];
     if (u.count == 0) u.first = loc;
     ++u.count;
+  }
+  // A site's material or a light's texture would need a compiled asset (not
+  // native yet): route the whole model to the XML fallback with a sub-key.
+  void CheckSite(const Site& s) {
+    if (s.material) Note("site.material", s.loc);
+  }
+  void CheckLight(const Light& l) {
+    if (l.texture) Note("light.texture", l.loc);
+  }
+  // Free-joint alignment (align="true", or align="auto" with compiler
+  // alignfree) rewrites the body/inertial frames and child-geom poses -- out of
+  // the NC1b rigid-body slice, so route such a model to the XML fallback.
+  void CheckFreeJoint(const FreeJoint& fj) {
+    if (fj.align && *fj.align == TriState::true_) Note("freejoint.align", fj.loc);
+  }
+  void CheckCompiler(const Compiler& c) {
+    if (c.alignfree && *c.alignfree) Note("compiler.alignfree", c.loc);
   }
   void Check(const Geom& g) {
     if (g.type) {
@@ -168,7 +190,7 @@ class GeomScanner {
     if (g.fluidshape) Note("geom.fluidshape", g.loc);
   }
   struct Recurse {
-    GeomScanner* c;
+    SubFeatureScanner* c;
     template <class T> void field(int, const char*, const T&) {}
     template <class T>
     void child(int, const char*, const std::vector<std::unique_ptr<T>>& l) {
@@ -203,7 +225,7 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   // Finer-than-family sub-feature keys (e.g. geoms referencing meshes/materials).
   // These are never "supported" -- their presence forces the XML fallback.
   std::unordered_map<std::string, FeatureUse> sub;
-  GeomScanner gs(sub);
+  SubFeatureScanner gs(sub);
   gs(m);
   for (const auto& [key, use] : sub) {
     FeatureUse& agg = by_key[key];

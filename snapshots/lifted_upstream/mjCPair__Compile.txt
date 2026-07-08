@@ -1,0 +1,107 @@
+void mjCPair::Compile(void) {
+  CopyFromSpec();
+
+  // check condim
+  if (condim != 1 && condim != 3 && condim != 4 && condim != 6) {
+    throw mjCError(this, "invalid condim in contact pair");
+  }
+
+  // find geoms
+  ResolveReferences(model);
+
+  // mark geoms as not visual
+  geom1->SetNotVisual();
+  geom2->SetNotVisual();
+
+  // set undefined margin: max
+  if (!mjuu_defined(margin)) {
+    margin = std::max(geom1->margin, geom2->margin);
+  }
+
+  // set undefined gap: max
+  if (!mjuu_defined(gap)) {
+    gap = std::max(geom1->gap, geom2->gap);
+  }
+
+  // set undefined condim, friction, solref, solimp: different priority
+  if (geom1->priority != geom2->priority) {
+    mjCGeom* pgh = (geom1->priority > geom2->priority ? geom1 : geom2);
+
+    // condim
+    if (condim < 0) {
+      condim = pgh->condim;
+    }
+
+    // friction
+    if (!mjuu_defined(friction[0])) {
+      friction[0] = friction[1] = pgh->friction[0];
+      friction[2] =               pgh->friction[1];
+      friction[3] = friction[4] = pgh->friction[2];
+    }
+
+    // reference
+    if (!mjuu_defined(solref[0])) {
+      for (int i=0; i < mjNREF; i++) {
+        solref[i] = pgh->solref[i];
+      }
+    }
+
+    // impedance
+    if (!mjuu_defined(solimp[0])) {
+      for (int i=0; i < mjNIMP; i++) {
+        solimp[i] = pgh->solimp[i];
+      }
+    }
+  }
+
+  // set undefined condim, friction, solref, solimp: same priority
+  else {
+    // condim: max
+    if (condim < 0) {
+      condim = std::max(geom1->condim, geom2->condim);
+    }
+
+    // friction: max
+    if (!mjuu_defined(friction[0])) {
+      friction[0] = friction[1] = std::max(geom1->friction[0], geom2->friction[0]);
+      friction[2] =               std::max(geom1->friction[1], geom2->friction[1]);
+      friction[3] = friction[4] = std::max(geom1->friction[2], geom2->friction[2]);
+    }
+
+    // solver mix factor
+    double mix;
+    if (geom1->solmix >= mjEPS && geom2->solmix >= mjEPS) {
+      mix = geom1->solmix / (geom1->solmix + geom2->solmix);
+    } else if (geom1->solmix < mjEPS && geom2->solmix < mjEPS) {
+      mix = 0.5;
+    } else if (geom1->solmix < mjEPS) {
+      mix = 0.0;
+    } else {
+      mix = 1.0;
+    }
+
+    // reference
+    if (!mjuu_defined(solref[0])) {
+      // standard: mix
+      if (solref[0] > 0) {
+        for (int i=0; i < mjNREF; i++) {
+          solref[i] = mix*geom1->solref[i] + (1-mix)*geom2->solref[i];
+        }
+      }
+
+      // direct: min
+      else {
+        for (int i=0; i < mjNREF; i++) {
+          solref[i] = std::min(geom1->solref[i], geom2->solref[i]);
+        }
+      }
+    }
+
+    // impedance
+    if (!mjuu_defined(solimp[0])) {
+      for (int i=0; i < mjNIMP; i++) {
+        solimp[i] = mix*geom1->solimp[i] + (1-mix)*geom2->solimp[i];
+      }
+    }
+  }
+}

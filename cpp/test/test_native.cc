@@ -72,8 +72,10 @@ static const char* kPendulum =
     "  </worldbody>\n"
     "</mujoco>\n";
 
-// A model whose <site> is outside the NC1 native slice: the gate routes the
-// whole model to the XML fallback.
+// A model whose <actuator> is outside the NC1/NC1b native slice: the gate routes
+// the whole model to the XML fallback. (Sites, cameras, lights, frames, contact
+// pairs/excludes and keyframes are native as of NC1b, so an unsupported example
+// must reach for a still-unsupported family -- here, an actuator.)
 static const char* kUnsupported =
     "<mujoco>\n"
     "  <worldbody>\n"
@@ -83,6 +85,7 @@ static const char* kUnsupported =
     "      <site name='s1' pos='0 0 0'/>\n"
     "    </body>\n"
     "  </worldbody>\n"
+    "  <actuator><motor name='m1' joint='j1'/></actuator>\n"
     "</mujoco>\n";
 
 // --- purity sweep (serial, loc) for every element, document order ----------- //
@@ -140,12 +143,12 @@ static void TestGateUnsupported() {
 
   auto reasons = compile::CollectUnsupportedFeatures(*model);
   CHECK(!reasons.empty());
-  bool saw_site = false;
+  bool saw_motor = false;
   for (const auto& r : reasons) {
-    if (r.feature == "site") saw_site = true;
+    if (r.feature == "motor") saw_motor = true;
     CHECK(r.count > 0);
   }
-  CHECK(saw_site);
+  CHECK(saw_motor);
 
   CompileOptions native;
   native.path = CompilePath::NativePath;
@@ -345,6 +348,105 @@ static void TestNc1BitIdentical() {
       "<joint type='hinge' axis='0 1 0'/></body></worldbody></mujoco>");
 }
 
+// NC1b: per-family bit-identity vs the XML oracle for the families the native
+// slice grew to cover -- frames as containers, sites/cameras/lights, mocap,
+// keyframe padding, and contact pair sorting.
+static void TestNc1bBitIdentical() {
+  // Frames flatten: nested frames accumulate their pose into every child
+  // (geoms, joints, sites, and child bodies).
+  CheckBitIdentical(
+      "frame_nesting",
+      "<mujoco><worldbody>"
+      "<frame pos='1 0 0' euler='0 0 30'>"
+      "  <geom type='box' size='0.1 0.1 0.1' pos='0.2 0 0'/>"
+      "  <frame pos='0 1 0' euler='45 0 0'>"
+      "    <body pos='0 0 0.5'>"
+      "      <joint type='hinge' axis='0 1 0' pos='0.1 0 0'/>"
+      "      <geom type='capsule' size='0.05 0.3'/>"
+      "      <site name='fs' type='ellipsoid' size='0.02 0.03 0.04' pos='0 0.1 0'/>"
+      "    </body>"
+      "  </frame>"
+      "</frame></worldbody></mujoco>");
+
+  // Sites: every shape form plus fromto, on a body with an inertial frame.
+  CheckBitIdentical(
+      "sites",
+      "<mujoco><worldbody><body pos='0 0 1'>"
+      "<joint type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.1'/>"
+      "<site name='sa' pos='0.1 0 0'/>"
+      "<site name='sb' type='box' size='0.02 0.03 0.04' euler='10 20 30'/>"
+      "<site name='sc' type='capsule' fromto='0 0 0 0 0 0.3' size='0.01'/>"
+      "</body></worldbody></mujoco>");
+
+  // Cameras: fovy, focal/sensorsize intrinsics, and targetbody tracking.
+  CheckBitIdentical(
+      "cameras",
+      "<mujoco><worldbody>"
+      "<body name='tgt' pos='1 1 1'><geom type='sphere' size='0.1'/></body>"
+      "<body pos='0 0 1'><joint type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.1'/>"
+      "<camera name='ca' pos='2 0 0' fovy='55' euler='0 90 0'/>"
+      "<camera name='cb' pos='0 -2 0' resolution='640 480' sensorsize='0.01 0.008'"
+      "        focal='0.02 0.02' principal='0.001 0.001'/>"
+      "<camera name='cc' mode='targetbody' target='tgt' pos='0 0 3'/>"
+      "</body></worldbody></mujoco>");
+
+  // Lights: directional and spot, with a targetbody.
+  CheckBitIdentical(
+      "lights",
+      "<mujoco><worldbody>"
+      "<body name='tgt2' pos='1 0 0'><geom type='sphere' size='0.1'/></body>"
+      "<light name='la' directional='true' pos='0 0 3' dir='0 0 -1'/>"
+      "<body pos='0 0 1'><joint type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.1'/>"
+      "<light name='lb' pos='0 0 1' dir='1 0 -1' mode='targetbody' target='tgt2'"
+      "       diffuse='0.8 0.2 0.2' cutoff='30' attenuation='1 0.1 0.01'/>"
+      "</body></worldbody></mujoco>");
+
+  // Mocap bodies: mocapid assignment + nmocap + body_mocapid.
+  CheckBitIdentical(
+      "mocap",
+      "<mujoco><worldbody>"
+      "<body name='m1' mocap='true' pos='0.5 0 1' euler='0 0 45'/>"
+      "<body name='m2' mocap='true' pos='-0.5 0 1'/>"
+      "<body pos='0 0 1'><freejoint/><geom type='box' size='0.1 0.1 0.1'/></body>"
+      "</worldbody></mujoco>");
+
+  // Keyframes: explicit qpos/qvel plus padded-to-qpos0 defaults and mocap pose.
+  CheckBitIdentical(
+      "keyframes",
+      "<mujoco><worldbody>"
+      "<body name='mk' mocap='true' pos='0.2 0.3 0.4'/>"
+      "<body pos='0 0 1'><freejoint/><geom type='box' size='0.1 0.1 0.1'/>"
+      "<body pos='0.3 0 0'><joint type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.05'/></body></body>"
+      "</worldbody>"
+      "<keyframe>"
+      "<key name='full' qpos='0 0 1 1 0 0 0 0.5' qvel='0 0 0 0 0 0 0.1'/>"
+      "<key name='empty'/>"
+      "<key name='timed' time='1.5'/>"
+      "</keyframe></mujoco>");
+
+  // Contact pairs + excludes: compile-time stable-sort by body signature and id
+  // reassignment (authored out of signature order to exercise the sort).
+  CheckBitIdentical(
+      "pairs_excludes",
+      "<mujoco><worldbody>"
+      "<body name='b1' pos='0 0 1'><freejoint/><geom name='g1' type='sphere' size='0.1'/></body>"
+      "<body name='b2' pos='0.3 0 1'><joint type='hinge' axis='0 1 0'/>"
+      "<geom name='g2' type='sphere' size='0.08'/></body>"
+      "<body name='b3' pos='0.6 0 1'><joint type='slide' axis='1 0 0'/>"
+      "<geom name='g3' type='sphere' size='0.05'/></body>"
+      "</worldbody><contact>"
+      "<pair geom1='g2' geom2='g3'/>"
+      "<pair geom1='g1' geom2='g3' condim='1' friction='2 2 0.01 0.001 0.001'/>"
+      "<pair geom1='g1' geom2='g2' solref='0.01 1'/>"
+      "<exclude body1='b2' body2='b3'/>"
+      "<exclude body1='b1' body2='b3'/>"
+      "</contact></mujoco>");
+}
+
 int main() {
   TestNativePurity();
   TestGateUnsupported();
@@ -353,6 +455,7 @@ int main() {
   TestAutoNativePath();
   TestReportShape();
   TestNc1BitIdentical();
+  TestNc1bBitIdentical();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

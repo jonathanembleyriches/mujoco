@@ -1,0 +1,20 @@
+void mjCFrame::Compile() {
+  if (compiled) {
+    return;
+  }
+
+  CopyFromSpec();
+  const char* err = ResolveOrientation(quat, compiler->degree, compiler->eulerseq, alt);
+  if (err) {
+    throw mjCError(this, "orientation specification error '%s' in site %d", err, id);
+  }
+
+  // compile parents and accumulate result
+  if (frame) {
+    frame->Compile();
+    mjuu_frameaccumChild(frame->pos, frame->quat, pos, quat);
+  }
+
+  mjuu_normvec(quat, 4);
+  compiled = true;
+}

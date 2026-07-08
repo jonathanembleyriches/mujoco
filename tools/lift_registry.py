@@ -114,8 +114,15 @@ def extract(root: Path, upstream_rel: str, symbol: str) -> tuple[str, str]:
         open_paren = text.index("(", m.end() - 1)
         close_paren = _match_delims(text, open_paren, "(", ")")
         k = close_paren + 1
-        while k < len(text) and text[k] in " \t\r\n":
-            k += 1
+        # Skip whitespace and trailing member-function qualifiers (e.g. a
+        # `const` method like `mjCGeom::GetVolume() const {`) before the brace.
+        while True:
+            while k < len(text) and text[k] in " \t\r\n":
+                k += 1
+            q = re.match(r"(?:const|noexcept|override|final|volatile)\b", text[k:])
+            if not q:
+                break
+            k += q.end()
         if k >= len(text) or text[k] != "{":
             continue  # a declaration or call, not a definition
         line_start = text.rfind("\n", 0, m.start()) + 1

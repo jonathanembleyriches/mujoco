@@ -1,0 +1,75 @@
+void mjCSite::Compile(void) {
+  CopyFromSpec();
+
+  // resize userdata
+  if (userdata_.size() > model->nuser_site) {
+    throw mjCError(this, "user has more values than nuser_site in site");
+  }
+  userdata_.resize(model->nuser_site);
+
+  // check type
+  if (type < 0 || type >= mjNGEOMTYPES) {
+    throw mjCError(this, "invalid type in site");
+  }
+
+  // do not allow meshes, hfields and planes
+  if (type == mjGEOM_MESH || type == mjGEOM_HFIELD || type == mjGEOM_PLANE) {
+    throw mjCError(this, "meshes, hfields and planes not allowed in site");
+  }
+
+  // 'fromto': compute pos, quat, size
+  if (mjuu_defined(fromto[0])) {
+    // check type
+    if (type != mjGEOM_CAPSULE &&
+        type != mjGEOM_CYLINDER &&
+        type != mjGEOM_ELLIPSOID &&
+        type != mjGEOM_BOX) {
+      throw mjCError(this, "fromto requires capsule, cylinder, box or ellipsoid in geom");
+    }
+
+    // make sure pos is not defined; cannot use mjuu_defined because default is (0,0,0)
+    if (pos[0] || pos[1] || pos[2]) {
+      throw mjCError(this, "both pos and fromto defined in geom");
+    }
+
+    // size[1] = length (for capsule and cylinder)
+    double vec[3] = {fromto[0]-fromto[3], fromto[1]-fromto[4], fromto[2]-fromto[5]};
+    size[1] = mjuu_normvec(vec, 3)/2;
+    if (size[1] < mjEPS) {
+      throw mjCError(this, "fromto points too close in geom");
+    }
+
+    // adjust size for ellipsoid and box
+    if (type == mjGEOM_ELLIPSOID || type == mjGEOM_BOX) {
+      size[2] = size[1];
+      size[1] = size[0];
+    }
+
+    // compute position
+    pos[0] = (fromto[0]+fromto[3])/2;
+    pos[1] = (fromto[1]+fromto[4])/2;
+    pos[2] = (fromto[2]+fromto[5])/2;
+
+    // compute orientation
+    mjuu_z2quat(quat, vec);
+  }
+
+  // alternative orientation
+  else {
+    const char* err = ResolveOrientation(quat, compiler->degree, compiler->eulerseq, alt);
+    if (err) {
+      throw mjCError(this, "orientation specification error '%s' in site %d", err, id);
+    }
+  }
+
+  // frame
+  if (frame) {
+    mjuu_frameaccumChild(frame->pos, frame->quat, pos, quat);
+  }
+
+  // normalize quaternion
+  mjuu_normvec(quat, 4);
+
+  // check size parameters
+  checksize(size, type, this, name.c_str(), id);
+}

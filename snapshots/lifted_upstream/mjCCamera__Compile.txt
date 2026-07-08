@@ -1,0 +1,71 @@
+void mjCCamera::Compile(void) {
+  CopyFromSpec();
+
+  // resize userdata
+  if (userdata_.size() > model->nuser_cam) {
+    throw mjCError(this, "user has more values than nuser_cam in camera");
+  }
+  userdata_.resize(model->nuser_cam);
+
+  // process orientation specifications
+  const char* err = ResolveOrientation(quat, compiler->degree, compiler->eulerseq, alt);
+  if (err) {
+    throw mjCError(this, "orientation specification error '%s' in camera %d", err, id);
+  }
+
+  // frame
+  if (frame) {
+    mjuu_frameaccumChild(frame->pos, frame->quat, pos, quat);
+  }
+
+  // normalize quaternion
+  mjuu_normvec(quat, 4);
+
+  // get targetbodyid
+  ResolveReferences(model);
+
+  // make sure the image size is finite
+  if (fovy >= 180) {
+    throw mjCError(this, "fovy too large in camera '%s' (id = %d, value = %d)",
+                   name.c_str(), id, fovy);
+  }
+
+  // check for advanced camera intrinsic parameters
+  bool has_intrinsic = focal_length[0]     || focal_length[1]     ||
+                       focal_pixel[0]      || focal_pixel[1]      ||
+                       principal_length[0] || principal_length[1] ||
+                       principal_pixel[0]  || principal_pixel[1];
+  bool has_sensorsize = sensor_size[0] > 0 && sensor_size[1] > 0;
+
+  // intrinsic params require sensorsize
+  if (has_intrinsic && !has_sensorsize) {
+    throw mjCError(this, "focal/principal require sensorsize in camera '%s' (id = %d)",
+                   name.c_str(), id);
+  }
+
+  // sensorsize requires resolution
+  if (has_sensorsize && (resolution[0] <= 0 || resolution[1] <= 0)) {
+    throw mjCError(this, "sensorsize requires positive resolution in camera '%s' (id = %d)",
+                   name.c_str(), id);
+  }
+
+  // compute number of pixels per unit length
+  if (sensor_size[0] > 0 && sensor_size[1] > 0) {
+    float pixel_density[2] = {
+      (float)resolution[0] / sensor_size[0],
+      (float)resolution[1] / sensor_size[1],
+    };
+
+    // pixel values override length values when both are specified
+    intrinsic[0] = focal_pixel[0] ? focal_pixel[0] / pixel_density[0] : focal_length[0];
+    intrinsic[1] = focal_pixel[1] ? focal_pixel[1] / pixel_density[1] : focal_length[1];
+    intrinsic[2] = principal_pixel[0] ? principal_pixel[0] / pixel_density[0] : principal_length[0];
+    intrinsic[3] = principal_pixel[1] ? principal_pixel[1] / pixel_density[1] : principal_length[1];
+
+    // fovy with principal point at (0, 0)
+    fovy = std::atan2(sensor_size[1]/2, intrinsic[1]) * 360.0 / mjPI;
+  } else {
+    intrinsic[0] = model->visual.map.znear;
+    intrinsic[1] = model->visual.map.znear;
+  }
+}

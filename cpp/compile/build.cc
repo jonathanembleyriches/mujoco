@@ -26,6 +26,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <mujoco/mujoco.h>
@@ -94,6 +95,17 @@ CompilerSettings ReadCompiler(const Model& m) {
   }
   return s;
 }
+
+// --------------------------------------------------------------------------- //
+// Frame transform (S1/S7). Frames flatten away: a <frame> accumulates its pose //
+// into every child, nested frames compose (mjCFrame::Compile). `present` marks //
+// an enclosing frame so we mirror upstream's `if (frame)` guards exactly.       //
+// --------------------------------------------------------------------------- //
+struct FrameXform {
+  bool present = false;
+  double pos[3] = {0, 0, 0};
+  double quat[4] = {1, 0, 0, 0};
+};
 
 // --------------------------------------------------------------------------- //
 // Per-body compiled state (S7). Side table; the tree is never mutated.         //
@@ -260,6 +272,22 @@ void ResolveQuat(const ps::opt<Orientation>& orient, const CompilerSettings& cs,
     }
     lift::mjuu_normvec(quat, 4);
   }
+}
+
+// Resolve a <frame>'s pose, composing the enclosing frame (mjCFrame::Compile):
+// the child frame's own pos/quat is accumulated under the parent frame, then
+// normalized. An absent parent frame is the identity, so the accumulation is a
+// no-op and the result is the frame's own resolved pose.
+FrameXform ResolveFrame(const Frame& f, const CompilerSettings& cs,
+                        const FrameXform& parent) {
+  FrameXform out;
+  out.present = true;
+  if (f.pos) { out.pos[0] = (*f.pos)[0]; out.pos[1] = (*f.pos)[1];
+               out.pos[2] = (*f.pos)[2]; }
+  ResolveQuat(f.orient, cs, out.quat);
+  lift::mjuu_frameaccumChild(parent.pos, parent.quat, out.pos, out.quat);
+  lift::mjuu_normvec(out.quat, 4);
+  return out;
 }
 
 // --------------------------------------------------------------------------- //
@@ -560,9 +588,10 @@ bool IsLimited(int limited, const double range[2]) {
          (limited == mjLIMITED_AUTO && range[0] < range[1]);
 }
 
-// Compile one <joint> (mjCJoint::Compile). `cs` supplies degree/autolimits.
+// Compile one <joint> (mjCJoint::Compile). `cs` supplies degree/autolimits;
+// `xf` is the enclosing frame (identity when none), applied to axis and pos.
 CJoint JointCompile(const Model& model, const Joint& j, const CompilerSettings& cs,
-                    int bodyid) {
+                    int bodyid, const FrameXform& xf) {
   std::unique_ptr<Joint> eff = ps::sdk::Effective(model, j);
   CJoint cj;
   cj.src = &j;
@@ -622,12 +651,21 @@ CJoint JointCompile(const Model& model, const Joint& j, const CompilerSettings& 
     actfrclimited = mjLIMITED_FALSE;
   cj.actfrclimited = IsLimited(actfrclimited, cj.actfrcrange);
 
-  // axis: FREE/BALL fixed to (0,0,1)
+  // axis: FREE/BALL fixed to (0,0,1); HINGE/SLIDE accumulate frame rotation
   if (cj.type == mjJNT_FREE || cj.type == mjJNT_BALL) {
     cj.axis[0] = cj.axis[1] = 0; cj.axis[2] = 1;
+  } else if (xf.present) {
+    double ax[3] = {cj.axis[0], cj.axis[1], cj.axis[2]};
+    lift::mjuu_rotVecQuat(cj.axis, ax, xf.quat);
   }
   lift::mjuu_normvec(cj.axis, 3);
-  if (cj.type == mjJNT_FREE) { cj.pos[0] = cj.pos[1] = cj.pos[2] = 0; }
+  // pos: FREE fixed to (0,0,0); BALL/HINGE/SLIDE accumulate frame translation
+  if (cj.type == mjJNT_FREE) {
+    cj.pos[0] = cj.pos[1] = cj.pos[2] = 0;
+  } else if (xf.present) {
+    double qunit[4] = {1, 0, 0, 0};
+    lift::mjuu_frameaccumChild(xf.pos, xf.quat, cj.pos, qunit);
+  }
 
   // ref/springref to radians for hinge joints
   if (cj.type == mjJNT_HINGE && cs.degree) {
@@ -635,6 +673,215 @@ CJoint JointCompile(const Model& model, const Joint& j, const CompilerSettings& 
     cj.springref *= mjPI / 180.0;
   }
   return cj;
+}
+
+// --------------------------------------------------------------------------- //
+// Per-site compiled state (S7). Lifted from mjCSite::Compile.                  //
+// --------------------------------------------------------------------------- //
+struct CSite {
+  const Site* src = nullptr;
+  int bodyid = 0;
+  int type = mjGEOM_SPHERE;
+  int group = 0;
+  int matid = -1;
+  double size[3] = {0.005, 0.005, 0.005};
+  double pos[3] = {0, 0, 0};
+  double quat[4] = {1, 0, 0, 0};
+  float rgba[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+  std::vector<double> user;
+};
+
+CSite SiteCompile(const Model& model, const Site& s, const CompilerSettings& cs,
+                  int bodyid, const FrameXform& xf) {
+  std::unique_ptr<Site> eff = ps::sdk::Effective(model, s);
+  CSite cs2;
+  cs2.src = &s;
+  cs2.bodyid = bodyid;
+  cs2.type = eff->type ? static_cast<int>(*eff->type) : mjGEOM_SPHERE;
+  if (eff->group) cs2.group = *eff->group;
+  if (eff->size)
+    for (std::size_t k = 0; k < eff->size->size() && k < 3; ++k)
+      cs2.size[k] = (*eff->size)[k];
+  if (eff->pos) { cs2.pos[0] = (*eff->pos)[0]; cs2.pos[1] = (*eff->pos)[1];
+                  cs2.pos[2] = (*eff->pos)[2]; }
+  if (eff->rgba) for (int k = 0; k < 4; ++k) cs2.rgba[k] = (*eff->rgba)[k];
+  if (eff->user) cs2.user = *eff->user;
+
+  // 'fromto' path (mjCSite::Compile): compute pos, quat, size like geoms.
+  const FromTo* ft = nullptr;
+  if (eff->shape) ft = std::get_if<FromTo>(&*eff->shape);
+  if (ft) {
+    const double* f = ft->fromto.data();
+    double vec[3] = {f[0] - f[3], f[1] - f[4], f[2] - f[5]};
+    cs2.size[1] = lift::mjuu_normvec(vec, 3) / 2;
+    if (cs2.type == mjGEOM_ELLIPSOID || cs2.type == mjGEOM_BOX) {
+      cs2.size[2] = cs2.size[1];
+      cs2.size[1] = cs2.size[0];
+    }
+    cs2.pos[0] = (f[0] + f[3]) / 2; cs2.pos[1] = (f[1] + f[4]) / 2;
+    cs2.pos[2] = (f[2] + f[5]) / 2;
+    lift::mjuu_z2quat(cs2.quat, vec);
+  } else {
+    ResolveQuat(eff->orient, cs, cs2.quat);
+  }
+  // frame accumulation, then normalize (mjCSite::Compile order).
+  if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cs2.pos, cs2.quat);
+  lift::mjuu_normvec(cs2.quat, 4);
+  return cs2;
+}
+
+// --------------------------------------------------------------------------- //
+// Per-camera compiled state (S7). Lifted from mjCCamera::Compile.              //
+// --------------------------------------------------------------------------- //
+struct CCamera {
+  const Camera* src = nullptr;
+  int bodyid = 0;
+  int mode = mjCAMLIGHT_FIXED;
+  int targetbodyid = -1;
+  std::string targetbody;
+  double pos[3] = {0, 0, 0};
+  double quat[4] = {1, 0, 0, 0};
+  int proj = 0;                       // mjtProjection (perspective)
+  double fovy = 45;
+  double ipd = 0.068;
+  int resolution[2] = {1, 1};
+  int output = mjCAMOUT_RGB;
+  float sensorsize[2] = {0, 0};
+  float intrinsic[4] = {0, 0, 0, 0};
+  std::vector<double> user;
+};
+
+CCamera CameraCompile(const Model& model, const Camera& c,
+                      const CompilerSettings& cs, int bodyid,
+                      const FrameXform& xf, double znear) {
+  std::unique_ptr<Camera> eff = ps::sdk::Effective(model, c);
+  CCamera cc;
+  cc.src = &c;
+  cc.bodyid = bodyid;
+  if (eff->pos) { cc.pos[0] = (*eff->pos)[0]; cc.pos[1] = (*eff->pos)[1];
+                  cc.pos[2] = (*eff->pos)[2]; }
+  if (eff->mode) cc.mode = static_cast<int>(*eff->mode);
+  if (eff->ipd) cc.ipd = *eff->ipd;
+  if (eff->resolution) { cc.resolution[0] = (*eff->resolution)[0];
+                         cc.resolution[1] = (*eff->resolution)[1]; }
+  if (eff->projection) cc.proj = static_cast<int>(*eff->projection);
+  if (eff->target) cc.targetbody = eff->target->name;
+  if (eff->user) cc.user = *eff->user;
+
+  // orientation, frame, normalize (mjCCamera::Compile order).
+  ResolveQuat(eff->orient, cs, cc.quat);
+  if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cc.pos, cc.quat);
+  lift::mjuu_normvec(cc.quat, 4);
+
+  // output bit flags (default RGB); intrinsics (fovy / focal / principal).
+  if (eff->output && !eff->output->empty()) {
+    cc.output = 0;
+    for (CameraOutput o : *eff->output) cc.output |= (1 << static_cast<int>(o));
+  }
+  float focal_length[2] = {0, 0};  // mjsCamera.focal_length is float
+  if (eff->intrinsics) {
+    if (const Fovy* fv = std::get_if<Fovy>(&*eff->intrinsics)) cc.fovy = fv->fovy;
+    else if (const Focal* fl = std::get_if<Focal>(&*eff->intrinsics)) {
+      focal_length[0] = static_cast<float>(fl->focal[0]);
+      focal_length[1] = static_cast<float>(fl->focal[1]);
+    }
+  }
+  float focal_pixel[2] = {0, 0}, principal_length[2] = {0, 0},
+        principal_pixel[2] = {0, 0}, sensor_size[2] = {0, 0};
+  if (eff->focalpixel) { focal_pixel[0] = (*eff->focalpixel)[0];
+                         focal_pixel[1] = (*eff->focalpixel)[1]; }
+  if (eff->principal) { principal_length[0] = (*eff->principal)[0];
+                        principal_length[1] = (*eff->principal)[1]; }
+  if (eff->principalpixel) { principal_pixel[0] = (*eff->principalpixel)[0];
+                             principal_pixel[1] = (*eff->principalpixel)[1]; }
+  if (eff->sensorsize) { sensor_size[0] = (*eff->sensorsize)[0];
+                         sensor_size[1] = (*eff->sensorsize)[1]; }
+  cc.sensorsize[0] = sensor_size[0]; cc.sensorsize[1] = sensor_size[1];
+
+  // compute intrinsic + fovy (user_objects.cc:4380-4430).
+  if (sensor_size[0] > 0 && sensor_size[1] > 0) {
+    float pixel_density[2] = {
+        static_cast<float>(cc.resolution[0]) / sensor_size[0],
+        static_cast<float>(cc.resolution[1]) / sensor_size[1]};
+    cc.intrinsic[0] = focal_pixel[0] ? focal_pixel[0] / pixel_density[0]
+                                     : focal_length[0];
+    cc.intrinsic[1] = focal_pixel[1] ? focal_pixel[1] / pixel_density[1]
+                                     : focal_length[1];
+    cc.intrinsic[2] = principal_pixel[0] ? principal_pixel[0] / pixel_density[0]
+                                         : principal_length[0];
+    cc.intrinsic[3] = principal_pixel[1] ? principal_pixel[1] / pixel_density[1]
+                                         : principal_length[1];
+    cc.fovy = std::atan2(sensor_size[1] / 2, cc.intrinsic[1]) * 360.0 / mjPI;
+  } else {
+    cc.intrinsic[0] = static_cast<float>(znear);
+    cc.intrinsic[1] = static_cast<float>(znear);
+  }
+  return cc;
+}
+
+// --------------------------------------------------------------------------- //
+// Per-light compiled state (S7). Lifted from mjCLight::Compile.                //
+// --------------------------------------------------------------------------- //
+struct CLight {
+  const Light* src = nullptr;
+  int bodyid = 0;
+  int mode = mjCAMLIGHT_FIXED;
+  int targetbodyid = -1;
+  std::string targetbody;
+  int type = mjLIGHT_SPOT;
+  int texid = -1;
+  bool castshadow = true;
+  bool active = true;
+  double pos[3] = {0, 0, 0};
+  double dir[3] = {0, 0, -1};
+  float bulbradius = 0.02f, intensity = 0.0f, range = 10.0f;
+  float attenuation[3] = {1, 0, 0};
+  float cutoff = 45.0f, exponent = 10.0f;
+  float ambient[3] = {0, 0, 0};
+  float diffuse[3] = {0.7f, 0.7f, 0.7f};
+  float specular[3] = {0.3f, 0.3f, 0.3f};
+};
+
+CLight LightCompile(const Model& model, const Light& l,
+                    const CompilerSettings& cs, int bodyid, const FrameXform& xf) {
+  (void)cs;
+  std::unique_ptr<Light> eff = ps::sdk::Effective(model, l);
+  CLight cl;
+  cl.src = &l;
+  cl.bodyid = bodyid;
+  if (eff->mode) cl.mode = static_cast<int>(*eff->mode);
+  // type: `directional` (legacy bool) maps to spot/directional; else `type`.
+  if (eff->directional) cl.type = *eff->directional ? mjLIGHT_DIRECTIONAL
+                                                     : mjLIGHT_SPOT;
+  else if (eff->type) cl.type = static_cast<int>(*eff->type);
+  if (eff->castshadow) cl.castshadow = *eff->castshadow;
+  if (eff->active) cl.active = *eff->active;
+  if (eff->pos) { cl.pos[0] = (*eff->pos)[0]; cl.pos[1] = (*eff->pos)[1];
+                  cl.pos[2] = (*eff->pos)[2]; }
+  if (eff->dir) { cl.dir[0] = (*eff->dir)[0]; cl.dir[1] = (*eff->dir)[1];
+                  cl.dir[2] = (*eff->dir)[2]; }
+  if (eff->bulbradius) cl.bulbradius = *eff->bulbradius;
+  if (eff->intensity) cl.intensity = *eff->intensity;
+  if (eff->range) cl.range = *eff->range;
+  if (eff->attenuation) for (int k = 0; k < 3; ++k)
+    cl.attenuation[k] = (*eff->attenuation)[k];
+  if (eff->cutoff) cl.cutoff = *eff->cutoff;
+  if (eff->exponent) cl.exponent = *eff->exponent;
+  if (eff->ambient) for (int k = 0; k < 3; ++k) cl.ambient[k] = (*eff->ambient)[k];
+  if (eff->diffuse) for (int k = 0; k < 3; ++k) cl.diffuse[k] = (*eff->diffuse)[k];
+  if (eff->specular) for (int k = 0; k < 3; ++k)
+    cl.specular[k] = (*eff->specular)[k];
+  if (eff->target) cl.targetbody = eff->target->name;
+
+  // frame: accumulate pos, rotate dir (mjCLight::Compile), then normalize dir.
+  if (xf.present) {
+    double qunit[4] = {1, 0, 0, 0};
+    lift::mjuu_frameaccumChild(xf.pos, xf.quat, cl.pos, qunit);
+    double d[3] = {cl.dir[0], cl.dir[1], cl.dir[2]};
+    lift::mjuu_rotVecQuat(cl.dir, d, xf.quat);
+  }
+  lift::mjuu_normvec(cl.dir, 3);
+  return cl;
 }
 
 // --------------------------------------------------------------------------- //
@@ -745,13 +992,76 @@ class BVH {
 };
 
 // --------------------------------------------------------------------------- //
+// Frame flattening (S1): a body's direct children plus everything reachable    //
+// through nested <frame> containers, in document order, each paired with its   //
+// accumulated frame transform. Frames flatten away -- their pose lives in the  //
+// child transforms, matching upstream where every element carries a `frame`.   //
+// --------------------------------------------------------------------------- //
+struct FramedChildren {
+  std::vector<std::pair<const BodyChildAny*, FrameXform>> joints;  // Joint/Free
+  std::vector<std::pair<const Geom*, FrameXform>> geoms;
+  std::vector<std::pair<const Site*, FrameXform>> sites;
+  std::vector<std::pair<const Camera*, FrameXform>> cameras;
+  std::vector<std::pair<const Light*, FrameXform>> lights;
+  std::vector<std::pair<const Body*, FrameXform>> bodies;
+};
+
+void FlattenChildren(const std::vector<BodyChildAny>& subtree,
+                     const FrameXform& xf, const CompilerSettings& cs,
+                     FramedChildren& out) {
+  for (const BodyChildAny& child : subtree) {
+    switch (child.kind()) {
+      case BodyChildAny::Kind::Joint:
+      case BodyChildAny::Kind::FreeJoint:
+        out.joints.emplace_back(&child, xf);
+        break;
+      case BodyChildAny::Kind::Geom: {
+        const auto& g = std::get<std::unique_ptr<Geom>>(child.node);
+        if (g) out.geoms.emplace_back(g.get(), xf);
+        break;
+      }
+      case BodyChildAny::Kind::Site: {
+        const auto& s = std::get<std::unique_ptr<Site>>(child.node);
+        if (s) out.sites.emplace_back(s.get(), xf);
+        break;
+      }
+      case BodyChildAny::Kind::Camera: {
+        const auto& c = std::get<std::unique_ptr<Camera>>(child.node);
+        if (c) out.cameras.emplace_back(c.get(), xf);
+        break;
+      }
+      case BodyChildAny::Kind::Light: {
+        const auto& l = std::get<std::unique_ptr<Light>>(child.node);
+        if (l) out.lights.emplace_back(l.get(), xf);
+        break;
+      }
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(child.node);
+        if (b) out.bodies.emplace_back(b.get(), xf);
+        break;
+      }
+      case BodyChildAny::Kind::Frame: {
+        const auto& f = std::get<std::unique_ptr<Frame>>(child.node);
+        if (f) {
+          FrameXform sub = ResolveFrame(*f, cs, xf);
+          FlattenChildren(f->subtree, sub, cs, out);
+        }
+        break;
+      }
+      default:
+        break;  // PluginRef/Composite/Flexcomp/Replicate/Attach: gated out
+    }
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // S1 Collect: DFS pre-order over the body tree, document order == id order.    //
 // --------------------------------------------------------------------------- //
 class BodyCollector {
  public:
   BodyCollector(const Model& model, const CompilerSettings& cs,
-                const bridge::CompileOptions& opts)
-      : model_(model), cs_(cs), opts_(opts) {}
+                const bridge::CompileOptions& opts, double znear)
+      : model_(model), cs_(cs), opts_(opts), znear_(znear) {}
 
   // Auto-name mirror (bridge Collector): authored name else _ps:joint:<serial>.
   std::string JointName(const ps::opt<std::string>& nm, std::uint64_t serial) {
@@ -772,15 +1082,19 @@ class BodyCollector {
     world.weldid = 0;
     bodies_.push_back(world);  // reserve id 0
 
-    // World's geoms: all entries' direct geoms, in order (id 0, no inference).
+    // Flatten every <worldbody> block (merged into world by MuJoCo includes),
+    // descending frames, in document order.
+    FramedChildren fc;
+    FrameXform identity;
+    for (const auto& wb : worldbodies)
+      if (wb) FlattenChildren(wb->subtree, identity, cs_, fc);
+
+    // World's geoms (id 0, no inertia inference), sites, cameras, lights.
     const int gstart = static_cast<int>(geoms_.size());
-    for (const auto& wb : worldbodies) {
-      if (!wb) continue;
-      for (const BodyChildAny& child : wb->subtree) {
-        if (child.kind() != BodyChildAny::Kind::Geom) continue;
-        const auto& g = std::get<std::unique_ptr<Geom>>(child.node);
-        if (g) geoms_.push_back(GeomCompile(model_, *g, cs_, 0, false));
-      }
+    for (const auto& [g, xf] : fc.geoms) {
+      CGeom cg = GeomCompile(model_, *g, cs_, 0, false);
+      if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cg.pos, cg.quat);
+      geoms_.push_back(cg);
     }
     CBody& w = bodies_[0];
     w.geomnum = static_cast<int>(geoms_.size()) - gstart;
@@ -790,26 +1104,34 @@ class BodyCollector {
       w.conaffinity |= geoms_[j].conaffinity;
       w.margin = std::max(w.margin, geoms_[j].margin);
     }
+    CollectVisual(fc, 0);
     // world (id 0): ipos = body frame (0, identity); no inertia inference.
     lift::mjuu_copyvec(w.ipos, w.pos, 3);
     lift::mjuu_copyvec(w.iquat, w.quat, 4);
     BuildBVH(w);
 
-    // Top-level bodies: all entries' direct child bodies, in order.
-    for (const auto& wb : worldbodies) {
-      if (!wb) continue;
-      for (const BodyChildAny& child : wb->subtree) {
-        if (child.kind() != BodyChildAny::Kind::Body) continue;
-        const auto& cbptr = std::get<std::unique_ptr<Body>>(child.node);
-        if (cbptr) Collect(*cbptr, 0);
-      }
-    }
+    // Top-level bodies (each carrying its enclosing frame), in document order.
+    for (const auto& [b, xf] : fc.bodies) Collect(*b, 0, xf);
   }
 
   std::vector<CBody>& bodies() { return bodies_; }
   std::vector<CGeom>& geoms() { return geoms_; }
+  std::vector<CSite>& sites() { return sites_; }
+  std::vector<CCamera>& cameras() { return cameras_; }
+  std::vector<CLight>& lights() { return lights_; }
 
  private:
+  // Compile this body's sites, cameras, lights (mjCBody child lists), appending
+  // to the global lists in document order (== id order).
+  void CollectVisual(const FramedChildren& fc, int bodyid) {
+    for (const auto& [s, xf] : fc.sites)
+      sites_.push_back(SiteCompile(model_, *s, cs_, bodyid, xf));
+    for (const auto& [c, xf] : fc.cameras)
+      cameras_.push_back(CameraCompile(model_, *c, cs_, bodyid, xf, znear_));
+    for (const auto& [l, xf] : fc.lights)
+      lights_.push_back(LightCompile(model_, *l, cs_, bodyid, xf));
+  }
+
   void BuildBVH(CBody& cb) {
     if (cb.geomnum <= 0) return;
     BVH tree;
@@ -862,19 +1184,19 @@ class BodyCollector {
     cb.has_inertial = (sz > 0);  // ipos now "defined" if any geom contributed
   }
 
-  int Collect(const Body& b, int parentid) {
+  int Collect(const Body& b, int parentid, const FrameXform& body_xf) {
     const int id = static_cast<int>(bodies_.size());
     CBody cb;
     cb.src = &b;
     cb.parentid = parentid < 0 ? 0 : parentid;
-    // has_joints: any <joint>/<freejoint> child. Determines weld root.
-    for (const BodyChildAny& child : b.subtree) {
-      if (child.kind() == BodyChildAny::Kind::Joint ||
-          child.kind() == BodyChildAny::Kind::FreeJoint) {
-        cb.has_joints = true;
-        break;
-      }
-    }
+
+    // Flatten this body's children through nested frames, in document order.
+    FramedChildren fc;
+    FrameXform identity;
+    FlattenChildren(b.subtree, identity, cs_, fc);
+
+    // has_joints: any <joint>/<freejoint> (frames flattened). Determines weld.
+    cb.has_joints = !fc.joints.empty();
     cb.weldid = cb.has_joints ? id : (id == 0 ? 0 : bodies_[cb.parentid].weldid);
     if (b.pos) { cb.pos[0] = (*b.pos)[0]; cb.pos[1] = (*b.pos)[1];
                  cb.pos[2] = (*b.pos)[2]; }
@@ -888,15 +1210,15 @@ class BodyCollector {
     // Compile this body's joints (grouped by body); assign global jnt id and
     // qpos/dof addresses via running cursors (CopyTree cursor order).
     const int jstart = static_cast<int>(joints_.size());
-    for (const BodyChildAny& child : b.subtree) {
+    for (const auto& [child, xf] : fc.joints) {
       CJoint cj;
-      if (child.kind() == BodyChildAny::Kind::Joint) {
-        const auto& j = std::get<std::unique_ptr<Joint>>(child.node);
+      if (child->kind() == BodyChildAny::Kind::Joint) {
+        const auto& j = std::get<std::unique_ptr<Joint>>(child->node);
         if (!j) continue;
-        cj = JointCompile(model_, *j, cs_, id);
+        cj = JointCompile(model_, *j, cs_, id, xf);
         cj.name = JointName(j->name, j->serial);
-      } else if (child.kind() == BodyChildAny::Kind::FreeJoint) {
-        const auto& fj = std::get<std::unique_ptr<FreeJoint>>(child.node);
+      } else {
+        const auto& fj = std::get<std::unique_ptr<FreeJoint>>(child->node);
         if (!fj) continue;
         cj.src = fj.get();
         cj.bodyid = id;
@@ -904,8 +1226,6 @@ class BodyCollector {
         if (fj->group) cj.group = *fj->group;
         cj.axis[0] = cj.axis[1] = 0; cj.axis[2] = 1;
         cj.name = JointName(fj->name, fj->serial);
-      } else {
-        continue;
       }
       cj.qposadr = qpos_cursor_;
       cj.dofadr = dof_cursor_;
@@ -922,14 +1242,10 @@ class BodyCollector {
 
     // Compile this body's own geoms (grouped by body, MakeTreeLists order).
     const int gstart = static_cast<int>(geoms_.size());
-    for (const BodyChildAny& child : b.subtree) {
-      if (child.kind() != BodyChildAny::Kind::Geom) continue;
-      const auto& g = std::get<std::unique_ptr<Geom>>(child.node);
-      if (!g) continue;
+    for (const auto& [g, xf] : fc.geoms) {
       const bool infer =
           id > 0 &&
           (!explicitinertial || cs_.inertiafromgeom == InertiaFromGeom::true_);
-      // group check folded into GeomCompile's Effective read below.
       CGeom cg = GeomCompile(model_, *g, cs_, id, false);
       cg.inferinertia = infer && cg.group >= cs_.inertiagrouprange[0] &&
                         cg.group <= cs_.inertiagrouprange[1];
@@ -937,10 +1253,15 @@ class BodyCollector {
         // recompute mass/inertia now that the group gate is known
         cg = GeomCompile(model_, *g, cs_, id, true);
       }
+      // frame accumulation is the final touch on geom pos/quat (upstream).
+      if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cg.pos, cg.quat);
       geoms_.push_back(cg);
     }
     cb.geomnum = static_cast<int>(geoms_.size()) - gstart;
     cb.geomadr = cb.geomnum ? gstart : -1;
+
+    // Sites, cameras, lights on this body (document order == id order).
+    CollectVisual(fc, id);
 
     // Accumulate contype/conaffinity/margin over geoms (mjCBody::Compile).
     for (int j = gstart; j < static_cast<int>(geoms_.size()); ++j) {
@@ -975,27 +1296,31 @@ class BodyCollector {
       }
     }
 
+    // frame: accumulate the enclosing frame into the body frame, after the
+    // inertial-frame copy (mjCBody::Compile order).
+    if (body_xf.present)
+      lift::mjuu_frameaccumChild(body_xf.pos, body_xf.quat, cb.pos, cb.quat);
+
     // BVH over this body's geoms (mjCBody::ComputeBVH).
     BuildBVH(cb);
 
     bodies_.push_back(cb);
 
-    // Recurse into child bodies in document order (BodyChildAny interleave).
-    for (const BodyChildAny& child : b.subtree) {
-      if (child.kind() == BodyChildAny::Kind::Body) {
-        const auto& cbptr = std::get<std::unique_ptr<Body>>(child.node);
-        if (cbptr) Collect(*cbptr, id);
-      }
-    }
+    // Recurse into child bodies in document order (frames flattened).
+    for (const auto& [child, xf] : fc.bodies) Collect(*child, id, xf);
     return id;
   }
 
   const Model& model_;
   const CompilerSettings& cs_;
   const bridge::CompileOptions& opts_;
+  double znear_ = 0.01;
   std::vector<CBody> bodies_;
   std::vector<CGeom> geoms_;
   std::vector<CJoint> joints_;
+  std::vector<CSite> sites_;
+  std::vector<CCamera> cameras_;
+  std::vector<CLight> lights_;
   int qpos_cursor_ = 0, dof_cursor_ = 0;
 
  public:
@@ -1311,6 +1636,89 @@ void FillTree(mjModel* m, const std::vector<CBody>& cbs,
 }
 
 // --------------------------------------------------------------------------- //
+// S11 visual fill: sites, cameras, lights (CopyObjects). targetbodyid resolved //
+// via the body name -> id map. cam_pos0/mat0/light_pos0/dir0 are the reference  //
+// configuration and are filled by mj_setConst (finalize).                       //
+// --------------------------------------------------------------------------- //
+void FillVisual(mjModel* m, const std::vector<CSite>& sites,
+                const std::vector<CCamera>& cameras,
+                const std::vector<CLight>& lights,
+                const std::unordered_map<std::string, int>& bodyid) {
+  auto resolve = [&](const std::string& nm) -> int {
+    if (nm.empty()) return -1;
+    auto it = bodyid.find(nm);
+    return it == bodyid.end() ? -1 : it->second;
+  };
+
+  for (int sid = 0; sid < static_cast<int>(sites.size()); ++sid) {
+    const CSite& cs = sites[sid];
+    const int b = cs.bodyid;
+    m->site_type[sid] = cs.type;
+    m->site_bodyid[sid] = b;
+    m->site_matid[sid] = cs.matid;
+    m->site_group[sid] = cs.group;
+    lift::mjuu_copyvec(m->site_size + 3 * sid, cs.size, 3);
+    lift::mjuu_copyvec(m->site_pos + 3 * sid, cs.pos, 3);
+    lift::mjuu_copyvec(m->site_quat + 4 * sid, cs.quat, 4);
+    for (int k = 0; k < 4; ++k) m->site_rgba[4 * sid + k] = cs.rgba[k];
+    for (int k = 0; k < m->nuser_site && k < static_cast<int>(cs.user.size()); ++k)
+      m->site_user[m->nuser_site * sid + k] = cs.user[k];
+
+    const double* ipos = m->body_ipos + 3 * b;
+    const double* iquat = m->body_iquat + 4 * b;
+    int sf;
+    if (IsNullPose(cs.pos, cs.quat)) sf = mjSAMEFRAME_BODY;
+    else if (IsNullPose(nullptr, cs.quat)) sf = mjSAMEFRAME_BODYROT;
+    else if (IsSamePose(cs.pos, ipos, cs.quat, iquat)) sf = mjSAMEFRAME_INERTIA;
+    else if (IsSamePose(nullptr, nullptr, cs.quat, iquat)) sf = mjSAMEFRAME_INERTIAROT;
+    else sf = mjSAMEFRAME_NONE;
+    m->site_sameframe[sid] = static_cast<mjtByte>(sf);
+  }
+
+  for (int cid = 0; cid < static_cast<int>(cameras.size()); ++cid) {
+    const CCamera& cc = cameras[cid];
+    m->cam_bodyid[cid] = cc.bodyid;
+    m->cam_mode[cid] = cc.mode;
+    m->cam_targetbodyid[cid] = resolve(cc.targetbody);
+    lift::mjuu_copyvec(m->cam_pos + 3 * cid, cc.pos, 3);
+    lift::mjuu_copyvec(m->cam_quat + 4 * cid, cc.quat, 4);
+    m->cam_projection[cid] = cc.proj;
+    m->cam_fovy[cid] = cc.fovy;
+    m->cam_ipd[cid] = cc.ipd;
+    m->cam_resolution[2 * cid] = cc.resolution[0];
+    m->cam_resolution[2 * cid + 1] = cc.resolution[1];
+    m->cam_output[cid] = cc.output;
+    m->cam_sensorsize[2 * cid] = cc.sensorsize[0];
+    m->cam_sensorsize[2 * cid + 1] = cc.sensorsize[1];
+    for (int k = 0; k < 4; ++k) m->cam_intrinsic[4 * cid + k] = cc.intrinsic[k];
+    for (int k = 0; k < m->nuser_cam && k < static_cast<int>(cc.user.size()); ++k)
+      m->cam_user[m->nuser_cam * cid + k] = cc.user[k];
+  }
+
+  for (int lid = 0; lid < static_cast<int>(lights.size()); ++lid) {
+    const CLight& cl = lights[lid];
+    m->light_bodyid[lid] = cl.bodyid;
+    m->light_mode[lid] = cl.mode;
+    m->light_targetbodyid[lid] = resolve(cl.targetbody);
+    m->light_type[lid] = cl.type;
+    m->light_texid[lid] = cl.texid;
+    m->light_castshadow[lid] = static_cast<mjtByte>(cl.castshadow);
+    m->light_active[lid] = static_cast<mjtByte>(cl.active);
+    lift::mjuu_copyvec(m->light_pos + 3 * lid, cl.pos, 3);
+    lift::mjuu_copyvec(m->light_dir + 3 * lid, cl.dir, 3);
+    m->light_bulbradius[lid] = cl.bulbradius;
+    m->light_intensity[lid] = cl.intensity;
+    m->light_range[lid] = cl.range;
+    for (int k = 0; k < 3; ++k) m->light_attenuation[3 * lid + k] = cl.attenuation[k];
+    m->light_cutoff[lid] = cl.cutoff;
+    m->light_exponent[lid] = cl.exponent;
+    for (int k = 0; k < 3; ++k) m->light_ambient[3 * lid + k] = cl.ambient[k];
+    for (int k = 0; k < 3; ++k) m->light_diffuse[3 * lid + k] = cl.diffuse[k];
+    for (int k = 0; k < 3; ++k) m->light_specular[3 * lid + k] = cl.specular[k];
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // S10 Names: the 23-list name blob + hash + adr tables.                        //
 // --------------------------------------------------------------------------- //
 
@@ -1356,7 +1764,7 @@ int NameList(const std::vector<std::string>& list, int adr, int* name_adr,
 // tables and map segments are trivially correct.
 struct NameLists {
   std::string modelname;
-  std::vector<std::string> body, jnt, geom, site, cam, light;
+  std::vector<std::string> body, jnt, geom, site, cam, light, pair, exclude, key;
 
   int TotalNames() const {
     int n = static_cast<int>(modelname.size()) + 1;
@@ -1364,6 +1772,7 @@ struct NameLists {
       for (const auto& s : v) n += static_cast<int>(s.size()) + 1;
     };
     add(body); add(jnt); add(geom); add(site); add(cam); add(light);
+    add(pair); add(exclude); add(key);
     return n;
   }
 };
@@ -1378,14 +1787,18 @@ void FillNames(mjModel* m, const NameLists& nl) {
     adr = NameList(v, adr, name_adr, m->names, map_adr);
     map_adr += kLoadMultiple * static_cast<int>(v.size());
   };
+  // 23-list order (CopyNames); families empty in NC1b scope are skipped -- an
+  // empty list adds nothing to the blob and advances the map cursor by 0, so
+  // segment offsets match MuJoCo exactly.
   pass(nl.body, m->name_bodyadr);
   pass(nl.jnt, m->name_jntadr);
   pass(nl.geom, m->name_geomadr);
   pass(nl.site, m->name_siteadr);
   pass(nl.cam, m->name_camadr);
   pass(nl.light, m->name_lightadr);
-  // Remaining 17 lists are empty in NC1 scope; their name_*adr arrays have
-  // length 0 so nothing to fill, and the map cursor need not advance.
+  pass(nl.pair, m->name_pairadr);
+  pass(nl.exclude, m->name_excludeadr);
+  pass(nl.key, m->name_keyadr);
 }
 
 // Effective name of a nameable element: authored name, else the auto-name the
@@ -1424,19 +1837,229 @@ void SetNarena(mjModel* m) {
   m->narena = kMegabyte * (nstack_mb + residual_mb);
 }
 
+// --------------------------------------------------------------------------- //
+// Contact pairs + excludes (S8). Compiled, then stable-sorted by body          //
+// signature with ids reassigned (user_model.cc:5143-5146). Pair parameters are //
+// the mjs_defaultPair base overridden by class/element authored values; the    //
+// mjCPair::Compile geom-derivation never fires on XML-authored pairs (their     //
+// fields are always defined), so leg B and the native path agree here.          //
+// --------------------------------------------------------------------------- //
+struct CPair {
+  const Pair* src = nullptr;
+  int geom1 = -1, geom2 = -1;
+  int condim = 3;
+  double solref[2] = {0.02, 1};
+  double solreffriction[2] = {0, 0};
+  double solimp[5] = {0.9, 0.95, 0.001, 0.5, 2};
+  double friction[5] = {1, 1, 0.005, 0.0001, 0.0001};
+  double margin = 0, gap = 0;
+  int signature = 0;
+};
+
+struct CExclude {
+  const Exclude* src = nullptr;
+  int signature = 0;
+};
+
+CPair PairCompile(const Model& model, const Pair& p,
+                  const std::unordered_map<std::string, int>& geomid,
+                  const std::vector<CGeom>& geoms) {
+  std::unique_ptr<Pair> eff = ps::sdk::Effective(model, p);
+  CPair cp;
+  cp.src = &p;
+  int g1 = -1, g2 = -1;
+  if (eff->geom1) { auto it = geomid.find(eff->geom1->name);
+                    if (it != geomid.end()) g1 = it->second; }
+  if (eff->geom2) { auto it = geomid.find(eff->geom2->name);
+                    if (it != geomid.end()) g2 = it->second; }
+  // swap so body1 <= body2 (mjCPair::ResolveReferences).
+  if (g1 >= 0 && g2 >= 0 && geoms[g1].bodyid > geoms[g2].bodyid)
+    std::swap(g1, g2);
+  cp.geom1 = g1; cp.geom2 = g2;
+  if (eff->condim) cp.condim = *eff->condim;
+  if (eff->friction)
+    for (int k = 0; k < 5 && k < static_cast<int>(eff->friction->size()); ++k)
+      cp.friction[k] = (*eff->friction)[k];
+  if (eff->solref)
+    for (int k = 0; k < 2 && k < static_cast<int>(eff->solref->size()); ++k)
+      cp.solref[k] = (*eff->solref)[k];
+  if (eff->solreffriction)
+    for (int k = 0; k < 2 && k < static_cast<int>(eff->solreffriction->size()); ++k)
+      cp.solreffriction[k] = (*eff->solreffriction)[k];
+  if (eff->solimp)
+    for (int k = 0; k < 5 && k < static_cast<int>(eff->solimp->size()); ++k)
+      cp.solimp[k] = (*eff->solimp)[k];
+  if (eff->margin) cp.margin = *eff->margin;
+  if (eff->gap) cp.gap = *eff->gap;
+  const int b1 = g1 >= 0 ? geoms[g1].bodyid : 0;
+  const int b2 = g2 >= 0 ? geoms[g2].bodyid : 0;
+  cp.signature = (b1 << 16) + b2;
+  return cp;
+}
+
+CExclude ExcludeCompile(const Exclude& e,
+                        const std::unordered_map<std::string, int>& bodyid) {
+  CExclude ce;
+  ce.src = &e;
+  int b1 = 0, b2 = 0;
+  if (e.body1) { auto it = bodyid.find(e.body1->name);
+                 if (it != bodyid.end()) b1 = it->second; }
+  if (e.body2) { auto it = bodyid.find(e.body2->name);
+                 if (it != bodyid.end()) b2 = it->second; }
+  if (b1 > b2) std::swap(b1, b2);  // mjCBodyPair::ResolveReferences
+  ce.signature = (b1 << 16) + b2;
+  return ce;
+}
+
+void FillPairs(mjModel* m, const std::vector<CPair>& pairs) {
+  for (int i = 0; i < static_cast<int>(pairs.size()); ++i) {
+    const CPair& cp = pairs[i];
+    m->pair_dim[i] = cp.condim;
+    m->pair_geom1[i] = cp.geom1;
+    m->pair_geom2[i] = cp.geom2;
+    m->pair_signature[i] = cp.signature;
+    lift::mjuu_copyvec(m->pair_solref + mjNREF * i, cp.solref, mjNREF);
+    lift::mjuu_copyvec(m->pair_solreffriction + mjNREF * i, cp.solreffriction, mjNREF);
+    lift::mjuu_copyvec(m->pair_solimp + mjNIMP * i, cp.solimp, mjNIMP);
+    m->pair_margin[i] = cp.margin;
+    m->pair_gap[i] = cp.gap;
+    lift::mjuu_copyvec(m->pair_friction + 5 * i, cp.friction, 5);
+  }
+}
+
+void FillExcludes(mjModel* m, const std::vector<CExclude>& excludes) {
+  for (int i = 0; i < static_cast<int>(excludes.size()); ++i)
+    m->exclude_signature[i] = excludes[i].signature;
+}
+
+// --------------------------------------------------------------------------- //
+// Keyframe fill (S12), mirroring ExpandAllKeyframes + mjCKey::Compile: an       //
+// absent qpos defaults to qpos0, qvel/act/ctrl to 0, mpos/mquat to the mocap    //
+// bodies' reference pose; ball/free qpos quats and mocap quats are normalized.  //
+// --------------------------------------------------------------------------- //
+void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
+  const int nq = m->nq, nv = m->nv, na = m->na, nu = m->nu, nmocap = m->nmocap;
+  for (int i = 0; i < static_cast<int>(keys.size()); ++i) {
+    const Key& k = *keys[i];
+    m->key_time[i] = k.time ? *k.time : 0;
+
+    // qpos: authored (size nq) else qpos0.
+    if (k.qpos && static_cast<int>(k.qpos->size()) == nq)
+      for (int j = 0; j < nq; ++j) m->key_qpos[i * nq + j] = (*k.qpos)[j];
+    else
+      for (int j = 0; j < nq; ++j) m->key_qpos[i * nq + j] = m->qpos0[j];
+
+    // qvel: authored (size nv) else 0.
+    for (int j = 0; j < nv; ++j)
+      m->key_qvel[i * nv + j] =
+          (k.qvel && static_cast<int>(k.qvel->size()) == nv) ? (*k.qvel)[j] : 0;
+
+    if (na)
+      for (int j = 0; j < na; ++j)
+        m->key_act[i * na + j] =
+            (k.act && static_cast<int>(k.act->size()) == na) ? (*k.act)[j] : 0;
+
+    if (nmocap) {
+      const bool has_mpos = k.mpos && static_cast<int>(k.mpos->size()) == 3 * nmocap;
+      const bool has_mquat = k.mquat && static_cast<int>(k.mquat->size()) == 4 * nmocap;
+      if (has_mpos)
+        for (int j = 0; j < 3 * nmocap; ++j)
+          m->key_mpos[i * 3 * nmocap + j] = (*k.mpos)[j];
+      if (has_mquat)
+        for (int j = 0; j < 4 * nmocap; ++j)
+          m->key_mquat[i * 4 * nmocap + j] = (*k.mquat)[j];
+      if (!has_mpos || !has_mquat) {
+        for (int bi = 0; bi < m->nbody; ++bi) {
+          const int mid = m->body_mocapid[bi];
+          if (mid < 0) continue;
+          if (!has_mpos)
+            lift::mjuu_copyvec(m->key_mpos + i * 3 * nmocap + 3 * mid,
+                               m->body_pos + 3 * bi, 3);
+          if (!has_mquat)
+            lift::mjuu_copyvec(m->key_mquat + i * 4 * nmocap + 4 * mid,
+                               m->body_quat + 4 * bi, 4);
+        }
+      }
+    }
+
+    // normalize ball/free quats in qpos.
+    for (int j = 0; j < m->njnt; ++j)
+      if (m->jnt_type[j] == mjJNT_BALL || m->jnt_type[j] == mjJNT_FREE)
+        lift::mjuu_normvec(m->key_qpos + i * nq + m->jnt_qposadr[j] +
+                               3 * (m->jnt_type[j] == mjJNT_FREE), 4);
+    for (int j = 0; j < nmocap; ++j)
+      lift::mjuu_normvec(m->key_mquat + i * 4 * nmocap + 4 * j, 4);
+
+    if (nu)
+      for (int j = 0; j < nu; ++j)
+        m->key_ctrl[i * nu + j] =
+            (k.ctrl && static_cast<int>(k.ctrl->size()) == nu) ? (*k.ctrl)[j] : 0;
+  }
+}
+
 }  // namespace
 
 mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
                           std::vector<bridge::Diagnostic>& diags) {
   const CompilerSettings cs = ReadCompiler(m);
 
+  // <visual><map znear> feeds a camera's intrinsic fallback (no sensorsize).
+  double znear = 0.01;  // mjs_defaultVisual (engine_init.c:176)
+  for (const auto& v : m.visuals) {
+    if (!v) continue;
+    for (const auto& mp : v->visualMaps)
+      if (mp && mp->znear) znear = *mp->znear;
+  }
+
   // S1 Collect. The world body (id 0) is implicit; every <worldbody> block's
   // direct children are merged into it (MuJoCo include semantics).
-  BodyCollector collector(m, cs, opts);
+  BodyCollector collector(m, cs, opts, znear);
   collector.Run(m.worldbody);
   const std::vector<CBody>& cbs = collector.bodies();
   const std::vector<CGeom>& geoms = collector.geoms();
   const std::vector<CJoint>& joints = collector.joints();
+  const std::vector<CSite>& sites = collector.sites();
+  const std::vector<CCamera>& cameras = collector.cameras();
+  const std::vector<CLight>& lights = collector.lights();
+
+  // Body / geom name -> id maps for targetbody, pair, and exclude resolution.
+  std::unordered_map<std::string, int> bodyid_of, geomid_of;
+  for (int i = 0; i < static_cast<int>(cbs.size()); ++i) {
+    const std::string nm =
+        i == 0 ? std::string("world")
+               : (cbs[i].src && cbs[i].src->name ? *cbs[i].src->name : std::string());
+    if (!nm.empty()) bodyid_of[nm] = i;
+  }
+  for (int i = 0; i < static_cast<int>(geoms.size()); ++i)
+    if (geoms[i].src && geoms[i].src->name) geomid_of[*geoms[i].src->name] = i;
+
+  // Contact pairs + excludes (S8): compile, stable-sort by body signature,
+  // reassign ids (their position after sorting is the id).
+  std::vector<CPair> pairs;
+  std::vector<CExclude> excludes;
+  for (const auto& ct : m.contacts) {
+    if (!ct) continue;
+    for (const auto& p : ct->pairs)
+      if (p) pairs.push_back(PairCompile(m, *p, geomid_of, geoms));
+    for (const auto& e : ct->excludes)
+      if (e) excludes.push_back(ExcludeCompile(*e, bodyid_of));
+  }
+  std::stable_sort(pairs.begin(), pairs.end(),
+                   [](const CPair& a, const CPair& b) {
+                     return a.signature < b.signature;
+                   });
+  std::stable_sort(excludes.begin(), excludes.end(),
+                   [](const CExclude& a, const CExclude& b) {
+                     return a.signature < b.signature;
+                   });
+
+  // Keyframes (S12): flattened key list, document order.
+  std::vector<const Key*> keys;
+  for (const auto& kf : m.keyframes) {
+    if (!kf) continue;
+    for (const auto& k : kf->keys)
+      if (k) keys.push_back(k.get());
+  }
 
   // S9 sizes: nq/nv from joints.
   int nq = 0, nv = 0;
@@ -1463,8 +2086,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     for (const CJoint& cj : joints) nuser_jnt = maxlen(nuser_jnt, cj.user.size()); }
   if (nuser_geom == -1) { nuser_geom = 0;
     for (const CGeom& cg : geoms) nuser_geom = maxlen(nuser_geom, cg.user.size()); }
-  if (nuser_site == -1) nuser_site = 0;
-  if (nuser_cam == -1) nuser_cam = 0;
+  if (nuser_site == -1) { nuser_site = 0;
+    for (const CSite& cs2 : sites) nuser_site = maxlen(nuser_site, cs2.user.size()); }
+  if (nuser_cam == -1) { nuser_cam = 0;
+    for (const CCamera& cc : cameras) nuser_cam = maxlen(nuser_cam, cc.user.size()); }
 
   // mocap ids (SetSizes/CopyTree): count mocap bodies, assign in body order.
   int nmocap = 0;
@@ -1485,6 +2110,13 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   }
   for (const CJoint& cj : joints) nl.jnt.push_back(cj.name);
   for (const CGeom& cg : geoms) nl.geom.push_back(EffectiveName(*cg.src, opts));
+  for (const CSite& cs2 : sites) nl.site.push_back(EffectiveName(*cs2.src, opts));
+  for (const CCamera& cc : cameras) nl.cam.push_back(EffectiveName(*cc.src, opts));
+  for (const CLight& cl : lights) nl.light.push_back(EffectiveName(*cl.src, opts));
+  for (const CPair& cp : pairs) nl.pair.push_back(EffectiveName(*cp.src, opts));
+  for (const CExclude& ce : excludes)
+    nl.exclude.push_back(EffectiveName(*ce.src, opts));
+  for (const Key* k : keys) nl.key.push_back(EffectiveName(*k, opts));
 
   // nbvh census (SetSizes): static BVH nodes over all bodies.
   int nbvhstatic = 0;
@@ -1496,6 +2128,12 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   sizes.nbody = static_cast<int>(cbs.size());
   sizes.njnt = static_cast<int>(joints.size());
   sizes.ngeom = static_cast<int>(geoms.size());
+  sizes.nsite = static_cast<int>(sites.size());
+  sizes.ncam = static_cast<int>(cameras.size());
+  sizes.nlight = static_cast<int>(lights.size());
+  sizes.npair = static_cast<int>(pairs.size());
+  sizes.nexclude = static_cast<int>(excludes.size());
+  sizes.nkey = static_cast<int>(keys.size());
   sizes.nbvh = nbvhstatic;
   sizes.nbvhstatic = nbvhstatic;
   sizes.nq = nq;
@@ -1536,6 +2174,12 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   FillTree(out, cbs, geoms, joints, dt);
   for (int i = 0; i < static_cast<int>(cbs.size()); ++i)
     out->body_mocapid[i] = mocapid[i];
+  FillVisual(out, sites, cameras, lights, bodyid_of);
+  FillPairs(out, pairs);
+  FillExcludes(out, excludes);
+  // Keyframe padding uses qpos0 / body_pos / body_quat / body_mocapid, all set
+  // by FillTree above (mjCKey::Compile).
+  FillKeyframes(out, keys);
 
   // Arena size heuristic (ledger 3.7, user_model.cc:5219-5252). memory/nstack
   // are unset (-1) in NC1 scope (no <size memory/nstack>); njmax/nconmax default

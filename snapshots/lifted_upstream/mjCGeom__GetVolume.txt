@@ -1,0 +1,75 @@
+double mjCGeom::GetVolume() const {
+  // get from mesh
+  if (type == mjGEOM_MESH || type == mjGEOM_SDF) {
+    if (mesh->id < 0 || !((std::size_t) mesh->id <= model->Meshes().size())) {
+      throw mjCError(this, "invalid mesh id in mesh geom");
+    }
+
+    return mesh->GetVolumeRef();
+  }
+
+  // compute from geom shape (type) and inertia type (typeinertia)
+  switch (type) {
+    case mjGEOM_SPHERE: {
+      double radius = size[0];
+      switch (typeinertia) {
+        case mjINERTIA_VOLUME:
+          return 4 * mjPI * radius * radius * radius / 3;
+        case mjINERTIA_SHELL:
+          return 4 * mjPI * radius * radius;
+      }
+      break;
+    }
+    case mjGEOM_CAPSULE: {
+      double height = 2 * size[1];
+      double radius = size[0];
+      switch (typeinertia) {
+        case mjINERTIA_VOLUME:
+          return mjPI * (radius * radius * height + 4 * radius * radius * radius / 3);
+        case mjINERTIA_SHELL:
+          return 4 * mjPI * radius * radius + 2 * mjPI * radius * height;
+      }
+      break;
+    }
+    case mjGEOM_CYLINDER: {
+      double height = 2 * size[1];
+      double radius = size[0];
+      switch (typeinertia) {
+        case mjINERTIA_VOLUME:
+          return mjPI * radius * radius * height;
+        case mjINERTIA_SHELL:
+          return 2 * mjPI * radius * radius + 2 * mjPI * radius * height;
+      }
+      break;
+    }
+    case mjGEOM_ELLIPSOID: {
+      switch (typeinertia) {
+        case mjINERTIA_VOLUME:
+          return 4 * mjPI * size[0] * size[1] * size[2] / 3;
+        case mjINERTIA_SHELL: {
+          // Thomsen approximation
+          // https://www.numericana.com/answer/ellipsoid.htm#thomsen
+          double p = 1.6075;
+          double tmp = std::pow(size[0] * size[1], p) +
+                       std::pow(size[1] * size[2], p) +
+                       std::pow(size[2] * size[0], p);
+          return 4 * mjPI * std::pow(tmp / 3, 1 / p);
+        }
+      }
+      break;
+    }
+    case mjGEOM_HFIELD:
+    case mjGEOM_BOX: {
+      switch (typeinertia) {
+        case mjINERTIA_VOLUME:
+          return size[0] * size[1] * size[2] * 8;
+        case mjINERTIA_SHELL:
+          return 8 * (size[0] * size[1] + size[1] * size[2] + size[2] * size[0]);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return 0;
+}

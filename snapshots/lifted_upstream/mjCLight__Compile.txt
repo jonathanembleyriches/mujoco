@@ -1,0 +1,21 @@
+void mjCLight::Compile(void) {
+  CopyFromSpec();
+
+  // frame
+  if (frame) {
+    // apply frame transform to pos, qunit is unused
+    double qunit[4]= {1, 0, 0, 0};
+    mjuu_frameaccumChild(frame->pos, frame->quat, pos, qunit);
+
+    // rotate dir
+    mjuu_rotVecQuat(dir, dir, frame->quat);
+  }
+
+  // normalize direction, make sure it is not zero
+  if (mjuu_normvec(dir, 3) < mjEPS) {
+    throw mjCError(this, "zero direction in light");
+  }
+
+  // get targetbodyid and texid
+  ResolveReferences(model);
+}

@@ -24,6 +24,17 @@
       "notes": "median-split BVH over plain leaf arrays"
     },
     {
+      "id": "camera_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCCamera::Compile",
+      "line_span": "4387-4457",
+      "content_hash": "26ef25a8cf519511ed525ad956d60ec617b1664e984ae9b2991e18090d1d9dff",
+      "snapshot": "snapshots/lifted_upstream/mjCCamera__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "camera orientation/frame/intrinsics + fovy"
+    },
+    {
       "id": "checklimited",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "islimited",
@@ -79,6 +90,17 @@
       "notes": "dof_simplenum + nC validation"
     },
     {
+      "id": "frame_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCFrame::Compile",
+      "line_span": "3028-3047",
+      "content_hash": "34f70a86c7c2cc6d3c728f500c055f1406a657dbd70a20893b8d6150386d9af6",
+      "snapshot": "snapshots/lifted_upstream/mjCFrame__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "nested frame pose composition"
+    },
+    {
       "id": "geom_compute_aabb",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCGeom::ComputeAABB",
@@ -99,6 +121,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-08",
       "notes": "bounding-sphere radius per type"
+    },
+    {
+      "id": "geom_get_volume",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCGeom::GetVolume",
+      "line_span": "3415-3489",
+      "content_hash": "ae6048b6b83abaa4864f2f8f7ba6456b83ea5377915c934dc5ee070cc23a3684",
+      "snapshot": "snapshots/lifted_upstream/mjCGeom__GetVolume.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "primitive closed-form volume (const method)"
     },
     {
       "id": "geom_set_inertia",
@@ -145,6 +178,28 @@
       "notes": "per-consumer degree conversion, axis fix, autolimits; returns dofnum"
     },
     {
+      "id": "key_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCKey::Compile",
+      "line_span": "8353-8433",
+      "content_hash": "0fee2382cd0c1faba62483732d3851764e6e3d64f6507dbfe7873a7486c6a9b2",
+      "snapshot": "snapshots/lifted_upstream/mjCKey__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "keyframe padding to qpos0/qvel/mpos/mquat"
+    },
+    {
+      "id": "light_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCLight::Compile",
+      "line_span": "4562-4582",
+      "content_hash": "e80b54ceb5e693f1e9f22974a1f59933ee6890386d9e042a049bbfa67c14f94d",
+      "snapshot": "snapshots/lifted_upstream/mjCLight__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "light pos/dir frame accumulation"
+    },
+    {
       "id": "make_model",
       "upstream_rel_path": "src/engine/engine_io.c",
       "symbol": "mj_makeModel",
@@ -157,6 +212,17 @@
       ],
       "lifted": "2026-07-08",
       "notes": "positional size args -> read n* from a caller mjModel; reuse/freeModelBuffers branch dropped; buffer layout verbatim"
+    },
+    {
+      "id": "pair_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCPair::Compile",
+      "line_span": "5952-6058",
+      "content_hash": "28bc1981ce04df47ad81bf014c1fdf9b576e49fba238dc4317119f813da22e31",
+      "snapshot": "snapshots/lifted_upstream/mjCPair__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "contact pair parameter resolution"
     },
     {
       "id": "resolve_orientation",
@@ -201,6 +267,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-08",
       "notes": "n* census incl ntree static-ancestry, nnames, nbvh"
+    },
+    {
+      "id": "site_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCSite::Compile",
+      "line_span": "4218-4292",
+      "content_hash": "d10c6fac3f27ef25218c46eea97a8ae5c45fc3da4ddff5663dcce7c0d66b3986",
+      "snapshot": "snapshots/lifted_upstream/mjCSite__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "site pose/fromto/frame accumulation"
     },
     {
       "id": "skip_align",

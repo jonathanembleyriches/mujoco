@@ -45,6 +45,17 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "freejoint") {
     return true;
   }
+  // NC1b: frames-as-containers, sites/cameras/lights, contact pairs/excludes,
+  // keyframes. A site referencing a material or a light referencing a texture is
+  // rejected by the finer scan in CollectUnsupportedFeatures (native.cc), since
+  // those assets are not native yet.
+  if (feature_key == "frame" || feature_key == "site" ||
+      feature_key == "camera" || feature_key == "light" ||
+      feature_key == "contact" || feature_key == "pair" ||
+      feature_key == "exclude" || feature_key == "keyframe" ||
+      feature_key == "key") {
+    return true;
+  }
   return false;
 }
 
