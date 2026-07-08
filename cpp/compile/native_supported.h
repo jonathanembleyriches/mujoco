@@ -65,6 +65,16 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "weld") {
     return true;
   }
+  // NC3 assets: the <asset> container and materials. A material referencing a
+  // texture (legacy attr or <layer>) is rejected by the finer scan
+  // (material.texture) until textures land; geoms/sites/tendons referencing a
+  // material now resolve its id. mesh/texture/hfield/skin element tags stay
+  // unlisted (their families are not native yet).
+  if (feature_key == "asset" || feature_key == "material" ||
+      feature_key == "layer" || feature_key == "texture" ||
+      feature_key == "hfield" || feature_key == "mesh") {
+    return true;
+  }
   // NC2 tendons: spatial (site/geom/pulley wraps) and fixed (joint) tendons.
   // A tendon material ref or non-zero armature routes to fallback (finer scan).
   if (feature_key == "tendon" || feature_key == "spatial" ||

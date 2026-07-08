@@ -1,0 +1,41 @@
+void mjCMesh::MakeCenter(const double* dvert) {
+  if (center_) {
+    return;
+  }
+
+  // allocate and clear
+  center_ = (double*) mju_malloc(3*nface()*sizeof(double));
+  memset(center_, 0, 3*nface()*sizeof(double));
+
+  for (int i=0; i < nface(); i++) {
+    // get vertex ids
+    int* vertid = face_.data() + 3*i;
+
+    // get triangle edges
+    double a[3], b[3];
+    for (int j=0; j < 3; j++) {
+      a[j] = dvert[3*vertid[0]+j] - dvert[3*vertid[2]+j];
+      b[j] = dvert[3*vertid[1]+j] - dvert[3*vertid[2]+j];
+    }
+
+    // compute face normal
+    double nrm[3];
+    mjuu_crossvec(nrm, a, b);
+
+    // compute circumradius
+    double norm_a_2 = mjuu_dot3(a, a);
+    double norm_b_2 = mjuu_dot3(b, b);
+    double area = sqrt(mjuu_dot3(nrm, nrm));
+
+    // compute circumcenter
+    double res[3], vec[3] = {
+      norm_a_2 * b[0] - norm_b_2 * a[0],
+      norm_a_2 * b[1] - norm_b_2 * a[1],
+      norm_a_2 * b[2] - norm_b_2 * a[2]
+    };
+    mjuu_crossvec(res, vec, nrm);
+    center_[3*i+0] = res[0]/(2*area*area) + dvert[3*vertid[2]+0];
+    center_[3*i+1] = res[1]/(2*area*area) + dvert[3*vertid[2]+1];
+    center_[3*i+2] = res[2]/(2*area*area) + dvert[3*vertid[2]+2];
+  }
+}

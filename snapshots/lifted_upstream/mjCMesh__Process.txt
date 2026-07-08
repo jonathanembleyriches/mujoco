@@ -1,0 +1,221 @@
+void mjCMesh::Process() {
+  std::vector<double> dvert(vert_.begin(), vert_.end());
+  using Clock = std::chrono::steady_clock;
+  using Seconds = std::chrono::duration<double>;
+  Clock::time_point t0;
+  // create half-edge structure (if mesh was in XML)
+  if (halfedge_.empty()) {
+    for (int i = 0; i < nface(); i++) {
+      int v0 = face_[3*i + 0];
+      int v1 = face_[3*i + 1];
+      int v2 = face_[3*i + 2];
+      if (triangle(nullptr, nullptr, &dvert[3*v0], &dvert[3*v1], &dvert[3*v2]) > sqrt(mjMINVAL)) {
+        halfedge_.push_back({v0, v1});
+        halfedge_.push_back({v1, v2});
+        halfedge_.push_back({v2, v0});
+      } else {
+        // TODO(b/255525326)
+      }
+    }
+  }
+
+  // check for inconsistent face orientations
+  if (!halfedge_.empty()) {
+    std::stable_sort(halfedge_.begin(), halfedge_.end());
+    auto iterator = std::adjacent_find(halfedge_.begin(), halfedge_.end());
+    if (iterator != halfedge_.end() && inertia == mjMESH_INERTIA_EXACT) {
+      throw mjCError(this,
+                     "faces of mesh '%s' have inconsistent orientation. Please check the "
+                     "faces containing the vertices %d and %d.",
+                     name.c_str(), iterator->first + 1, iterator->second + 1);
+    }
+  }
+
+  t0 = Clock::now();
+  // make graph describing convex hull
+  if (needhull_ || face_.empty()) {
+    MakeGraph(dvert.data());
+  }
+
+  // no faces: copy from convex hull
+  if (face_.empty()) {
+    CopyGraph();
+  }
+  mesh_timer_[mjCTIMER_MESH_HULL] += Seconds(Clock::now() - t0).count();
+
+  t0 = Clock::now();
+  // no normals: make
+  if (normal_.empty()) {
+    MakeNormal(dvert.data());
+  }
+
+  // check facenormal size
+  if (!facenormal_.empty() && facenormal_.size() != face_.size()) {
+    throw mjCError(this, "face data must have the same size as face normal data");
+  }
+
+  // no facetexcoord: copy from faces
+  if (facetexcoord_.empty() && !texcoord_.empty()) {
+    facetexcoord_ = face_;
+  }
+
+  // facenormal might not exist if usernormal was specified
+  if (facenormal_.empty()) {
+    int normal_per_vertex = normal_.size() / vert_.size();
+    facenormal_.assign(face_.size(), 0);
+    for (int i = 0; i < face_.size(); i++) {
+      facenormal_[i] = normal_per_vertex * face_[i];
+    }
+  }
+
+  if (szgraph_) {
+    MakePolygons(dvert.data());
+  } else {
+    polygon_map_.resize(nvert());
+  }
+
+  // correct winding order for left-handed coordinate systems
+  bool righthand = scale[0] * scale[1] * scale[2] > 0;
+  if (!righthand) {
+    for (size_t i = 0; i < face_.size(); i += 3) {
+      std::swap(face_[i + 1], face_[i + 2]);
+    }
+    for (size_t i = 0; i < facenormal_.size(); i += 3) {
+      std::swap(facenormal_[i + 1], facenormal_[i + 2]);
+    }
+    for (size_t i = 0; i < facetexcoord_.size(); i += 3) {
+      std::swap(facetexcoord_[i + 1], facetexcoord_[i + 2]);
+    }
+  }
+
+  mesh_timer_[mjCTIMER_MESH_POLYGON] += Seconds(Clock::now() - t0).count();
+
+  t0 = Clock::now();
+  // user offset, rotation, scaling
+  ApplyTransformations(dvert.data());
+
+  // find centroid of faces
+  double facecen[3] = {0, 0, 0};
+  if (ComputeFaceCentroid(facecen, dvert.data()) < mjMINVAL) {
+    throw mjCError(this, "mesh surface area is too small: %s", name.c_str());
+  }
+
+  // compute inertia and transform mesh. The mesh is transformed such that it is
+  // centered at the CoM and the axes are the principle axes of inertia
+  double CoM[3] = {0, 0, 0};
+  double inert[6] = {0, 0, 0, 0, 0, 0};
+
+  // compute CoM and volume/area
+  if (inertia == mjMESH_INERTIA_SHELL) {
+    surface_ = ComputeSurfaceArea(CoM, facecen, dvert.data());
+    if (surface_ < mjMINVAL) {
+      throw mjCError(this, "mesh surface area is too small: %s", name.c_str());
+    }
+  } else {
+    if ((volume_ = ComputeVolume(CoM, facecen, dvert.data())) < mjMINVAL) {
+      if (volume_ < 0) {
+        throw mjCError(this, "mesh volume is negative (misoriented triangles): %s", name.c_str());
+      } else {
+        throw mjCError(this, "mesh volume is too small: %s . Try setting inertia to shell",
+                       name.c_str());
+      }
+    }
+  }
+
+  // compute inertia
+  double total_volume = ComputeInertia(inert, CoM, dvert.data());
+  if (inertia == mjMESH_INERTIA_SHELL) {
+    surface_ = total_volume;
+  } else {
+    volume_ = total_volume;
+  }
+
+  // get quaternion and diagonal inertia
+  double eigval[3], eigvec[9], quattmp[4];
+  double full[9] = {
+    inert[0], inert[3], inert[4],
+    inert[3], inert[1], inert[5],
+    inert[4], inert[5], inert[2]
+  };
+  mjuu_eig3(eigval, eigvec, quattmp, full);
+
+  constexpr double inequality_atol = 1e-9;
+  constexpr double inequality_rtol = 1e-6;
+
+  // check eigval - SHOULD NOT OCCUR
+  if (eigval[2] <= 0) {
+    throw mjCError(this, "eigenvalue of mesh inertia must be positive: %s", name.c_str());
+  }
+
+  if (eigval[0] + eigval[1] < eigval[2] * (1.0 - inequality_rtol) - inequality_atol ||
+      eigval[0] + eigval[2] < eigval[1] * (1.0 - inequality_rtol) - inequality_atol ||
+      eigval[1] + eigval[2] < eigval[0] * (1.0 - inequality_rtol) - inequality_atol) {
+    throw mjCError(this, "eigenvalues of mesh inertia violate A + B >= C: %s", name.c_str());
+  }
+
+  // compute sizes of equivalent inertia box
+  double volume = GetVolumeRef();
+  boxsz_[0] = 0.5 * std::sqrt(6*(eigval[1] + eigval[2] - eigval[0])/volume);
+  boxsz_[1] = 0.5 * std::sqrt(6*(eigval[0] + eigval[2] - eigval[1])/volume);
+  boxsz_[2] = 0.5 * std::sqrt(6*(eigval[0] + eigval[1] - eigval[2])/volume);
+
+  // prevent reorientation if the mesh was autogenerated using marching cubes
+  if (!needreorient_) {
+    mjuu_setvec(CoM, 0, 0, 0);
+    mjuu_setvec(quattmp, 1, 0, 0, 0);
+  }
+
+  // transform CoM to origin
+  for (int i=0; i < nvert(); i++) {
+    dvert[3*i + 0] -= CoM[0];
+    dvert[3*i + 1] -= CoM[1];
+    dvert[3*i + 2] -= CoM[2];
+  }
+  Rotate(quattmp, dvert.data());
+
+  // save the pos and quat that was used to transform the mesh
+  mjuu_copyvec(pos_, CoM, 3);
+  mjuu_copyvec(quat_, quattmp, 4);
+
+  processed_ = true;
+
+  // no radii: make
+  if (!center_) {
+    MakeCenter(dvert.data());
+  }
+
+  // recompute polygon normals
+  MakePolygonNormals(dvert.data());
+  mesh_timer_[mjCTIMER_MESH_INERTIA] += Seconds(Clock::now() - t0).count();
+
+  t0 = Clock::now();
+  // make bounding volume hierarchy
+  if (tree_.Bvh().empty()) {
+    face_aabb_.clear();
+    face_aabb_.reserve(3*face_.size());
+    tree_.AllocateBoundingVolumes(nface());
+    for (int i = 0; i < nface(); i++) {
+      SetBoundingVolume(i, dvert.data());
+    }
+    tree_.CreateBVH();
+  }
+  mesh_timer_[mjCTIMER_MESH_BVH] += Seconds(Clock::now() - t0).count();
+
+  t0 = Clock::now();
+  // make octree
+  if (needsdf) {
+    octree_.SetFace(dvert, face_);
+    octree_.SetMaxDepth(spec.octree_maxdepth);
+    octree_.CreateOctree(aamm_);
+
+    if (!plugin.active) {
+      octree_.ComputeSdfCoeffs(dvert.data(), nvert(), face_.data(), nface(), tree_);
+    }
+  }
+
+  // narrow back to float
+  for (int i = 0; i < (int)dvert.size(); i++) {
+    vert_[i] = (float)dvert[i];
+  }
+  mesh_timer_[mjCTIMER_MESH_OCTREE] += Seconds(Clock::now() - t0).count();
+}

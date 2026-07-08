@@ -1,0 +1,63 @@
+double mjCMesh::ComputeInertia(double inert[6], const double CoM[3], const double* dvert) const {
+  double total_volume = 0;
+
+  // copy vertices to avoid modifying the original mesh
+  std::vector<double> vert_centered;
+  vert_centered.reserve(3*nvert());
+
+  // translate vertices to origin in order to compute inertia
+  for (int i =  0; i < nvert(); i++) {
+    vert_centered.push_back(dvert[3*i + 0] - CoM[0]);
+    vert_centered.push_back(dvert[3*i + 1] - CoM[1]);
+    vert_centered.push_back(dvert[3*i + 2] - CoM[2]);
+  }
+
+  // accumulate products of inertia, recompute volume
+  const int k[6][2] = {{0, 0}, {1, 1}, {2, 2}, {0, 1}, {0, 2}, {1, 2}};
+  double P[6] = {0, 0, 0, 0, 0, 0};
+  int nf = (inertia == mjMESH_INERTIA_CONVEX) ? graph_[1] : nface();
+  const int* f = (inertia == mjMESH_INERTIA_CONVEX) ? GraphFaces() : face_.data();
+  for (int i=0; i < nf; i++) {
+    const double* D = &vert_centered[3*f[3*i + 0]];
+    const double* E = &vert_centered[3*f[3*i + 1]];
+    const double* F = &vert_centered[3*f[3*i + 2]];
+
+    // get area, normal and center; update volume
+    double normal[3], center[3];
+    double volume, area = triangle(normal, center, D, E, F);
+    if (inertia == mjMESH_INERTIA_SHELL) {
+      volume = area;
+    } else {
+      volume = mjuu_dot3(center, normal) * area / 3;
+    }
+
+    // if legacy computation requested, then always positive
+    if (inertia == mjMESH_INERTIA_LEGACY) {
+      volume = abs(volume);
+    }
+
+    // apply formula, accumulate
+    total_volume += volume;
+
+    int C = (inertia == mjMESH_INERTIA_SHELL) ? 12 : 20;
+    for (int j = 0; j < 6; j++) {
+      P[j] += volume /
+              C * (
+        2*(D[k[j][0]] * D[k[j][1]] +
+           E[k[j][0]] * E[k[j][1]] +
+           F[k[j][0]] * F[k[j][1]]) +
+        D[k[j][0]] * E[k[j][1]]  +  D[k[j][1]] * E[k[j][0]] +
+        D[k[j][0]] * F[k[j][1]]  +  D[k[j][1]] * F[k[j][0]] +
+        E[k[j][0]] * F[k[j][1]]  +  E[k[j][1]] * F[k[j][0]]);
+    }
+  }
+
+  // convert from products of inertia to moments of inertia
+  inert[0] = P[1] + P[2];
+  inert[1] = P[0] + P[2];
+  inert[2] = P[0] + P[1];
+  inert[3] = -P[3];
+  inert[4] = -P[4];
+  inert[5] = -P[5];
+  return total_volume;
+}

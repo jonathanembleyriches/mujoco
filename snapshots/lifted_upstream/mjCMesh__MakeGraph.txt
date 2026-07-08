@@ -1,0 +1,255 @@
+void mjCMesh::MakeGraph(const double* dvert) {
+  int adr, ok, curlong, totlong, exitcode;
+  facetT* facet, **facetp;
+  vertexT* vertex, *vertex1, **vertex1p;
+
+  std::string qhopt = "qhull Qt";
+  if (maxhullvert_ > -1) {
+    // qhull "Q9" picks the furthest of all furthest points across facets.
+    // qhull "TA" actually means "number of vertices added after the initial simplex"
+    qhopt += " Q9 TA" + std::to_string(maxhullvert_ - 4);
+  }
+
+  // graph not needed for small meshes
+  if (nvert() < 4) {
+    return;
+  }
+
+  // check for colocated/collinear/coplanar vertices
+  {
+    // find second vertex that is distinct from vertex 0
+    int v1 = -1;
+    double len1 = 0;
+    for (int i = 1; i < nvert(); i++) {
+      len1 = mjuu_dist3(dvert+3*i, dvert);
+      if (len1 > mjMINVAL) {
+        v1 = i;
+        break;
+      }
+    }
+
+    // no second vertex found: all vertices are colocated
+    if (v1 < 0) {
+      throw mjCError(this,
+          "mesh '%s' has colocated vertices, cannot compute convex hull."
+          " Consider using a small sphere instead",
+          name.c_str());
+    }
+
+    // find first non-collinear triple to define a plane
+    double edge1[3] = {dvert[3*v1+0] - dvert[0],
+                       dvert[3*v1+1] - dvert[1],
+                       dvert[3*v1+2] - dvert[2]};
+    double normal[3] = {0, 0, 0};
+    bool collinear = true;
+    for (int i = 1; i < nvert(); i++) {
+      if (i == v1) continue;
+      double edge2[3] = {dvert[3*i+0] - dvert[0],
+                         dvert[3*i+1] - dvert[1],
+                         dvert[3*i+2] - dvert[2]};
+      double len2 = sqrt(mjuu_dot3(edge2, edge2));
+      if (len2 < mjMINVAL) continue;
+      mjuu_crossvec(normal, edge1, edge2);
+      double norm = sqrt(mjuu_dot3(normal, normal));
+      if (norm > mjMINVAL * len1 * len2) {
+        normal[0] /= norm;
+        normal[1] /= norm;
+        normal[2] /= norm;
+        collinear = false;
+        break;
+      }
+    }
+
+    // vertices are collinear: cannot compute convex hull
+    if (collinear) {
+      throw mjCError(this,
+          "mesh '%s' has collinear vertices, cannot compute convex hull."
+          " Consider using a thin capsule instead",
+          name.c_str());
+    }
+
+    // find first vertex that is not on the plane
+    double d = mjuu_dot3(normal, dvert);
+    bool coplanar = true;
+    for (int i = 0; i < nvert(); i++) {
+      if (fabs(mjuu_dot3(normal, dvert+3*i) - d) > mjMINVAL * len1) {
+        coplanar = false;
+        break;
+      }
+    }
+
+    // vertices are coplanar: cannot compute convex hull
+    if (coplanar) {
+      throw mjCError(this,
+          "mesh '%s' has coplanar vertices, cannot compute convex hull."
+          " Consider using a primitive geom type (plane or thin box) instead",
+          name.c_str());
+    }
+  }
+
+  qhT qh_qh;
+  qhT* qh = &qh_qh;
+  qh_zero(qh, stderr);
+
+  // qhull basic init
+  qh_init_A(qh, stdin, stdout, stderr, 0, nullptr);
+
+  // install longjmp error handler
+  exitcode = setjmp(qh->errexit);
+  qh->NOerrexit = false;
+  if (!exitcode) {
+    // actual init
+    qh_initflags(qh, const_cast<char*>(qhopt.c_str()));
+    qh_init_B(qh, const_cast<double*>(dvert), nvert(), 3, qh_False);
+
+    // construct convex hull
+    qh_qhull(qh);
+    qh_triangulate(qh);
+    qh_vertexneighbors(qh);
+
+    // allocate graph:
+    //  numvert, numface, vert_edgeadr[numvert], vert_globalid[numvert],
+    //  edge_localid[numvert+3*numface], face_globalid[3*numface]
+    int numvert = qh->num_vertices;
+    int numface = qh->num_facets;
+    szgraph_ = 2 + 3*numvert + 6*numface;
+    graph_ = (int*) mju_malloc(szgraph_*sizeof(int));
+    graph_[0] = numvert;
+    graph_[1] = numface;
+
+    // pointers for convenience
+    int* vert_edgeadr = graph_ + 2;
+    int* vert_globalid = graph_ + 2 + numvert;
+    int* edge_localid = graph_ + 2 + 2*numvert;
+    int* face_globalid = graph_ + 2 + 3*numvert + 3*numface;
+
+    // fill in graph data
+    int i = adr = 0;
+    ok = 1;
+    FORALLvertices {
+      // point id of this vertex, check
+      int pid = qh_pointid(qh, vertex->point);
+      if (pid < 0 || pid >= nvert()) {
+        ok = 0;
+        break;
+      }
+
+      // save edge address and global id of this vertex
+      vert_edgeadr[i] = adr;
+      vert_globalid[i] = pid;
+
+      // process neighboring faces and their vertices
+      int start = adr;
+      FOREACHsetelement_(facetT, vertex->neighbors, facet) {
+        int cnt = 0;
+        FOREACHsetelement_(vertexT, facet->vertices, vertex1) {
+          cnt++;
+
+          // point id of face vertex, check
+          int pid1 = qh_pointid(qh, vertex1->point);
+          if (pid1 < 0 || pid1 >= nvert()) {
+            ok = 0;
+            break;
+          }
+
+          // if different from vertex id, try to insert
+          if (pid != pid1) {
+            // check for previous record
+            int j;
+            for (j=start; j < adr; j++)
+              if (pid1 == edge_localid[j]) {
+                break;
+              }
+
+            // not found: insert
+            if (j >= adr) {
+              edge_localid[adr++] = pid1;
+            }
+          }
+        }
+
+        // make sure we have triangle: SHOULD NOT OCCUR
+        if (cnt != 3) {
+          mju_error("Qhull did not return triangle");
+        }
+      }
+
+      // insert separator, advance to next vertex
+      edge_localid[adr++] = -1;
+      i++;
+    }
+
+    // size check: SHOULD NOT OCCUR
+    if (adr != numvert+3*numface) {
+      mju_error("Wrong size in convex hull graph");
+    }
+
+    // add triangle data, reorient faces if flipped
+    adr = 0;
+    FORALLfacets {
+      int ii = 0;
+      int ind[3] = {0, 1, 2};
+      if (facet->toporient) {
+        ind[0] = 1;
+        ind[1] = 0;
+      }
+
+      // copy triangle data
+      FOREACHsetelement_(vertexT, facet->vertices, vertex1) {
+        // make sure we have triangle: SHOULD NOT OCCUR
+        if (ii >= 3) {
+          mju_error("Qhull did not return triangle");
+        }
+
+        face_globalid[adr + ind[ii++]] = qh_pointid(qh, vertex1->point);
+      }
+
+      // advance to next triangle
+      adr += 3;
+    }
+
+    // free all
+    qh_freeqhull(qh, !qh_ALL);
+    qh_memfreeshort(qh, &curlong, &totlong);
+
+    // bad graph: delete
+    if (!ok) {
+      szgraph_ = 0;
+      mju_free(graph_);
+      graph_ = 0;
+      mju_warning("Could not construct convex hull graph");
+    }
+
+    // replace global ids with local ids in edge data
+    for (int i=0; i < numvert+3*numface; i++) {
+      if (edge_localid[i] >= 0) {
+        // search vert_globalid for match
+        int adr;
+        for (adr=0; adr < numvert; adr++) {
+          if (vert_globalid[adr] == edge_localid[i]) {
+            edge_localid[i] = adr;
+            break;
+          }
+        }
+
+        // make sure we found a match: SHOULD NOT OCCUR
+        if (adr >= numvert) {
+          mju_error("Vertex id not found in convex hull");
+        }
+      }
+    }
+  }
+
+  // longjmp error handler
+  else {
+    // free all
+    qh_freeqhull(qh, !qh_ALL);
+    qh_memfreeshort(qh, &curlong, &totlong);
+    if (graph_) {
+      mju_free(graph_);
+      szgraph_ = 0;
+    }
+
+    throw mjCError(this, "qhull error");
+  }
+}

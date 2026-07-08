@@ -20,10 +20,15 @@
 #include "build.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
+#include <random>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -35,6 +40,7 @@
 #include "classes.h"       // ps::sdk::Effective (pure effective-defaults query)
 #include "context.h"
 #include "make_model.h"    // lifted::MakeModel
+#include "mesh_pipeline.h" // lifted mesh compile
 #include "mjuu_util.h"     // lifted math
 #include "reflect.h"
 #include "visit.h"
@@ -74,6 +80,8 @@ struct CompilerSettings {
   double settotalmass = -1;
   InertiaFromGeom inertiafromgeom = InertiaFromGeom::auto_;
   int inertiagrouprange[2] = {0, mjNGROUP - 1};
+  std::string meshdir;          // <compiler meshdir> (falls back to assetdir)
+  bool strippath = false;       // <compiler strippath>
 };
 
 CompilerSettings ReadCompiler(const Model& m) {
@@ -92,6 +100,9 @@ CompilerSettings ReadCompiler(const Model& m) {
       s.inertiagrouprange[0] = (*c->inertiagrouprange)[0];
       s.inertiagrouprange[1] = (*c->inertiagrouprange)[1];
     }
+    if (c->assetdir) s.meshdir = *c->assetdir;
+    if (c->meshdir) s.meshdir = *c->meshdir;
+    if (c->strippath) s.strippath = *c->strippath;
   }
   return s;
 }
@@ -186,6 +197,33 @@ struct CGeom {
   bool has_mass = false;
   bool inferinertia = false;
   std::vector<double> user;
+  std::string material_name;       // authored material ref (resolved to matid)
+  int matid = -1;
+  int dataid = -1;                 // mesh/hfield id (-1: primitive)
+};
+
+// Asset geometry a mesh/hfield geom binds to during collection (assets are
+// compiled BEFORE the body walk so geom size/aabb/rbound/inertia and body
+// inertia inference see the final mesh/hfield geometry, exactly as MuJoCo
+// compiles assets before bodies). Keyed by asset name.
+struct HfieldBind {
+  int id = -1;
+  double size[4] = {0, 0, 0, 0};
+};
+// A mesh geom binds its size/aabb/rbound/inertia and frame to the compiled mesh
+// (mjCGeom::Compile mesh branch): aamm gives size/aabb/rbound, pos/quat the
+// frame to accumulate, volume + boxsz the GetVolume/SetInertia inputs.
+struct MeshBind {
+  int id = -1;
+  double aamm[6] = {0, 0, 0, 0, 0, 0};
+  double pos[3] = {0, 0, 0};
+  double quat[4] = {1, 0, 0, 0};
+  double volume = 0;
+  double boxsz[3] = {0, 0, 0};
+};
+struct AssetBinds {
+  std::unordered_map<std::string, HfieldBind> hfield;
+  std::unordered_map<std::string, MeshBind> mesh;
 };
 
 // --------------------------------------------------------------------------- //
@@ -506,9 +544,10 @@ double GeomRBound(int type, const double* size) {
   }
 }
 
-// Compile one geom (mjCGeom::Compile, primitive path). `cs` supplies degree.
+// Compile one geom (mjCGeom::Compile, primitive path). `cs` supplies degree;
+// `assets` binds hfield/mesh geoms (assets compiled before the body walk).
 CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
-                  int bodyid, bool inferinertia) {
+                  int bodyid, bool inferinertia, const AssetBinds& assets) {
   std::unique_ptr<Geom> eff = ps::sdk::Effective(model, g);
   CGeom cg;
   cg.src = &g;
@@ -533,6 +572,7 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
   if (eff->solimp) for (std::size_t k = 0; k < eff->solimp->size() && k < 5; ++k)
     cg.solimp[k] = (*eff->solimp)[k];
   if (eff->rgba) for (int k = 0; k < 4; ++k) cg.rgba[k] = (*eff->rgba)[k];
+  if (eff->material) cg.material_name = eff->material->name;
   if (eff->density) cg.density = *eff->density;
   if (eff->user) cg.user = *eff->user;
   cg.has_mass = eff->mass.has_value();
@@ -558,6 +598,101 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
     cg.pos[0] = (f[0] + f[3]) / 2; cg.pos[1] = (f[1] + f[4]) / 2;
     cg.pos[2] = (f[2] + f[5]) / 2;
     lift::mjuu_z2quat(cg.quat, vec);
+  }
+
+  // hfield geom: size/aabb/rbound come from the bound hfield, not the geom's own
+  // size (mjCGeom::Compile hfield branch + ComputeAABB/GetRBound hfield cases).
+  if (cg.type == mjGEOM_HFIELD) {
+    const std::string hn = eff->hfield ? eff->hfield->name : std::string();
+    auto it = assets.hfield.find(hn);
+    if (it != assets.hfield.end()) {
+      const HfieldBind& hb = it->second;
+      cg.dataid = hb.id;
+      cg.size[0] = hb.size[0];
+      cg.size[1] = hb.size[1];
+      cg.size[2] = 0.25 * hb.size[2] + 0.5 * hb.size[3];
+      // ComputeAABB hfield: aamm=[-s0,-s1,-s3, s0,s1,s2] -> (center, half).
+      const double aamm[6] = {-hb.size[0], -hb.size[1], -hb.size[3],
+                              hb.size[0], hb.size[1], hb.size[2]};
+      for (int k = 0; k < 3; ++k) {
+        cg.aabb[k] = (aamm[k + 3] + aamm[k]) / 2;
+        cg.aabb[k + 3] = (aamm[k + 3] - aamm[k]) / 2;
+      }
+      // GetRBound hfield.
+      cg.rbound = std::sqrt(hb.size[0] * hb.size[0] + hb.size[1] * hb.size[1] +
+                            std::max(hb.size[2] * hb.size[2],
+                                     hb.size[3] * hb.size[3]));
+      cg.inferinertia = inferinertia;
+      // hfield GetVolume/SetInertia use the box formula on the geom size.
+      if (inferinertia) {
+        if (cg.has_mass) {
+          if (mass == 0) { cg.mass_ = 0; cg.density = 0; }
+          else if (GeomVolume(cg.type, cg.size, ti) > lift::mjEPS) {
+            cg.mass_ = mass;
+            cg.density = mass / GeomVolume(cg.type, cg.size, ti);
+            GeomSetInertia(cg.type, cg.size, cg.mass_, ti, cg.inertia);
+          }
+        } else if (cg.density != 0) {
+          cg.mass_ = cg.density * GeomVolume(cg.type, cg.size, ti);
+          GeomSetInertia(cg.type, cg.size, cg.mass_, ti, cg.inertia);
+        }
+      }
+      return cg;
+    }
+  }
+
+  // mesh geom: accumulate the mesh frame, then take size/aabb/rbound from the
+  // mesh aamm and inertia from the mesh volume/box (mjCGeom::Compile mesh branch
+  // + GetVolume/SetInertia/GetRBound/ComputeAABB mesh cases).
+  if (cg.type == mjGEOM_MESH) {
+    // The geom's mesh ref carries the referenced name, which is exactly the key
+    // the asset table is built under (authored name, else the file stem).
+    const std::string mn = eff->mesh ? eff->mesh->name : std::string();
+    auto it = assets.mesh.find(mn);
+    if (it != assets.mesh.end()) {
+      const MeshBind& mb = it->second;
+      cg.dataid = mb.id;
+      // rotate center (0 for a mesh geom) to the geom frame, add the mesh pos,
+      // then accumulate the mesh frame into the geom frame.
+      double center[3] = {0, 0, 0}, meshpos[3];
+      lift::mjuu_rotVecQuat(meshpos, center, mb.quat);
+      lift::mjuu_addtovec(meshpos, mb.pos, 3);
+      lift::mjuu_frameaccum(cg.pos, cg.quat, meshpos, mb.quat);
+      // size = per-axis max |aamm|.
+      cg.size[0] = std::max(std::abs(mb.aamm[0]), std::abs(mb.aamm[3]));
+      cg.size[1] = std::max(std::abs(mb.aamm[1]), std::abs(mb.aamm[4]));
+      cg.size[2] = std::max(std::abs(mb.aamm[2]), std::abs(mb.aamm[5]));
+      // aabb = mesh aamm as (center, half).
+      for (int k = 0; k < 3; ++k) {
+        cg.aabb[k] = (mb.aamm[k + 3] + mb.aamm[k]) / 2;
+        cg.aabb[k + 3] = (mb.aamm[k + 3] - mb.aamm[k]) / 2;
+      }
+      cg.rbound = std::sqrt(cg.size[0] * cg.size[0] + cg.size[1] * cg.size[1] +
+                            cg.size[2] * cg.size[2]);
+      cg.inferinertia = inferinertia;
+      if (inferinertia) {
+        auto set_mesh_inertia = [&]() {
+          cg.inertia[0] = cg.mass_ * (mb.boxsz[1] * mb.boxsz[1] +
+                                      mb.boxsz[2] * mb.boxsz[2]) / 3;
+          cg.inertia[1] = cg.mass_ * (mb.boxsz[0] * mb.boxsz[0] +
+                                      mb.boxsz[2] * mb.boxsz[2]) / 3;
+          cg.inertia[2] = cg.mass_ * (mb.boxsz[0] * mb.boxsz[0] +
+                                      mb.boxsz[1] * mb.boxsz[1]) / 3;
+        };
+        if (cg.has_mass) {
+          if (mass == 0) { cg.mass_ = 0; cg.density = 0; }
+          else if (mb.volume > lift::mjEPS) {
+            cg.mass_ = mass;
+            cg.density = mass / mb.volume;
+            set_mesh_inertia();
+          }
+        } else if (cg.density != 0) {
+          cg.mass_ = cg.density * mb.volume;
+          set_mesh_inertia();
+        }
+      }
+      return cg;
+    }
   }
 
   GeomComputeAABB(cg.type, cg.size, cg.aabb);
@@ -684,6 +819,7 @@ struct CSite {
   int type = mjGEOM_SPHERE;
   int group = 0;
   int matid = -1;
+  std::string material_name;
   double size[3] = {0.005, 0.005, 0.005};
   double pos[3] = {0, 0, 0};
   double quat[4] = {1, 0, 0, 0};
@@ -705,6 +841,7 @@ CSite SiteCompile(const Model& model, const Site& s, const CompilerSettings& cs,
   if (eff->pos) { cs2.pos[0] = (*eff->pos)[0]; cs2.pos[1] = (*eff->pos)[1];
                   cs2.pos[2] = (*eff->pos)[2]; }
   if (eff->rgba) for (int k = 0; k < 4; ++k) cs2.rgba[k] = (*eff->rgba)[k];
+  if (eff->material) cs2.material_name = eff->material->name;
   if (eff->user) cs2.user = *eff->user;
 
   // 'fromto' path (mjCSite::Compile): compute pos, quat, size like geoms.
@@ -1060,8 +1197,9 @@ void FlattenChildren(const std::vector<BodyChildAny>& subtree,
 class BodyCollector {
  public:
   BodyCollector(const Model& model, const CompilerSettings& cs,
-                const bridge::CompileOptions& opts, double znear)
-      : model_(model), cs_(cs), opts_(opts), znear_(znear) {}
+                const bridge::CompileOptions& opts, double znear,
+                const AssetBinds& assets)
+      : model_(model), cs_(cs), opts_(opts), znear_(znear), assets_(assets) {}
 
   // Auto-name mirror (bridge Collector): authored name else _ps:joint:<serial>.
   std::string JointName(const ps::opt<std::string>& nm, std::uint64_t serial) {
@@ -1092,7 +1230,7 @@ class BodyCollector {
     // World's geoms (id 0, no inertia inference), sites, cameras, lights.
     const int gstart = static_cast<int>(geoms_.size());
     for (const auto& [g, xf] : fc.geoms) {
-      CGeom cg = GeomCompile(model_, *g, cs_, 0, false);
+      CGeom cg = GeomCompile(model_, *g, cs_, 0, false, assets_);
       if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cg.pos, cg.quat);
       geoms_.push_back(cg);
     }
@@ -1246,12 +1384,12 @@ class BodyCollector {
       const bool infer =
           id > 0 &&
           (!explicitinertial || cs_.inertiafromgeom == InertiaFromGeom::true_);
-      CGeom cg = GeomCompile(model_, *g, cs_, id, false);
+      CGeom cg = GeomCompile(model_, *g, cs_, id, false, assets_);
       cg.inferinertia = infer && cg.group >= cs_.inertiagrouprange[0] &&
                         cg.group <= cs_.inertiagrouprange[1];
       if (cg.inferinertia) {
         // recompute mass/inertia now that the group gate is known
-        cg = GeomCompile(model_, *g, cs_, id, true);
+        cg = GeomCompile(model_, *g, cs_, id, true, assets_);
       }
       // frame accumulation is the final touch on geom pos/quat (upstream).
       if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cg.pos, cg.quat);
@@ -1315,6 +1453,7 @@ class BodyCollector {
   const CompilerSettings& cs_;
   const bridge::CompileOptions& opts_;
   double znear_ = 0.01;
+  const AssetBinds& assets_;
   std::vector<CBody> bodies_;
   std::vector<CGeom> geoms_;
   std::vector<CJoint> joints_;
@@ -1602,8 +1741,8 @@ void FillTree(mjModel* m, const std::vector<CBody>& cbs,
     m->geom_conaffinity[gid] = cg.conaffinity;
     m->geom_condim[gid] = cg.condim;
     m->geom_bodyid[gid] = b;
-    m->geom_dataid[gid] = -1;
-    m->geom_matid[gid] = -1;
+    m->geom_dataid[gid] = cg.dataid;
+    m->geom_matid[gid] = cg.matid;
     m->geom_plugin[gid] = -1;
     m->geom_group[gid] = cg.group;
     m->geom_priority[gid] = cg.priority;
@@ -1764,8 +1903,8 @@ int NameList(const std::vector<std::string>& list, int adr, int* name_adr,
 // tables and map segments are trivially correct.
 struct NameLists {
   std::string modelname;
-  std::vector<std::string> body, jnt, geom, site, cam, light, pair, exclude, eq,
-      tendon, actuator, sensor, key;
+  std::vector<std::string> body, jnt, geom, site, cam, light, mesh, skin, hfield,
+      tex, mat, pair, exclude, eq, tendon, actuator, sensor, key;
 
   int TotalNames() const {
     int n = static_cast<int>(modelname.size()) + 1;
@@ -1773,6 +1912,7 @@ struct NameLists {
       for (const auto& s : v) n += static_cast<int>(s.size()) + 1;
     };
     add(body); add(jnt); add(geom); add(site); add(cam); add(light);
+    add(mesh); add(skin); add(hfield); add(tex); add(mat);
     add(pair); add(exclude); add(eq); add(tendon); add(actuator); add(sensor);
     add(key);
     return n;
@@ -1798,6 +1938,11 @@ void FillNames(mjModel* m, const NameLists& nl) {
   pass(nl.site, m->name_siteadr);
   pass(nl.cam, m->name_camadr);
   pass(nl.light, m->name_lightadr);
+  pass(nl.mesh, m->name_meshadr);
+  pass(nl.skin, m->name_skinadr);
+  pass(nl.hfield, m->name_hfieldadr);
+  pass(nl.tex, m->name_texadr);
+  pass(nl.mat, m->name_matadr);
   pass(nl.pair, m->name_pairadr);
   pass(nl.exclude, m->name_excludeadr);
   pass(nl.eq, m->name_eqadr);
@@ -2146,6 +2291,7 @@ struct CTendon {
   float rgba[4] = {0.5f, 0.5f, 0.5f, 1.0f};
   std::vector<double> user;
   int matid = -1;
+  std::string material_name;
 };
 
 // Common authored-field bag so Spatial and Fixed share one resolver. `has_*`
@@ -2162,6 +2308,7 @@ struct TendonAuthored {
   ps::opt<ps::InlineVec<double, 3>> stiffness, damping;
   ps::opt<std::array<float, 4>> rgba;
   ps::opt<std::vector<double>> user;
+  ps::opt<ps::Ref<Material>> material;
 };
 
 template <int N>
@@ -2240,6 +2387,10 @@ void ResolveTendonFields(const ps::sdk::detail::DefaultIndex& idx,
   // user
   if (a.user) ct.user = *a.user;
   else for (const auto* td : chain) if (td->user) { ct.user = *td->user; break; }
+  // material (authored -> class chain); resolved to matid after materials compile
+  if (a.material) ct.material_name = a.material->name;
+  else for (const auto* td : chain)
+    if (td->material) { ct.material_name = td->material->name; break; }
 
   // limits (islimited over resolved limited state + range).
   auto tri = [](const ps::opt<TriState>& t) {
@@ -2260,6 +2411,7 @@ void FillTendonAuthoredSpatial(const Spatial& s, TendonAuthored& a) {
   a.frictionloss = s.frictionloss; a.springlength = s.springlength;
   a.width = s.width; a.margin = s.margin; a.armature = s.armature;
   a.stiffness = s.stiffness; a.damping = s.damping; a.rgba = s.rgba; a.user = s.user;
+  a.material = s.material;
 }
 
 void FillTendonAuthoredFixed(const Fixed& f, TendonAuthored& a) {
@@ -3176,9 +3328,13 @@ void FillSensors(mjModel* m, const std::vector<CSensor>& sensors) {
 }
 
 // --------------------------------------------------------------------------- //
-// Keyframe fill (S12), mirroring ExpandAllKeyframes + mjCKey::Compile: an       //
-// absent qpos defaults to qpos0, qvel/act/ctrl to 0, mpos/mquat to the mocap    //
-// bodies' reference pose; ball/free qpos quats and mocap quats are normalized.  //
+// Keyframe fill (S12), mirroring ExpandKeyframe + mjCKey::Compile: an absent    //
+// (empty) array defaults wholesale (qpos->qpos0, qvel/act/ctrl->0, mpos/mquat-> //
+// mocap ref pose); a SHORTER-than-full authored array keeps its prefix and the  //
+// tail is padded (ExpandKeyframe: qpos tail=qpos0, qvel/act/ctrl tail=0,        //
+// mpos/mquat new-mocap tail=ref pose). Ball/free qpos quats and mocap quats are //
+// normalized. (A longer-than-full array is a hard error upstream, so the model  //
+// fails leg B too and never reaches here as a claimed-native compile.)          //
 // --------------------------------------------------------------------------- //
 void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
   const int nq = m->nq, nv = m->nv, na = m->na, nu = m->nu, nmocap = m->nmocap;
@@ -3186,42 +3342,52 @@ void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
     const Key& k = *keys[i];
     m->key_time[i] = k.time ? *k.time : 0;
 
-    // qpos: authored (size nq) else qpos0.
-    if (k.qpos && static_cast<int>(k.qpos->size()) == nq)
-      for (int j = 0; j < nq; ++j) m->key_qpos[i * nq + j] = (*k.qpos)[j];
-    else
-      for (int j = 0; j < nq; ++j) m->key_qpos[i * nq + j] = m->qpos0[j];
+    // qpos: authored prefix (pad tail with qpos0); empty -> all qpos0.
+    {
+      const int n0 = (k.qpos && !k.qpos->empty())
+                         ? std::min(static_cast<int>(k.qpos->size()), nq)
+                         : 0;
+      for (int j = 0; j < n0; ++j) m->key_qpos[i * nq + j] = (*k.qpos)[j];
+      for (int j = n0; j < nq; ++j) m->key_qpos[i * nq + j] = m->qpos0[j];
+    }
 
-    // qvel: authored (size nv) else 0.
-    for (int j = 0; j < nv; ++j)
-      m->key_qvel[i * nv + j] =
-          (k.qvel && static_cast<int>(k.qvel->size()) == nv) ? (*k.qvel)[j] : 0;
+    // qvel: authored prefix (pad tail with 0); empty -> all 0.
+    {
+      const int n0 = (k.qvel && !k.qvel->empty())
+                         ? std::min(static_cast<int>(k.qvel->size()), nv)
+                         : 0;
+      for (int j = 0; j < n0; ++j) m->key_qvel[i * nv + j] = (*k.qvel)[j];
+      for (int j = n0; j < nv; ++j) m->key_qvel[i * nv + j] = 0;
+    }
 
-    if (na)
-      for (int j = 0; j < na; ++j)
-        m->key_act[i * na + j] =
-            (k.act && static_cast<int>(k.act->size()) == na) ? (*k.act)[j] : 0;
+    if (na) {
+      const int n0 = (k.act && !k.act->empty())
+                         ? std::min(static_cast<int>(k.act->size()), na)
+                         : 0;
+      for (int j = 0; j < n0; ++j) m->key_act[i * na + j] = (*k.act)[j];
+      for (int j = n0; j < na; ++j) m->key_act[i * na + j] = 0;
+    }
 
     if (nmocap) {
-      const bool has_mpos = k.mpos && static_cast<int>(k.mpos->size()) == 3 * nmocap;
-      const bool has_mquat = k.mquat && static_cast<int>(k.mquat->size()) == 4 * nmocap;
-      if (has_mpos)
-        for (int j = 0; j < 3 * nmocap; ++j)
-          m->key_mpos[i * 3 * nmocap + j] = (*k.mpos)[j];
-      if (has_mquat)
-        for (int j = 0; j < 4 * nmocap; ++j)
-          m->key_mquat[i * 4 * nmocap + j] = (*k.mquat)[j];
-      if (!has_mpos || !has_mquat) {
-        for (int bi = 0; bi < m->nbody; ++bi) {
-          const int mid = m->body_mocapid[bi];
-          if (mid < 0) continue;
-          if (!has_mpos)
-            lift::mjuu_copyvec(m->key_mpos + i * 3 * nmocap + 3 * mid,
-                               m->body_pos + 3 * bi, 3);
-          if (!has_mquat)
-            lift::mjuu_copyvec(m->key_mquat + i * 4 * nmocap + 4 * mid,
-                               m->body_quat + 4 * bi, 4);
-        }
+      // mpos/mquat: authored prefix by mocapid, then pad new mocaps (mocapid >=
+      // authored count) with the body reference pose (ExpandKeyframe).
+      const int mpos0 = (k.mpos && !k.mpos->empty())
+                            ? static_cast<int>(k.mpos->size()) / 3 : 0;
+      const int mquat0 = (k.mquat && !k.mquat->empty())
+                             ? static_cast<int>(k.mquat->size()) / 4 : 0;
+      for (int j = 0; j < 3 * std::min(mpos0, nmocap); ++j)
+        m->key_mpos[i * 3 * nmocap + j] = (*k.mpos)[j];
+      for (int j = 0; j < 4 * std::min(mquat0, nmocap); ++j)
+        m->key_mquat[i * 4 * nmocap + j] = (*k.mquat)[j];
+      for (int bi = 0; bi < m->nbody; ++bi) {
+        const int mid = m->body_mocapid[bi];
+        if (mid < 0) continue;
+        if (mid >= mpos0)
+          lift::mjuu_copyvec(m->key_mpos + i * 3 * nmocap + 3 * mid,
+                             m->body_pos + 3 * bi, 3);
+        if (mid >= mquat0)
+          lift::mjuu_copyvec(m->key_mquat + i * 4 * nmocap + 4 * mid,
+                             m->body_quat + 4 * bi, 4);
       }
     }
 
@@ -3233,11 +3399,743 @@ void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
     for (int j = 0; j < nmocap; ++j)
       lift::mjuu_normvec(m->key_mquat + i * 4 * nmocap + 4 * j, 4);
 
-    if (nu)
-      for (int j = 0; j < nu; ++j)
-        m->key_ctrl[i * nu + j] =
-            (k.ctrl && static_cast<int>(k.ctrl->size()) == nu) ? (*k.ctrl)[j] : 0;
+    if (nu) {
+      const int n0 = (k.ctrl && !k.ctrl->empty())
+                         ? std::min(static_cast<int>(k.ctrl->size()), nu)
+                         : 0;
+      for (int j = 0; j < n0; ++j) m->key_ctrl[i * nu + j] = (*k.ctrl)[j];
+      for (int j = n0; j < nu; ++j) m->key_ctrl[i * nu + j] = 0;
+    }
   }
+}
+
+// --------------------------------------------------------------------------- //
+// Assets: textures. Builtin procedural generation (gradient/checker/flat + edge/ //
+// cross/random marks, 2D and cube) lifted from mjCTexture::Builtin2D/BuiltinCube //
+// + the file-local helpers randomdot/interp/checker (user_objects.cc:4973-5218). //
+// Data is a flat rgb byte blob; colorspace is recorded, never applied. File and  //
+// cube-face textures are a later wave (gated by the finer scan). ProtoSpec's     //
+// TextureBuiltin/TextureMark/TextureType/ColorSpace enums share MuJoCo's integer //
+// values, so casts are direct (mjBUILTIN_*/mjMARK_*/mjTEXTURE_*/mjCOLORSPACE_*). //
+// --------------------------------------------------------------------------- //
+
+// Lifted verbatim (user_objects.cc:4974-4990): random dots at fixed seed 42.
+void TexRandomdot(unsigned char* rgb, const double* markrgb, int width,
+                  int height, double probability) {
+  std::mt19937_64 rng;
+  rng.seed(42);
+  std::uniform_real_distribution<double> dist(0, 1);
+  for (int r = 0; r < height; r++) {
+    for (int c = 0; c < width; c++) {
+      if (dist(rng) < probability) {
+        for (int j = 0; j < 3; j++)
+          rgb[3 * (r * width + c) + j] =
+              static_cast<unsigned char>(255 * markrgb[j]);
+      }
+    }
+  }
+}
+
+// Lifted verbatim (user_objects.cc:4996-5008): sigmoid interp of two colors.
+void TexInterp(unsigned char* rgb, const double* rgb1, const double* rgb2,
+               double pos) {
+  const double correction = 1.0 / std::sqrt(2);
+  double alpha = 0.5 * (1 + pos / std::sqrt(1 + pos * pos) / correction);
+  if (alpha < 0) alpha = 0;
+  else if (alpha > 1) alpha = 1;
+  for (int j = 0; j < 3; j++)
+    rgb[j] = static_cast<unsigned char>(255 * (alpha * rgb1[j] + (1 - alpha) * rgb2[j]));
+}
+
+// Lifted verbatim (user_objects.cc:5013-5035): checker pattern for one face.
+void TexChecker(unsigned char* rgb, const unsigned char* RGB1,
+                const unsigned char* RGB2, int width, int height) {
+  for (int r = 0; r < height / 2; r++)
+    for (int c = 0; c < width / 2; c++)
+      std::memcpy(rgb + 3 * (r * width + c), RGB1, 3);
+  for (int r = height / 2; r < height; r++)
+    for (int c = width / 2; c < width; c++)
+      std::memcpy(rgb + 3 * (r * width + c), RGB1, 3);
+  for (int r = 0; r < height / 2; r++)
+    for (int c = width / 2; c < width; c++)
+      std::memcpy(rgb + 3 * (r * width + c), RGB2, 3);
+  for (int r = height / 2; r < height; r++)
+    for (int c = 0; c < width / 2; c++)
+      std::memcpy(rgb + 3 * (r * width + c), RGB2, 3);
+}
+
+struct CTexBuiltin {
+  int builtin = 0, mark = 0, width = 0, height = 0, nchannel = 3, type = 1;
+  double rgb1[3] = {0.8, 0.8, 0.8};
+  double rgb2[3] = {0.5, 0.5, 0.5};
+  double markrgb[3] = {0, 0, 0};
+  double random = 0.01;
+};
+
+// mjCTexture::Builtin2D (user_objects.cc:5040-5108). Data is nchannel*w*h bytes,
+// pre-zeroed; the rgb helpers write stride-3.
+void TexBuiltin2D(const CTexBuiltin& t, unsigned char* data) {
+  unsigned char RGB1[3], RGB2[3], RGBm[3];
+  for (int j = 0; j < 3; j++) {
+    RGB1[j] = static_cast<unsigned char>(255 * t.rgb1[j]);
+    RGB2[j] = static_cast<unsigned char>(255 * t.rgb2[j]);
+    RGBm[j] = static_cast<unsigned char>(255 * t.markrgb[j]);
+  }
+  const int width = t.width, height = t.height;
+  if (t.builtin == 1) {  // gradient
+    for (int r = 0; r < height; r++)
+      for (int c = 0; c < width; c++) {
+        double x = 2.0 * c / (width - 1) - 1;
+        double y = 1 - 2.0 * r / (height - 1);
+        double pos = 2 * std::sqrt(x * x + y * y) - 1;
+        TexInterp(data + 3 * (r * width + c), t.rgb2, t.rgb1, pos);
+      }
+  } else if (t.builtin == 2) {  // checker
+    TexChecker(data, RGB1, RGB2, width, height);
+  } else if (t.builtin == 3) {  // flat
+    for (int r = 0; r < height; r++)
+      for (int c = 0; c < width; c++)
+        std::memcpy(data + 3 * (r * width + c), RGB1, 3);
+  }
+  if (t.mark == 1) {  // edge
+    for (int r = 0; r < height; r++) {
+      std::memcpy(data + 3 * (r * width + 0), RGBm, 3);
+      std::memcpy(data + 3 * (r * width + width - 1), RGBm, 3);
+    }
+    for (int c = 0; c < width; c++) {
+      std::memcpy(data + 3 * (0 * width + c), RGBm, 3);
+      std::memcpy(data + 3 * ((height - 1) * width + c), RGBm, 3);
+    }
+  } else if (t.mark == 2) {  // cross
+    for (int r = 0; r < height; r++)
+      std::memcpy(data + 3 * (r * width + width / 2), RGBm, 3);
+    for (int c = 0; c < width; c++)
+      std::memcpy(data + 3 * (height / 2 * width + c), RGBm, 3);
+  } else if (t.mark == 3 && t.random > 0) {  // random dots
+    TexRandomdot(data, t.markrgb, width, height, t.random);
+  }
+}
+
+// mjCTexture::BuiltinCube (user_objects.cc:5113-5218). Six faces stacked, face j
+// at byte offset j*3*ww; face order R,L,U,D,F,B = 0..5.
+void TexBuiltinCube(const CTexBuiltin& t, unsigned char* data) {
+  unsigned char RGB1[3], RGB2[3], RGBm[3], RGBi[3];
+  const int w = t.width;
+  const std::int64_t ww = static_cast<std::int64_t>(w) * w;
+  for (int j = 0; j < 3; j++) {
+    RGB1[j] = static_cast<unsigned char>(255 * t.rgb1[j]);
+    RGB2[j] = static_cast<unsigned char>(255 * t.rgb2[j]);
+    RGBm[j] = static_cast<unsigned char>(255 * t.markrgb[j]);
+  }
+  if (t.builtin == 1) {  // gradient
+    for (int r = 0; r < w; r++)
+      for (int c = 0; c < w; c++) {
+        double x = 2.0 * c / (w - 1) - 1;
+        double y = 1 - 2.0 * r / (w - 1);
+        double elside = std::asin(y / std::sqrt(1 + x * x + y * y)) / (0.5 * mjPI);
+        double elup = 1 - std::acos(1.0 / std::sqrt(1 + x * x + y * y)) / (0.5 * mjPI);
+        TexInterp(RGBi, t.rgb1, t.rgb2, elside);
+        std::memcpy(data + 0 * 3 * ww + 3 * (r * w + c), RGBi, 3);
+        std::memcpy(data + 1 * 3 * ww + 3 * (r * w + c), RGBi, 3);
+        std::memcpy(data + 4 * 3 * ww + 3 * (r * w + c), RGBi, 3);
+        std::memcpy(data + 5 * 3 * ww + 3 * (r * w + c), RGBi, 3);
+        TexInterp(data + 2 * 3 * ww + 3 * (r * w + c), t.rgb1, t.rgb2, elup);
+        TexInterp(data + 3 * 3 * ww + 3 * (r * w + c), t.rgb1, t.rgb2, -elup);
+      }
+  } else if (t.builtin == 2) {  // checker
+    TexChecker(data + 0 * 3 * ww, RGB1, RGB2, w, w);
+    TexChecker(data + 1 * 3 * ww, RGB1, RGB2, w, w);
+    TexChecker(data + 2 * 3 * ww, RGB1, RGB2, w, w);
+    TexChecker(data + 3 * 3 * ww, RGB1, RGB2, w, w);
+    TexChecker(data + 4 * 3 * ww, RGB2, RGB1, w, w);
+    TexChecker(data + 5 * 3 * ww, RGB2, RGB1, w, w);
+  } else if (t.builtin == 3) {  // flat
+    for (int r = 0; r < w; r++)
+      for (int c = 0; c < w; c++) {
+        std::memcpy(data + 0 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        std::memcpy(data + 1 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        std::memcpy(data + 2 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        std::memcpy(data + 4 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        std::memcpy(data + 5 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        std::memcpy(data + 3 * 3 * ww + 3 * (r * w + c), RGB2, 3);
+      }
+  }
+  if (t.mark == 1) {  // edge
+    for (int j = 0; j < 6; j++) {
+      for (int r = 0; r < w; r++) {
+        std::memcpy(data + j * 3 * ww + 3 * (r * w + 0), RGBm, 3);
+        std::memcpy(data + j * 3 * ww + 3 * (r * w + w - 1), RGBm, 3);
+      }
+      for (int c = 0; c < w; c++) {
+        std::memcpy(data + j * 3 * ww + 3 * (0 * w + c), RGBm, 3);
+        std::memcpy(data + j * 3 * ww + 3 * ((w - 1) * w + c), RGBm, 3);
+      }
+    }
+  } else if (t.mark == 2) {  // cross
+    for (int j = 0; j < 6; j++) {
+      for (int r = 0; r < w; r++)
+        std::memcpy(data + j * 3 * ww + 3 * (r * w + w / 2), RGBm, 3);
+      for (int c = 0; c < w; c++)
+        std::memcpy(data + j * 3 * ww + 3 * (w / 2 * w + c), RGBm, 3);
+    }
+  } else if (t.mark == 3 && t.random > 0) {  // random dots
+    TexRandomdot(data, t.markrgb, w, t.height, t.random);
+  }
+}
+
+struct CTexture {
+  const Texture* src = nullptr;
+  ps::opt<std::string> name;
+  int type = 1;         // mjtTexture (TextureType casts directly)
+  int colorspace = 0;   // mjtColorSpace
+  int width = 0, height = 0, nchannel = 3;
+  std::vector<unsigned char> data;
+};
+
+// mjCTexture::Compile builtin path (user_objects.cc:5632-5686). Returns false and
+// records a diagnostic on invalid dimensions; the gate only admits builtin
+// textures so file/cube-face branches are not reached here.
+bool TextureCompile(const Model& model, const Texture& tx, CTexture& out,
+                    std::vector<bridge::Diagnostic>& diags) {
+  std::unique_ptr<Texture> eff = ps::sdk::Effective(model, tx);
+  out.src = &tx;
+  out.name = tx.name;
+  out.type = eff->type ? static_cast<int>(*eff->type) : 1;
+  out.colorspace = eff->colorspace ? static_cast<int>(*eff->colorspace) : 0;
+  out.nchannel = eff->nchannel ? *eff->nchannel : 3;
+
+  CTexBuiltin b;
+  b.type = out.type;
+  b.nchannel = out.nchannel;
+  if (const TextureBuiltin* bi =
+          eff->source ? std::get_if<TextureBuiltin>(&*eff->source) : nullptr)
+    b.builtin = static_cast<int>(*bi);
+  b.mark = eff->mark ? static_cast<int>(*eff->mark) : 0;
+  if (eff->rgb1) for (int k = 0; k < 3; ++k) b.rgb1[k] = (*eff->rgb1)[k];
+  if (eff->rgb2) for (int k = 0; k < 3; ++k) b.rgb2[k] = (*eff->rgb2)[k];
+  if (eff->markrgb) for (int k = 0; k < 3; ++k) b.markrgb[k] = (*eff->markrgb)[k];
+  if (eff->random) b.random = *eff->random;
+  b.width = eff->width ? *eff->width : 0;
+  b.height = eff->height ? *eff->height : 0;
+
+  // dimension checks (mjCTexture::Compile:5652-5667).
+  if (b.width < 1) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "texture",
+                     "Invalid width of builtin texture", tx.loc});
+    return false;
+  }
+  if (out.type != 0 /* 2D */) {
+    b.height = 6 * b.width;
+  } else if (b.height < 1) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "texture",
+                     "Invalid height of builtin texture", tx.loc});
+    return false;
+  }
+  out.width = b.width;
+  out.height = b.height;
+  out.data.assign(static_cast<std::size_t>(out.nchannel) * b.width * b.height, 0);
+  if (out.type == 0) TexBuiltin2D(b, out.data.data());
+  else TexBuiltinCube(b, out.data.data());
+  return true;
+}
+
+void FillTextures(mjModel* m, const std::vector<CTexture>& texs) {
+  mjtSize data_adr = 0;
+  for (int i = 0; i < static_cast<int>(texs.size()); ++i) {
+    const CTexture& t = texs[i];
+    m->tex_type[i] = t.type;
+    m->tex_colorspace[i] = t.colorspace;
+    m->tex_height[i] = t.height;
+    m->tex_width[i] = t.width;
+    m->tex_nchannel[i] = t.nchannel;
+    m->tex_adr[i] = data_adr;
+    const mjtSize nbytes =
+        static_cast<mjtSize>(t.nchannel) * t.width * t.height;
+    if (nbytes) std::memcpy(m->tex_data + data_adr, t.data.data(), nbytes);
+    data_adr += nbytes;
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Assets: materials (CopyObjects, user_model.cc:3760-3777). mjCMaterial::Compile //
+// is a no-op copy; the only resolution is the per-role texture id array         //
+// (mat_texid): the legacy `texture` attr maps to role mjTEXROLE_RGB and each     //
+// <layer role=.. texture=..> to its role (mjXReader::OneMaterial). Class-chain + //
+// IDL defaults come from ps::sdk::Effective<Material> (metallic/roughness default //
+// -1, which the IDL layer does not set, so the struct carries it).               //
+// --------------------------------------------------------------------------- //
+struct CMaterial {
+  const Material* src = nullptr;
+  ps::opt<std::string> name;
+  std::uint64_t serial = 0;
+  int texid[mjNTEXROLE];
+  int texuniform = 0;
+  float texrepeat[2] = {1, 1};
+  float emission = 0, specular = 0.5f, shininess = 0.5f, reflectance = 0;
+  float metallic = -1, roughness = -1;
+  float rgba[4] = {1, 1, 1, 1};
+  CMaterial() { for (int r = 0; r < mjNTEXROLE; ++r) texid[r] = -1; }
+};
+
+CMaterial MaterialCompile(const Model& model, const Material& mat,
+                          const NameIdMap& texid_of) {
+  std::unique_ptr<Material> eff = ps::sdk::Effective(model, mat);
+  CMaterial cm;
+  cm.src = &mat;
+  cm.name = mat.name;
+  cm.serial = mat.serial;
+  auto resolve_tex = [&](const std::string& nm) -> int {
+    auto it = texid_of.find(nm);
+    return it == texid_of.end() ? -1 : it->second;
+  };
+  // legacy `texture` attr -> role RGB; <layer> entries -> their role. ProtoSpec's
+  // TexRole enum omits the USER role (rgb=0..orm=8), so it is offset +1 from
+  // mjtTextureRole (mjTEXROLE_USER=0, RGB=1..ORM=9).
+  if (eff->texture) cm.texid[mjTEXROLE_RGB] = resolve_tex(eff->texture->name);
+  for (const auto& layer : eff->layers) {
+    if (!layer) continue;
+    const int role =
+        layer->role ? static_cast<int>(*layer->role) + 1 : mjTEXROLE_USER;
+    if (layer->texture) cm.texid[role] = resolve_tex(layer->texture->name);
+  }
+  if (eff->texuniform) cm.texuniform = *eff->texuniform ? 1 : 0;
+  if (eff->texrepeat) { cm.texrepeat[0] = (*eff->texrepeat)[0];
+                        cm.texrepeat[1] = (*eff->texrepeat)[1]; }
+  if (eff->emission) cm.emission = *eff->emission;
+  if (eff->specular) cm.specular = *eff->specular;
+  if (eff->shininess) cm.shininess = *eff->shininess;
+  if (eff->reflectance) cm.reflectance = *eff->reflectance;
+  if (eff->metallic) cm.metallic = *eff->metallic;
+  if (eff->roughness) cm.roughness = *eff->roughness;
+  if (eff->rgba) for (int k = 0; k < 4; ++k) cm.rgba[k] = (*eff->rgba)[k];
+  return cm;
+}
+
+void FillMaterials(mjModel* m, const std::vector<CMaterial>& mats) {
+  for (int i = 0; i < static_cast<int>(mats.size()); ++i) {
+    const CMaterial& cm = mats[i];
+    for (int j = 0; j < mjNTEXROLE; ++j)
+      m->mat_texid[mjNTEXROLE * i + j] = cm.texid[j];
+    m->mat_texuniform[i] = static_cast<mjtByte>(cm.texuniform);
+    m->mat_texrepeat[2 * i] = cm.texrepeat[0];
+    m->mat_texrepeat[2 * i + 1] = cm.texrepeat[1];
+    m->mat_emission[i] = cm.emission;
+    m->mat_specular[i] = cm.specular;
+    m->mat_shininess[i] = cm.shininess;
+    m->mat_reflectance[i] = cm.reflectance;
+    m->mat_metallic[i] = cm.metallic;
+    m->mat_roughness[i] = cm.roughness;
+    for (int k = 0; k < 4; ++k) m->mat_rgba[4 * i + k] = cm.rgba[k];
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Assets: height fields (mjCHField::Compile, user_objects.cc). The user-data    //
+// path (elevation authored inline): copy nrow*ncol floats, validate size>0,     //
+// normalize to [0,1] (subtract emin, divide by emax-emin when > mjEPS). File    //
+// (PNG/custom) hfields are a later wave (gated). geom_dataid + the hfield geom's //
+// size/aabb/rbound come from the hfield in GeomCompile (bound before the body    //
+// walk).                                                                         //
+// --------------------------------------------------------------------------- //
+struct CHField {
+  const Hfield* src = nullptr;
+  ps::opt<std::string> name;
+  int nrow = 0, ncol = 0;
+  double size[4] = {0, 0, 0, 0};
+  std::vector<float> data;  // normalized elevation, row-major
+};
+
+bool HfieldCompile(const Hfield& hf, CHField& out,
+                   std::vector<bridge::Diagnostic>& diags) {
+  out.src = &hf;
+  out.name = hf.name;
+  out.nrow = hf.nrow ? *hf.nrow : 0;
+  out.ncol = hf.ncol ? *hf.ncol : 0;
+  if (hf.size) for (int k = 0; k < 4; ++k) out.size[k] = (*hf.size)[k];
+
+  // user elevation data. The XML reader (xml_native_reader.cc OneHField) copies
+  // elevation in REVERSE row order ("so XML string is top-to-bottom"); leg B
+  // round-trips through that reader, so leg C reproduces the same row flip before
+  // mjCHField::Compile's normalization.
+  if (hf.elevation && !hf.elevation->empty()) {
+    const auto& e = *hf.elevation;
+    if (out.nrow * out.ncol != static_cast<int>(e.size())) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
+                       "elevation data length must match nrow*ncol", hf.loc});
+      return false;
+    }
+    out.data.resize(e.size());
+    for (int i = 0; i < out.nrow; ++i) {
+      const int flip = out.nrow - 1 - i;
+      for (int j = 0; j < out.ncol; ++j)
+        out.data[flip * out.ncol + j] =
+            static_cast<float>(e[i * out.ncol + j]);
+    }
+  }
+
+  // size parameters must be positive.
+  for (int k = 0; k < 4; ++k)
+    if (out.size[k] <= 0) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
+                       "size parameter is not positive in hfield", hf.loc});
+      return false;
+    }
+  if (out.nrow < 1 || out.ncol < 1 || out.data.empty()) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
+                     "hfield not specified", hf.loc});
+    return false;
+  }
+
+  // normalize elevation to [0, 1] (mjCHField::Compile).
+  float emin = 1e10f, emax = -1e10f;
+  for (int i = 0; i < out.nrow * out.ncol; ++i) {
+    emin = std::min(emin, out.data[i]);
+    emax = std::max(emax, out.data[i]);
+  }
+  for (int i = 0; i < out.nrow * out.ncol; ++i) {
+    out.data[i] -= emin;
+    if (emax - emin > static_cast<float>(lift::mjEPS)) out.data[i] /= (emax - emin);
+  }
+  return true;
+}
+
+void FillHfields(mjModel* m, const std::vector<CHField>& hfields) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(hfields.size()); ++i) {
+    const CHField& hf = hfields[i];
+    m->hfield_nrow[i] = hf.nrow;
+    m->hfield_ncol[i] = hf.ncol;
+    for (int k = 0; k < 4; ++k) m->hfield_size[4 * i + k] = hf.size[k];
+    m->hfield_adr[i] = adr;
+    m->hfield_pathadr[i] = -1;  // user data: no file path
+    for (int j = 0; j < hf.nrow * hf.ncol; ++j)
+      m->hfield_data[adr + j] = hf.data[j];
+    adr += hf.nrow * hf.ncol;
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Meshes (S8/CopyObjects). Compiled before the body walk (like hfields) so a    //
+// mesh geom binds the mesh aamm/frame/inertia. The heavy lifting -- parse,      //
+// convex hull, inertia, polygons -- is the lifted pipeline; build.cc resolves   //
+// files, drives the shared face BVH, and lays out the mjModel mesh_* arrays.    //
+// --------------------------------------------------------------------------- //
+struct CMesh {
+  ps::opt<std::string> name;           // authored name (bind key), may be empty
+  std::string listname;                // name table entry (authored else file stem)
+  std::string file;                    // File() for m->paths (empty: user mesh)
+  lift::MeshResult r;
+  std::vector<double> bvh;
+  std::vector<int> bvh_child, bvh_level, bvh_nodeid;
+  int nbvh() const { return static_cast<int>(bvh_child.size() / 2); }
+};
+
+// ProtoSpec MeshInertia -> mjtMeshInertia (the enum orderings differ: ProtoSpec
+// is convex/legacy/exact/shell, mjtMeshInertia is convex/exact/legacy/shell).
+int MeshInertiaToMj(const ps::opt<MeshInertia>& mi) {
+  if (!mi) return mjMESH_INERTIA_LEGACY;
+  switch (*mi) {
+    case MeshInertia::convex: return mjMESH_INERTIA_CONVEX;
+    case MeshInertia::exact:  return mjMESH_INERTIA_EXACT;
+    case MeshInertia::legacy: return mjMESH_INERTIA_LEGACY;
+    case MeshInertia::shell:  return mjMESH_INERTIA_SHELL;
+  }
+  return mjMESH_INERTIA_LEGACY;
+}
+
+// Which meshes a collision (or contact-pair) mesh geom references -- these force
+// the convex-hull graph even when the mesh's own inertia is not convex
+// (mjCModel::IndexAssets SetNeedHull, run before mesh compile).
+void CollectMeshHullRefs(const Model& m, const std::set<std::string>& pair_geoms,
+                         std::unordered_map<std::string, bool>& out) {
+  std::function<void(const Body&)> walk_body;
+  std::function<void(const std::vector<BodyChildAny>&)> walk_children;
+  walk_children = [&](const std::vector<BodyChildAny>& subtree) {
+    for (const BodyChildAny& c : subtree) {
+      switch (c.kind()) {
+        case BodyChildAny::Kind::Geom: {
+          const auto& g = std::get<std::unique_ptr<Geom>>(c.node);
+          if (!g) break;
+          std::unique_ptr<Geom> eff = ps::sdk::Effective(m, *g);
+          if (!eff->mesh) break;
+          const int type = eff->type ? static_cast<int>(*eff->type) : mjGEOM_SPHERE;
+          const int contype = eff->contype ? *eff->contype : 1;
+          const int conaff = eff->conaffinity ? *eff->conaffinity : 1;
+          const bool in_pair =
+              eff->name && pair_geoms.count(*eff->name) > 0;
+          const bool coll =
+              type == mjGEOM_MESH && (contype || conaff || in_pair);
+          out[eff->mesh->name] = out[eff->mesh->name] || coll;
+          break;
+        }
+        case BodyChildAny::Kind::Body: {
+          const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+          if (b) walk_body(*b);
+          break;
+        }
+        case BodyChildAny::Kind::Frame: {
+          const auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+          if (f) walk_children(f->subtree);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  };
+  walk_body = [&](const Body& b) { walk_children(b.subtree); };
+  for (const auto& b : m.worldbody)
+    if (b) walk_body(*b);
+}
+
+// Strip any directory prefix (mjuu_strippath).
+std::string MeshStripPath(const std::string& f) {
+  size_t s = f.find_last_of("/\\");
+  return s == std::string::npos ? f : f.substr(s + 1);
+}
+
+// Extension -> content type (mjuu_extToContentType, mesh formats only).
+std::string MeshExtToContentType(const std::string& file) {
+  size_t dot = file.find_last_of('.');
+  std::string ext = dot == std::string::npos ? std::string() : file.substr(dot);
+  for (char& c : ext) c = static_cast<char>(std::tolower(c));
+  if (ext == ".stl") return "model/stl";
+  if (ext == ".obj") return "model/obj";
+  if (ext == ".msh") return "model/vnd.mujoco.msh";
+  return "";
+}
+
+// Join meshdir with a (possibly already stripped) file (FilePath::Combine).
+std::string MeshCombine(const std::string& dir, const std::string& file) {
+  if (!file.empty() && (file[0] == '/' || file[0] == '\\' ||
+                        file.find(":/") != std::string::npos ||
+                        file.find(":\\") != std::string::npos)) {
+    return file;
+  }
+  if (dir.empty()) return file;
+  char back = dir.back();
+  if (back != '/' && back != '\\') return dir + "/" + file;
+  return dir + file;
+}
+
+// Compile one mesh into a CMesh (files resolved via the resource API).
+bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& cs,
+                 const std::string& base_dir,
+                 const std::unordered_map<std::string, bool>& mesh_hull,
+                 CMesh& out, std::vector<bridge::Diagnostic>& diags) {
+  std::unique_ptr<Mesh> eff = ps::sdk::Effective(model, mesh);
+  out.name = eff->name;
+
+  lift::MeshInput in;
+  // Name table entry: authored name, else the file stem (strippath + stripext),
+  // reproducing mjCMesh::CopyFromSpec's file-derived naming.
+  if (eff->name) {
+    out.listname = *eff->name;
+  } else if (eff->file) {
+    std::string stem = MeshStripPath(*eff->file);
+    size_t dot = stem.find_last_of('.');
+    out.listname = dot == std::string::npos ? stem : stem.substr(0, dot);
+  }
+
+  // needhull: a collision/pair mesh geom or convex inertia forces the hull graph
+  // (SetNeedHull is keyed by the mesh's canonical name).
+  bool needhull = false;
+  if (!out.listname.empty()) {
+    auto it = mesh_hull.find(out.listname);
+    if (it != mesh_hull.end()) needhull = it->second;
+  }
+
+  if (eff->scale) for (int k = 0; k < 3; ++k) in.scale[k] = (*eff->scale)[k];
+  if (eff->refpos) for (int k = 0; k < 3; ++k) in.refpos[k] = (*eff->refpos)[k];
+  if (eff->refquat) for (int k = 0; k < 4; ++k) in.refquat[k] = (*eff->refquat)[k];
+  if (eff->smoothnormal) in.smoothnormal = *eff->smoothnormal;
+  if (eff->maxhullvert) in.maxhullvert = *eff->maxhullvert;
+  in.inertia = MeshInertiaToMj(eff->inertia);
+  in.needhull = needhull || in.inertia == mjMESH_INERTIA_CONVEX;
+
+  if (eff->file) {
+    std::string file = *eff->file;
+    if (cs.strippath) file = MeshStripPath(file);
+    out.file = file;
+    const std::string combined = MeshCombine(cs.meshdir, file);
+    char err[1024] = {0};
+    mjResource* res = mju_openResource(base_dir.empty() ? nullptr : base_dir.c_str(),
+                                       combined.c_str(), nullptr, err, sizeof(err));
+    if (!res) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                       std::string("could not open mesh file '") + combined + "'",
+                       mesh.loc});
+      return false;
+    }
+    const void* bytes = nullptr;
+    int n = mju_readResource(res, &bytes);
+    if (n < 0) {
+      mju_closeResource(res);
+      diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                       std::string("could not read mesh file '") + combined + "'",
+                       mesh.loc});
+      return false;
+    }
+    in.content_type = MeshExtToContentType(file);
+    if (in.content_type == "model/vnd.mujoco.msh") in.format = lift::MeshFormat::Msh;
+    else if (in.content_type == "model/obj") in.format = lift::MeshFormat::Obj;
+    else if (in.content_type == "model/stl") in.format = lift::MeshFormat::Stl;
+    else {
+      mju_closeResource(res);
+      diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                       "unsupported mesh file format", mesh.loc});
+      return false;
+    }
+    in.filebytes.assign(static_cast<const char*>(bytes),
+                        static_cast<const char*>(bytes) + n);
+    mju_closeResource(res);
+  } else {
+    in.format = lift::MeshFormat::UserVertex;
+    if (eff->vertex)
+      for (double v : *eff->vertex) in.uservert.push_back(static_cast<float>(v));
+    if (eff->normal)
+      for (double v : *eff->normal) in.usernormal.push_back(static_cast<float>(v));
+    if (eff->texcoord)
+      for (float v : *eff->texcoord) in.usertexcoord.push_back(v);
+    if (eff->face)
+      for (int v : *eff->face) in.userface.push_back(v);
+  }
+
+  std::string err;
+  if (!lift::CompileMesh(in, out.r, err)) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                     "mesh compile failed: " + err, mesh.loc});
+    return false;
+  }
+
+  // Face BVH: one leaf per face (contype/conaffinity = 1, identity frame, pos =
+  // face circumcenter, aabb = face aabb), built by the shared BVH kernel.
+  BVH tree;
+  double zero[3] = {0, 0, 0}, ident[4] = {1, 0, 0, 0};
+  tree.Set(zero, ident);
+  for (int i = 0; i < out.r.nface(); ++i) {
+    BVHLeaf leaf;
+    leaf.id = i;
+    leaf.contype = 1;
+    leaf.conaffinity = 1;
+    leaf.pos = out.r.center.data() + 3 * i;
+    leaf.quat = nullptr;
+    leaf.aabb = out.r.face_aabb.data() + 6 * i;
+    tree.Add(leaf);
+  }
+  tree.Create();
+  out.bvh = tree.bvh();
+  out.bvh_child = tree.child();
+  out.bvh_level = tree.level();
+  out.bvh_nodeid = tree.nodeid();
+  return true;
+}
+
+// Fill mesh_* arrays and append the mesh face-BVH nodes after all body BVH nodes
+// (CopyObjects mesh loop). Returns the number of mesh BVH nodes written.
+void FillMeshes(mjModel* m, const std::vector<CMesh>& meshes, int bvh_start) {
+  int vert_adr = 0, normal_adr = 0, texcoord_adr = 0, face_adr = 0;
+  int graph_adr = 0, poly_adr = 0, polyvert_adr = 0, polymap_adr = 0;
+  int bvh_adr = bvh_start;
+  for (int i = 0; i < static_cast<int>(meshes.size()); ++i) {
+    const lift::MeshResult& r = meshes[i].r;
+    m->mesh_polyadr[i] = poly_adr;
+    m->mesh_polynum[i] = r.npolygon();
+    m->mesh_vertadr[i] = vert_adr;
+    m->mesh_vertnum[i] = r.nvert();
+    m->mesh_normaladr[i] = normal_adr;
+    m->mesh_normalnum[i] = r.nnormal();
+    m->mesh_texcoordadr[i] = r.has_texcoord() ? texcoord_adr : -1;
+    m->mesh_texcoordnum[i] = r.ntexcoord();
+    m->mesh_faceadr[i] = face_adr;
+    m->mesh_facenum[i] = r.nface();
+    m->mesh_graphadr[i] = r.szgraph() ? graph_adr : -1;
+    m->mesh_bvhnum[i] = meshes[i].nbvh();
+    m->mesh_bvhadr[i] = meshes[i].nbvh() ? bvh_adr : -1;
+    m->mesh_octadr[i] = -1;
+    m->mesh_octnum[i] = 0;
+    for (int k = 0; k < 3; ++k) m->mesh_scale[3 * i + k] = r.scale[k];
+    for (int k = 0; k < 3; ++k) m->mesh_pos[3 * i + k] = r.pos[k];
+    for (int k = 0; k < 4; ++k) m->mesh_quat[4 * i + k] = r.quat[k];
+
+    for (int k = 0; k < 3 * r.nvert(); ++k) m->mesh_vert[3 * vert_adr + k] = r.vert[k];
+    for (int k = 0; k < 3 * r.nnormal(); ++k)
+      m->mesh_normal[3 * normal_adr + k] = r.normal[k];
+    for (int k = 0; k < 3 * r.nface(); ++k) m->mesh_face[3 * face_adr + k] = r.face[k];
+    for (int k = 0; k < 3 * r.nface(); ++k)
+      m->mesh_facenormal[3 * face_adr + k] = r.facenormal[k];
+    if (r.has_texcoord()) {
+      for (int k = 0; k < 2 * r.ntexcoord(); ++k)
+        m->mesh_texcoord[2 * texcoord_adr + k] = r.texcoord[k];
+      for (int k = 0; k < 3 * r.nface(); ++k)
+        m->mesh_facetexcoord[3 * face_adr + k] = r.facetexcoord[k];
+    } else {
+      std::memset(m->mesh_facetexcoord + 3 * face_adr, 0,
+                  3 * r.nface() * sizeof(int));
+    }
+    if (r.szgraph())
+      for (int k = 0; k < r.szgraph(); ++k) m->mesh_graph[graph_adr + k] = r.graph[k];
+
+    for (int k = 0; k < 3 * r.npolygon(); ++k)
+      m->mesh_polynormal[3 * poly_adr + k] = r.polygon_normals[k];
+    int pv = polyvert_adr;
+    for (int p = 0; p < r.npolygon(); ++p) {
+      int sz = static_cast<int>(r.polygons[p].size());
+      m->mesh_polyvertnum[poly_adr + p] = sz;
+      m->mesh_polyvertadr[poly_adr + p] = pv;
+      for (int j = 0; j < sz; ++j) m->mesh_polyvert[pv + j] = r.polygons[p][j];
+      pv += sz;
+    }
+    int pm = polymap_adr;
+    for (int v = 0; v < r.nvert(); ++v) {
+      int sz = static_cast<int>(r.polygon_map[v].size());
+      m->mesh_polymapnum[vert_adr + v] = sz;
+      m->mesh_polymapadr[vert_adr + v] = pm;
+      for (int j = 0; j < sz; ++j) m->mesh_polymap[pm + j] = r.polygon_map[v][j];
+      pm += sz;
+    }
+
+    const int nb = meshes[i].nbvh();
+    for (int k = 0; k < nb; ++k) {
+      lift::mjuu_copyvec(m->bvh_aabb + 6 * (bvh_adr + k),
+                         meshes[i].bvh.data() + 6 * k, 6);
+      m->bvh_child[2 * (bvh_adr + k)] = meshes[i].bvh_child[2 * k];
+      m->bvh_child[2 * (bvh_adr + k) + 1] = meshes[i].bvh_child[2 * k + 1];
+      m->bvh_depth[bvh_adr + k] = meshes[i].bvh_level[k];
+      m->bvh_nodeid[bvh_adr + k] = meshes[i].bvh_nodeid[k];
+    }
+
+    poly_adr += r.npolygon();
+    polyvert_adr += r.npolygonvert();
+    polymap_adr += r.npolygonmap();
+    vert_adr += r.nvert();
+    normal_adr += r.nnormal();
+    texcoord_adr += r.has_texcoord() ? r.ntexcoord() : 0;
+    face_adr += r.nface();
+    graph_adr += r.szgraph();
+    bvh_adr += nb;
+  }
+}
+
+// Asset file paths, in CopyPaths order (hfields, meshes, skins, textures). Only
+// file meshes carry a path in the native scope; the rest are -1.
+void FillMeshPaths(mjModel* m, const std::vector<CMesh>& meshes) {
+  m->paths[0] = 0;
+  int adr = 0;
+  for (int i = 0; i < m->nhfield; ++i) m->hfield_pathadr[i] = -1;
+  for (int i = 0; i < static_cast<int>(meshes.size()); ++i) {
+    if (meshes[i].file.empty()) {
+      m->mesh_pathadr[i] = -1;
+      continue;
+    }
+    m->mesh_pathadr[i] = adr;
+    const std::string& f = meshes[i].file;
+    std::memcpy(m->paths + adr, f.c_str(), f.size());
+    adr += static_cast<int>(f.size());
+    m->paths[adr] = 0;
+    adr++;
+  }
+  for (int i = 0; i < m->ntex; ++i) m->tex_pathadr[i] = -1;
 }
 
 }  // namespace
@@ -3254,14 +4152,74 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
       if (mp && mp->znear) znear = *mp->znear;
   }
 
+  // Assets that geoms bind to (hfields; meshes in a later wave) are compiled
+  // BEFORE the body walk so a mesh/hfield geom's size/aabb/rbound/inertia -- and
+  // the body inertia it feeds -- see the final asset geometry, exactly as MuJoCo
+  // compiles assets before bodies.
+  std::vector<CHField> hfields;
+  for (const auto& as : m.assets) {
+    if (!as) continue;
+    for (const auto& hf : as->hfields) {
+      if (!hf) continue;
+      CHField ch;
+      if (!HfieldCompile(*hf, ch, diags)) return nullptr;
+      hfields.push_back(std::move(ch));
+    }
+  }
+  AssetBinds asset_binds;
+  for (int i = 0; i < static_cast<int>(hfields.size()); ++i) {
+    if (!hfields[i].name) continue;
+    HfieldBind hb;
+    hb.id = i;
+    for (int k = 0; k < 4; ++k) hb.size[k] = hfields[i].size[k];
+    asset_binds.hfield[*hfields[i].name] = hb;
+  }
+
+  // Meshes: determine per-mesh needhull (collision / pair / convex-inertia mesh
+  // geoms force the hull graph), then compile in document order.
+  std::set<std::string> pair_geoms;
+  for (const auto& ct : m.contacts) {
+    if (!ct) continue;
+    for (const auto& p : ct->pairs) {
+      if (!p) continue;
+      if (p->geom1) pair_geoms.insert(p->geom1->name);
+      if (p->geom2) pair_geoms.insert(p->geom2->name);
+    }
+  }
+  std::unordered_map<std::string, bool> mesh_hull;
+  CollectMeshHullRefs(m, pair_geoms, mesh_hull);
+
+  std::vector<CMesh> meshes;
+  for (const auto& as : m.assets) {
+    if (!as) continue;
+    for (const auto& mesh : as->meshs) {
+      if (!mesh) continue;
+      CMesh cm;
+      if (!MeshCompile(m, *mesh, cs, opts.base_dir, mesh_hull, cm, diags))
+        return nullptr;
+      meshes.push_back(std::move(cm));
+    }
+  }
+  for (int i = 0; i < static_cast<int>(meshes.size()); ++i) {
+    if (meshes[i].listname.empty()) continue;
+    MeshBind mb;
+    mb.id = i;
+    lift::mjuu_copyvec(mb.aamm, meshes[i].r.aamm, 6);
+    lift::mjuu_copyvec(mb.pos, meshes[i].r.pos, 3);
+    lift::mjuu_copyvec(mb.quat, meshes[i].r.quat, 4);
+    mb.volume = meshes[i].r.volume_ref;
+    lift::mjuu_copyvec(mb.boxsz, meshes[i].r.boxsz, 3);
+    asset_binds.mesh[meshes[i].listname] = mb;
+  }
+
   // S1 Collect. The world body (id 0) is implicit; every <worldbody> block's
   // direct children are merged into it (MuJoCo include semantics).
-  BodyCollector collector(m, cs, opts, znear);
+  BodyCollector collector(m, cs, opts, znear, asset_binds);
   collector.Run(m.worldbody);
   const std::vector<CBody>& cbs = collector.bodies();
-  const std::vector<CGeom>& geoms = collector.geoms();
+  std::vector<CGeom> geoms = collector.geoms();
   const std::vector<CJoint>& joints = collector.joints();
-  const std::vector<CSite>& sites = collector.sites();
+  std::vector<CSite> sites = collector.sites();
   const std::vector<CCamera>& cameras = collector.cameras();
   const std::vector<CLight>& lights = collector.lights();
 
@@ -3364,6 +4322,44 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
       if (k) keys.push_back(k.get());
   }
 
+  // Assets (S8/CopyObjects). Order: textures -> materials -> meshes/hfields, so
+  // materials resolve texture ids by name and geoms/sites/tendons resolve
+  // material ids by name. Meshes/hfields land in later NC3 waves; those maps stay
+  // empty until then (the gate blocks references to uncompiled assets).
+  std::unordered_map<std::string, int> texid_of, matid_of;
+
+  std::vector<CTexture> textures;
+  for (const auto& as : m.assets) {
+    if (!as) continue;
+    for (const auto& tx : as->textures) {
+      if (!tx) continue;
+      CTexture ct;
+      if (!TextureCompile(m, *tx, ct, diags)) return nullptr;
+      textures.push_back(std::move(ct));
+    }
+  }
+  for (int i = 0; i < static_cast<int>(textures.size()); ++i)
+    if (textures[i].name) texid_of[*textures[i].name] = i;
+
+  std::vector<CMaterial> materials;
+  for (const auto& as : m.assets) {
+    if (!as) continue;
+    for (const auto& mat : as->materials)
+      if (mat) materials.push_back(MaterialCompile(m, *mat, texid_of));
+  }
+  for (int i = 0; i < static_cast<int>(materials.size()); ++i)
+    if (materials[i].name) matid_of[*materials[i].name] = i;
+
+  // Resolve material refs to ids (geoms/sites/tendons; CopyObjects/IndexAssets).
+  auto resolve_mat = [&](const std::string& nm) -> int {
+    if (nm.empty()) return -1;
+    auto it = matid_of.find(nm);
+    return it == matid_of.end() ? -1 : it->second;
+  };
+  for (CGeom& cg : geoms) cg.matid = resolve_mat(cg.material_name);
+  for (CSite& cs2 : sites) cs2.matid = resolve_mat(cs2.material_name);
+  for (CTendon& t : tendons) t.matid = resolve_mat(t.material_name);
+
   // S9 sizes: nq/nv from joints.
   int nq = 0, nv = 0;
   for (const CJoint& cj : joints) { nq += cj.nq(); nv += cj.nv(); }
@@ -3425,6 +4421,16 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CSite& cs2 : sites) nl.site.push_back(EffectiveName(*cs2.src, opts));
   for (const CCamera& cc : cameras) nl.cam.push_back(EffectiveName(*cc.src, opts));
   for (const CLight& cl : lights) nl.light.push_back(EffectiveName(*cl.src, opts));
+  // Assets (texture/material/mesh/hfield/skin) are NOT auto-named on the XML
+  // path (bridge AutoNameableFamily), so leg C uses the authored name only --
+  // an unnamed asset keeps an empty name, exactly like leg B.
+  for (const CMesh& cm : meshes) nl.mesh.push_back(cm.listname);
+  for (const CHField& hf : hfields)
+    nl.hfield.push_back(hf.name ? *hf.name : std::string());
+  for (const CTexture& ct : textures)
+    nl.tex.push_back(ct.name ? *ct.name : std::string());
+  for (const CMaterial& cm : materials)
+    nl.mat.push_back(cm.name ? *cm.name : std::string());
   for (const CPair& cp : pairs) nl.pair.push_back(EffectiveName(*cp.src, opts));
   for (const CExclude& ce : excludes)
     nl.exclude.push_back(EffectiveName(*ce.src, opts));
@@ -3446,9 +4452,13 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     nl.sensor.push_back(serial_name(s.name, s.serial, "sensor"));
   for (const Key* k : keys) nl.key.push_back(EffectiveName(*k, opts));
 
-  // nbvh census (SetSizes): static BVH nodes over all bodies.
-  int nbvhstatic = 0;
-  for (const CBody& cb : cbs) nbvhstatic += static_cast<int>(cb.bvh_child.size() / 2);
+  // nbvh census (SetSizes): static BVH nodes over all bodies, then meshes. Mesh
+  // face-BVH nodes are laid out after every body node (CopyObjects bvh_adr).
+  int nbvh_body = 0;
+  for (const CBody& cb : cbs) nbvh_body += static_cast<int>(cb.bvh_child.size() / 2);
+  int nbvh_mesh = 0;
+  for (const CMesh& cm : meshes) nbvh_mesh += cm.nbvh();
+  int nbvhstatic = nbvh_body + nbvh_mesh;
 
   // S9 Sizes.
   mjModel sizes;
@@ -3459,6 +4469,37 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   sizes.nsite = static_cast<int>(sites.size());
   sizes.ncam = static_cast<int>(cameras.size());
   sizes.nlight = static_cast<int>(lights.size());
+  sizes.ntex = static_cast<int>(textures.size());
+  mjtSize ntexdata = 0;
+  for (const CTexture& ct : textures) ntexdata += static_cast<mjtSize>(ct.data.size());
+  sizes.ntexdata = ntexdata;
+  sizes.nmat = static_cast<int>(materials.size());
+  sizes.nmesh = static_cast<int>(meshes.size());
+  int nmeshvert = 0, nmeshnormal = 0, nmeshtexcoord = 0, nmeshface = 0,
+      nmeshgraph = 0, nmeshpoly = 0, nmeshpolyvert = 0, nmeshpolymap = 0;
+  for (const CMesh& cm : meshes) {
+    const lift::MeshResult& r = cm.r;
+    nmeshvert += r.nvert();
+    nmeshnormal += r.nnormal();
+    nmeshtexcoord += r.has_texcoord() ? r.ntexcoord() : 0;
+    nmeshface += r.nface();
+    nmeshgraph += r.szgraph();
+    nmeshpoly += r.npolygon();
+    nmeshpolyvert += r.npolygonvert();
+    nmeshpolymap += r.npolygonmap();
+  }
+  sizes.nmeshvert = nmeshvert;
+  sizes.nmeshnormal = nmeshnormal;
+  sizes.nmeshtexcoord = nmeshtexcoord;
+  sizes.nmeshface = nmeshface;
+  sizes.nmeshgraph = nmeshgraph;
+  sizes.nmeshpoly = nmeshpoly;
+  sizes.nmeshpolyvert = nmeshpolyvert;
+  sizes.nmeshpolymap = nmeshpolymap;
+  sizes.nhfield = static_cast<int>(hfields.size());
+  int nhfielddata = 0;
+  for (const CHField& hf : hfields) nhfielddata += hf.nrow * hf.ncol;
+  sizes.nhfielddata = nhfielddata;
   sizes.npair = static_cast<int>(pairs.size());
   sizes.nexclude = static_cast<int>(excludes.size());
   sizes.neq = static_cast<int>(equalities.size());
@@ -3502,7 +4543,13 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   sizes.nuser_site = nuser_site;
   sizes.nuser_cam = nuser_cam;
   sizes.nnames = nl.TotalNames();
-  sizes.npaths = 1;  // SetSizes: npaths defaults to 1 when no asset paths.
+  // npaths: concatenated asset file paths + NUL each (getpathslength over
+  // hfields/meshes/skins/textures); only file meshes contribute here. Defaults
+  // to 1 when there are none (SetSizes).
+  int npaths = 0;
+  for (const CMesh& cm : meshes)
+    if (!cm.file.empty()) npaths += static_cast<int>(cm.file.size()) + 1;
+  sizes.npaths = npaths == 0 ? 1 : npaths;
 
   // S11 Allocate.
   mjModel* out = lift::MakeModel(sizes);
@@ -3520,6 +4567,12 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
 
   // S11 Fill.
   FillNames(out, nl);
+  FillTextures(out, textures);
+  for (int i = 0; i < out->ntex; ++i) out->tex_pathadr[i] = -1;  // builtin: no path
+  FillMaterials(out, materials);
+  FillHfields(out, hfields);
+  FillMeshes(out, meshes, nbvh_body);
+  FillMeshPaths(out, meshes);
   FillTree(out, cbs, geoms, joints, dt);
   for (int i = 0; i < static_cast<int>(cbs.size()); ++i)
     out->body_mocapid[i] = mocapid[i];

@@ -1,0 +1,68 @@
+void MeshPolygon::InsertFace(int v1, int v2, int v3) {
+  int add1 = 1, add2 = 1, add3 = 1;
+  int island = -1;
+
+  // check if face can be attached via edge v1v2
+  for (int i = 0; i < edges_.size(); ++i) {
+    if (edges_[i].first == v2 && edges_[i].second == v1) {
+      add1 = 0;
+      island = islands_[i];
+      edges_.erase(edges_.begin() + i);
+      islands_.erase(islands_.begin() + i);
+      break;
+    }
+  }
+
+  // check if face can be attached via edge v2v3
+  for (int i = 0; i < edges_.size(); ++i) {
+    if (edges_[i].first == v3 && edges_[i].second == v2) {
+      int island2 = islands_[i];
+      if (island == -1) {
+        island = island2;
+      } else if (island2 != island) {
+        nisland_--;
+        CombineIslands(island, island2);
+      }
+      add2 = 0;
+      edges_.erase(edges_.begin() + i);
+      islands_.erase(islands_.begin() + i);
+      break;
+    }
+  }
+
+  // check if face can be attached via edge v3v1
+  for (int i = 0; i < edges_.size(); ++i) {
+    if (edges_[i].first == v1 && edges_[i].second == v3) {
+      int island3 = islands_[i];
+      if (island == -1) {
+        island = island3;
+      } else if (island3 != island) {
+        nisland_--;
+        CombineIslands(island, island3);
+      }
+      add3 = 0;
+      edges_.erase(edges_.begin() + i);
+      islands_.erase(islands_.begin() + i);
+      break;
+    }
+  }
+
+  if (island == -1) {
+    island = nisland_++;
+  }
+
+  // add only new edges to the polygon
+
+  if (add1) {
+    edges_.push_back({v1, v2});
+    islands_.push_back(island);
+  }
+  if (add2) {
+    edges_.push_back({v2, v3});
+    islands_.push_back(island);
+  }
+  if (add3) {
+    edges_.push_back({v3, v1});
+    islands_.push_back(island);
+  }
+}

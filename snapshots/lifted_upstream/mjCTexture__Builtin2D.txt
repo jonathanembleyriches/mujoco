@@ -1,0 +1,69 @@
+void mjCTexture::Builtin2D(void) {
+  std::byte RGB1[3], RGB2[3], RGBm[3];
+  // convert fixed colors
+  for (int j=0; j < 3; j++) {
+    RGB1[j] = (std::byte)(255*rgb1[j]);
+    RGB2[j] = (std::byte)(255*rgb2[j]);
+    RGBm[j] = (std::byte)(255*markrgb[j]);
+  }
+
+  //------------------ face
+
+  // gradient
+  if (builtin == mjBUILTIN_GRADIENT) {
+    for (int r=0; r < height; r++) {
+      for (int c=0; c < width; c++) {
+        // compute normalized coordinates and radius
+        double x = 2*c/((double)(width-1)) - 1;
+        double y = 1 - 2*r/((double)(height-1));
+        double pos = 2*sqrt(x*x+y*y) - 1;
+
+        // interpolate through sigmoid
+        interp(data_.data() + 3*(r*width+c), rgb2, rgb1, pos);
+      }
+    }
+  }
+
+  // checker
+  else if (builtin == mjBUILTIN_CHECKER) {
+    checker(data_.data(), RGB1, RGB2, width, height);
+  }
+
+  // flat
+  else if (builtin == mjBUILTIN_FLAT) {
+    for (int r=0; r < height; r++) {
+      for (int c=0; c < width; c++) {
+        memcpy(data_.data()+3*(r*width+c), RGB1, 3);
+      }
+    }
+  }
+
+  //------------------ marks
+
+  // edge
+  if (mark == mjMARK_EDGE) {
+    for (int r=0; r < height; r++) {
+      memcpy(data_.data()+3*(r*width+0), RGBm, 3);
+      memcpy(data_.data()+3*(r*width+width-1), RGBm, 3);
+    }
+    for (int c=0; c < width; c++) {
+      memcpy(data_.data()+3*(0*width+c), RGBm, 3);
+      memcpy(data_.data()+3*((height-1)*width+c), RGBm, 3);
+    }
+  }
+
+  // cross
+  else if (mark == mjMARK_CROSS) {
+    for (int r=0; r < height; r++) {
+      memcpy(data_.data()+3*(r*width+width/2), RGBm, 3);
+    }
+    for (int c=0; c < width; c++) {
+      memcpy(data_.data()+3*(height/2*width+c), RGBm, 3);
+    }
+  }
+
+  // random dots
+  else if (mark == mjMARK_RANDOM && random > 0) {
+    randomdot(data_.data(), markrgb, width, height, random);
+  }
+}

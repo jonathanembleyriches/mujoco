@@ -1,0 +1,106 @@
+void mjCTexture::BuiltinCube(void) {
+  std::byte RGB1[3], RGB2[3], RGBm[3], RGBi[3];
+  int w = width;
+  if (w > std::numeric_limits<int>::max() / w) {
+    throw mjCError(this, "Cube texture width is too large.");
+  }
+  mjtSize ww = width*width;
+
+  // convert fixed colors
+  for (int j = 0; j < 3; j++) {
+    RGB1[j] = (std::byte)(255 * rgb1[j]);
+    RGB2[j] = (std::byte)(255 * rgb2[j]);
+    RGBm[j] = (std::byte)(255 * markrgb[j]);
+  }
+
+  //------------------ faces
+
+  // gradient
+  if (builtin == mjBUILTIN_GRADIENT) {
+    if (ww > std::numeric_limits<std::int64_t>::max() / 18) {
+      throw mjCError(this, "Gradient texture width is too large.");
+    }
+    for (int r = 0; r < w; r++) {
+      for (int c = 0; c < w; c++) {
+        // compute normalized pixel coordinates
+        double x = 2 * c / ((double)(w - 1)) - 1;
+        double y = 1 - 2 * r / ((double)(w - 1));
+
+        // compute normalized elevation for sides and up/down
+        double elside = asin(y / sqrt(1 + x * x + y * y)) / (0.5 * mjPI);
+        double elup = 1 - acos(1.0 / sqrt(1 + x * x + y * y)) / (0.5 * mjPI);
+
+        // set sides
+        interp(RGBi, rgb1, rgb2, elside);
+        memcpy(data_.data() + 0 * 3 * ww + 3 * (r * w + c), RGBi, 3);  // 0: right
+        memcpy(data_.data() + 1 * 3 * ww + 3 * (r * w + c), RGBi, 3);  // 1: left
+        memcpy(data_.data() + 4 * 3 * ww + 3 * (r * w + c), RGBi, 3);  // 4: front
+        memcpy(data_.data() + 5 * 3 * ww + 3 * (r * w + c), RGBi, 3);  // 5: back
+
+        // set up and down
+        interp(data_.data() + 2 * 3 * ww + 3 * (r * w + c), rgb1, rgb2, elup);  // 2: up
+        interp(data_.data() + 3 * 3 * ww + 3 * (r * w + c), rgb1, rgb2, -elup);  // 3: down
+      }
+    }
+  }
+
+  // checker
+  else if (builtin == mjBUILTIN_CHECKER) {
+    checker(data_.data() + 0 * 3 * ww, RGB1, RGB2, w, w);
+    checker(data_.data() + 1 * 3 * ww, RGB1, RGB2, w, w);
+    checker(data_.data() + 2 * 3 * ww, RGB1, RGB2, w, w);
+    checker(data_.data() + 3 * 3 * ww, RGB1, RGB2, w, w);
+    checker(data_.data() + 4 * 3 * ww, RGB2, RGB1, w, w);
+    checker(data_.data() + 5 * 3 * ww, RGB2, RGB1, w, w);
+  }
+
+  // flat
+  else if (builtin == mjBUILTIN_FLAT) {
+    for (int r = 0; r < w; r++) {
+      for (int c = 0; c < w; c++) {
+        // set sides and up
+        memcpy(data_.data() + 0 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        memcpy(data_.data() + 1 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        memcpy(data_.data() + 2 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        memcpy(data_.data() + 4 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+        memcpy(data_.data() + 5 * 3 * ww + 3 * (r * w + c), RGB1, 3);
+
+        // set down
+        memcpy(data_.data() + 3 * 3 * ww + 3 * (r * w + c), RGB2, 3);
+      }
+    }
+  }
+
+  //------------------ marks
+
+  // edge
+  if (mark == mjMARK_EDGE) {
+    for (int j = 0; j < 6; j++) {
+      for (int r = 0; r < w; r++) {
+        memcpy(data_.data() + j * 3 * ww + 3 * (r * w + 0), RGBm, 3);
+        memcpy(data_.data() + j * 3 * ww + 3 * (r * w + w - 1), RGBm, 3);
+      }
+      for (int c = 0; c < w; c++) {
+        memcpy(data_.data() + j * 3 * ww + 3 * (0 * w + c), RGBm, 3);
+        memcpy(data_.data() + j * 3 * ww + 3 * ((w - 1) * w + c), RGBm, 3);
+      }
+    }
+  }
+
+  // cross
+  else if (mark == mjMARK_CROSS) {
+    for (int j = 0; j < 6; j++) {
+      for (int r = 0; r < w; r++) {
+        memcpy(data_.data() + j * 3 * ww + 3 * (r * w + w / 2), RGBm, 3);
+      }
+      for (int c = 0; c < w; c++) {
+        memcpy(data_.data() + j * 3 * ww + 3 * (w / 2 * w + c), RGBm, 3);
+      }
+    }
+  }
+
+  // random dots
+  else if (mark == mjMARK_RANDOM && random > 0) {
+    randomdot(data_.data(), markrgb, w, height, random);
+  }
+}

@@ -1,0 +1,23 @@
+static void checker(std::byte* rgb, const std::byte* RGB1, const std::byte* RGB2,
+                    int width, int height) {
+  for (int r=0; r < height/2; r++) {
+    for (int c=0; c < width/2; c++) {
+      memcpy(rgb+3*(r*width+c), RGB1, 3);
+    }
+  }
+  for (int r=height/2; r < height; r++) {
+    for (int c=width/2; c < width; c++) {
+      memcpy(rgb+3*(r*width+c), RGB1, 3);
+    }
+  }
+  for (int r=0; r < height/2; r++) {
+    for (int c=width/2; c < width; c++) {
+      memcpy(rgb+3*(r*width+c), RGB2, 3);
+    }
+  }
+  for (int r=height/2; r < height; r++) {
+    for (int c=0; c < width/2; c++) {
+      memcpy(rgb+3*(r*width+c), RGB2, 3);
+    }
+  }
+}

@@ -1,0 +1,50 @@
+std::vector<std::vector<int>> MeshPolygon::Paths() const {
+  std::vector<std::vector<int>> paths;
+  // shortcut if polygon is just a triangular face
+  if (edges_.size() == 3) {
+    return {{edges_[0].first, edges_[1].first, edges_[2].first}};
+  }
+
+  // go through each connected component of the polygon
+  for (int i = 0; i < nisland_; ++i) {
+    std::vector<int> path;
+
+    // find starting vertex
+    for (int j = 0; j < edges_.size(); ++j) {
+      if (islands_[j] == i) {
+        path.push_back(edges_[j].first);
+        path.push_back(edges_[j].second);
+        break;
+      }
+    }
+
+    // SHOULD NOT OCCUR (See logic in MeshPolygon::CombineIslands)
+    if (path.empty()) {
+      continue;
+    }
+
+    // visit the next vertex given the current edge
+    int next = path.back();
+    for (int l = 0; l < edges_.size(); ++l) {
+      int finished = 0;
+      for (int k = 1; k < edges_.size(); ++k) {
+        if (islands_[k] == i && edges_[k].first == next) {
+          next = edges_[k].second;
+          if (next == path[0]) {
+            paths.push_back(path);
+            finished = 1;
+            break;
+          }
+          path.push_back(next);
+          break;
+        }
+      }
+
+      // back at start
+      if (finished) {
+        break;
+      }
+    }
+  }
+  return paths;
+}

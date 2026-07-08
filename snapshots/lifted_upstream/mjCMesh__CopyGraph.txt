@@ -1,0 +1,3 @@
+void mjCMesh::CopyGraph(int* arr) const {
+  std::copy(graph_, graph_+szgraph_, arr);
+}

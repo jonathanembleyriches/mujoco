@@ -1,0 +1,34 @@
+static double triangle(double* normal, double* center,
+                       const double* v1, const double* v2, const double* v3) {
+  double normal_local[3];  // if normal is nullptr
+  double* normal_ptr = (normal) ? normal : normal_local;
+  // center
+  if (center) {
+    center[0] = (v1[0] + v2[0] + v3[0])/3;
+    center[1] = (v1[1] + v2[1] + v3[1])/3;
+    center[2] = (v1[2] + v2[2] + v3[2])/3;
+  }
+
+  // normal = (v2-v1) cross (v3-v1)
+  double b[3] = { v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2] };
+  double c[3] = { v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2] };
+  mjuu_crossvec(normal_ptr, b, c);
+
+  // get length
+  double len = sqrt(mjuu_dot3(normal_ptr, normal_ptr));
+
+  // ignore small faces
+  if (len < mjMINVAL) {
+    return 0;
+  }
+
+  // normalize
+  if (normal) {
+    normal_ptr[0] /= len;
+    normal_ptr[1] /= len;
+    normal_ptr[2] /= len;
+  }
+
+  // return area
+  return 0.5 * len;
+}

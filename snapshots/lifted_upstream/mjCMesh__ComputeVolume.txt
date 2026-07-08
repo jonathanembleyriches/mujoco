@@ -1,0 +1,34 @@
+double mjCMesh::ComputeVolume(double CoM[3], const double facecen[3], const double* dvert) const {
+  double normal[3], center[3], total_volume = 0;
+  CoM[0] = CoM[1] = CoM[2] = 0;
+  int nf = (inertia == mjMESH_INERTIA_CONVEX) ? graph_[1] : nface();
+  const int* f = (inertia == mjMESH_INERTIA_CONVEX) ? GraphFaces() : face_.data();
+
+  for (int i = 0; i < nf; i++) {
+    double area = triangle(normal, center, &dvert[3*f[3*i]], &dvert[3*f[3*i + 1]],
+                           &dvert[3*f[3*i + 2]]);
+
+    // compute and add volume
+    double vec[3] = {center[0] - facecen[0], center[1] - facecen[1], center[2] - facecen[2]};
+    double volume = mjuu_dot3(vec, normal) * area / 3;
+
+    // if legacy computation requested, then always positive
+    if (inertia == mjMESH_INERTIA_LEGACY) {
+      volume = std::abs(volume);
+    }
+
+    // add pyramid com
+    total_volume += volume;
+    CoM[0] += volume*(center[0]*3.0/4.0 + facecen[0]/4.0);
+    CoM[1] += volume*(center[1]*3.0/4.0 + facecen[1]/4.0);
+    CoM[2] += volume*(center[2]*3.0/4.0 + facecen[2]/4.0);
+  }
+
+  // if volume is valid normalize CoM
+  if (total_volume >= mjMINVAL) {
+    CoM[0] /= total_volume;
+    CoM[1] /= total_volume;
+    CoM[2] /= total_volume;
+  }
+  return total_volume;
+}

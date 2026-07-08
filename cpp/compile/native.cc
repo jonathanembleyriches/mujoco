@@ -39,6 +39,8 @@
 #include "native.h"
 
 #include <algorithm>
+#include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -184,8 +186,8 @@ class FeatureCollector {
 // explicit sub-feature key (so the fallback reason names what is missing).
 class SubFeatureScanner {
  public:
-  explicit SubFeatureScanner(std::unordered_map<std::string, FeatureUse>& out)
-      : out_(out) {}
+  SubFeatureScanner(const Model& m, std::unordered_map<std::string, FeatureUse>& out)
+      : m_(m), out_(out) {}
 
   void operator()(const Model& m) { Recurse rec{this}; Visit(m, rec); }
 
@@ -196,8 +198,10 @@ class SubFeatureScanner {
       return;  // class templates are not compiled objects
     } else {
       if constexpr (std::is_same_v<E, Geom>) Check(e);
+      else if constexpr (std::is_same_v<E, Mesh>) CheckMesh(e);
       else if constexpr (std::is_same_v<E, Body>) CheckBody(e);
-      else if constexpr (std::is_same_v<E, Site>) CheckSite(e);
+      else if constexpr (std::is_same_v<E, Texture>) CheckTexture(e);
+      else if constexpr (std::is_same_v<E, Hfield>) CheckHfield(e);
       else if constexpr (std::is_same_v<E, Light>) CheckLight(e);
       else if constexpr (std::is_same_v<E, Joint>) CheckJoint(e);
       else if constexpr (std::is_same_v<E, FreeJoint>) CheckFreeJoint(e);
@@ -214,6 +218,7 @@ class SubFeatureScanner {
         CheckActuator(e);
       else if constexpr (std::is_same_v<E, SensorContact>) CheckSensorContact(e);
       else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
+      else if constexpr (std::is_same_v<E, Size>) CheckSize(e);
       Recurse rec{this};
       Visit(e, rec);
     }
@@ -225,11 +230,24 @@ class SubFeatureScanner {
     if (u.count == 0) u.first = loc;
     ++u.count;
   }
-  // A site's material or a light's texture would need a compiled asset (not
-  // native yet): route the whole model to the XML fallback with a sub-key.
-  void CheckSite(const Site& s) {
-    if (s.material) Note("site.material", s.loc);
+  // Only builtin procedural textures (gradient/checker/flat, no cube-face files)
+  // are native. A file texture (source=TexFile), cube-separate faces, or a
+  // builtin="none" placeholder route the whole model to the XML fallback until
+  // file-texture loading lands.
+  void CheckTexture(const Texture& t) {
+    const bool has_cube = t.fileright || t.fileleft || t.fileup || t.filedown ||
+                          t.filefront || t.fileback;
+    const TextureBuiltin* b =
+        t.source ? std::get_if<TextureBuiltin>(&*t.source) : nullptr;
+    const bool is_builtin = b && *b != TextureBuiltin::none;
+    if (!is_builtin || has_cube) Note("texture.file", t.loc);
   }
+  // Only user-data (inline elevation) hfields are native; a file (PNG/custom)
+  // hfield needs image loading, a later wave -> XML fallback.
+  void CheckHfield(const Hfield& h) {
+    if (h.file) Note("hfield.file", h.loc);
+  }
+  // A light's texture would need a compiled asset (not native yet).
   void CheckLight(const Light& l) {
     if (l.texture) Note("light.texture", l.loc);
   }
@@ -306,20 +324,33 @@ class SubFeatureScanner {
   void CheckCompiler(const Compiler& c) {
     if (c.alignfree && *c.alignfree) Note("compiler.alignfree", c.loc);
   }
+  // An explicit <size memory|nstack|njmax|nconmax> overrides the arena/constraint
+  // sizing (SetNarena's non-default branch), which the native path does not model
+  // yet (it always takes the memory/nstack-unset branch): route to the fallback.
+  void CheckSize(const Size& s) {
+    if (s.memory) Note("size.memory", s.loc);
+    if (s.nstack) Note("size.nstack", s.loc);
+    if (s.njmax) Note("size.njmax", s.loc);
+    if (s.nconmax) Note("size.nconmax", s.loc);
+  }
+  // A compiled (non-plugin) mesh geom is native; an SDF geom, a fitgeom (a
+  // primitive type that references a mesh, whose size FitGeom overwrites), and a
+  // plugin/fluidshape geom are not. Effective resolves type/mesh through the
+  // class chain so a mesh/sdf type or mesh ref authored in a default is seen.
   void Check(const Geom& g) {
-    if (g.type) {
-      switch (*g.type) {
-        case GeomType::mesh: Note("geom.mesh", g.loc); break;
-        case GeomType::sdf: Note("geom.sdf", g.loc); break;
-        case GeomType::hfield: Note("geom.hfield", g.loc); break;
-        default: break;
-      }
-    }
-    if (g.mesh) Note("geom.mesh", g.loc);
-    if (g.hfield) Note("geom.hfield", g.loc);
-    if (g.material) Note("geom.material", g.loc);
+    std::unique_ptr<Geom> eff = ps::sdk::Effective(m_, g);
+    const int type = eff->type ? static_cast<int>(*eff->type)
+                               : static_cast<int>(GeomType::sphere);
+    if (type == static_cast<int>(GeomType::sdf)) Note("geom.sdf", g.loc);
+    if (eff->mesh && type != static_cast<int>(GeomType::mesh) &&
+        type != static_cast<int>(GeomType::sdf))
+      Note("geom.mesh_fit", g.loc);
     if (!g.plugin.empty()) Note("geom.plugin", g.loc);
     if (g.fluidshape) Note("geom.fluidshape", g.loc);
+  }
+  // Plugin / SDF meshes need marching cubes + octree (not native).
+  void CheckMesh(const Mesh& mesh) {
+    if (!mesh.plugin.empty()) Note("mesh.plugin", mesh.loc);
   }
   struct Recurse {
     SubFeatureScanner* c;
@@ -334,6 +365,7 @@ class SubFeatureScanner {
         std::visit([&](const auto& p) { if (p) (*c)(*p); }, item.node);
     }
   };
+  const Model& m_;
   std::unordered_map<std::string, FeatureUse>& out_;
 };
 
@@ -411,10 +443,31 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   // Finer-than-family sub-feature keys (e.g. geoms referencing meshes/materials).
   // These are never "supported" -- their presence forces the XML fallback.
   std::unordered_map<std::string, FeatureUse> sub;
-  SubFeatureScanner gs(sub);
+  SubFeatureScanner gs(m, sub);
   gs(m);
   PartialArrayScanner pas(m, sub);
   pas(m);
+
+  // Default-class <geom> subtrees are pruned by the scanners above (they are
+  // templates, not compiled geoms), but a gated geom sub-feature authored in a
+  // default (e.g. <default><geom fluidshape="ellipsoid">) still applies to every
+  // geom that inherits it. Walk the default tree and gate those the same way.
+  auto note_sub = [&](const char* key, const ps::SourceLoc& loc) {
+    FeatureUse& u = sub[key];
+    if (u.count == 0) u.first = loc;
+    ++u.count;
+  };
+  std::function<void(const Default&)> scan_defaults = [&](const Default& d) {
+    for (const auto& g : d.geom) {
+      if (!g) continue;
+      if (g->fluidshape) note_sub("geom.fluidshape", g->loc);
+      if (!g->plugin.empty()) note_sub("geom.plugin", g->loc);
+    }
+    for (const auto& sc : d.subclasses)
+      if (sc) scan_defaults(*sc);
+  };
+  for (const auto& d : m.defaults)
+    if (d) scan_defaults(*d);
   for (const auto& [key, use] : sub) {
     FeatureUse& agg = by_key[key];
     if (agg.count == 0 || (use.first.line && !agg.first.line)) agg.first = use.first;

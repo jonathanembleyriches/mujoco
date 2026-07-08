@@ -1,0 +1,26 @@
+void mjCMesh::Rotate(double quat[4], double* dvert) {
+  double neg[4] = {quat[0], -quat[1], -quat[2], -quat[3]};
+  double mat[9];
+  mjuu_quat2mat(mat, neg);
+  int nv = nvert();
+  for (int i = 0; i < nv; i++) {
+    mjuu_mulvecmat(&dvert[3*i], &dvert[3*i], mat);
+
+    aamm_[0] = std::min(aamm_[0], dvert[3*i + 0]);
+    aamm_[3] = std::max(aamm_[3], dvert[3*i + 0]);
+    aamm_[1] = std::min(aamm_[1], dvert[3*i + 1]);
+    aamm_[4] = std::max(aamm_[4], dvert[3*i + 1]);
+    aamm_[2] = std::min(aamm_[2], dvert[3*i + 2]);
+    aamm_[5] = std::max(aamm_[5], dvert[3*i + 2]);
+  }
+
+  for (int i=0; i < nnormal(); i++) {
+    // normals
+    const double nrm[3] = {normal_[3*i], normal_[3*i+1], normal_[3*i+2]};
+    double res[3];
+    mjuu_mulvecmat(res, nrm, mat);
+    for (int j=0; j < 3; j++) {
+      normal_[3*i+j] = (float) res[j];
+    }
+  }
+}

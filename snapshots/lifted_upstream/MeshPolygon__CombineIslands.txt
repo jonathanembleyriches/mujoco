@@ -1,0 +1,17 @@
+void MeshPolygon::CombineIslands(int& island1, int& island2) {
+  // pick the smaller island
+  if (island2 < island1) {
+    int tmp = island1;
+    island1 = island2;
+    island2 = tmp;
+  }
+
+  // renumber the islands
+  for (int k = 0; k < islands_.size(); ++k) {
+    if (islands_[k] == island2) {
+      islands_[k] = island1;
+    } else if (islands_[k] > island2) {
+      islands_[k]--;
+    }
+  }
+}

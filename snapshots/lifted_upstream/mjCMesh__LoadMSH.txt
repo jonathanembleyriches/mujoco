@@ -1,0 +1,87 @@
+void mjCMesh::LoadMSH(mjResource* resource, bool remove_repeated) {
+  bool righthand = scale[0] * scale[1] * scale[2] > 0;
+
+  // get file data in buffer
+  char* buffer = 0;
+  int buffer_sz = mju_readResource(resource, (const void**)&buffer);
+
+  // still not found
+  if (buffer_sz < 0) {
+    throw mjCError(this, "could not read MSH file '%s'", resource->name);
+  } else if (!buffer_sz) {
+    throw mjCError(this, "MSH file '%s' is empty", resource->name);
+  }
+
+  // make sure header is present
+  if (buffer_sz < 4*sizeof(int)) {
+    throw mjCError(this, "missing header in MSH file '%s'", resource->name);
+  }
+
+  // get sizes from header
+  int nvbuf = 0, nfbuf = 0, nnbuf = 0, ntbuf = 0;
+  ReadFromBuffer(&nvbuf, buffer);
+  ReadFromBuffer(&nnbuf, buffer + sizeof(int));
+  ReadFromBuffer(&ntbuf, buffer + 2*sizeof(int));
+  ReadFromBuffer(&nfbuf, buffer + 3*sizeof(int));
+
+  // check sizes
+  if (nvbuf < 4 || nfbuf < 0 || nnbuf < 0 || ntbuf < 0 ||
+      (nnbuf > 0 && nnbuf != nvbuf) ||
+      (ntbuf > 0 && ntbuf != nvbuf)) {
+    throw mjCError(this, "invalid sizes in MSH file '%s'", resource->name);
+  }
+
+  if (nvbuf >= INT_MAX / sizeof(float) / 3 ||
+      nnbuf >= INT_MAX / sizeof(float) / 3 ||
+      ntbuf >= INT_MAX / sizeof(float) / 2 ||
+      nfbuf >= INT_MAX / sizeof(int) / 3) {
+    throw mjCError(this, "too large sizes in MSH file '%s'.", resource->name);
+  }
+  // check file size
+  if (buffer_sz != 4*sizeof(int) + 3*nvbuf*sizeof(float) + 3*nnbuf*sizeof(float) +
+      2*ntbuf*sizeof(float) + 3*nfbuf*sizeof(int)) {
+    throw mjCError(this, "unexpected file size in MSH file '%s'", resource->name);
+  }
+
+  // allocate and copy
+  using UnalignedFloat = char[sizeof(float)];
+  auto fdata = reinterpret_cast<UnalignedFloat*>(buffer + 4*sizeof(int));
+  std::vector<float> vert;
+  int nvert = 0;
+  if (nvbuf) {
+    vert.assign(3*nvbuf, 0);
+    nvert = 3*nvbuf;
+    memcpy(vert.data(), fdata, nvert*sizeof(float));
+    fdata += nvert;
+  }
+  if (nnbuf) {
+    normal_.assign(nvert, 0);
+    memcpy(normal_.data(), fdata, nvert*sizeof(float));
+    fdata += nvert;
+  }
+  if (ntbuf) {
+    texcoord_.assign(2*(nvert / 3), 0);
+    memcpy(texcoord_.data(), fdata, 2*(nvert/3)*sizeof(float));
+    fdata += 2*(nvert / 3);
+  }
+  if (nfbuf) {
+    face_.assign(3*nfbuf, 0);
+    facenormal_.assign(3*nfbuf, 0);
+    memcpy(face_.data(), fdata, 3*nfbuf*sizeof(int));
+    memcpy(facenormal_.data(), fdata, 3*nfbuf*sizeof(int));
+  }
+  if  (nfbuf && !texcoord_.empty()) {
+    facetexcoord_.assign(3*nfbuf, 0);
+    memcpy(facetexcoord_.data(), fdata, 3*nfbuf*sizeof(int));
+  }
+
+  // rearrange face data if left-handed scaling
+  if (nfbuf && !righthand) {
+    for (int i=0; i < nfbuf; i++) {
+      int tmp = face_[3*i+1];
+      face_[3*i+1] = face_[3*i+2];
+      face_[3*i+2] = tmp;
+    }
+  }
+  ProcessVertices(vert, remove_repeated);
+}

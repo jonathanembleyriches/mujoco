@@ -118,6 +118,19 @@ set(MUJOCO_INCLUDE_DIR "${MUJOCO_ROOT}/include")
 set(MUJOCO_IMPORT_LIB  "${MUJOCO_ROOT}/build/lib/Release/mujoco.lib")
 set(MUJOCO_DLL         "${MUJOCO_ROOT}/build/bin/Release/mujoco.dll")
 
+# NC3 asset-pipeline third-party deps, prebuilt alongside the vendored MuJoCo
+# (the same static libs MuJoCo itself links). qhull (convex-hull graph) and
+# tinyobjloader (OBJ parsing) are linked into the lifted TU; lodepng (PNG decode)
+# is reserved for the file-texture/hfield wave. Their symbols are internal to
+# mujoco.dll (not exported), so our own copies do not clash at link.
+set(MUJOCO_DEPS "${MUJOCO_ROOT}/build/_deps")
+set(QHULL_INCLUDE_DIR "${MUJOCO_DEPS}/qhull-src/src")
+set(QHULL_LIB         "${MUJOCO_ROOT}/build/lib/Release/qhullstatic_r.lib")
+set(TINYOBJ_INCLUDE_DIR "${MUJOCO_DEPS}/tinyobjloader-src")
+set(TINYOBJ_LIB         "${MUJOCO_ROOT}/build/lib/Release/tinyobjloader.lib")
+set(LODEPNG_INCLUDE_DIR "${MUJOCO_DEPS}/lodepng-src")
+set(LODEPNG_LIB         "${MUJOCO_ROOT}/build/lib/Release/lodepng.lib")
+
 if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LIB}")
   # Lifted MuJoCo code (CDR-3): copied-with-provenance algorithms, tracked in
   # snapshots/lifted_code.json. Its own TU so the conformance mode (/permissive-)
@@ -126,12 +139,16 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
   add_library(protospec_lifted STATIC
     compile/lifted/make_model.cc
     compile/lifted/mjuu_util.cc
+    compile/lifted/mesh_pipeline.cc
   )
   target_include_directories(protospec_lifted
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/compile/lifted
     PRIVATE ${MUJOCO_INCLUDE_DIR}
+            ${QHULL_INCLUDE_DIR}
+            ${TINYOBJ_INCLUDE_DIR}
   )
-  target_link_libraries(protospec_lifted PRIVATE "${MUJOCO_IMPORT_LIB}")
+  target_link_libraries(protospec_lifted PRIVATE "${MUJOCO_IMPORT_LIB}"
+                        "${QHULL_LIB}" "${TINYOBJ_LIB}")
   if(MSVC)
     target_compile_options(protospec_lifted PRIVATE /W4)
   else()

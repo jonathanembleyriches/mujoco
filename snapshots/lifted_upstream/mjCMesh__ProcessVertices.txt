@@ -1,0 +1,72 @@
+void mjCMesh::ProcessVertices(const std::vector<float>& vert, bool remove_repeated) {
+  vert_.clear();
+  int nvert = vert.size();
+
+  if (nvert % 3) {
+    throw mjCError(this, "vertex data must be a multiple of 3");
+  }
+  if (face_.size() % 3) {
+    throw mjCError(this, "face data must be a multiple of 3");
+  }
+
+  // convert vertices to double precision, may contain repeated vertices
+  if (!remove_repeated) {
+    vert_.reserve(nvert);
+    for (int i = 0; i < nvert / 3; ++i) {
+      const float* v = &vert[3 * i];
+      if (!std::isfinite(v[0]) || !std::isfinite(v[1]) || !std::isfinite(v[2])) {
+        throw mjCError(this, "vertex coordinate %d is not finite", nullptr, i);
+      }
+      vert_.push_back(v[0]);
+      vert_.push_back(v[1]);
+      vert_.push_back(v[2]);
+    }
+    return;
+  }
+
+  int index = 0;
+  std::unordered_map<VertexKey, int, VertexKey> vertex_map;
+
+  // populate vertex map with new vertex indices
+  for (int i = 0; i < nvert; i += 3) {
+    const float* v = &vert[i];
+
+    if (!std::isfinite(v[0]) || !std::isfinite(v[1]) || !std::isfinite(v[2])) {
+      throw mjCError(this, "vertex coordinate %d is not finite", nullptr, i);
+    }
+
+    VertexKey key = {v[0], v[1], v[2]};
+    if (vertex_map.find(key) == vertex_map.end()) {
+      vertex_map.insert({key, index});
+      ++index;
+    }
+  }
+
+  // no repeated vertices (just copy vertex data)
+  if (3*index == nvert) {
+    vert_.reserve(nvert);
+    for (float v : vert) {
+      vert_.push_back(v);
+    }
+    return;
+  }
+
+  // update face vertex indices
+  for (int i = 0; i < face_.size(); ++i) {
+    VertexKey key = {vert[3*face_[i]], vert[3*face_[i] + 1],
+                     vert[3*face_[i] + 2]};
+    face_[i] = vertex_map[key];
+  }
+
+  // repopulate vertex data
+  vert_.resize(3 * index);
+  for (const auto& pair : vertex_map) {
+    const VertexKey& key = pair.first;
+    int index = pair.second;
+
+    // double precision
+    vert_[3*index + 0] = key.v[0];
+    vert_[3*index + 1] = key.v[1];
+    vert_[3*index + 2] = key.v[2];
+  }
+}

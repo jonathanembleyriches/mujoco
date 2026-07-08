@@ -1,0 +1,29 @@
+bool MeshPolygonKey(std::pair<double, double>& angles, const double v1[3], const double v2[3],
+                    const double v3[3], double angle_tol) {
+  double diff12[3] = {v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]};
+  double diff13[3] = {v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]};
+  double normal[3], norm;
+
+  mjuu_crossvec(normal, diff12, diff13);
+  if ((norm = std::sqrt(mjuu_dot3(normal, normal))) < mjMINVAL) {
+    return false;
+  }
+
+  // atan2 is sensitive to sign of 0.0, adding 0.0 to enforcing only positive 0.0
+  normal[0] = (normal[0] / norm) + 0.0;
+  normal[1] = (normal[1] / norm) + 0.0;
+  normal[2] = (normal[2] / norm) + 0.0;
+  double rtheta = 0.0, rphi = 0.0;
+
+  // clamp normal to be in valid range for acos
+  if (std::abs(normal[2]) > 1.0 - 1e-7) {
+    if (normal[2] < 0) rphi = std::round(mjPI / angle_tol);
+    angles = std::make_pair(rtheta, rphi);
+    return true;
+  }
+  // rounded azimuthal and polar angles
+  rtheta = std::round(std::atan2(normal[1], normal[0]) / angle_tol);
+  rphi = std::round(std::acos(normal[2]) / angle_tol);
+  angles = std::make_pair(rtheta, rphi);
+  return true;
+}

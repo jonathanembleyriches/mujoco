@@ -1,0 +1,108 @@
+void mjCMesh::MakeNormal(const double* dvert) {
+  // only if normal data is missing
+  if (!normal_.empty()) {
+    return;
+  }
+
+  // allocate and clear normals
+  normal_.assign(3*nvert(), 0);
+
+  if (facenormal_.empty()) {
+    facenormal_.assign(3*nface(), 0);
+  }
+
+  // loop over faces, accumulate vertex normals
+  for (int i=0; i < nface(); i++) {
+    // get vertex ids
+    int vertid[3];
+    for (int j=0; j < 3; j++) {
+      vertid[j] = face_[3*i+j];
+    }
+
+    // get triangle edges
+    double vec01[3], vec02[3];
+    for (int j=0; j < 3; j++) {
+      vec01[j] = dvert[3*vertid[1]+j] - dvert[3*vertid[0]+j];
+      vec02[j] = dvert[3*vertid[2]+j] - dvert[3*vertid[0]+j];
+    }
+
+    // compute face normal
+    double nrm[3];
+    mjuu_crossvec(nrm, vec01, vec02);
+    double area = mjuu_normvec(nrm, 3);
+
+    // add normal to each vertex with weight = area
+    for (int j=0; j < 3; j++) {
+      for (int k=0; k < 3; k++) {
+        normal_[3*vertid[j]+k] += nrm[k]*area;
+      }
+      facenormal_[3*i+j] = vertid[j];
+    }
+  }
+
+  // remove large-angle faces
+  if (!smoothnormal) {
+    // allocate removal and clear
+    float* nremove = (float*) mju_malloc(3*nnormal()*sizeof(float));
+    memset(nremove, 0, 3*nnormal()*sizeof(float));
+
+    // remove contributions from faces at large angles with vertex normal
+    for (int i=0; i < nface(); i++) {
+      // get vertex ids
+      int vertid[3];
+      for (int j=0; j < 3; j++) {
+        vertid[j] = face_[3*i+j];
+      }
+
+      // get triangle edges
+      double vec01[3], vec02[3];
+      for (int j=0; j < 3; j++) {
+        vec01[j] = dvert[3*vertid[1]+j] - dvert[3*vertid[0]+j];
+        vec02[j] = dvert[3*vertid[2]+j] - dvert[3*vertid[0]+j];
+      }
+
+      // compute face normal
+      double nrm[3];
+      mjuu_crossvec(nrm, vec01, vec02);
+      double area = mjuu_normvec(nrm, 3);
+
+      // compare to vertex normal, subtract contribution if dot product too small
+      for (int j=0; j < 3; j++) {
+        // normalized vertex normal
+        double vnrm[3] = {normal_[3*vertid[j]], normal_[3*vertid[j]+1], normal_[3*vertid[j]+2]};
+        mjuu_normvec(vnrm, 3);
+
+        // dot too small: remove
+        if (mjuu_dot3(nrm, vnrm) < 0.8) {
+          for (int k=0; k < 3; k++) {
+            nremove[3*vertid[j]+k] += nrm[k]*area;
+          }
+        }
+      }
+    }
+
+    // apply removal, free nremove
+    for (int i=0; i < 3*nnormal(); i++) {
+      normal_[i] -= nremove[i];
+    }
+    mju_free(nremove);
+  }
+
+  // normalize normals
+  for (int i=0; i < nnormal(); i++) {
+    // compute length
+    float len = sqrtf(normal_[3*i]*normal_[3*i] +
+                      normal_[3*i+1]*normal_[3*i+1] +
+                      normal_[3*i+2]*normal_[3*i+2]);
+
+    // divide by length
+    if (len > mjMINVAL) {
+      for (int j=0; j < 3; j++) {
+        normal_[3*i+j] /= len;
+      }
+    } else {
+      normal_[3*i] = normal_[3*i+1] = 0;
+      normal_[3*i+2] = 1;
+    }
+  }
+}

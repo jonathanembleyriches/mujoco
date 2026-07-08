@@ -1,0 +1,23 @@
+double mjCMesh::ComputeFaceCentroid(double facecen[3], const double* dvert) const {
+  double total_area = 0;
+
+  for (int i = 0; i < nface(); i++) {
+    double area, center[3];
+    area = triangle(nullptr, center, &dvert[3*face_[3*i]],
+                    &dvert[3*face_[3*i + 1]], &dvert[3*face_[3*i + 2]]);
+
+    // accumulate
+    facecen[0] += area * center[0];
+    facecen[1] += area * center[1];
+    facecen[2] += area * center[2];
+    total_area += area;
+  }
+
+  // finalize centroid of faces
+  if (total_area >= mjMINVAL) {
+    facecen[0] /= total_area;
+    facecen[1] /= total_area;
+    facecen[2] /= total_area;
+  }
+  return total_area;
+}

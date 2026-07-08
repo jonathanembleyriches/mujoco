@@ -1,0 +1,10 @@
+void mjCMesh::MakePolygonNormals(const double* dvert) {
+  for (int i = 0; i < polygons_.size(); ++i) {
+    double n[3];
+    mjuu_makenormal(n, &dvert[3*polygons_[i][0]], &dvert[3*polygons_[i][1]],
+                    &dvert[3*polygons_[i][2]]);
+    polygon_normals_[3*i + 0] = n[0];
+    polygon_normals_[3*i + 1] = n[1];
+    polygon_normals_[3*i + 2] = n[2];
+  }
+}

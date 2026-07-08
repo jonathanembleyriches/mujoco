@@ -653,6 +653,47 @@ static void TestNc2Sensor() {
       "</sensor></mujoco>");
 }
 
+// NC3 meshes: user-vertex meshes compiled bit-identically vs the XML oracle,
+// covering the convex-hull graph (collision geom), the visual (no-hull) path,
+// and the inertia frame that a mesh geom binds.
+static void TestNc3Meshes() {
+  // Tetrahedron as a collision mesh: needhull -> qhull graph + polygons + BVH.
+  CheckBitIdentical(
+      "mesh_tetra",
+      "<mujoco><asset>"
+      "<mesh name='tetra' vertex='0 0 0  1 0 0  0 1 0  0 0 1'/>"
+      "</asset><worldbody><body><freejoint/>"
+      "<geom type='mesh' mesh='tetra'/></body></worldbody></mujoco>");
+  // Unit cube (8 verts): drives the hull, coplanar-face polygon merge, and the
+  // principal-axis inertia frame.
+  CheckBitIdentical(
+      "mesh_box",
+      "<mujoco><asset>"
+      "<mesh name='box' vertex='-1 -1 -1  1 -1 -1  -1 1 -1  1 1 -1  "
+      "-1 -1 1  1 -1 1  -1 1 1  1 1 1'/>"
+      "</asset><worldbody><body pos='0 0 1'><freejoint/>"
+      "<geom type='mesh' mesh='box' pos='0.1 0.2 0.3' euler='10 20 30'/>"
+      "</body></worldbody></mujoco>");
+  // Visual mesh (contype=conaffinity=0): no hull graph, but faces, normals,
+  // polygons(none) and BVH still built; geom binds mesh aamm/frame.
+  CheckBitIdentical(
+      "mesh_visual",
+      "<mujoco><asset>"
+      "<mesh name='box' vertex='-1 -1 -1  1 -1 -1  -1 1 -1  1 1 -1  "
+      "-1 -1 1  1 -1 1  -1 1 1  1 1 1'/>"
+      "</asset><worldbody><body pos='0 0 1'>"
+      "<geom type='mesh' mesh='box' contype='0' conaffinity='0'/>"
+      "</body></worldbody></mujoco>");
+  // Scaled + refpos/refquat transform, mesh with explicit density.
+  CheckBitIdentical(
+      "mesh_transform",
+      "<mujoco><asset>"
+      "<mesh name='tetra' scale='2 1 0.5' refpos='0.1 0 0' refquat='1 0 0 1' "
+      "vertex='0 0 0  1 0 0  0 1 0  0 0 1'/>"
+      "</asset><worldbody><body><freejoint/>"
+      "<geom type='mesh' mesh='tetra' density='500'/></body></worldbody></mujoco>");
+}
+
 int main() {
   TestNativePurity();
   TestGateUnsupported();
@@ -666,6 +707,7 @@ int main() {
   TestNc2Tendon();
   TestNc2Actuator();
   TestNc2Sensor();
+  TestNc3Meshes();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

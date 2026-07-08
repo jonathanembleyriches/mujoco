@@ -1,0 +1,38 @@
+void mjCMesh::CheckInitialMesh() const {
+  if (vert_.size() < 12) {
+    throw mjCError(this, "at least 4 vertices required");
+  }
+  if (vert_.size() % 3) {
+    throw mjCError(this, "vertex data must be a multiple of 3");
+  }
+  if (normal_.size() % 3) {
+    throw mjCError(this, "normal data must be a multiple of 3");
+  }
+  if (texcoord_.size() % 2) {
+    throw mjCError(this, "texcoord must be a multiple of 2");
+  }
+  if (face_.size() % 3) {
+    throw mjCError(this, "face data must be a multiple of 3");
+  }
+
+  // check texcoord size if no face texcoord indices are given
+  if (!texcoord_.empty() && texcoord_.size() != 2 * nvert() &&
+      facetexcoord_.empty() && content_type_ != "model/obj") {
+    throw mjCError(this,
+        "texcoord must be 2*nv if face texcoord indices are not provided in an OBJ file");
+  }
+
+  // require vertices
+  if (vert_.empty()) {
+    throw mjCError(this, "no vertices");
+  }
+
+  // check vertices exist
+  int nv = nvert(), nf = face_.size();
+  for (int i = 0; i < nf; i++) {
+    if (face_[i] >= nv || face_[i] < 0) {
+      throw mjCError(this, "in face %d, vertex index %d does not exist",
+                     nullptr, i / 3, face_[i]);
+    }
+  }
+}

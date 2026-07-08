@@ -1,0 +1,24 @@
+void mjCMesh::SetBoundingVolume(int faceid, const double* dvert) {
+  constexpr double kMaxVal = std::numeric_limits<double>::max();
+  double face_aamm[6] = {kMaxVal, kMaxVal, kMaxVal, -kMaxVal, -kMaxVal, -kMaxVal};
+
+  for (int j = 0; j < 3; j++) {
+    int vertid = face_[3*faceid + j];
+    face_aamm[0] = std::min(face_aamm[0], dvert[3*vertid + 0]);
+    face_aamm[1] = std::min(face_aamm[1], dvert[3*vertid + 1]);
+    face_aamm[2] = std::min(face_aamm[2], dvert[3*vertid + 2]);
+    face_aamm[3] = std::max(face_aamm[3], dvert[3*vertid + 0]);
+    face_aamm[4] = std::max(face_aamm[4], dvert[3*vertid + 1]);
+    face_aamm[5] = std::max(face_aamm[5], dvert[3*vertid + 2]);
+  }
+
+  face_aabb_.push_back(.5 * (face_aamm[0] + face_aamm[3]));
+  face_aabb_.push_back(.5 * (face_aamm[1] + face_aamm[4]));
+  face_aabb_.push_back(.5 * (face_aamm[2] + face_aamm[5]));
+  face_aabb_.push_back(.5 * (face_aamm[3] - face_aamm[0]));
+  face_aabb_.push_back(.5 * (face_aamm[4] - face_aamm[1]));
+  face_aabb_.push_back(.5 * (face_aamm[5] - face_aamm[2]));
+
+  tree_.AddBoundingVolume(faceid, 1, 1, center_ + 3*faceid, nullptr,
+                          &face_aabb_[6*faceid]);
+}

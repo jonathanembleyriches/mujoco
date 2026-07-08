@@ -1,0 +1,18 @@
+static void randomdot(std::byte* rgb, const double* markrgb,
+                      int width, int height, double probability) {
+  // make distribution using fixed seed
+  std::mt19937_64 rng;
+  rng.seed(42);
+  std::uniform_real_distribution<double> dist(0, 1);
+
+  // sample
+  for (int r=0; r < height; r++) {
+    for (int c=0; c < width; c++) {
+      if (dist(rng) < probability) {
+        for (int j=0; j < 3; j++) {
+          rgb[3*(r*width+c)+j] = (std::byte)(255*markrgb[j]);
+        }
+      }
+    }
+  }
+}
