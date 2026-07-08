@@ -27,8 +27,10 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <random>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -544,6 +546,71 @@ double GeomRBound(int type, const double* size) {
   }
 }
 
+// GetAddedMassKappa (user_objects.cc:3759): 15-point Gauss-Kronrod quadrature of
+// the ellipsoid added-mass integral. Tables + change of variables lifted verbatim.
+double GeomAddedMassKappa(double dx, double dy, double dz) {
+  static constexpr double kronrod_w[15] = {
+    0.01146766, 0.03154605, 0.05239501, 0.07032663, 0.08450236,
+    0.09517529, 0.10221647, 0.10474107, 0.10221647, 0.09517529,
+    0.08450236, 0.07032663, 0.05239501, 0.03154605, 0.01146766};
+  static constexpr double kronrod_l[15] = {
+    7.865151709349917e-08, 1.7347976913907274e-05, 0.0003548008144506193,
+    0.002846636252924549, 0.014094260903596077, 0.053063261727396636,
+    0.17041978741317773, 0.5, 1.4036301548686991, 3.9353484827022642,
+    11.644841677041734, 39.53187807410903, 177.5711362220801,
+    1429.4772912937397, 54087.416549217705};
+  static constexpr double kronrod_d[15] = {
+    5.538677720489877e-05, 0.002080868285293228, 0.016514126520723166,
+    0.07261900344370877, 0.23985243401862602, 0.6868318249020725,
+    1.8551129519182894, 5.0, 14.060031152313941, 43.28941239611009,
+    156.58546376397112, 747.9826085305024, 5827.4042950027115,
+    116754.0197944512, 25482945.327264845};
+  const double invdx2 = 1.0 / (dx * dx);
+  const double invdy2 = 1.0 / (dy * dy);
+  const double invdz2 = 1.0 / (dz * dz);
+  const double scale = std::pow(dx * dx * dx * dy * dz, 0.4);
+  double kappa = 0.0;
+  for (int i = 0; i < 15; ++i) {
+    const double lambda = scale * kronrod_l[i];
+    const double denom = (1 + lambda * invdx2) * std::sqrt(
+        (1 + lambda * invdx2) * (1 + lambda * invdy2) * (1 + lambda * invdz2));
+    kappa += scale * kronrod_d[i] / denom * kronrod_w[i];
+  }
+  return kappa * invdx2;
+}
+
+// SetFluidCoefs (user_objects.cc:3809) + writeFluidGeomInteraction (engine_
+// passive.c:1346): fill the 12-entry geom_fluid array for an ellipsoid-model
+// fluid geom from its semiaxes and the five user drag/lift coefficients.
+void GeomFluidCoefs(int type, const double size[3], const double coefs[5],
+                    double fluid[mjNFLUID]) {
+  double dx, dy, dz;
+  switch (type) {
+    case mjGEOM_SPHERE: dx = dy = dz = size[0]; break;
+    case mjGEOM_CAPSULE: dx = size[0]; dy = size[0]; dz = size[1] + size[0]; break;
+    case mjGEOM_CYLINDER: dx = size[0]; dy = size[0]; dz = size[1]; break;
+    default: dx = size[0]; dy = size[1]; dz = size[2];
+  }
+  const double volume = 4.0 / 3.0 * mjPI * dx * dy * dz;
+  const double kx = GeomAddedMassKappa(dx, dy, dz);
+  const double ky = GeomAddedMassKappa(dy, dz, dx);
+  const double kz = GeomAddedMassKappa(dz, dx, dy);
+  const auto pow2 = [](double v) { return v * v; };
+  const double Ixfac = pow2(dy * dy - dz * dz) * std::abs(kz - ky) / std::max(
+      lift::mjEPS, std::abs(2 * (dy * dy - dz * dz) + (dy * dy + dz * dz) * (ky - kz)));
+  const double Iyfac = pow2(dz * dz - dx * dx) * std::abs(kx - kz) / std::max(
+      lift::mjEPS, std::abs(2 * (dz * dz - dx * dx) + (dz * dz + dx * dx) * (kz - kx)));
+  const double Izfac = pow2(dx * dx - dy * dy) * std::abs(ky - kx) / std::max(
+      lift::mjEPS, std::abs(2 * (dx * dx - dy * dy) + (dx * dx + dy * dy) * (kx - ky)));
+  double vmass[3] = {volume * kx / std::max(lift::mjEPS, 2 - kx),
+                     volume * ky / std::max(lift::mjEPS, 2 - ky),
+                     volume * kz / std::max(lift::mjEPS, 2 - kz)};
+  double vinertia[3] = {volume * Ixfac / 5, volume * Iyfac / 5, volume * Izfac / 5};
+  fluid[0] = 1.0;  // fluid_ellipsoid (ellipsoid model active)
+  for (int k = 0; k < 5; ++k) fluid[1 + k] = coefs[k];
+  for (int k = 0; k < 3; ++k) { fluid[6 + k] = vmass[k]; fluid[9 + k] = vinertia[k]; }
+}
+
 // Compile one geom (mjCGeom::Compile, primitive path). `cs` supplies degree;
 // `assets` binds hfield/mesh geoms (assets compiled before the body walk).
 CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
@@ -575,6 +642,18 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
   if (eff->material) cg.material_name = eff->material->name;
   if (eff->density) cg.density = *eff->density;
   if (eff->user) cg.user = *eff->user;
+  // Ellipsoid fluid model (mjCGeom::Compile: SetFluidCoefs when fluid_ellipsoid>0),
+  // computed from the FINAL size/type just before returning cg. mjs_defaultGeom's
+  // drag/lift coefficients {0.5,0.25,1.5,1.0,1.0} apply when fluidcoef is unset.
+  const bool fluid_on = eff->fluidshape &&
+                        *eff->fluidshape == FluidShape::ellipsoid;
+  double fluidcoef[5] = {0.5, 0.25, 1.5, 1.0, 1.0};
+  if (eff->fluidcoef)
+    for (std::size_t k = 0; k < eff->fluidcoef->size() && k < 5; ++k)
+      fluidcoef[k] = (*eff->fluidcoef)[k];
+  auto finalize_fluid = [&]() {
+    if (fluid_on) GeomFluidCoefs(cg.type, cg.size, fluidcoef, cg.fluid);
+  };
   cg.has_mass = eff->mass.has_value();
   double mass = cg.has_mass ? *eff->mass : 0;
   const int ti = (eff->shellinertia && *eff->shellinertia) ? mjINERTIA_SHELL
@@ -637,6 +716,7 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
           GeomSetInertia(cg.type, cg.size, cg.mass_, ti, cg.inertia);
         }
       }
+      finalize_fluid();
       return cg;
     }
   }
@@ -691,6 +771,7 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
           set_mesh_inertia();
         }
       }
+      finalize_fluid();
       return cg;
     }
   }
@@ -714,6 +795,7 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
     }
   }
   cg.rbound = GeomRBound(cg.type, cg.size);
+  finalize_fluid();
   return cg;
 }
 
@@ -1143,9 +1225,247 @@ struct FramedChildren {
   std::vector<std::pair<const Body*, FrameXform>> bodies;
 };
 
+// --------------------------------------------------------------------------- //
+// Native <replicate> expansion (NC4), a pure ProtoSpec tree-clone reproducing  //
+// the XML reader's mjs_attach loop (xml_native_reader.cc:3806-3874): the        //
+// replicate subtree is cloned `count` times through an accumulating offset/euler //
+// pose (mjuu_frameaccum) with a zero-padded name suffix (sep). Nested replicates //
+// expand inner-first so names compose base+inner+outer in document order. Name   //
+// suffixing follows mjs_attach with prefix="" and same-model semantics: every    //
+// non-empty element name plus camera/light targetbody and light texture gets the //
+// suffix (mjCBase/mjCCamera/mjCLight::NameSpace); class and material/mesh/hfield  //
+// refs are left alone (their `model != m` guard). The clones live in a compile-  //
+// owned arena so the flatten's element pointers stay valid; the source tree is   //
+// never mutated (CDR-14 purity).                                                 //
+// --------------------------------------------------------------------------- //
+using RepArena = std::vector<std::unique_ptr<std::vector<BodyChildAny>>>;
+
+// Zero-padded instance suffix (UpdateString, xml_native_reader.cc:155).
+std::string ReplicateSuffix(const std::string& sep, int count, int i) {
+  const int ndigits = static_cast<int>(std::to_string(count).size());
+  const std::string is = std::to_string(i);
+  std::string pad(std::max(0, ndigits - static_cast<int>(is.size())), '0');
+  return sep + pad + is;
+}
+
+// scale*euler -> quat (mjs_resolveOrientation with EULER, reader precision).
+void ReplicateEulerQuat(const ps::opt<std::array<double, 3>>& euler, double scale,
+                        const CompilerSettings& cs, double q[4]) {
+  Euler e;
+  if (euler) for (int k = 0; k < 3; ++k) e.angles[k] = (*euler)[k] * scale;
+  Orientation o = e;
+  ResolveQuat(ps::opt<Orientation>(o), cs, q);
+}
+
+BodyChildAny CloneBodyChild(const BodyChildAny& c);
+
+void NamespaceSubtree(std::vector<BodyChildAny>& subtree,
+                      const std::string& suffix) {
+  auto add_name = [&](ps::opt<std::string>& nm) {
+    if (nm && !nm->empty()) *nm += suffix;
+  };
+  auto add_ref = [&](auto& ref) {
+    if (ref && !ref->name.empty()) ref->name += suffix;
+  };
+  for (BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Geom:
+        add_name(std::get<std::unique_ptr<Geom>>(c.node)->name); break;
+      case BodyChildAny::Kind::Joint:
+        add_name(std::get<std::unique_ptr<Joint>>(c.node)->name); break;
+      case BodyChildAny::Kind::FreeJoint:
+        add_name(std::get<std::unique_ptr<FreeJoint>>(c.node)->name); break;
+      case BodyChildAny::Kind::Site:
+        add_name(std::get<std::unique_ptr<Site>>(c.node)->name); break;
+      case BodyChildAny::Kind::Camera: {
+        auto& cam = std::get<std::unique_ptr<Camera>>(c.node);
+        add_name(cam->name); add_ref(cam->target); break;
+      }
+      case BodyChildAny::Kind::Light: {
+        auto& l = std::get<std::unique_ptr<Light>>(c.node);
+        add_name(l->name); add_ref(l->target); add_ref(l->texture); break;
+      }
+      case BodyChildAny::Kind::Body: {
+        auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        add_name(b->name); NamespaceSubtree(b->subtree, suffix); break;
+      }
+      case BodyChildAny::Kind::Frame: {
+        auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+        add_name(f->name); NamespaceSubtree(f->subtree, suffix); break;
+      }
+      default:
+        break;  // PluginRef/Composite/Flexcomp/Attach: gated out of native
+    }
+  }
+}
+
+// Base auto-name a nameable element would receive on the XML path (mirrors
+// EffectiveName / the bridge Collector): authored name, else the injected
+// _ps:<family>:<serial> using the ORIGINAL element's serial. mjs_attach runs
+// AFTER the XML path auto-names, so the base is fixed by the source element's
+// serial and the replicate suffix is appended to it -- reproduced here by baking
+// the base name into the clone before suffixing (the clone's own serial differs).
+template <class E>
+std::string ReplicateBaseName(const E& e, const bridge::CompileOptions& opts) {
+  if (e.name) return *e.name;
+  if (opts.auto_name)
+    return opts.auto_name_prefix +
+           std::string(bridge::FamilyToken(element_type_of<E>::value)) + ":" +
+           std::to_string(e.serial);
+  return "";
+}
+
+// Bake the base auto-name (from the ORIGINAL element `orig`) onto the clone, so a
+// later suffix pass names it base+suffix exactly as the XML path would.
+void BakeName(const BodyChildAny& orig, BodyChildAny& clone,
+              const bridge::CompileOptions& opts) {
+  auto set = [](ps::opt<std::string>& nm, std::string v) {
+    if (!v.empty()) nm = std::move(v);
+  };
+  switch (orig.kind()) {
+    case BodyChildAny::Kind::Geom:
+      set(std::get<std::unique_ptr<Geom>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<Geom>>(orig.node), opts));
+      break;
+    case BodyChildAny::Kind::Joint:
+      set(std::get<std::unique_ptr<Joint>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<Joint>>(orig.node), opts));
+      break;
+    case BodyChildAny::Kind::FreeJoint:
+      set(std::get<std::unique_ptr<FreeJoint>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<FreeJoint>>(orig.node), opts));
+      break;
+    case BodyChildAny::Kind::Site:
+      set(std::get<std::unique_ptr<Site>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<Site>>(orig.node), opts));
+      break;
+    case BodyChildAny::Kind::Camera:
+      set(std::get<std::unique_ptr<Camera>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<Camera>>(orig.node), opts));
+      break;
+    case BodyChildAny::Kind::Light:
+      set(std::get<std::unique_ptr<Light>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<Light>>(orig.node), opts));
+      break;
+    case BodyChildAny::Kind::Body:
+      set(std::get<std::unique_ptr<Body>>(clone.node)->name,
+          ReplicateBaseName(*std::get<std::unique_ptr<Body>>(orig.node), opts));
+      break;
+    default:
+      break;  // Frame: not a named mjModel object; nested handled by recursion
+  }
+}
+
+std::vector<BodyChildAny> ExpandTree(const std::vector<BodyChildAny>& subtree,
+                                     const CompilerSettings& cs,
+                                     const bridge::CompileOptions& opts);
+
+// Expand one <replicate> into a replicate-free list of pose-carrying frames.
+std::vector<BodyChildAny> ExpandReplicateNode(const Replicate& rep,
+                                              const CompilerSettings& cs,
+                                              const bridge::CompileOptions& opts) {
+  std::vector<BodyChildAny> inner = ExpandTree(rep.subtree, cs, opts);
+  double rot[4];
+  ReplicateEulerQuat(rep.euler, 1.0, cs, rot);
+  double offset[3] = {0, 0, 0};
+  if (rep.offset) for (int k = 0; k < 3; ++k) offset[k] = (*rep.offset)[k];
+  double pos[3] = {0, 0, 0}, quat[4] = {1, 0, 0, 0};
+  const std::string sep = rep.sep ? *rep.sep : std::string();
+
+  std::vector<BodyChildAny> out;
+  for (int i = 0; i < rep.count; ++i) {
+    double quat_i[4];
+    ReplicateEulerQuat(rep.euler, static_cast<double>(i), cs, quat_i);
+    auto frame = std::make_unique<Frame>();
+    frame->pos = std::array<double, 3>{pos[0], pos[1], pos[2]};
+    frame->orient = Orientation(Quat{quat_i[0], quat_i[1], quat_i[2], quat_i[3]});
+    for (const BodyChildAny& ic : inner)
+      frame->subtree.push_back(CloneBodyChild(ic));  // base names already baked
+    NamespaceSubtree(frame->subtree, ReplicateSuffix(sep, rep.count, i));
+    out.push_back(BodyChildAny{std::move(frame)});
+    lift::mjuu_frameaccum(pos, quat, offset, rot);
+  }
+  return out;
+}
+
+// Recursively replace every <replicate> in `subtree` with its expansion,
+// descending into bodies and frames so nested replicates expand inner-first.
+// Every cloned element carries the base auto-name computed from its ORIGINAL
+// serial, so the later suffix pass reproduces the XML path's name+suffix.
+std::vector<BodyChildAny> ExpandTree(const std::vector<BodyChildAny>& subtree,
+                                     const CompilerSettings& cs,
+                                     const bridge::CompileOptions& opts) {
+  std::vector<BodyChildAny> out;
+  for (const BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Replicate: {
+        const auto& rp = std::get<std::unique_ptr<Replicate>>(c.node);
+        if (!rp) break;
+        std::vector<BodyChildAny> exp = ExpandReplicateNode(*rp, cs, opts);
+        for (auto& e : exp) out.push_back(std::move(e));
+        break;
+      }
+      case BodyChildAny::Kind::Body: {
+        BodyChildAny clone{Clone(*std::get<std::unique_ptr<Body>>(c.node))};
+        BakeName(c, clone, opts);
+        std::get<std::unique_ptr<Body>>(clone.node)->subtree =
+            ExpandTree(std::get<std::unique_ptr<Body>>(c.node)->subtree, cs, opts);
+        out.push_back(std::move(clone));
+        break;
+      }
+      case BodyChildAny::Kind::Frame: {
+        BodyChildAny clone{Clone(*std::get<std::unique_ptr<Frame>>(c.node))};
+        std::get<std::unique_ptr<Frame>>(clone.node)->subtree =
+            ExpandTree(std::get<std::unique_ptr<Frame>>(c.node)->subtree, cs, opts);
+        out.push_back(std::move(clone));
+        break;
+      }
+      default: {
+        BodyChildAny clone = CloneBodyChild(c);
+        BakeName(c, clone, opts);
+        out.push_back(std::move(clone));
+      }
+    }
+  }
+  return out;
+}
+
+BodyChildAny CloneBodyChild(const BodyChildAny& c) {
+  switch (c.kind()) {
+    case BodyChildAny::Kind::Geom:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Geom>>(c.node))};
+    case BodyChildAny::Kind::Joint:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Joint>>(c.node))};
+    case BodyChildAny::Kind::FreeJoint:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<FreeJoint>>(c.node))};
+    case BodyChildAny::Kind::Site:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Site>>(c.node))};
+    case BodyChildAny::Kind::Camera:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Camera>>(c.node))};
+    case BodyChildAny::Kind::Light:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Light>>(c.node))};
+    case BodyChildAny::Kind::PluginRef:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<PluginRef>>(c.node))};
+    case BodyChildAny::Kind::Body:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Body>>(c.node))};
+    case BodyChildAny::Kind::Frame:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Frame>>(c.node))};
+    case BodyChildAny::Kind::Replicate:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Replicate>>(c.node))};
+    case BodyChildAny::Kind::Composite:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Composite>>(c.node))};
+    case BodyChildAny::Kind::Flexcomp:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Flexcomp>>(c.node))};
+    case BodyChildAny::Kind::Attach:
+      return BodyChildAny{Clone(*std::get<std::unique_ptr<Attach>>(c.node))};
+  }
+  return BodyChildAny{};
+}
+
 void FlattenChildren(const std::vector<BodyChildAny>& subtree,
                      const FrameXform& xf, const CompilerSettings& cs,
-                     FramedChildren& out) {
+                     FramedChildren& out, RepArena* arena,
+                     const bridge::CompileOptions& opts) {
   for (const BodyChildAny& child : subtree) {
     switch (child.kind()) {
       case BodyChildAny::Kind::Joint:
@@ -1181,12 +1501,24 @@ void FlattenChildren(const std::vector<BodyChildAny>& subtree,
         const auto& f = std::get<std::unique_ptr<Frame>>(child.node);
         if (f) {
           FrameXform sub = ResolveFrame(*f, cs, xf);
-          FlattenChildren(f->subtree, sub, cs, out);
+          FlattenChildren(f->subtree, sub, cs, out, arena, opts);
+        }
+        break;
+      }
+      case BodyChildAny::Kind::Replicate: {
+        // Expand natively into compile-owned clones, then flatten each instance.
+        const auto& rp = std::get<std::unique_ptr<Replicate>>(child.node);
+        if (rp && arena) {
+          auto owned = std::make_unique<std::vector<BodyChildAny>>(
+              ExpandReplicateNode(*rp, cs, opts));
+          std::vector<BodyChildAny>* stable = owned.get();
+          arena->push_back(std::move(owned));
+          FlattenChildren(*stable, xf, cs, out, arena, opts);
         }
         break;
       }
       default:
-        break;  // PluginRef/Composite/Flexcomp/Replicate/Attach: gated out
+        break;  // PluginRef/Composite/Flexcomp/Attach: gated out
     }
   }
 }
@@ -1225,7 +1557,7 @@ class BodyCollector {
     FramedChildren fc;
     FrameXform identity;
     for (const auto& wb : worldbodies)
-      if (wb) FlattenChildren(wb->subtree, identity, cs_, fc);
+      if (wb) FlattenChildren(wb->subtree, identity, cs_, fc, &rep_arena_, opts_);
 
     // World's geoms (id 0, no inertia inference), sites, cameras, lights.
     const int gstart = static_cast<int>(geoms_.size());
@@ -1331,7 +1663,7 @@ class BodyCollector {
     // Flatten this body's children through nested frames, in document order.
     FramedChildren fc;
     FrameXform identity;
-    FlattenChildren(b.subtree, identity, cs_, fc);
+    FlattenChildren(b.subtree, identity, cs_, fc, &rep_arena_, opts_);
 
     // has_joints: any <joint>/<freejoint> (frames flattened). Determines weld.
     cb.has_joints = !fc.joints.empty();
@@ -1454,6 +1786,7 @@ class BodyCollector {
   const bridge::CompileOptions& opts_;
   double znear_ = 0.01;
   const AssetBinds& assets_;
+  RepArena rep_arena_;  // owns replicate-expansion clones for the compile's life
   std::vector<CBody> bodies_;
   std::vector<CGeom> geoms_;
   std::vector<CJoint> joints_;
@@ -1904,7 +2237,8 @@ int NameList(const std::vector<std::string>& list, int adr, int* name_adr,
 struct NameLists {
   std::string modelname;
   std::vector<std::string> body, jnt, geom, site, cam, light, mesh, skin, hfield,
-      tex, mat, pair, exclude, eq, tendon, actuator, sensor, key;
+      tex, mat, pair, exclude, eq, tendon, actuator, sensor, numeric, text, tuple,
+      key;
 
   int TotalNames() const {
     int n = static_cast<int>(modelname.size()) + 1;
@@ -1914,6 +2248,7 @@ struct NameLists {
     add(body); add(jnt); add(geom); add(site); add(cam); add(light);
     add(mesh); add(skin); add(hfield); add(tex); add(mat);
     add(pair); add(exclude); add(eq); add(tendon); add(actuator); add(sensor);
+    add(numeric); add(text); add(tuple);
     add(key);
     return n;
   }
@@ -1949,6 +2284,9 @@ void FillNames(mjModel* m, const NameLists& nl) {
   pass(nl.tendon, m->name_tendonadr);
   pass(nl.actuator, m->name_actuatoradr);
   pass(nl.sensor, m->name_sensoradr);
+  pass(nl.numeric, m->name_numericadr);
+  pass(nl.text, m->name_textadr);
+  pass(nl.tuple, m->name_tupleadr);
   pass(nl.key, m->name_keyadr);
 }
 
@@ -1965,16 +2303,29 @@ std::string EffectiveName(const E& e, const bridge::CompileOptions& opts) {
   return "";
 }
 
-// Arena size heuristic, lifted verbatim from user_model.cc:5219-5252 (the
-// memory/nstack unset branch; NC1 scope has no <size memory/nstack>).
-void SetNarena(mjModel* m) {
+// Arena size heuristic, lifted verbatim from user_model.cc:5219-5252. `memory`
+// is the authored <size memory> byte count (-1 when unset) and `nstack` the
+// legacy <size nstack> (-1 when unset); both branches match mj_loadXML. When
+// memory is set the arena is exactly that many bytes; otherwise the nstack or
+// conservative-heuristic branch feeds the pre-arena footprint + megabyte round.
+void SetNarena(mjModel* m, long long memory, int nstack) {
+  if (memory != -1) {
+    // memory size is user-specified in bytes.
+    m->narena = static_cast<std::size_t>(memory);
+    return;
+  }
   const int nconmax = m->nconmax == -1 ? 100 : m->nconmax;
   const int njmax = m->njmax == -1 ? 500 : m->njmax;
-  m->narena = sizeof(mjtNum) * static_cast<size_t>(mjMAX(
-      1000,
-      5 * (njmax + m->neq + m->nv) * (njmax + m->neq + m->nv) +
-      20 * (m->nq + m->nv + m->nu + m->na + m->nbody + m->njnt +
-            m->ngeom + m->nsite + m->neq + m->ntendon + m->nwrap)));
+  if (nstack != -1) {
+    // (legacy) stack size is user-specified as multiple of sizeof(mjtNum).
+    m->narena = sizeof(mjtNum) * static_cast<std::size_t>(nstack);
+  } else {
+    m->narena = sizeof(mjtNum) * static_cast<size_t>(mjMAX(
+        1000,
+        5 * (njmax + m->neq + m->nv) * (njmax + m->neq + m->nv) +
+        20 * (m->nq + m->nv + m->nu + m->na + m->nbody + m->njnt +
+              m->ngeom + m->nsite + m->neq + m->ntendon + m->nwrap)));
+  }
   const std::size_t arena_bytes = (
       nconmax * sizeof(mjContact) +
       njmax * (8 * sizeof(int) + 14 * sizeof(mjtNum)) +
@@ -3410,6 +3761,95 @@ void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
 }
 
 // --------------------------------------------------------------------------- //
+// Custom fields (S8/CopyObjects): numeric / text / tuple. Numeric size padding  //
+// is lifted from mjCNumeric::Compile (user_objects.cc:8024): an unauthored size  //
+// takes the data length, an authored size zero-pads the tail. Text carries its   //
+// string + a NUL. Tuple obj refs resolve by (objtype,name) exactly as            //
+// mjCTuple::ResolveReferences (user_objects.cc:8214) -> FindObject, storing the   //
+// raw mjtObj and the compiled id; the objtype string is mapped with the public   //
+// mju_str2Type. Purity: reads the const Custom tree, writes only the C-structs.  //
+// --------------------------------------------------------------------------- //
+struct CNumeric {
+  std::string name;
+  int size = 0;
+  std::vector<double> data;  // authored prefix (length <= size); tail zero-pads
+};
+
+struct CText {
+  std::string name;
+  std::string data;
+};
+
+struct CTupleEntry {
+  int objtype = 0;  // raw mjtObj (mju_str2Type)
+  int objid = -1;
+  double prm = 0;
+};
+
+struct CTuple {
+  std::string name;
+  std::vector<CTupleEntry> entries;
+};
+
+// mjCNumeric::Compile size resolution: authored size (zero-padded), else the
+// data length. The data prefix is copied verbatim; the reader truncates at
+// `size` when authored, so a data array longer than an authored size keeps only
+// its first `size` values (the leg-B round trip already dropped the rest).
+CNumeric NumericCompile(const Numeric& n, const bridge::CompileOptions& opts) {
+  CNumeric cn;
+  cn.name = EffectiveName(n, opts);
+  const int data_len = n.data ? static_cast<int>(n.data->size()) : 0;
+  cn.size = n.size ? *n.size : data_len;
+  const int copy = std::min(data_len, cn.size);
+  cn.data.assign(copy, 0.0);
+  for (int j = 0; j < copy; ++j) cn.data[j] = (*n.data)[j];
+  return cn;
+}
+
+CText TextCompile(const Text& t, const bridge::CompileOptions& opts) {
+  CText ct;
+  ct.name = EffectiveName(t, opts);
+  ct.data = t.data ? *t.data : std::string();
+  return ct;
+}
+
+void FillNumerics(mjModel* m, const std::vector<CNumeric>& nums) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
+    m->numeric_adr[i] = adr;
+    m->numeric_size[i] = nums[i].size;
+    const int have = static_cast<int>(nums[i].data.size());
+    for (int j = 0; j < have; ++j) m->numeric_data[adr + j] = nums[i].data[j];
+    for (int j = have; j < nums[i].size; ++j) m->numeric_data[adr + j] = 0;
+    adr += nums[i].size;
+  }
+}
+
+void FillTexts(mjModel* m, const std::vector<CText>& texts) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(texts.size()); ++i) {
+    m->text_adr[i] = adr;
+    m->text_size[i] = static_cast<int>(texts[i].data.size()) + 1;
+    mju_strncpy(m->text_data + adr, texts[i].data.c_str(), m->ntextdata - adr);
+    adr += m->text_size[i];
+  }
+}
+
+void FillTuples(mjModel* m, const std::vector<CTuple>& tuples) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(tuples.size()); ++i) {
+    m->tuple_adr[i] = adr;
+    m->tuple_size[i] = static_cast<int>(tuples[i].entries.size());
+    for (int j = 0; j < m->tuple_size[i]; ++j) {
+      m->tuple_objtype[adr + j] = tuples[i].entries[j].objtype;
+      m->tuple_objid[adr + j] = tuples[i].entries[j].objid;
+      m->tuple_objprm[adr + j] = tuples[i].entries[j].prm;
+    }
+    adr += m->tuple_size[i];
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // Assets: textures. Builtin procedural generation (gradient/checker/flat + edge/ //
 // cross/random marks, 2D and cube) lifted from mjCTexture::Builtin2D/BuiltinCube //
 // + the file-local helpers randomdot/interp/checker (user_objects.cc:4973-5218). //
@@ -3878,6 +4318,11 @@ void CollectMeshHullRefs(const Model& m, const std::set<std::string>& pair_geoms
           if (f) walk_children(f->subtree);
           break;
         }
+        case BodyChildAny::Kind::Replicate: {
+          const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+          if (r) walk_children(r->subtree);
+          break;
+        }
         default:
           break;
       }
@@ -4140,6 +4585,58 @@ void FillMeshPaths(mjModel* m, const std::vector<CMesh>& meshes) {
 
 }  // namespace
 
+// Parse a <size memory> attribute string exactly as mjXReader::Size does
+// (xml_native_reader.cc:1364-1454): an unsigned integer with an optional
+// {K,M,G,T,P,E} power-of-two suffix, or the literal "-1"/empty for unset.
+// Returns the byte count; -1 for unset; sets *valid=false for a malformed
+// string (leg B throws on the same input, so such a model routes to fallback).
+long long ParseSizeMemoryBytes(const std::string& raw, bool* valid) {
+  *valid = true;
+  // Trim: read one whitespace-delimited token, reject any trailing token.
+  std::string trimmed;
+  {
+    std::istringstream strm(raw);
+    strm >> trimmed;
+    std::string trailing;
+    strm >> trailing;
+    if (!trailing.empty() || !strm.eof()) { *valid = false; return -1; }
+  }
+  if (trimmed.empty() || trimmed == "-1") return -1;  // unset
+
+  std::istringstream strm(trimmed);
+  if (strm.peek() == '-') { *valid = false; return -1; }
+  std::size_t base_size = 0;
+  strm >> base_size;
+  if (strm.fail()) { *valid = false; return -1; }
+
+  int multiplier_bit = 0;
+  if (!strm.eof()) {
+    char suffix = static_cast<char>(strm.get());
+    switch (suffix) {
+      case 'K': case 'k': multiplier_bit = 10; break;
+      case 'M': case 'm': multiplier_bit = 20; break;
+      case 'G': case 'g': multiplier_bit = 30; break;
+      case 'T': case 't': multiplier_bit = 40; break;
+      case 'P': case 'p': multiplier_bit = 50; break;
+      case 'E': case 'e': multiplier_bit = 60; break;
+      default: break;
+    }
+    strm.get();
+    if (!multiplier_bit || !strm.eof()) { *valid = false; return -1; }
+  }
+  if (multiplier_bit + 1 > std::numeric_limits<std::size_t>::digits) {
+    *valid = false; return -1;
+  }
+  const std::size_t max_base_size =
+      (std::numeric_limits<std::size_t>::max() << multiplier_bit) >> multiplier_bit;
+  if (base_size > max_base_size) { *valid = false; return -1; }
+  const std::size_t total_size = base_size << multiplier_bit;
+  if (total_size / sizeof(mjtNum) > std::numeric_limits<std::size_t>::max()) {
+    *valid = false; return -1;
+  }
+  return static_cast<long long>(total_size);
+}
+
 mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
                           std::vector<bridge::Diagnostic>& diags) {
   const CompilerSettings cs = ReadCompiler(m);
@@ -4322,6 +4819,50 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
       if (k) keys.push_back(k.get());
   }
 
+  // Custom fields (S8): numeric / text / tuple, document order across all
+  // <custom> sections. Tuple obj refs resolve against the id maps built above.
+  std::vector<CNumeric> numerics;
+  std::vector<CText> texts;
+  std::vector<CTuple> tuples;
+  {
+    auto tuple_id = [&](int objtype, const std::string& nm) -> int {
+      const NameIdMap* map = nullptr;
+      switch (objtype) {
+        case mjOBJ_BODY: case mjOBJ_XBODY: map = &bodyid_of; break;
+        case mjOBJ_GEOM: map = &geomid_of; break;
+        case mjOBJ_SITE: map = &siteid_of; break;
+        case mjOBJ_JOINT: map = &jointid_of; break;
+        case mjOBJ_CAMERA: map = &cameraid_of; break;
+        case mjOBJ_TENDON: map = &tendonid_of; break;
+        case mjOBJ_ACTUATOR: map = &actuatorid_of; break;
+        default: return -1;
+      }
+      auto it = map->find(nm);
+      return it == map->end() ? -1 : it->second;
+    };
+    for (const auto& cu : m.customs) {
+      if (!cu) continue;
+      for (const auto& n : cu->numerics)
+        if (n) numerics.push_back(NumericCompile(*n, opts));
+      for (const auto& t : cu->texts)
+        if (t) texts.push_back(TextCompile(*t, opts));
+      for (const auto& tp : cu->tuples) {
+        if (!tp) continue;
+        CTuple ct;
+        ct.name = EffectiveName(*tp, opts);
+        for (const auto& el : tp->tupleElements) {
+          if (!el) continue;
+          CTupleEntry e;
+          e.objtype = el->objtype ? mju_str2Type(el->objtype->c_str()) : mjOBJ_UNKNOWN;
+          e.objid = tuple_id(e.objtype, el->objname ? *el->objname : std::string());
+          e.prm = el->prm ? *el->prm : 0.0;
+          ct.entries.push_back(e);
+        }
+        tuples.push_back(std::move(ct));
+      }
+    }
+  }
+
   // Assets (S8/CopyObjects). Order: textures -> materials -> meshes/hfields, so
   // materials resolve texture ids by name and geoms/sites/tendons resolve
   // material ids by name. Meshes/hfields land in later NC3 waves; those maps stay
@@ -4450,6 +4991,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     nl.actuator.push_back(serial_name(a.name, a.serial, "act"));
   for (const CSensor& s : sensors)
     nl.sensor.push_back(serial_name(s.name, s.serial, "sensor"));
+  // numeric/text/tuple carry a mandatory authored name (never auto-named).
+  for (const CNumeric& n : numerics) nl.numeric.push_back(n.name);
+  for (const CText& t : texts) nl.text.push_back(t.name);
+  for (const CTuple& t : tuples) nl.tuple.push_back(t.name);
   for (const Key* k : keys) nl.key.push_back(EffectiveName(*k, opts));
 
   // nbvh census (SetSizes): static BVH nodes over all bodies, then meshes. Mesh
@@ -4525,6 +5070,19 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CSensor& s : sensors) nsensordata += s.dim;
   sizes.nsensordata = nsensordata;
   sizes.nuser_sensor = nuser_sensor;
+  // Custom fields (SetSizes user_model.cc:2302-2314).
+  sizes.nnumeric = static_cast<int>(numerics.size());
+  int nnumericdata = 0;
+  for (const CNumeric& n : numerics) nnumericdata += n.size;
+  sizes.nnumericdata = nnumericdata;
+  sizes.ntext = static_cast<int>(texts.size());
+  int ntextdata = 0;
+  for (const CText& t : texts) ntextdata += static_cast<int>(t.data.size()) + 1;
+  sizes.ntextdata = ntextdata;
+  sizes.ntuple = static_cast<int>(tuples.size());
+  int ntupledata = 0;
+  for (const CTuple& t : tuples) ntupledata += static_cast<int>(t.entries.size());
+  sizes.ntupledata = ntupledata;
   sizes.nkey = static_cast<int>(keys.size());
   sizes.nbvh = nbvhstatic;
   sizes.nbvhstatic = nbvhstatic;
@@ -4559,11 +5117,25 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     return nullptr;
   }
 
-  // Default constraint-size fields (mjCModel ctor -> m at user_model.cc:3335).
-  // Unset in NC1 scope (no <size njmax/nconmax>); their -1 drives the narena
-  // heuristic's 500/100 fallbacks.
-  out->nconmax = -1;
-  out->njmax = -1;
+  // Deprecated constraint-size + arena fields (<size njmax/nconmax/nstack/
+  // memory>). njmax/nconmax become mjModel members (user_model.cc:3334-3335,
+  // CopyObjects:5539); nstack/memory are not stored, only feeding SetNarena.
+  // Last-writer-wins across <size> blocks, matching the reader.
+  int size_njmax = -1, size_nconmax = -1, size_nstack = -1;
+  long long size_memory = -1;
+  for (const auto& sz : m.sizes) {
+    if (!sz) continue;
+    if (sz->njmax) size_njmax = *sz->njmax;
+    if (sz->nconmax) size_nconmax = *sz->nconmax;
+    if (sz->nstack) size_nstack = *sz->nstack;
+    if (sz->memory) {
+      bool ok = true;
+      size_memory = ParseSizeMemoryBytes(*sz->memory, &ok);
+      // Admitted models have a parseable memory (the gate rejects the rest).
+    }
+  }
+  out->nconmax = size_nconmax;
+  out->njmax = size_njmax;
 
   // S11 Fill.
   FillNames(out, nl);
@@ -4583,14 +5155,17 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   FillTendons(out, tendons);
   FillActuators(out, actuators);
   FillSensors(out, sensors);
+  FillNumerics(out, numerics);
+  FillTexts(out, texts);
+  FillTuples(out, tuples);
   // Keyframe padding uses qpos0 / body_pos / body_quat / body_mocapid, all set
   // by FillTree above (mjCKey::Compile).
   FillKeyframes(out, keys);
 
-  // Arena size heuristic (ledger 3.7, user_model.cc:5219-5252). memory/nstack
-  // are unset (-1) in NC1 scope (no <size memory/nstack>); njmax/nconmax default
-  // to -1 -> 500/100. Lifted verbatim.
-  SetNarena(out);
+  // Arena size heuristic (ledger 3.7, user_model.cc:5219-5252). Authored
+  // <size memory|nstack> select the explicit-bytes / legacy-stack branches;
+  // njmax/nconmax feed both the pre-arena footprint and the heuristic fallback.
+  SetNarena(out, size_memory, size_nstack);
 
   // Sparsity structures (D/B/M rows + M<->D maps), public MJAPI builders called
   // exactly as TryCompile does (user_model.cc:5254-5280).

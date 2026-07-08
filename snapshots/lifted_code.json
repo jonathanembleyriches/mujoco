@@ -200,6 +200,17 @@
       "notes": "nested frame pose composition"
     },
     {
+      "id": "geom_added_mass_kappa",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCGeom::GetAddedMassKappa",
+      "line_span": "3759-3804",
+      "content_hash": "f91ac380761e639775eda8bd260f49e2933170040060c9dd8d90fc5f8c5a7d5e",
+      "snapshot": "snapshots/lifted_upstream/mjCGeom__GetAddedMassKappa.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "K15 Gauss-Kronrod ellipsoid added-mass kappa"
+    },
+    {
       "id": "geom_compute_aabb",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCGeom::ComputeAABB",
@@ -231,6 +242,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-08",
       "notes": "primitive closed-form volume (const method)"
+    },
+    {
+      "id": "geom_set_fluid_coefs",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCGeom::SetFluidCoefs",
+      "line_span": "3809-3869",
+      "content_hash": "aaa7ebf76c5fd614f4523dc07317ab292bafb299a2a7b787ea23b252affcc795",
+      "snapshot": "snapshots/lifted_upstream/mjCGeom__SetFluidCoefs.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "ellipsoid fluid model virtual mass/inertia"
     },
     {
       "id": "geom_set_inertia",
@@ -580,6 +602,17 @@
       "notes": "triangle area/normal/center"
     },
     {
+      "id": "numeric_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCNumeric::Compile",
+      "line_span": "8024-8043",
+      "content_hash": "62872f9396a99ad460c97783b7adaadf635d29ea71fb0eef4009b0b259af817d",
+      "snapshot": "snapshots/lifted_upstream/mjCNumeric__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "numeric size-padding (unset size -> data length; authored size zero-pads tail)"
+    },
+    {
       "id": "pair_compile",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCPair::Compile",
@@ -745,6 +778,17 @@
       "notes": "texture builtin generation"
     },
     {
+      "id": "tuple_resolverefs",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCTuple::ResolveReferences",
+      "line_span": "8214-8245",
+      "content_hash": "f3222c3b2540fb3a2a8e13ca17e34148ca82f69c4b373c5296da8c3d3be4522b",
+      "snapshot": "snapshots/lifted_upstream/mjCTuple__ResolveReferences.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "tuple obj-ref resolution by (objtype,name) -> FindObject id"
+    },
+    {
       "id": "user_util_cc",
       "upstream_rel_path": "src/user/user_util.cc",
       "symbol": "*",
@@ -765,6 +809,17 @@
       "local_path": "cpp/compile/lifted/mjuu_util.h",
       "lifted": "2026-07-08",
       "notes": "whole mjuu_* header; symbols namespaced to ps::mjcf::compile::lifted, MJAPI stripped"
+    },
+    {
+      "id": "write_fluid_geom",
+      "upstream_rel_path": "src/engine/engine_passive.c",
+      "symbol": "writeFluidGeomInteraction",
+      "line_span": "1346-1371",
+      "content_hash": "fd15ae38ec3d1baa3e2832d2609d4681ab9ee98a51bf582b8e20e460f1459c1b",
+      "snapshot": "snapshots/lifted_upstream/writeFluidGeomInteraction.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "pack 12-entry geom_fluid array"
     }
   ]
 }

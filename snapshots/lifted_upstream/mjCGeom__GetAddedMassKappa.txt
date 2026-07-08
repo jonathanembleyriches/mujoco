@@ -1,0 +1,46 @@
+double mjCGeom::GetAddedMassKappa(double dx, double dy, double dz) {
+  // Integration by Gauss–Kronrod quadrature on interval l in [0, infinity] of
+  // f(l) = dx*dy*dz / np.sqrt((dx*dx+ l)**3 * (dy*dy+ l) * (dz*dz+ l))
+  // 15-point Gauss–Kronrod quadrature (K15) points x in [0, 1].
+
+  // static constexpr mjtNum kronrod_x[15] = [     // unused, left in comment for completeness
+  //   0.00427231, 0.02544604, 0.06756779, 0.12923441, 0.20695638,
+  //   0.29707742, 0.39610752, 0.50000000, 0.60389248, 0.70292258,
+  //   0.79304362, 0.87076559, 0.93243221, 0.97455396, 0.99572769];
+  // 15-point Gauss–Kronrod quadrature (K15) weights.
+  static constexpr double kronrod_w[15] = {
+    0.01146766, 0.03154605, 0.05239501, 0.07032663, 0.08450236,
+    0.09517529, 0.10221647, 0.10474107, 0.10221647, 0.09517529,
+    0.08450236, 0.07032663, 0.05239501, 0.03154605, 0.01146766};
+  // Integrate from 0 to inf by change of variables:
+  // l = x^3 / (1-x)^2. Exponents 3 and 2 found to minimize error.
+  static constexpr double kronrod_l[15] = {
+    7.865151709349917e-08, 1.7347976913907274e-05, 0.0003548008144506193,
+    0.002846636252924549, 0.014094260903596077, 0.053063261727396636,
+    0.17041978741317773, 0.5, 1.4036301548686991, 3.9353484827022642,
+    11.644841677041734, 39.53187807410903, 177.5711362220801,
+    1429.4772912937397, 54087.416549217705};
+  // dl = dl/dx dx. The following are dl/dx(x).
+  static constexpr double kronrod_d[15] = {
+    5.538677720489877e-05, 0.002080868285293228, 0.016514126520723166,
+    0.07261900344370877, 0.23985243401862602, 0.6868318249020725,
+    1.8551129519182894, 5.0, 14.060031152313941, 43.28941239611009,
+    156.58546376397112, 747.9826085305024, 5827.4042950027115,
+    116754.0197944512, 25482945.327264845};
+
+  const double invdx2 = 1.0 / (dx * dx);
+  const double invdy2 = 1.0 / (dy * dy);
+  const double invdz2 = 1.0 / (dz * dz);
+
+  // for added numerical stability we non-dimensionalize x by scale
+  // because 1 + l/d^2 in denom, l should be scaled by d^2
+  const double scale = std::pow(dx*dx*dx * dy * dz, 0.4);  // ** (2/5)
+  double kappa = 0.0;
+  for (int i = 0; i < 15; ++i) {
+    const double lambda = scale * kronrod_l[i];
+    const double denom = (1 + lambda*invdx2) * std::sqrt(
+      (1 + lambda*invdx2) * (1 + lambda*invdy2) * (1 + lambda*invdz2));
+    kappa += scale * kronrod_d[i] / denom * kronrod_w[i];
+  }
+  return kappa * invdx2;
+}

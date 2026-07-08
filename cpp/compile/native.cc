@@ -41,6 +41,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -219,6 +220,8 @@ class SubFeatureScanner {
       else if constexpr (std::is_same_v<E, SensorContact>) CheckSensorContact(e);
       else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
       else if constexpr (std::is_same_v<E, Size>) CheckSize(e);
+      else if constexpr (std::is_same_v<E, TupleElement>) CheckTupleElement(e);
+      else if constexpr (std::is_same_v<E, Replicate>) CheckReplicate(e);
       Recurse rec{this};
       Visit(e, rec);
     }
@@ -323,15 +326,39 @@ class SubFeatureScanner {
   }
   void CheckCompiler(const Compiler& c) {
     if (c.alignfree && *c.alignfree) Note("compiler.alignfree", c.loc);
+    // discardvisual="true" drops visual-only geoms in the parser (renumbering
+    // geoms/bvh and dropping their inertia); the native path keeps every geom,
+    // so route such a model to the XML fallback.
+    if (c.discardvisual && *c.discardvisual) Note("compiler.discardvisual", c.loc);
   }
-  // An explicit <size memory|nstack|njmax|nconmax> overrides the arena/constraint
-  // sizing (SetNarena's non-default branch), which the native path does not model
-  // yet (it always takes the memory/nstack-unset branch): route to the fallback.
+  // A tuple resolves obj refs only for the object families the native compiler
+  // builds an id map for (body/xbody/geom/site/joint/camera/tendon/actuator);
+  // any other objtype (mesh/material/etc.) routes to the XML fallback.
+  // The native replicate expansion clones the subtree with an accumulating pose
+  // and name suffix, but does not yet propagate a childclass into the clones
+  // (the reader builds the subtree under the childdef default); gate those.
+  void CheckReplicate(const Replicate& r) {
+    if (!r.inertial.empty()) Note("replicate.inertial", r.loc);
+  }
+  void CheckTupleElement(const TupleElement& e) {
+    if (!e.objtype) return;
+    switch (mju_str2Type(e.objtype->c_str())) {
+      case mjOBJ_BODY: case mjOBJ_XBODY: case mjOBJ_GEOM: case mjOBJ_SITE:
+      case mjOBJ_JOINT: case mjOBJ_CAMERA: case mjOBJ_TENDON: case mjOBJ_ACTUATOR:
+        return;
+      default:
+        Note("tuple.objtype", e.loc);
+    }
+  }
+  // <size memory|nstack|njmax|nconmax> now drive SetNarena's explicit-bytes /
+  // legacy-stack / deprecated-constraint branches natively. Only a malformed
+  // <size memory> string (which mj_loadXML itself rejects) routes to fallback.
   void CheckSize(const Size& s) {
-    if (s.memory) Note("size.memory", s.loc);
-    if (s.nstack) Note("size.nstack", s.loc);
-    if (s.njmax) Note("size.njmax", s.loc);
-    if (s.nconmax) Note("size.nconmax", s.loc);
+    if (s.memory) {
+      bool ok = true;
+      ParseSizeMemoryBytes(*s.memory, &ok);
+      if (!ok) Note("size.memory", s.loc);
+    }
   }
   // A compiled (non-plugin) mesh geom is native; an SDF geom, a fitgeom (a
   // primitive type that references a mesh, whose size FitGeom overwrites), and a
@@ -346,11 +373,14 @@ class SubFeatureScanner {
         type != static_cast<int>(GeomType::sdf))
       Note("geom.mesh_fit", g.loc);
     if (!g.plugin.empty()) Note("geom.plugin", g.loc);
-    if (g.fluidshape) Note("geom.fluidshape", g.loc);
   }
-  // Plugin / SDF meshes need marching cubes + octree (not native).
+  // Plugin / SDF meshes need marching cubes + octree (not native). A builtin
+  // (procedural sphere/cone/...) mesh needs the generator the native pipeline
+  // does not run, so route it to the XML fallback.
   void CheckMesh(const Mesh& mesh) {
     if (!mesh.plugin.empty()) Note("mesh.plugin", mesh.loc);
+    if (mesh.builtin && *mesh.builtin != MeshBuiltin::none)
+      Note("mesh.builtin", mesh.loc);
   }
   struct Recurse {
     SubFeatureScanner* c;
@@ -423,6 +453,136 @@ class PartialArrayScanner {
   std::unordered_map<std::string, FeatureUse>& out_;
 };
 
+// Names of referenceable elements (body/geom/site/joint) authored inside a
+// <replicate> subtree. After native expansion each carries an index suffix, so a
+// model-level element that references one of these ORIGINAL names is one the XML
+// reader would replicate too (mjs_attach's referencing-element cloning), which
+// the native expansion does not reproduce.
+void CollectReplicateNames(const std::vector<BodyChildAny>& subtree, bool in_rep,
+                           std::set<std::string>& out) {
+  auto add = [&](const ps::opt<std::string>& nm) {
+    if (in_rep && nm && !nm->empty()) out.insert(*nm);
+  };
+  for (const BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Geom:
+        add(std::get<std::unique_ptr<Geom>>(c.node)->name); break;
+      case BodyChildAny::Kind::Site:
+        add(std::get<std::unique_ptr<Site>>(c.node)->name); break;
+      case BodyChildAny::Kind::Joint:
+        add(std::get<std::unique_ptr<Joint>>(c.node)->name); break;
+      case BodyChildAny::Kind::FreeJoint:
+        add(std::get<std::unique_ptr<FreeJoint>>(c.node)->name); break;
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        add(b->name); CollectReplicateNames(b->subtree, in_rep, out); break;
+      }
+      case BodyChildAny::Kind::Frame:
+        CollectReplicateNames(std::get<std::unique_ptr<Frame>>(c.node)->subtree,
+                              in_rep, out);
+        break;
+      case BodyChildAny::Kind::Replicate:
+        CollectReplicateNames(std::get<std::unique_ptr<Replicate>>(c.node)->subtree,
+                              true, out);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+// Collect the target names of every typed cross-reference (opt<Ref<>>/Ref<>) in
+// a model section subtree.
+class RefNameCollector {
+ public:
+  explicit RefNameCollector(std::set<std::string>& out) : out_(out) {}
+  template <class E>
+  void operator()(const E& e) { Recurse rec{this}; Visit(e, rec); }
+
+ private:
+  struct Recurse {
+    RefNameCollector* c;
+    template <class T>
+    void field(int, const char*, const T& v) {
+      using DT = std::decay_t<T>;
+      if constexpr (ps::sdk::detail::opt_ref<DT>::value) {
+        if (v && !v->name.empty()) c->out_.insert(v->name);
+      } else if constexpr (ps::sdk::detail::is_ref<DT>::value) {
+        if (!v.name.empty()) c->out_.insert(v.name);
+      }
+    }
+    template <class T>
+    void child(int, const char*, const std::vector<std::unique_ptr<T>>& l) {
+      for (const auto& p : l) if (p) (*c)(*p);
+    }
+    template <class U>
+    void union_child(int, const char*, const std::vector<U>& l) {
+      for (const auto& it : l)
+        std::visit([&](const auto& p) { if (p) (*c)(*p); }, it.node);
+    }
+  };
+  std::set<std::string>& out_;
+};
+
+// Gate a <replicate> whose (unclassed) clones would need a childclass the native
+// ParentMap cannot supply (clones live outside the source tree): a childclass in
+// scope -- the replicate's own, an ancestor body's, or one inside its subtree --
+// means an unclassed descendant silently loses its class in the clone.
+bool SubtreeHasChildclass(const std::vector<BodyChildAny>& subtree) {
+  for (const BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        if (b->childclass) return true;
+        if (SubtreeHasChildclass(b->subtree)) return true;
+        break;
+      }
+      case BodyChildAny::Kind::Frame:
+        if (SubtreeHasChildclass(
+                std::get<std::unique_ptr<Frame>>(c.node)->subtree)) return true;
+        break;
+      case BodyChildAny::Kind::Replicate: {
+        const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        if (r->childclass) return true;
+        if (SubtreeHasChildclass(r->subtree)) return true;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return false;
+}
+
+void ScanReplicateChildclass(
+    const std::vector<BodyChildAny>& subtree, bool cc_scope,
+    const std::function<void(const char*, const ps::SourceLoc&)>& note) {
+  for (const BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        ScanReplicateChildclass(b->subtree, cc_scope || b->childclass.has_value(),
+                                note);
+        break;
+      }
+      case BodyChildAny::Kind::Frame:
+        ScanReplicateChildclass(
+            std::get<std::unique_ptr<Frame>>(c.node)->subtree, cc_scope, note);
+        break;
+      case BodyChildAny::Kind::Replicate: {
+        const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        if (cc_scope || r->childclass || SubtreeHasChildclass(r->subtree))
+          note("replicate.childclass", r->loc);
+        ScanReplicateChildclass(r->subtree, cc_scope || r->childclass.has_value(),
+                                note);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
 std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::unordered_map<ElementType, FeatureUse> used;
   FeatureCollector collect(used);
@@ -460,7 +620,6 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::function<void(const Default&)> scan_defaults = [&](const Default& d) {
     for (const auto& g : d.geom) {
       if (!g) continue;
-      if (g->fluidshape) note_sub("geom.fluidshape", g->loc);
       if (!g->plugin.empty()) note_sub("geom.plugin", g->loc);
     }
     for (const auto& sc : d.subclasses)
@@ -468,6 +627,56 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   };
   for (const auto& d : m.defaults)
     if (d) scan_defaults(*d);
+
+  // Shadowed default classes: ps::sdk's DefaultIndex keys the class table by
+  // name (empty/"main" both being the root), so when a model carries two
+  // default nodes with the same key -- the norm once <include> merges two files'
+  // top-level <default> blocks -- the later one silently overwrites the earlier
+  // in the index and Effective drops the shadowed node's partials, diverging
+  // from the XML reader (which merges them). Detect a repeated key and route to
+  // the XML fallback until the index merges instead of overwrites.
+  {
+    std::unordered_map<std::string, int> seen;
+    ps::SourceLoc dup_loc;
+    std::function<void(const Default&)> walk = [&](const Default& d) {
+      std::string name = d.dclass ? *d.dclass : std::string();
+      const std::string key =
+          (name.empty() || name == "main") ? std::string("\x01root") : name;
+      if (++seen[key] == 2 && !dup_loc.line) dup_loc = d.loc;
+      for (const auto& sc : d.subclasses)
+        if (sc) walk(*sc);
+    };
+    for (const auto& d : m.defaults)
+      if (d) walk(*d);
+    for (const auto& [key, n] : seen)
+      if (n >= 2) note_sub("default.duplicate_class", dup_loc);
+  }
+
+  // Replicate gates that need whole-model context: a childclass in scope (the
+  // native ParentMap can't reach the clones) and a model-level element that
+  // references a name authored inside a replicate subtree (mjs_attach would
+  // replicate the referencing element, which the native expansion does not).
+  {
+    std::set<std::string> rep_names;
+    for (const auto& b : m.worldbody)
+      if (b) CollectReplicateNames(b->subtree, false, rep_names);
+    if (!rep_names.empty()) {
+      std::set<std::string> section_refs;
+      RefNameCollector rc(section_refs);
+      for (const auto& t : m.tendons) if (t) rc(*t);
+      for (const auto& a : m.actuators) if (a) rc(*a);
+      for (const auto& s : m.sensors) if (s) rc(*s);
+      for (const auto& e : m.equalitys) if (e) rc(*e);
+      for (const auto& ct : m.contacts) if (ct) rc(*ct);
+      bool refs_replicated = false;
+      ps::SourceLoc ref_loc;
+      for (const auto& nm : rep_names)
+        if (section_refs.count(nm)) { refs_replicated = true; break; }
+      if (refs_replicated) note_sub("replicate.referencing_element", ref_loc);
+    }
+    for (const auto& b : m.worldbody)
+      if (b) ScanReplicateChildclass(b->subtree, false, note_sub);
+  }
   for (const auto& [key, use] : sub) {
     FeatureUse& agg = by_key[key];
     if (agg.count == 0 || (use.first.line && !agg.first.line)) agg.first = use.first;

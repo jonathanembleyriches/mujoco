@@ -27,6 +27,13 @@ namespace ps::mjcf::compile {
 mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
                           std::vector<bridge::Diagnostic>& diags);
 
+// Parse a <size memory> attribute string as mj_loadXML does (unsigned integer
+// with an optional {K,M,G,T,P,E} power-of-two suffix, or "-1"/empty for unset).
+// Returns the byte count, -1 for unset, and sets *valid=false when the string is
+// malformed. Shared with the native gate so an unparseable memory value routes
+// to the XML fallback instead of a spurious native build.
+long long ParseSizeMemoryBytes(const std::string& raw, bool* valid);
+
 }  // namespace ps::mjcf::compile
 
 #endif  // PROTOSPEC_COMPILE_BUILD_H

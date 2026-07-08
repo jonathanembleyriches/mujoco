@@ -1,0 +1,32 @@
+void mjCTuple::ResolveReferences(const mjCModel* m) {
+  // check for empty tuple
+  if (objtype_.empty()) {
+    throw mjCError(this, "tuple '%s' (id = %d) is empty", name.c_str(), id);
+  }
+
+  // check for size conflict
+  if (objtype_.size() != objname_.size() || objtype_.size() != objprm_.size()) {
+    throw mjCError(this,
+                   "tuple '%s' (id = %d) has object arrays with different sizes", name.c_str(), id);
+  }
+
+  // resize objid to correct size
+  obj.resize(objtype_.size());
+
+  // find objects, fill in ids
+  for (int i=0; i < objtype_.size(); i++) {
+    // find object by type and name
+    mjCBase* res = m->FindObject(objtype_[i], objname_[i]);
+    if (!res) {
+      throw mjCError(this, "unrecognized object '%s' in tuple %d", objname_[i].c_str(), id);
+    }
+
+    // if geom mark it as non visual
+    if (objtype_[i] == mjOBJ_GEOM) {
+      ((mjCGeom*)res)->SetNotVisual();
+    }
+
+    // assign id
+    obj[i] = res;
+  }
+}

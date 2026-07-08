@@ -1,0 +1,20 @@
+void mjCNumeric::Compile(void) {
+  CopyFromSpec();
+
+  // check for size conflict
+  if (size && !data_.empty() && size < (int)data_.size()) {
+    throw mjCError(this,
+                   "numeric '%s' (id = %d): specified size smaller than initialization array",
+                   name.c_str(), id);
+  }
+
+  // set size if left unspecified
+  if (!size) {
+    size = (int)data_.size();
+  }
+
+  // size cannot be zero
+  if (!size) {
+    throw mjCError(this, "numeric '%s' (id = %d): size cannot be zero", name.c_str(), id);
+  }
+}

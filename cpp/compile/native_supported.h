@@ -56,6 +56,23 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "key") {
     return true;
   }
+  // NC4 custom fields: the <custom> container and its numeric/text/tuple
+  // elements. A tuple referencing an object type outside the resolvable set
+  // (body/xbody/geom/site/joint/camera/tendon/actuator) routes to the XML
+  // fallback via the finer scan (tuple.objtype).
+  if (feature_key == "custom" || feature_key == "numeric" ||
+      feature_key == "text" || feature_key == "tuple" ||
+      feature_key == "element") {
+    return true;
+  }
+  // NC4 replicate: the <replicate> macro, expanded natively at collect time as a
+  // tree-clone (count copies through an accumulating offset/euler pose + zero-
+  // padded name suffix). A replicate carrying a childclass routes to the XML
+  // fallback via the finer scan (replicate.childclass) until childclass-into-
+  // clone propagation lands.
+  if (feature_key == "replicate") {
+    return true;
+  }
   // NC2 equality: connect/weld (body|site) and joint/tendon polycoef equalities.
   // The container tag is "equality"; "connect"/"weld" are the element tags.
   // EqualityJoint shares the "joint" tag (admitted above) and EqualityTendon the

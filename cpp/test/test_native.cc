@@ -694,6 +694,215 @@ static void TestNc3Meshes() {
       "<geom type='mesh' mesh='tetra' density='500'/></body></worldbody></mujoco>");
 }
 
+// NC4.1: the deprecated arena/constraint sizing. <size memory> selects the
+// explicit-bytes narena branch (with power-of-two suffix parsing), <size nstack>
+// the legacy stack branch, and njmax/nconmax become mjModel members feeding both.
+static void TestNc4Size() {
+  CheckBitIdentical(
+      "size_memory_plain",
+      "<mujoco><size memory='1048576'/><worldbody>"
+      "<body><freejoint/><geom size='0.1'/></body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "size_memory_suffix",
+      "<mujoco><size memory='10M'/><worldbody>"
+      "<body><joint type='hinge'/><geom size='0.1'/></body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "size_memory_giga",
+      "<mujoco><size memory='1G'/><worldbody>"
+      "<body pos='0 0 1'><freejoint/><geom type='box' size='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "size_nstack",
+      "<mujoco><size nstack='100000'/><worldbody>"
+      "<body><joint type='hinge'/><geom size='0.1'/></body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "size_njmax_nconmax",
+      "<mujoco><size njmax='300' nconmax='50'/><worldbody>"
+      "<body><freejoint/><geom size='0.1'/></body></worldbody></mujoco>");
+
+  // A well-formed <size memory> is admitted (native compiles it).
+  {
+    auto model = ParseOrDie(
+        "<mujoco><size memory='5M'/><worldbody><geom size='1'/></worldbody></mujoco>");
+    if (model) CHECK(compile::CollectUnsupportedFeatures(*model).empty());
+  }
+
+  // Two default nodes sharing the root key shadow in DefaultIndex -> gated.
+  {
+    auto model = ParseOrDie(
+        "<mujoco><default><motor ctrlrange='-1 1' ctrllimited='true'/></default>"
+        "<default><geom size='0.1'/></default>"
+        "<worldbody><body><joint name='j' type='hinge'/><geom/></body></worldbody>"
+        "<actuator><motor name='m' joint='j'/></actuator></mujoco>");
+    if (model) {
+      auto reasons = compile::CollectUnsupportedFeatures(*model);
+      bool saw = false;
+      for (const auto& r : reasons)
+        if (r.feature == "default.duplicate_class") saw = true;
+      CHECK(saw);
+    }
+  }
+}
+
+// NC4.2: custom fields. Numeric size-padding, text NUL packing, and tuple
+// obj-ref resolution by (objtype, name) across the supported families.
+static void TestNc4Custom() {
+  // Numeric: authored size zero-pads the data tail; unset size takes the length.
+  CheckBitIdentical(
+      "custom_numeric_pad",
+      "<mujoco><custom>"
+      "<numeric name='gain' size='5' data='1 2 3'/>"
+      "<numeric name='raw' data='0.5 0.25'/>"
+      "</custom><worldbody><geom size='1'/></worldbody></mujoco>");
+  // Text field.
+  CheckBitIdentical(
+      "custom_text",
+      "<mujoco><custom>"
+      "<text name='note' data='hello world'/>"
+      "</custom><worldbody><geom size='1'/></worldbody></mujoco>");
+  // Tuple referencing body/geom/site/joint/actuator.
+  CheckBitIdentical(
+      "custom_tuple",
+      "<mujoco><worldbody>"
+      "<body name='b1'><joint name='j1' type='hinge'/><geom name='g1' size='0.1'/>"
+      "<site name='s1'/></body></worldbody>"
+      "<actuator><motor name='a1' joint='j1'/></actuator>"
+      "<custom><tuple name='grp'>"
+      "<element objtype='body' objname='b1' prm='1'/>"
+      "<element objtype='geom' objname='g1' prm='2'/>"
+      "<element objtype='site' objname='s1'/>"
+      "<element objtype='joint' objname='j1'/>"
+      "<element objtype='actuator' objname='a1' prm='3.5'/>"
+      "</tuple></custom></mujoco>");
+  // xbody objtype resolves through the body id space.
+  CheckBitIdentical(
+      "custom_tuple_xbody",
+      "<mujoco><worldbody><body name='b1'><freejoint/><geom size='0.1'/></body>"
+      "</worldbody><custom><tuple name='t'>"
+      "<element objtype='xbody' objname='b1'/></tuple></custom></mujoco>");
+
+  // An out-of-scope tuple objtype (mesh) routes to the XML fallback.
+  {
+    auto model = ParseOrDie(
+        "<mujoco><asset><mesh name='m' vertex='0 0 0 1 0 0 0 1 0 0 0 1'/></asset>"
+        "<worldbody><body><freejoint/><geom type='mesh' mesh='m'/></body></worldbody>"
+        "<custom><tuple name='t'>"
+        "<element objtype='mesh' objname='m'/></tuple></custom></mujoco>");
+    if (model) {
+      auto reasons = compile::CollectUnsupportedFeatures(*model);
+      bool saw = false;
+      for (const auto& r : reasons)
+        if (r.feature == "tuple.objtype") saw = true;
+      CHECK(saw);
+    }
+  }
+
+  // discardvisual="true" routes to the XML fallback (native keeps all geoms).
+  {
+    auto model = ParseOrDie(
+        "<mujoco><compiler discardvisual='true'/><worldbody>"
+        "<body><joint type='hinge'/><geom size='0.1'/>"
+        "<geom type='box' size='0.1 0.1 0.1' contype='0' conaffinity='0' group='2'/>"
+        "</body></worldbody></mujoco>");
+    if (model) {
+      auto reasons = compile::CollectUnsupportedFeatures(*model);
+      bool saw = false;
+      for (const auto& r : reasons)
+        if (r.feature == "compiler.discardvisual") saw = true;
+      CHECK(saw);
+    }
+  }
+}
+
+// NC4.3: native <replicate> expansion (tree-clone with accumulating pose + zero-
+// padded name suffix). Covers offset/euler poses, sep, nesting, and the gates.
+static void TestNc4Replicate() {
+  // Simple count with offset: 3 copies of a free body along +x.
+  CheckBitIdentical(
+      "replicate_offset",
+      "<mujoco><worldbody><replicate count='3' offset='0.5 0 0'>"
+      "<body><freejoint/><geom type='box' size='0.1 0.1 0.1'/></body>"
+      "</replicate></worldbody></mujoco>");
+  // euler accumulation + named elements (suffix appended to authored names).
+  CheckBitIdentical(
+      "replicate_euler_named",
+      "<mujoco><worldbody><replicate count='4' offset='0.2 0 0' euler='0 0 30'>"
+      "<body name='b'><joint name='j' type='hinge'/><geom name='g' size='0.1'/>"
+      "<site name='s'/></body></replicate></worldbody></mujoco>");
+  // Custom separator + zero padding (count 12 -> two digits).
+  CheckBitIdentical(
+      "replicate_sep",
+      "<mujoco><worldbody><replicate count='12' offset='0.1 0 0' sep='_'>"
+      "<body><freejoint/><geom size='0.05'/></body>"
+      "</replicate></worldbody></mujoco>");
+  // Nested replicates compose (name = base + inner-suffix + outer-suffix).
+  CheckBitIdentical(
+      "replicate_nested",
+      "<mujoco><worldbody>"
+      "<replicate count='3' offset='0.3 0 0'>"
+      "<replicate count='2' offset='0 0.3 0'>"
+      "<body name='cell'><freejoint/><geom type='sphere' size='0.05'/></body>"
+      "</replicate></replicate></worldbody></mujoco>");
+  // Unnamed elements get auto-named from the original serial + suffix.
+  CheckBitIdentical(
+      "replicate_unnamed",
+      "<mujoco><worldbody><replicate count='5' offset='0 0.2 0'>"
+      "<body pos='0 0 1'><freejoint/><geom type='capsule' fromto='0 0 0 0 0 0.2' "
+      "size='0.03'/></body></replicate></worldbody></mujoco>");
+
+  // A replicate whose subtree carries a childclass routes to the XML fallback.
+  {
+    auto model = ParseOrDie(
+        "<mujoco><default><default class='c'><geom size='0.2'/></default></default>"
+        "<worldbody><replicate count='2' offset='1 0 0'>"
+        "<body childclass='c'><freejoint/><geom/></body>"
+        "</replicate></worldbody></mujoco>");
+    if (model) {
+      auto reasons = compile::CollectUnsupportedFeatures(*model);
+      bool saw = false;
+      for (const auto& r : reasons)
+        if (r.feature == "replicate.childclass") saw = true;
+      CHECK(saw);
+    }
+  }
+  // A model-level tendon referencing a site inside a replicate routes to fallback.
+  {
+    auto model = ParseOrDie(
+        "<mujoco><worldbody><replicate count='3' offset='0.1 0 0'>"
+        "<site name='a'/><body name='bd'><freejoint/><geom size='0.05'/>"
+        "<site name='b'/></body></replicate></worldbody>"
+        "<tendon><spatial><site site='a'/><site site='b'/></spatial></tendon>"
+        "</mujoco>");
+    if (model) {
+      auto reasons = compile::CollectUnsupportedFeatures(*model);
+      bool saw = false;
+      for (const auto& r : reasons)
+        if (r.feature == "replicate.referencing_element") saw = true;
+      CHECK(saw);
+    }
+  }
+}
+
+// NC4.4: ellipsoid fluid model. fluidshape='ellipsoid' fills geom_fluid from the
+// geom semiaxes; fluidcoef overrides the default drag/lift coefficients.
+static void TestNc4Fluid() {
+  CheckBitIdentical(
+      "fluid_sphere",
+      "<mujoco><worldbody><body><freejoint/>"
+      "<geom type='sphere' size='0.1' fluidshape='ellipsoid'/>"
+      "</body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "fluid_capsule_coef",
+      "<mujoco><worldbody><body><freejoint/>"
+      "<geom type='capsule' size='0.05 0.2' fluidshape='ellipsoid' "
+      "fluidcoef='0.4 0.3 1.2 0.9 0.8'/></body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "fluid_box",
+      "<mujoco><worldbody><body pos='0 0 1'><freejoint/>"
+      "<geom type='box' size='0.1 0.2 0.05' fluidshape='ellipsoid'/>"
+      "</body></worldbody></mujoco>");
+}
+
 int main() {
   TestNativePurity();
   TestGateUnsupported();
@@ -708,6 +917,10 @@ int main() {
   TestNc2Actuator();
   TestNc2Sensor();
   TestNc3Meshes();
+  TestNc4Size();
+  TestNc4Custom();
+  TestNc4Replicate();
+  TestNc4Fluid();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

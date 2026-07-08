@@ -1,0 +1,61 @@
+void mjCGeom::SetFluidCoefs(void) {
+  double dx, dy, dz;
+
+  // get semiaxes
+  switch (type) {
+    case mjGEOM_SPHERE:
+      dx = size[0];
+      dy = size[0];
+      dz = size[0];
+      break;
+
+    case mjGEOM_CAPSULE:
+      dx = size[0];
+      dy = size[0];
+      dz = size[1] + size[0];
+      break;
+
+    case mjGEOM_CYLINDER:
+      dx = size[0];
+      dy = size[0];
+      dz = size[1];
+      break;
+
+    default:
+      dx = size[0];
+      dy = size[1];
+      dz = size[2];
+  }
+
+  // volume of equivalent ellipsoid
+  const double volume = 4.0 / 3.0 * mjPI * dx * dy * dz;
+
+  // GetAddedMassKappa is invariant to permutation of last two arguments
+  const double kx = GetAddedMassKappa(dx, dy, dz);
+  const double ky = GetAddedMassKappa(dy, dz, dx);
+  const double kz = GetAddedMassKappa(dz, dx, dy);
+
+  // coefficients of virtual moment of inertia. Note: if (kz-ky) in numerator
+  // is negative, also the denom is negative. Abs both and clip to MINVAL
+  const auto pow2 = [](const double val) { return val * val; };
+  const double Ixfac = pow2(dy*dy - dz*dz) * std::abs(kz - ky) / std::max(
+    mjEPS, std::abs(2*(dy*dy - dz*dz) + (dy*dy + dz*dz)*(ky - kz)));
+  const double Iyfac = pow2(dz*dz - dx*dx) * std::abs(kx - kz) / std::max(
+    mjEPS, std::abs(2*(dz*dz - dx*dx) + (dz*dz + dx*dx)*(kz - kx)));
+  const double Izfac = pow2(dx*dx - dy*dy) * std::abs(ky - kx) / std::max(
+    mjEPS, std::abs(2*(dx*dx - dy*dy) + (dx*dx + dy*dy)*(kx - ky)));
+
+  mjtNum virtual_mass[3];
+  virtual_mass[0] = volume * kx / std::max(mjEPS, 2-kx);
+  virtual_mass[1] = volume * ky / std::max(mjEPS, 2-ky);
+  virtual_mass[2] = volume * kz / std::max(mjEPS, 2-kz);
+  mjtNum virtual_inertia[3];
+  virtual_inertia[0] = volume*Ixfac/5;
+  virtual_inertia[1] = volume*Iyfac/5;
+  virtual_inertia[2] = volume*Izfac/5;
+
+  writeFluidGeomInteraction(fluid, &fluid_ellipsoid, &fluid_coefs[0],
+                            &fluid_coefs[1], &fluid_coefs[2],
+                            &fluid_coefs[3], &fluid_coefs[4],
+                            virtual_mass, virtual_inertia);
+}
