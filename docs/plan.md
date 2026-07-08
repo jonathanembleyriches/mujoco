@@ -14,7 +14,12 @@ IO work; test harnesses authored by a different agent than the code they test.
 | M3 wave 1: defaults + assets/include | **DONE** | 604c042; 89 corpus files identical / 0 differ; Q-ANGLE amended to form preservation (see quirk register); FreeJoint.align tri-state schema fix; dangling class refs = validation tier-2, not read errors |
 | M3 wave 2: contact/equality/tendon + actuators | **DONE** | 7f1d4cb; 162 identical / 0 differ; 8 arity schema fixes + ActuatorPlugin.plugin type fix |
 | M3 wave 3: sensors + custom/keyframe/extension + macros/deformable | **DONE** | a7fbd1d; FINAL: 359/387 identical, 0 differ, 28 honest skips (plugins/malformed fixtures); all 142 element types supported; Body/Frame/Replicate children unified into ordered `subtree : BodyChildAny *` (mutual document order is id-semantic) |
-| M4 validation, M5 bridge+binding+recompile, M6 SDK, M7 pybind | queued | |
+| M4 validation | **DONE** | cf03239; 3 tiers, reflect-driven, 0 false positives over 387 corpus files; found genuine stale keyframe in MuJoCo's own solver/humanoid.xml |
+| M5 bridge (Compile/Binding/Recompile, XML path) | **DONE** | 8193f66; pure Compile via mjVFS; Binding = snapshot contract (mutation counter REJECTED by owner and removed, b286bf0); Recompile with serial-keyed state migration; 359/387 compile, 0 binding gaps; Expand() deferred to NC4 |
+| M6 SDK | **DONE** | 8992efe; header-only builders/traversal/refs/class-ops/attach over Visit/reflect |
+| M7 pybind | **DONE** | ce87505; protospec module (typed 142 elements, builders, compile+step+numpy views); TRYME.md verified |
+| NC0 native scaffolding | **DONE** | afb8ecd; lift registry + drift gate; ps_native_diff + self-arming ratchet; gated NativeCompile dispatch; mj_makeModel NOT public in 3.10.0 -> lifted (mjxmacro-driven layout) |
+| NC1 rigid-body native compiler | **IN FLIGHT** | T1.1-T1.6 sequential; exit = in-scope corpus slice bit-identical vs XML path, ratchet armed |
 | Native compiler (RAW ProtoSpec->mjModel; NO mjSpec/mjs_*/mjC* anywhere) | **planned** | cd0998a: docs/plan_native_compiler.md — 62-row reuse ledger (18% call-as-is public API, 39% lift-verbatim with provenance registry + drift gate, 35% re-plumb, 5 rows deleted-hazard-classes); direct id-assignment Binding; phases NC1(10% corpus)→NC2(35%)→NC3(62%)→NC4(~80%)→NC5(~100%); XML path retained as oracle/fallback; survey: docs/native_compiler_survey.md (its mjs decode mapping is historical) |
 
 Key facts a fresh session needs: repo is standalone at C:\Users\jonat\Documents\protospec (this
