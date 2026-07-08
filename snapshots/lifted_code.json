@@ -2,6 +2,149 @@
   "pin": "3010000",
   "entries": [
     {
+      "id": "body_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCBody::Compile",
+      "line_span": "2673-2898",
+      "content_hash": "174f45200abe981962fadbf847ab958ad398079d9980c3cc4e51449aa5e94ba5",
+      "snapshot": "snapshots/lifted_upstream/mjCBody__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "body-compile ordering chain (inertia inference, bounds, bvh, joints)"
+    },
+    {
+      "id": "bvh_makebvh",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCBoundingVolumeHierarchy::MakeBVH",
+      "line_span": "426-546",
+      "content_hash": "03b9ceeb61b370c1b6b5303879836463d2a6231dcb150ba3f2564f17b5eeb622",
+      "snapshot": "snapshots/lifted_upstream/mjCBoundingVolumeHierarchy__MakeBVH.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "median-split BVH over plain leaf arrays"
+    },
+    {
+      "id": "checklimited",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "islimited",
+      "line_span": "186-191",
+      "content_hash": "d34d45b0d5c1927c23afa61ffcbc1893dd0bdc49d4b5c1ff6390227302a07e69",
+      "snapshot": "snapshots/lifted_upstream/islimited.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "tri-state limit resolution"
+    },
+    {
+      "id": "compute_sparse_sizes",
+      "upstream_rel_path": "src/user/user_model.cc",
+      "symbol": "mjCModel::ComputeSparseSizes",
+      "line_span": "906-1119",
+      "content_hash": "a9402af45f101329165742dd7904b26988aa8c725bc440aea0f75d1b8ac472c7",
+      "snapshot": "snapshots/lifted_upstream/mjCModel__ComputeSparseSizes.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "nM/nD/nB/nC + dof_parentid + simple-body demotions"
+    },
+    {
+      "id": "copy_names",
+      "upstream_rel_path": "src/user/user_model.cc",
+      "symbol": "mjCModel::CopyNames",
+      "line_span": "2587-2667",
+      "content_hash": "87d9aafc6ca5cfcd78245e992f8a55554cbb854d5840cbdc5c026b82c404600b",
+      "snapshot": "snapshots/lifted_upstream/mjCModel__CopyNames.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "23-list name blob + hash fill + adr tables"
+    },
+    {
+      "id": "copy_tree",
+      "upstream_rel_path": "src/user/user_model.cc",
+      "symbol": "mjCModel::CopyTree",
+      "line_span": "2696-3119",
+      "content_hash": "550513fdb436e53658ff96e4de1b0ea9795d705aaee0dec0fb83c7e24902e8a5",
+      "snapshot": "snapshots/lifted_upstream/mjCModel__CopyTree.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "body/jnt/dof/geom fill, qpos0, dof_parentid/treeid, sameframe/simple"
+    },
+    {
+      "id": "finalize_simple",
+      "upstream_rel_path": "src/user/user_model.cc",
+      "symbol": "mjCModel::FinalizeSimple",
+      "line_span": "4048-4092",
+      "content_hash": "6732c39c6afb4931edac406b342196358bf469de225f60b80a2cc10c8c6baa9d",
+      "snapshot": "snapshots/lifted_upstream/mjCModel__FinalizeSimple.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "dof_simplenum + nC validation"
+    },
+    {
+      "id": "geom_compute_aabb",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCGeom::ComputeAABB",
+      "line_span": "3873-3926",
+      "content_hash": "6210e44fd65505be2f1473ab1c9c1f283094a9867f209269c643018f60e0b051",
+      "snapshot": "snapshots/lifted_upstream/mjCGeom__ComputeAABB.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "per-type aabb (center,size)"
+    },
+    {
+      "id": "geom_get_rbound",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCGeom::GetRBound",
+      "line_span": "3718-3754",
+      "content_hash": "ec3a4241845886717a6b34a952f4ae1aa6c518e8c0a5cb8bd57e4baf95c7bf51",
+      "snapshot": "snapshots/lifted_upstream/mjCGeom__GetRBound.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "bounding-sphere radius per type"
+    },
+    {
+      "id": "geom_set_inertia",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCGeom::SetInertia",
+      "line_span": "3494-3713",
+      "content_hash": "362adf051cdfef9dda1324b6ffa690309ec257cf67bc0d1aa44e50d4a3f99bf9",
+      "snapshot": "snapshots/lifted_upstream/mjCGeom__SetInertia.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "primitive diagonal-inertia closed forms"
+    },
+    {
+      "id": "hash_string",
+      "upstream_rel_path": "src/engine/engine_name.c",
+      "symbol": "mj_hashString",
+      "line_span": "229-236",
+      "content_hash": "d076b9dfde4b3d25d1c970410161482f1676da3eeb2cdda4368ffea54fa538e4",
+      "snapshot": "snapshots/lifted_upstream/mj_hashString.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "djb2-xor string hash for name tables; retargeted plumbing only"
+    },
+    {
+      "id": "inertia_from_geom",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCBody::InertiaFromGeom",
+      "line_span": "2458-2527",
+      "content_hash": "45c3a688418c5c032dcb022319a4e7be0d9a108ac1ecd663759c9d617e0ded3a",
+      "snapshot": "snapshots/lifted_upstream/mjCBody__InertiaFromGeom.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "mass-weighted COM + parallel-axis + principal re-diag"
+    },
+    {
+      "id": "joint_compile",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCJoint::Compile",
+      "line_span": "3179-3292",
+      "content_hash": "d0109f2a751d2194392c24e8787278125f7c4a91a74c16033e249de5f292bb98",
+      "snapshot": "snapshots/lifted_upstream/mjCJoint__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "per-consumer degree conversion, axis fix, autolimits; returns dofnum"
+    },
+    {
       "id": "make_model",
       "upstream_rel_path": "src/engine/engine_io.c",
       "symbol": "mj_makeModel",
@@ -14,6 +157,17 @@
       ],
       "lifted": "2026-07-08",
       "notes": "positional size args -> read n* from a caller mjModel; reuse/freeModelBuffers branch dropped; buffer layout verbatim"
+    },
+    {
+      "id": "resolve_orientation",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "ResolveOrientation",
+      "line_span": "241-349",
+      "content_hash": "3cabc0e7c98e32906e44d55f841b073c184e19f830e9bb6c324cafa33095634d",
+      "snapshot": "snapshots/lifted_upstream/ResolveOrientation.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "5 orientation forms + degree/eulerseq; over ProtoSpec Orientation variant"
     },
     {
       "id": "safe_add_buffer",
@@ -36,6 +190,17 @@
       "local_path": "cpp/compile/lifted/make_model.cc",
       "lifted": "2026-07-08",
       "notes": "verbatim; ASAN poison macros dropped"
+    },
+    {
+      "id": "set_sizes",
+      "upstream_rel_path": "src/user/user_model.cc",
+      "symbol": "mjCModel::SetSizes",
+      "line_span": "2109-2368",
+      "content_hash": "c8022430fb35f3569c756b967989d78db1a5b590771d4f235aecf0f65c3bf897",
+      "snapshot": "snapshots/lifted_upstream/mjCModel__SetSizes.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "n* census incl ntree static-ancestry, nnames, nbvh"
     },
     {
       "id": "skip_align",

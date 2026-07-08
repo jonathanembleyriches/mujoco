@@ -1,0 +1,109 @@
+const char* ResolveOrientation(double* quat, bool degree, const char* sequence,
+                               const mjsOrientation& orient) {
+  double axisangle[4];
+  double xyaxes[6];
+  double zaxis[3];
+  double euler[3];
+
+  mjuu_copyvec(axisangle, orient.axisangle, 4);
+  mjuu_copyvec(xyaxes, orient.xyaxes, 6);
+  mjuu_copyvec(zaxis, orient.zaxis, 3);
+  mjuu_copyvec(euler, orient.euler, 3);
+
+  // set quat using axisangle
+  if (orient.type == mjORIENTATION_AXISANGLE) {
+    // convert to radians if necessary, normalize axis
+    if (degree) {
+      axisangle[3] = axisangle[3] / 180.0 * mjPI;
+    }
+    if (mjuu_normvec(axisangle, 3) < mjEPS) {
+      return "axisangle too small";
+    }
+
+    // construct quaternion
+    double ang2 = axisangle[3]/2;
+    quat[0] = cos(ang2);
+    quat[1] = sin(ang2)*axisangle[0];
+    quat[2] = sin(ang2)*axisangle[1];
+    quat[3] = sin(ang2)*axisangle[2];
+  }
+
+  // set quat using xyaxes
+  if (orient.type == mjORIENTATION_XYAXES) {
+    // normalize x axis
+    if (mjuu_normvec(xyaxes, 3) < mjEPS) {
+      return "xaxis too small";
+    }
+
+    // make y axis orthogonal to x axis, normalize
+    double d = mjuu_dot3(xyaxes, xyaxes+3);
+    xyaxes[3] -= xyaxes[0]*d;
+    xyaxes[4] -= xyaxes[1]*d;
+    xyaxes[5] -= xyaxes[2]*d;
+    if (mjuu_normvec(xyaxes+3, 3) < mjEPS) {
+      return "yaxis too small";
+    }
+
+    // compute and normalize z axis
+    double z[3];
+    mjuu_crossvec(z, xyaxes, xyaxes+3);
+    if (mjuu_normvec(z, 3) < mjEPS) {
+      return "cross(xaxis, yaxis) too small";
+    }
+
+    // convert frame into quaternion
+    mjuu_frame2quat(quat, xyaxes, xyaxes+3, z);
+  }
+
+  // set quat using zaxis
+  if (orient.type == mjORIENTATION_ZAXIS) {
+    if (mjuu_normvec(zaxis, 3) < mjEPS) {
+      return "zaxis too small";
+    }
+    mjuu_z2quat(quat, zaxis);
+  }
+
+
+  // handle euler
+  if (orient.type == mjORIENTATION_EULER) {
+    // convert to radians if necessary
+    if (degree) {
+      for (int i=0; i < 3; i++) {
+        euler[i] = euler[i] / 180.0 * mjPI;
+      }
+    }
+
+    // init
+    mjuu_setvec(quat, 1, 0, 0, 0);
+
+    // loop over euler angles, accumulate rotations
+    for (int i=0; i < 3; i++) {
+      double tmp[4], qrot[4] = {cos(euler[i]/2), 0, 0, 0};
+      double sa = sin(euler[i]/2);
+
+      // construct quaternion rotation
+      if (sequence[i] == 'x' || sequence[i] == 'X') {
+        qrot[1] = sa;
+      } else if (sequence[i] == 'y' || sequence[i] == 'Y') {
+        qrot[2] = sa;
+      } else if (sequence[i] == 'z' || sequence[i] == 'Z') {
+        qrot[3] = sa;
+      } else {
+        return "euler sequence can only contain x, y, z, X, Y, Z";
+      }
+
+      // accumulate rotation
+      if (sequence[i] == 'x' || sequence[i] == 'y' || sequence[i] == 'z') {
+        mjuu_mulquat(tmp, quat, qrot);  // moving axes: post-multiply
+      } else {
+        mjuu_mulquat(tmp, qrot, quat);  // fixed axes: pre-multiply
+      }
+      mjuu_copyvec(quat, tmp, 4);
+    }
+
+    // normalize, just in case
+    mjuu_normvec(quat, 4);
+  }
+
+  return 0;
+}

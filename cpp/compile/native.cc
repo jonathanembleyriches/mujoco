@@ -47,6 +47,7 @@
 
 #include <mujoco/mujoco.h>
 
+#include "build.h"
 #include "context.h"
 #include "native_supported.h"
 #include "reflect.h"
@@ -122,6 +123,66 @@ class FeatureCollector {
 
 }  // namespace
 
+// Finer-than-family geom scan: a geom is native-compilable in NC1 only if it is
+// a PRIMITIVE (no mesh/hfield/sdf type) with no asset/plugin references. Anything
+// else routes the whole model to the XML fallback with an explicit sub-feature
+// key (so the fallback reason names what is missing, e.g. "geom.mesh").
+class GeomScanner {
+ public:
+  explicit GeomScanner(std::unordered_map<std::string, FeatureUse>& out)
+      : out_(out) {}
+
+  void operator()(const Model& m) { Recurse rec{this}; Visit(m, rec); }
+
+  template <class E>
+  void operator()(const E& e) {
+    if constexpr (std::is_same_v<E, Default>) {
+      (void)e;
+      return;  // class templates are not compiled objects
+    } else {
+      if constexpr (std::is_same_v<E, Geom>) Check(e);
+      Recurse rec{this};
+      Visit(e, rec);
+    }
+  }
+
+ private:
+  void Note(const char* key, const ps::SourceLoc& loc) {
+    FeatureUse& u = out_[key];
+    if (u.count == 0) u.first = loc;
+    ++u.count;
+  }
+  void Check(const Geom& g) {
+    if (g.type) {
+      switch (*g.type) {
+        case GeomType::mesh: Note("geom.mesh", g.loc); break;
+        case GeomType::sdf: Note("geom.sdf", g.loc); break;
+        case GeomType::hfield: Note("geom.hfield", g.loc); break;
+        default: break;
+      }
+    }
+    if (g.mesh) Note("geom.mesh", g.loc);
+    if (g.hfield) Note("geom.hfield", g.loc);
+    if (g.material) Note("geom.material", g.loc);
+    if (!g.plugin.empty()) Note("geom.plugin", g.loc);
+    if (g.fluidshape) Note("geom.fluidshape", g.loc);
+  }
+  struct Recurse {
+    GeomScanner* c;
+    template <class T> void field(int, const char*, const T&) {}
+    template <class T>
+    void child(int, const char*, const std::vector<std::unique_ptr<T>>& l) {
+      for (const auto& p : l) if (p) (*c)(*p);
+    }
+    template <class U>
+    void union_child(int, const char*, const std::vector<U>& l) {
+      for (const auto& item : l)
+        std::visit([&](const auto& p) { if (p) (*c)(*p); }, item.node);
+    }
+  };
+  std::unordered_map<std::string, FeatureUse>& out_;
+};
+
 std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::unordered_map<ElementType, FeatureUse> used;
   FeatureCollector collect(used);
@@ -134,6 +195,17 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   for (const auto& [et, use] : used) {
     const std::string key = FeatureKey(et);
     if (IsFeatureSupported(key)) continue;
+    FeatureUse& agg = by_key[key];
+    if (agg.count == 0 || (use.first.line && !agg.first.line)) agg.first = use.first;
+    agg.count += use.count;
+  }
+
+  // Finer-than-family sub-feature keys (e.g. geoms referencing meshes/materials).
+  // These are never "supported" -- their presence forces the XML fallback.
+  std::unordered_map<std::string, FeatureUse> sub;
+  GeomScanner gs(sub);
+  gs(m);
+  for (const auto& [key, use] : sub) {
     FeatureUse& agg = by_key[key];
     if (agg.count == 0 || (use.first.line && !agg.first.line)) agg.first = use.first;
     agg.count += use.count;
@@ -163,15 +235,20 @@ mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
   // S0 gate: route or record fallback (CDR-2).
   std::vector<bridge::FallbackReason> unsupported = CollectUnsupportedFeatures(m);
 
-  // Until NC1 lands the stage pipeline, even a model whose every feature were
-  // admitted cannot be built (no stages exist). Record that honestly so a
-  // hypothetical fully-admitted model still falls back rather than falsely
-  // claiming a native compile. Today the supported set is empty, so `unsupported`
-  // is non-empty for any non-trivial model and this branch adds a pipeline note
-  // only for the degenerate empty model.
+  // Every feature admitted: run the S1..S13 build pipeline. On success return
+  // the built model with report.taken == NativePath.
   if (unsupported.empty()) {
+    std::vector<bridge::Diagnostic> diags;
+    mjModel* built = BuildNativeModel(m, opts, diags);
+    if (built) {
+      report.fallback_reasons.clear();
+      return built;
+    }
+    // A build failure on an admitted model is a native-compiler bug: surface the
+    // diagnostics and fall back (Auto) / hard-error (forced NativePath).
+    for (auto& d : diags) report.errors.push_back(std::move(d));
     bridge::FallbackReason r;
-    r.feature = "native.pipeline_unimplemented";
+    r.feature = "native.build_failed";
     r.count = 1;
     unsupported.push_back(std::move(r));
   }

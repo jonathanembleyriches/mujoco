@@ -144,10 +144,13 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
   # UnsupportedNatively); it plugs in behind the bridge dispatch below.
   add_library(protospec_compile STATIC
     compile/native.cc
+    compile/build.cc
   )
   target_include_directories(protospec_compile
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/compile
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk/protospec
             ${MUJOCO_INCLUDE_DIR}
   )
   target_link_libraries(protospec_compile PUBLIC protospec protospec_io protospec_lifted
@@ -255,6 +258,7 @@ if(TARGET protospec_bridge AND TARGET model_diff_lib)
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge
     ${CMAKE_CURRENT_SOURCE_DIR}/compile
     ${CMAKE_CURRENT_SOURCE_DIR}/compile/lifted
+    ${CMAKE_CURRENT_SOURCE_DIR}/harness
     ${MUJOCO_INCLUDE_DIR})
   target_link_libraries(protospec_compile_tests
     PRIVATE protospec_bridge protospec_compile model_diff_lib "${MUJOCO_IMPORT_LIB}")

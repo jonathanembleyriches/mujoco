@@ -1,0 +1,54 @@
+void mjCGeom::ComputeAABB(void) {
+  double aamm[6]; // axis-aligned bounding box in (min, max) format
+  switch (type) {
+    case mjGEOM_HFIELD:
+      aamm[0] = -hfield->size[0];
+      aamm[1] = -hfield->size[1];
+      aamm[2] = -hfield->size[3];
+      aamm[3] = hfield->size[0];
+      aamm[4] = hfield->size[1];
+      aamm[5] = hfield->size[2];
+      break;
+
+    case mjGEOM_SPHERE:
+      aamm[3] = aamm[4] = aamm[5] = size[0];
+      mjuu_setvec(aamm, -aamm[3], -aamm[4], -aamm[5]);
+      break;
+
+    case mjGEOM_CAPSULE:
+      aamm[3] = aamm[4] = size[0];
+      aamm[5] = size[0] + size[1];
+      mjuu_setvec(aamm, -aamm[3], -aamm[4], -aamm[5]);
+      break;
+
+    case mjGEOM_CYLINDER:
+      aamm[3] = aamm[4] = size[0];
+      aamm[5] = size[1];
+      mjuu_setvec(aamm, -aamm[3], -aamm[4], -aamm[5]);
+      break;
+
+    case mjGEOM_MESH:
+    case mjGEOM_SDF:
+      mjuu_copyvec(aamm, mesh->aamm(), 6);
+      break;
+
+    case mjGEOM_PLANE:
+      aamm[0] = aamm[1] = aamm[2] = -mjMAXVAL;
+      aamm[3] = aamm[4] = mjMAXVAL;
+      aamm[5] = 0;
+      break;
+
+    default:
+      mjuu_copyvec(aamm+3, size, 3);
+      mjuu_setvec(aamm, -size[0], -size[1], -size[2]);
+      break;
+  }
+
+  // convert aamm to aabb (center, size) format
+  double pos[] = {(aamm[3] + aamm[0]) / 2, (aamm[4] + aamm[1]) / 2,
+                  (aamm[5] + aamm[2]) / 2};
+  double size[] = {(aamm[3] - aamm[0]) / 2, (aamm[4] - aamm[1]) / 2,
+                   (aamm[5] - aamm[2]) / 2};
+  mjuu_copyvec(aabb, pos, 3);
+  mjuu_copyvec(aabb+3, size, 3);
+}

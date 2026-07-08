@@ -20,11 +20,31 @@
 
 namespace ps::mjcf::compile {
 
-// True when `feature_key` is compilable on the native path. Empty set today.
+// True when `feature_key` is compilable on the native path. NC1 grows this set
+// wave by wave; a model is routed native only when EVERY feature key it uses is
+// admitted here (native.cc gate). Keys are MJCF-tag granular today (finer keys,
+// e.g. "geom.mesh", can be added without an ABI change).
 inline bool IsFeatureSupported(std::string_view feature_key) {
-  (void)feature_key;
-  // No features are natively supported yet. NC1+ adds keys here (or promotes
-  // this to a generated table sourced from native_supported.json).
+  // Header/config blocks (option/size/statistic/visual/compiler) and the
+  // default-class machinery. These carry no per-element geometry; their authored
+  // overrides are applied in the fill/finalize stages.
+  if (feature_key == "compiler" || feature_key == "option" ||
+      feature_key == "flag" || feature_key == "size" ||
+      feature_key == "statistic" || feature_key == "visual" ||
+      feature_key == "global" || feature_key == "quality" ||
+      feature_key == "headlight" || feature_key == "map" ||
+      feature_key == "scale" || feature_key == "rgba" ||
+      feature_key == "default") {
+    return true;
+  }
+  // Rigid-body tree families landed so far in NC1. Note: "geom" here admits the
+  // family; a geom that references a mesh/hfield/material or is of mesh/sdf type
+  // is rejected by the finer scan in CollectUnsupportedFeatures (native.cc).
+  if (feature_key == "body" || feature_key == "inertial" ||
+      feature_key == "geom" || feature_key == "joint" ||
+      feature_key == "freejoint") {
+    return true;
+  }
   return false;
 }
 

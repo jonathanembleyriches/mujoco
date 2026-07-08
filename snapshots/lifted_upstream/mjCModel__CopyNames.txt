@@ -1,0 +1,81 @@
+void mjCModel::CopyNames(mjModel* m) {
+  // start with model name
+  int adr = (int)modelname_.size()+1;
+  int* map_adr = m->names_map;
+  mju_strncpy(m->names, modelname_.c_str(), m->nnames);
+  memset(m->names_map, -1, sizeof(int) * m->nnames_map);
+
+  // process all lists
+  adr = namelist(bodies_, adr, m->name_bodyadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*bodies_.size();
+
+  adr = namelist(joints_, adr, m->name_jntadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*joints_.size();
+
+  adr = namelist(geoms_, adr, m->name_geomadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*geoms_.size();
+
+  adr = namelist(sites_, adr, m->name_siteadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*sites_.size();
+
+  adr = namelist(cameras_, adr, m->name_camadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*cameras_.size();
+
+  adr = namelist(lights_, adr, m->name_lightadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*lights_.size();
+
+  adr = namelist(flexes_, adr, m->name_flexadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*flexes_.size();
+
+  adr = namelist(meshes_, adr, m->name_meshadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*meshes_.size();
+
+  adr = namelist(skins_, adr, m->name_skinadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*skins_.size();
+
+  adr = namelist(hfields_, adr, m->name_hfieldadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*hfields_.size();
+
+  adr = namelist(textures_, adr, m->name_texadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*textures_.size();
+
+  adr = namelist(materials_, adr, m->name_matadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*materials_.size();
+
+  adr = namelist(pairs_, adr, m->name_pairadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*pairs_.size();
+
+  adr = namelist(excludes_, adr, m->name_excludeadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*excludes_.size();
+
+  adr = namelist(equalities_, adr, m->name_eqadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*equalities_.size();
+
+  adr = namelist(tendons_, adr, m->name_tendonadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*tendons_.size();
+
+  adr = namelist(actuators_, adr, m->name_actuatoradr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*actuators_.size();
+
+  adr = namelist(sensors_, adr, m->name_sensoradr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*sensors_.size();
+
+  adr = namelist(numerics_, adr, m->name_numericadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*numerics_.size();
+
+  adr = namelist(texts_, adr, m->name_textadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*texts_.size();
+
+  adr = namelist(tuples_, adr, m->name_tupleadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*tuples_.size();
+
+  adr = namelist(keys_, adr, m->name_keyadr, m->names, map_adr);
+  map_adr += mjLOAD_MULTIPLE*keys_.size();
+
+  adr = namelist(plugins_, adr, m->name_pluginadr, m->names, map_adr);
+
+  // check size, SHOULD NOT OCCUR
+  if (adr != nnames) {
+    throw mjCError(0, "size mismatch in %s: expected %d, got %d", "names", nnames, adr);
+  }
+}

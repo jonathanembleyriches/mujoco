@@ -24,6 +24,7 @@
 #include "make_model.h"
 #include "mjcf.h"
 #include "mjuu_util.h"
+#include "model_diff_lib.h"
 #include "native.h"
 #include "types.h"
 #include "visit.h"
@@ -67,6 +68,19 @@ static const char* kPendulum =
     "        <joint name='j2' type='hinge' axis='0 1 0'/>\n"
     "        <geom name='g2' type='sphere' size='0.05'/>\n"
     "      </body>\n"
+    "    </body>\n"
+    "  </worldbody>\n"
+    "</mujoco>\n";
+
+// A model whose <site> is outside the NC1 native slice: the gate routes the
+// whole model to the XML fallback.
+static const char* kUnsupported =
+    "<mujoco>\n"
+    "  <worldbody>\n"
+    "    <body name='b1' pos='0 0 1'>\n"
+    "      <joint name='j1' type='hinge' axis='0 1 0'/>\n"
+    "      <geom name='g1' type='sphere' size='0.05'/>\n"
+    "      <site name='s1' pos='0 0 0'/>\n"
     "    </body>\n"
     "  </worldbody>\n"
     "</mujoco>\n";
@@ -118,22 +132,20 @@ static void TestNativePurity() {
   CHECK(before == after);    // serial + loc unchanged
 }
 
-// T0.4: forced NativePath reports UnsupportedNatively with a non-empty feature
-// list; the gate names the families the model uses.
+// Forced NativePath on an out-of-slice model reports UnsupportedNatively with a
+// non-empty feature list naming the offending family ("site").
 static void TestGateUnsupported() {
-  auto model = ParseOrDie(kPendulum);
+  auto model = ParseOrDie(kUnsupported);
   if (!model) return;
 
   auto reasons = compile::CollectUnsupportedFeatures(*model);
   CHECK(!reasons.empty());
-  bool saw_body = false, saw_geom = false, saw_joint = false;
+  bool saw_site = false;
   for (const auto& r : reasons) {
-    if (r.feature == "body") saw_body = true;
-    if (r.feature == "geom") saw_geom = true;
-    if (r.feature == "joint") saw_joint = true;
+    if (r.feature == "site") saw_site = true;
     CHECK(r.count > 0);
   }
-  CHECK(saw_body && saw_geom && saw_joint);
+  CHECK(saw_site);
 
   CompileOptions native;
   native.path = CompilePath::NativePath;
@@ -149,10 +161,17 @@ static void TestGateUnsupported() {
   CHECK(mentions);
 }
 
-// T0.4: Auto falls back LOUDLY -- succeeds via XML but carries the native
-// fallback reasons, and taken == XmlPath.
-static void TestAutoLoudFallback() {
+// An in-slice model uses no unsupported feature -- the gate admits it whole.
+static void TestGateAdmitsRigidBody() {
   auto model = ParseOrDie(kPendulum);
+  if (!model) return;
+  CHECK(compile::CollectUnsupportedFeatures(*model).empty());
+}
+
+// Auto on an out-of-slice model falls back LOUDLY: succeeds via XML but carries
+// the native fallback reasons, and taken == XmlPath.
+static void TestAutoLoudFallback() {
+  auto model = ParseOrDie(kUnsupported);
   if (!model) return;
   Compiled c = Compile(*model);  // Auto
   CHECK(c.ok());
@@ -161,7 +180,19 @@ static void TestAutoLoudFallback() {
   CHECK(!c.report.fallback_reasons.empty());   // the fallback is not silent
 }
 
-// T0.4: report shape stability -- ok() == errors.empty(), requested recorded.
+// Auto on an in-slice model takes the native path with no fallback reasons.
+static void TestAutoNativePath() {
+  auto model = ParseOrDie(kPendulum);
+  if (!model) return;
+  Compiled c = Compile(*model);  // Auto
+  CHECK(c.ok());
+  CHECK(c.model != nullptr);
+  CHECK(c.report.taken == CompilePath::NativePath);
+  CHECK(c.report.fallback_reasons.empty());
+}
+
+// Report shape stability -- ok() == errors.empty(), requested recorded. The
+// in-slice model now compiles natively (ok()).
 static void TestReportShape() {
   auto model = ParseOrDie(kPendulum);
   if (!model) return;
@@ -170,7 +201,7 @@ static void TestReportShape() {
   Compiled c = Compile(*model, native);
   CHECK(c.report.requested == CompilePath::NativePath);
   CHECK(c.report.ok() == c.report.errors.empty());
-  CHECK(!c.report.ok());  // native fails today
+  CHECK(c.report.ok());  // NC1: the rigid-body slice compiles natively
 }
 
 // T0.5: allocator spike. Build a plausible sizes header, allocate via the
@@ -252,11 +283,76 @@ static void TestMjuuSmoke() {
   CHECK(Near(u[0], 0.6) && Near(u[1], 0.0) && Near(u[2], 0.8));
 }
 
+// NC1: a native compile is bit-identical to the XML oracle over the rigid-body
+// slice -- from-scratch fixtures exercising orientation forms, primitive geoms,
+// inertia inference, all joint types, and nested trees. Uses the harness's
+// mjModel comparison (model_diff_lib), the same one ps_native_diff runs.
+static void CheckBitIdentical(const char* label, const char* xml) {
+  auto model = ParseOrDie(xml);
+  if (!model) { CHECK(false); return; }
+  CompileOptions native;
+  native.path = CompilePath::NativePath;
+  Compiled nat = Compile(*model, native);
+  Compiled xmlc = Compile(*model, [] {
+    CompileOptions o;
+    o.path = CompilePath::XmlPath;
+    return o;
+  }());
+  CHECK(nat.ok() && nat.model);
+  CHECK(xmlc.ok() && xmlc.model);
+  if (!nat.model || !xmlc.model) return;
+  ps::harness::Tol tol;
+  std::string err;
+  ps::harness::DiffReport rep =
+      ps::harness::DiffModels(xmlc.model.get(), nat.model.get(), tol, 4, err);
+  if (!err.empty() || rep.Differs()) {
+    std::printf("FAIL bit-identity [%s]: %s\n", label,
+                rep.FirstDivergence().c_str());
+    ++g_failed;
+  }
+  ++g_checks;
+}
+
+static void TestNc1BitIdentical() {
+  CheckBitIdentical("empty", "<mujoco><worldbody/></mujoco>");
+  CheckBitIdentical("pendulum", kPendulum);
+  CheckBitIdentical(
+      "euler",
+      "<mujoco><worldbody><body pos='1 -0.5 0' euler='10 20 30'>"
+      "<geom type='box' size='0.15 0.2 0.25' pos='0.1 0.2 0.3' euler='10 20 30'/>"
+      "</body></worldbody></mujoco>");
+  CheckBitIdentical(
+      "primitives",
+      "<mujoco><worldbody>"
+      "<geom type='plane' size='1 1 0.1'/>"
+      "<body pos='0 0 1'><geom type='sphere' size='0.2'/>"
+      "<geom type='capsule' fromto='0 0 0 0 0 0.5' size='0.05'/>"
+      "<geom type='cylinder' size='0.05 0.2'/>"
+      "<geom type='ellipsoid' size='0.1 0.15 0.2'/></body>"
+      "</worldbody></mujoco>");
+  CheckBitIdentical(
+      "joints",
+      "<mujoco><worldbody>"
+      "<body pos='0 0 1'><freejoint/><geom type='box' size='0.1 0.1 0.1'/>"
+      "<body pos='0.3 0 0'><joint type='ball'/><geom type='sphere' size='0.05'/>"
+      "<body pos='0.2 0 0'><joint type='slide' axis='1 0 0' range='-0.1 0.1'/>"
+      "<geom type='sphere' size='0.04'/></body></body></body>"
+      "</worldbody></mujoco>");
+  CheckBitIdentical(
+      "fullinertia",
+      "<mujoco><worldbody><body pos='0 0 1'>"
+      "<inertial pos='0 0 0' mass='1' fullinertia='0.3 0.3 0.3 0.01 0.01 0.01'/>"
+      "<joint type='hinge' axis='0 1 0'/></body></worldbody></mujoco>");
+}
+
 int main() {
   TestNativePurity();
   TestGateUnsupported();
+  TestGateAdmitsRigidBody();
   TestAutoLoudFallback();
+  TestAutoNativePath();
   TestReportShape();
+  TestNc1BitIdentical();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

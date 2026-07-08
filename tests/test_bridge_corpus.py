@@ -245,7 +245,11 @@ def test_bridge_compiles_corpus(model: Path):
     verdict = json.loads(proc.stdout)
     assert verdict["ok"] is True, f"compile not ok: {verdict['errors']}"
     assert not verdict["errors"], verdict["errors"]
-    assert verdict["path_taken"] == "xml"
+    # Auto compiles natively where the NC1 slice admits the model and falls back
+    # to XML otherwise; either path is a valid compile (native bit-identity is
+    # arbitrated separately by test_native_differential.py). The Binding
+    # cross-check below holds regardless of path.
+    assert verdict["path_taken"] in ("xml", "native")
 
     # id cross-check must hold for every bound element.
     assert verdict["id_crosscheck_ok"] is True, "mj_id2name(id) != bound name"

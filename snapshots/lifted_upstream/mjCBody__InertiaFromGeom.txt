@@ -1,0 +1,70 @@
+void mjCBody::InertiaFromGeom(void) {
+  int sz;
+  double com[3] = {0, 0, 0};
+  double toti[6] = {0, 0, 0, 0, 0, 0};
+  std::vector<mjCGeom*> sel;
+
+  // select geoms based on group, ignore tiny masses
+  sel.clear();
+  for (int i=0; i < geoms.size(); i++) {
+    if (geoms[i]->group >= compiler->inertiagrouprange[0] &&
+        geoms[i]->group <= compiler->inertiagrouprange[1] &&
+        geoms[i]->mass_ > mjEPS) {
+      sel.push_back(geoms[i]);
+    }
+  }
+  sz = sel.size();
+
+  // single geom: copy
+  if (sz == 1) {
+    mjuu_copyvec(ipos, sel[0]->pos, 3);
+    mjuu_copyvec(iquat, sel[0]->quat, 4);
+    mass = sel[0]->mass_;
+    mjuu_copyvec(inertia, sel[0]->inertia, 3);
+  }
+
+  // multiple geoms
+  else if (sz > 1) {
+    // compute total mass and center of mass
+    mass = 0;
+    for (int i=0; i < sz; i++) {
+      mass += sel[i]->mass_;
+      com[0] += sel[i]->mass_ * sel[i]->pos[0];
+      com[1] += sel[i]->mass_ * sel[i]->pos[1];
+      com[2] += sel[i]->mass_ * sel[i]->pos[2];
+    }
+
+    // check for small mass
+    if (mass < mjEPS) {
+      throw mjCError(this, "body mass is too small, cannot compute center of mass");
+    }
+
+    // ipos = geom com
+    ipos[0] = com[0]/mass;
+    ipos[1] = com[1]/mass;
+    ipos[2] = com[2]/mass;
+
+    // add geom inertias
+    for (int i=0; i < sz; i++) {
+      double inert0[6], inert1[6];
+      double dpos[3] = {
+        sel[i]->pos[0] - ipos[0],
+        sel[i]->pos[1] - ipos[1],
+        sel[i]->pos[2] - ipos[2]
+      };
+
+      mjuu_globalinertia(inert0, sel[i]->inertia, sel[i]->quat);
+      mjuu_offcenter(inert1, sel[i]->mass_, dpos);
+      for (int j=0; j < 6; j++) {
+        toti[j] = toti[j] + inert0[j] + inert1[j];
+      }
+    }
+
+    // compute principal axes of inertia
+    mjuu_copyvec(fullinertia, toti, 6);
+    const char* errq = mjuu_fullInertia(iquat, inertia, fullinertia);
+    if (errq) {
+      throw mjCError(this, "error '%s' in alternative for principal axes", errq);
+    }
+  }
+}

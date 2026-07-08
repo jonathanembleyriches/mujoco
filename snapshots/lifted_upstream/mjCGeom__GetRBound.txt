@@ -1,0 +1,37 @@
+double mjCGeom::GetRBound(void) {
+  const double *aamm, *hsize;
+  double haabb[3] = {0};
+
+  switch (type) {
+    case mjGEOM_HFIELD:
+      hsize = hfield->size;
+      return sqrt(hsize[0]*hsize[0] + hsize[1]*hsize[1] +
+                  std::max(hsize[2]*hsize[2], hsize[3]*hsize[3]));
+
+    case mjGEOM_SPHERE:
+      return size[0];
+
+    case mjGEOM_CAPSULE:
+      return size[0]+size[1];
+
+    case mjGEOM_CYLINDER:
+      return sqrt(size[0]*size[0]+size[1]*size[1]);
+
+    case mjGEOM_ELLIPSOID:
+      return std::max(std::max(size[0], size[1]), size[2]);
+
+    case mjGEOM_BOX:
+      return sqrt(size[0]*size[0]+size[1]*size[1]+size[2]*size[2]);
+
+    case mjGEOM_MESH:
+    case mjGEOM_SDF:
+      aamm = mesh->aamm();
+      haabb[0] = std::max(std::abs(aamm[0]), std::abs(aamm[3]));
+      haabb[1] = std::max(std::abs(aamm[1]), std::abs(aamm[4]));
+      haabb[2] = std::max(std::abs(aamm[2]), std::abs(aamm[5]));
+      return sqrt(haabb[0]*haabb[0] + haabb[1]*haabb[1] + haabb[2]*haabb[2]);
+
+    default:
+      return 0;
+  }
+}

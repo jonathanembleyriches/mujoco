@@ -1,0 +1,6 @@
+static bool islimited(int limited, const double range[2]) {
+  if (limited == mjLIMITED_TRUE || (limited == mjLIMITED_AUTO && range[0] < range[1])) {
+    return true;
+  }
+  return false;
+}

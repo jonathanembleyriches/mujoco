@@ -1,0 +1,424 @@
+void mjCModel::CopyTree(mjModel* m) {
+  const mjtNum* nullnum = nullptr;
+
+  int jntadr = 0;         // addresses in global arrays
+  int dofadr = 0;
+  int qposadr = 0;
+  int bvh_adr = 0;
+
+  // main loop over bodies
+  for (int i=0; i < nbody; i++) {
+    // get body and parent pointers
+    mjCBody* pb = bodies_[i];
+    mjCBody* par = pb->parent;
+
+    // set body fields
+    m->body_parentid[i] = pb->parent ? pb->parent->id : 0;
+    m->body_weldid[i] = pb->weldid;
+    m->body_mocapid[i] = pb->mocapid;
+    m->body_jntnum[i] = (int)pb->joints.size();
+    m->body_jntadr[i] = (!pb->joints.empty() ? jntadr : -1);
+    m->body_dofnum[i] = pb->dofnum;
+    m->body_dofadr[i] = (pb->dofnum ? dofadr : -1);
+    m->body_geomnum[i] = (int)pb->geoms.size();
+    m->body_geomadr[i] = (!pb->geoms.empty() ? pb->geoms[0]->id : -1);
+    mjuu_copyvec(m->body_pos+3*i, pb->pos, 3);
+    mjuu_copyvec(m->body_quat+4*i, pb->quat, 4);
+    mjuu_copyvec(m->body_ipos+3*i, pb->ipos, 3);
+    mjuu_copyvec(m->body_iquat+4*i, pb->iquat, 4);
+    m->body_mass[i] = (mjtNum)pb->mass;
+    mjuu_copyvec(m->body_inertia+3*i, pb->inertia, 3);
+    m->body_gravcomp[i] = pb->gravcomp;
+    mjuu_copyvec(m->body_user+nuser_body*i, pb->get_userdata().data(), nuser_body);
+
+    m->body_contype[i] = pb->contype;
+    m->body_conaffinity[i] = pb->conaffinity;
+    m->body_margin[i] = (mjtNum)pb->margin;
+
+    // bounding volume hierarchy
+    m->body_bvhadr[i] = pb->tree.Nbvh() ? bvh_adr : -1;
+    m->body_bvhnum[i] = pb->tree.Nbvh();
+    if (pb->tree.Nbvh()) {
+      memcpy(m->bvh_aabb + 6*bvh_adr, pb->tree.Bvh().data(), 6*pb->tree.Nbvh()*sizeof(mjtNum));
+      memcpy(m->bvh_child + 2*bvh_adr, pb->tree.Child().data(), 2*pb->tree.Nbvh()*sizeof(int));
+      memcpy(m->bvh_depth + bvh_adr, pb->tree.Level().data(), pb->tree.Nbvh()*sizeof(int));
+      for (int i=0; i < pb->tree.Nbvh(); i++) {
+        m->bvh_nodeid[i + bvh_adr] = pb->tree.Nodeidptr(i) ? *(pb->tree.Nodeidptr(i)) : -1;
+      }
+    }
+    bvh_adr += pb->tree.Nbvh();
+
+    // count free joints
+    int cntfree = 0;
+    for (int j=0; j < (int)pb->joints.size(); j++) {
+      cntfree += (pb->joints[j]->type == mjJNT_FREE);
+    }
+
+    // check validity of free joint
+    if (cntfree > 1 || (cntfree == 1 && pb->joints.size() > 1)) {
+      throw mjCError(pb, "free joint can only appear by itself");
+    }
+    if (cntfree && par && par->name != "world") {
+      throw mjCError(pb, "free joint can only be used on top level");
+    }
+
+    // rootid: self if world or child of world, otherwise parent's rootid
+    if (i == 0 || (par && par->name == "world")) {
+      m->body_rootid[i] = i;
+    } else {
+      m->body_rootid[i] = m->body_rootid[par->id];
+    }
+
+    // init lastdof from parent
+    pb->lastdof = par ? par->lastdof : -1;
+
+    // set sameframe
+    mjtSameFrame sameframe;
+    if (IsNullPose(m->body_ipos+3*i, m->body_iquat+4*i)) {
+      sameframe = mjSAMEFRAME_BODY;
+    } else if (IsNullPose(nullnum, m->body_iquat+4*i)) {
+      sameframe = mjSAMEFRAME_BODYROT;
+    } else {
+      sameframe = mjSAMEFRAME_NONE;
+    }
+    m->body_sameframe[i] = sameframe;
+
+    // init simple: sameframe, and (self-root, or parent is fixed child of world)
+    int parentid = m->body_parentid[i];
+    m->body_simple[i] = (sameframe == mjSAMEFRAME_BODY &&
+                         (m->body_rootid[i] == i ||
+                          (m->body_parentid[parentid] == 0 &&
+                           m->body_dofnum[parentid] == 0)));
+
+    // a parent body is never simple (unless world)
+    if (m->body_parentid[i] > 0) {
+      m->body_simple[m->body_parentid[i]] = 0;
+    }
+
+    // loop over joints for this body
+    int rotfound = 0;
+    for (int j=0; j < (int)pb->joints.size(); j++) {
+      // get pointer and id
+      mjCJoint* pj = pb->joints[j];
+      int jid = pj->id;
+
+      // set joint fields
+      m->jnt_type[jid] = pj->type;
+      m->jnt_group[jid] = pj->group;
+      m->jnt_limited[jid] = (mjtBool)pj->is_limited();
+      m->jnt_actfrclimited[jid] = (mjtBool)pj->is_actfrclimited();
+      m->jnt_actgravcomp[jid] = pj->actgravcomp;
+      m->jnt_qposadr[jid] = pj->qposadr_;
+      m->jnt_dofadr[jid] = pj->dofadr_;
+      m->jnt_bodyid[jid] = pj->body->id;
+      mjuu_copyvec(m->jnt_pos+3*jid, pj->pos, 3);
+      mjuu_copyvec(m->jnt_axis+3*jid, pj->axis, 3);
+      m->jnt_stiffness[jid] = (mjtNum)pj->stiffness[0];
+      mjuu_copyvec(m->jnt_stiffnesspoly + mjNPOLY * jid, pj->stiffness + 1, mjNPOLY);
+      mjuu_copyvec(m->jnt_range+2*jid, pj->range, 2);
+      mjuu_copyvec(m->jnt_actfrcrange+2*jid, pj->actfrcrange, 2);
+      mjuu_copyvec(m->jnt_solref+mjNREF*jid, pj->solref_limit, mjNREF);
+      mjuu_copyvec(m->jnt_solimp+mjNIMP*jid, pj->solimp_limit, mjNIMP);
+      m->jnt_margin[jid] = (mjtNum)pj->margin;
+      mjuu_copyvec(m->jnt_user+nuser_jnt*jid, pj->get_userdata().data(), nuser_jnt);
+
+      // not simple if: rotation already found, or pos not zero, or mis-aligned axis
+      bool axis_aligned = ((std::abs(pj->axis[0]) > mjEPS) +
+                           (std::abs(pj->axis[1]) > mjEPS) +
+                           (std::abs(pj->axis[2]) > mjEPS)) == 1;
+      if (rotfound || !IsNullPose(m->jnt_pos+3*jid, nullnum) ||
+          ((pj->type == mjJNT_HINGE || pj->type == mjJNT_SLIDE) && !axis_aligned)) {
+        m->body_simple[i] = 0;
+      }
+
+      // mark rotation
+      if (pj->type == mjJNT_BALL || pj->type == mjJNT_HINGE) {
+        rotfound = 1;
+      }
+
+      // set qpos0 and qpos_spring, check type
+      switch (pj->type) {
+        case mjJNT_FREE:
+          mjuu_copyvec(m->qpos0+qposadr, pb->pos, 3);
+          mjuu_copyvec(m->qpos0+qposadr+3, pb->quat, 4);
+          mjuu_copyvec(m->qpos_spring+qposadr, m->qpos0+qposadr, 7);
+          break;
+
+        case mjJNT_BALL:
+          m->qpos0[qposadr] = 1;
+          m->qpos0[qposadr+1] = 0;
+          m->qpos0[qposadr+2] = 0;
+          m->qpos0[qposadr+3] = 0;
+          mjuu_copyvec(m->qpos_spring+qposadr, m->qpos0+qposadr, 4);
+          break;
+
+        case mjJNT_SLIDE:
+        case mjJNT_HINGE:
+          m->qpos0[qposadr] = (mjtNum)pj->ref;
+          m->qpos_spring[qposadr] = (mjtNum)pj->springref;
+          break;
+
+        default:
+          throw mjCError(pj, "unknown joint type");
+      }
+
+      // set dof fields for this joint
+      for (int j1=0; j1 < pj->nv(); j1++) {
+        // set attributes
+        m->dof_bodyid[dofadr] = pb->id;
+        m->dof_jntid[dofadr] = jid;
+        mjuu_copyvec(m->dof_solref+mjNREF*dofadr, pj->solref_friction, mjNREF);
+        mjuu_copyvec(m->dof_solimp+mjNIMP*dofadr, pj->solimp_friction, mjNIMP);
+        m->dof_frictionloss[dofadr] = (mjtNum)pj->frictionloss;
+        m->dof_armature[dofadr] = (mjtNum)pj->armature;
+        m->dof_damping[dofadr] = (mjtNum)pj->damping[0];
+        mjuu_copyvec(m->dof_dampingpoly + mjNPOLY * dofadr, pj->damping + 1,
+                     mjNPOLY);
+
+        // set dof_parentid, update body.lastdof
+        m->dof_parentid[dofadr] = pb->lastdof;
+        pb->lastdof = dofadr;
+
+        // advance dof counter
+        dofadr++;
+      }
+
+      // advance joint and qpos counters
+      jntadr++;
+      qposadr += pj->nq();
+    }
+
+    // simple body with sliders and no rotational dofs: promote to simple level 2
+    if (m->body_simple[i] && m->body_dofnum[i]) {
+      m->body_simple[i] = 2;
+      for (int j=0; j < (int)pb->joints.size(); j++) {
+        if (pb->joints[j]->type != mjJNT_SLIDE) {
+          m->body_simple[i] = 1;
+          break;
+        }
+      }
+    }
+
+    // loop over geoms for this body
+    for (int j=0; j < (int)pb->geoms.size(); j++) {
+      // get pointer and id
+      mjCGeom* pg = pb->geoms[j];
+      int gid = pg->id;
+
+      // set geom fields
+      m->geom_type[gid] = pg->type;
+      m->geom_contype[gid] = pg->contype;
+      m->geom_conaffinity[gid] = pg->conaffinity;
+      m->geom_condim[gid] = pg->condim;
+      m->geom_bodyid[gid] = pg->body->id;
+      if (pg->mesh) {
+        m->geom_dataid[gid] = pg->mesh->id;
+      } else if (pg->hfield) {
+        m->geom_dataid[gid] = pg->hfield->id;
+      } else {
+        m->geom_dataid[gid] = -1;
+      }
+      m->geom_matid[gid] = pg->matid;
+      m->geom_group[gid] = pg->group;
+      m->geom_priority[gid] = pg->priority;
+      mjuu_copyvec(m->geom_size+3*gid, pg->size, 3);
+      mjuu_copyvec(m->geom_aabb+6*gid, pg->aabb, 6);
+      mjuu_copyvec(m->geom_pos+3*gid, pg->pos, 3);
+      mjuu_copyvec(m->geom_quat+4*gid, pg->quat, 4);
+      mjuu_copyvec(m->geom_friction+3*gid, pg->friction, 3);
+      m->geom_solmix[gid] = (mjtNum)pg->solmix;
+      mjuu_copyvec(m->geom_solref+mjNREF*gid, pg->solref, mjNREF);
+      mjuu_copyvec(m->geom_solimp+mjNIMP*gid, pg->solimp, mjNIMP);
+      m->geom_margin[gid] = (mjtNum)pg->margin;
+      m->geom_gap[gid] = (mjtNum)pg->gap;
+      mjuu_copyvec(m->geom_fluid+mjNFLUID*gid, pg->fluid, mjNFLUID);
+      mjuu_copyvec(m->geom_user+nuser_geom*gid, pg->get_userdata().data(), nuser_geom);
+      mjuu_copyvec(m->geom_rgba+4*gid, pg->rgba, 4);
+
+      // determine sameframe
+      const double* nulldouble = nullptr;
+      if (IsNullPose(m->geom_pos+3*gid, m->geom_quat+4*gid)) {
+        sameframe = mjSAMEFRAME_BODY;
+      } else if (IsNullPose(nullnum, m->geom_quat+4*gid)) {
+        sameframe = mjSAMEFRAME_BODYROT;
+      } else if (IsSamePose(pg->pos, pb->ipos, pg->quat, pb->iquat)) {
+        sameframe = mjSAMEFRAME_INERTIA;
+      } else if (IsSamePose(nulldouble, nulldouble, pg->quat, pb->iquat)) {
+        sameframe = mjSAMEFRAME_INERTIAROT;
+      } else {
+        sameframe = mjSAMEFRAME_NONE;
+      }
+      m->geom_sameframe[gid] = sameframe;
+
+      // compute rbound
+      m->geom_rbound[gid] = (mjtNum)pg->GetRBound();
+    }
+
+    // loop over sites for this body
+    for (int j=0; j < (int)pb->sites.size(); j++) {
+      // get pointer and id
+      mjCSite* ps = pb->sites[j];
+      int sid = ps->id;
+
+      // set site fields
+      m->site_type[sid] = ps->type;
+      m->site_bodyid[sid] = ps->body->id;
+      m->site_matid[sid] = ps->matid;
+      m->site_group[sid] = ps->group;
+      mjuu_copyvec(m->site_size+3*sid, ps->size, 3);
+      mjuu_copyvec(m->site_pos+3*sid, ps->pos, 3);
+      mjuu_copyvec(m->site_quat+4*sid, ps->quat, 4);
+      mjuu_copyvec(m->site_user+nuser_site*sid, ps->userdata_.data(), nuser_site);
+      mjuu_copyvec(m->site_rgba+4*sid, ps->rgba, 4);
+
+      // determine sameframe
+      const double* nulldouble = nullptr;
+      if (IsNullPose(m->site_pos+3*sid, m->site_quat+4*sid)) {
+        sameframe = mjSAMEFRAME_BODY;
+      } else if (IsNullPose(nullnum, m->site_quat+4*sid)) {
+        sameframe = mjSAMEFRAME_BODYROT;
+      } else if (IsSamePose(ps->pos, pb->ipos, ps->quat, pb->iquat)) {
+        sameframe = mjSAMEFRAME_INERTIA;
+      } else if (IsSamePose(nulldouble, nulldouble, ps->quat, pb->iquat)) {
+        sameframe = mjSAMEFRAME_INERTIAROT;
+      } else {
+        sameframe = mjSAMEFRAME_NONE;
+      }
+      m->site_sameframe[sid] = sameframe;
+    }
+
+    // loop over cameras for this body
+    for (int j=0; j < (int)pb->cameras.size(); j++) {
+      // get pointer and id
+      mjCCamera* pc = pb->cameras[j];
+      int cid = pc->id;
+
+      // set camera fields
+      m->cam_bodyid[cid] = pc->body->id;
+      m->cam_mode[cid] = pc->mode;
+      m->cam_targetbodyid[cid] = pc->targetbodyid;
+      mjuu_copyvec(m->cam_pos+3*cid, pc->pos, 3);
+      mjuu_copyvec(m->cam_quat+4*cid, pc->quat, 4);
+      m->cam_projection[cid] = pc->proj;
+      m->cam_fovy[cid] = (mjtNum)pc->fovy;
+      m->cam_ipd[cid] = (mjtNum)pc->ipd;
+      mjuu_copyvec(m->cam_resolution+2*cid, pc->resolution, 2);
+      m->cam_output[cid] = pc->output;
+      mjuu_copyvec(m->cam_sensorsize+2*cid, pc->sensor_size, 2);
+      mjuu_copyvec(m->cam_intrinsic+4*cid, pc->intrinsic, 4);
+      mjuu_copyvec(m->cam_user+nuser_cam*cid, pc->get_userdata().data(), nuser_cam);
+    }
+
+    // loop over lights for this body
+    for (int j=0; j < (int)pb->lights.size(); j++) {
+      // get pointer and id
+      mjCLight* pl = pb->lights[j];
+      int lid = pl->id;
+
+      // set light fields
+      m->light_bodyid[lid] = pl->body->id;
+      m->light_mode[lid] = (int)pl->mode;
+      m->light_targetbodyid[lid] = pl->targetbodyid;
+      m->light_type[lid] = pl->type;
+      m->light_texid[lid] = pl->texid;
+      m->light_castshadow[lid] = (mjtBool)pl->castshadow;
+      m->light_active[lid] = (mjtBool)pl->active;
+      mjuu_copyvec(m->light_pos+3*lid, pl->pos, 3);
+      mjuu_copyvec(m->light_dir+3*lid, pl->dir, 3);
+      m->light_bulbradius[lid] = pl->bulbradius;
+      m->light_intensity[lid] = pl->intensity;
+      m->light_range[lid] = pl->range;
+      mjuu_copyvec(m->light_attenuation+3*lid, pl->attenuation, 3);
+      m->light_cutoff[lid] = pl->cutoff;
+      m->light_exponent[lid] = pl->exponent;
+      mjuu_copyvec(m->light_ambient+3*lid, pl->ambient, 3);
+      mjuu_copyvec(m->light_diffuse+3*lid, pl->diffuse, 3);
+      mjuu_copyvec(m->light_specular+3*lid, pl->specular, 3);
+    }
+  }
+
+  // check number of dof's constructed, SHOULD NOT OCCUR
+  if (nv != dofadr) {
+    throw mjCError(0, "unexpected number of DOFs");
+  }
+
+  // count kinematic trees under world body, compute dof_treeid
+  int ntree = 0;
+  for (int i=0; i < nv; i++) {
+    if (m->dof_parentid[i] == -1) {
+      ntree++;
+    }
+    m->dof_treeid[i] = ntree - 1;
+  }
+
+  // check number of trees constructed, SHOULD NOT OCCUR
+  if (ntree != m->ntree) {
+    throw mjCError(0, "unexpected number of TREEs. Counted %d, expected %d",
+                   nullptr, ntree, m->ntree);
+  }
+
+  // compute body_treeid
+  for (int i=0; i < nbody; i++) {
+    int weldid = m->body_weldid[i];
+    if (m->body_dofnum[weldid]) {
+      m->body_treeid[i] = m->dof_treeid[m->body_dofadr[weldid]];
+    } else {
+      m->body_treeid[i] = -1;
+    }
+  }
+
+  // initialize AUTO sleep policy for all trees
+  for (int i=0; i < m->ntree; i++) {
+    m->tree_sleep_policy[i] = mjSLEEP_AUTO;
+  }
+
+  // loop over bodies, check and set non-default sleep policy
+  for (int i=1; i < nbody; i++) {
+    mjCBody* pb = bodies_[i];
+
+    // validate and set non-default sleep policy
+    if (pb->sleep != mjSLEEP_AUTO) {
+      int treeid = m->body_treeid[i];
+      // non-default sleep policy only allowed for first body in a tree
+      if (treeid == -1 || treeid == m->body_treeid[i-1]) {
+        throw mjCError(pb, "sleep policy only allowed for movable root bodies");
+      }
+      m->tree_sleep_policy[treeid] = pb->sleep;
+    }
+  }
+
+  // recompute nM and dof_Madr given m.dof_parentid, validate
+  int nM_post = 0;
+  for (int i=0; i < nv; i++) {
+    // set address of this dof
+    m->dof_Madr[i] = nM_post;
+
+    // count ancestor dofs including self
+    int j = i;
+    while (j >= 0) {
+      nM_post++;
+      j = m->dof_parentid[j];
+    }
+  }
+  if (nM_post != nM) throw mjCError(0, "nM mismatch: pre %d, post %d", nullptr, nM, nM_post);
+
+  // recompute nD, validate
+  int nD_post = 2 * m->nM - nv;
+  if (nD_post != nD) throw mjCError(0, "nD mismatch: pre %d, post %d", nullptr, nD, nD_post);
+
+  // bodies_[]->subtreedofs already computed in ComputeSparseSizes
+
+  // recompute nB given {body->subtreedofs, body->dofnum, body->parent}, validate
+  int nB_post = 0;
+  for (int i = 0; i < nbody; i++) {
+    // add subtree dofs (including self)
+    nB_post += bodies_[i]->subtreedofs;
+    // add dofs in ancestor bodies
+    int j = bodies_[i]->parent ? bodies_[i]->parent->id : 0;
+    while (j > 0) {
+      nB_post += bodies_[j]->dofnum;
+      j = bodies_[j]->parent ? bodies_[j]->parent->id : 0;
+    }
+  }
+  if (nB_post != nB) throw mjCError(0, "nB mismatch: pre %d, post %d", nullptr, nB, nB_post);
+}

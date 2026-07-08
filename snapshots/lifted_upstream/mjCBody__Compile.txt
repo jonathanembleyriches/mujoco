@@ -1,0 +1,226 @@
+void mjCBody::Compile(void) {
+  CopyFromSpec();
+
+  // compile all frames
+  for (int i=0; i < frames.size(); i++) {
+    frames[i]->Compile();
+  }
+
+  // resize userdata
+  if (userdata_.size() > model->nuser_body) {
+    throw mjCError(this, "user has more values than nuser_body in body");
+  }
+  userdata_.resize(model->nuser_body);
+
+  // normalize user-defined quaternions
+  mjuu_normvec(quat, 4);
+  mjuu_normvec(iquat, 4);
+
+  // set parentid and weldid of children
+  for (int i=0; i < bodies.size(); i++) {
+    bodies[i]->weldid = (!bodies[i]->joints.empty() ? bodies[i]->id : weldid);
+  }
+
+  // check and process orientation alternatives for body
+  if (alt.type != mjORIENTATION_QUAT) {
+    const char* err = ResolveOrientation(quat, compiler->degree, compiler->eulerseq, alt);
+    if (err) {
+      throw mjCError(this, "error '%s' in frame alternative", err);
+    }
+  }
+
+  // check orientation alternatives for inertia
+  if (mjuu_defined(fullinertia[0]) && ialt.type != mjORIENTATION_QUAT) {
+    throw mjCError(this, "fullinertia and inertial orientation cannot both be specified");
+  }
+  if (mjuu_defined(fullinertia[0]) && (inertia[0] || inertia[1] || inertia[2])) {
+    throw mjCError(this, "fullinertia and diagonal inertia cannot both be specified");
+  }
+
+  // process orientation alternatives for inertia
+  if (mjuu_defined(fullinertia[0])) {
+    const char* err = mjuu_fullInertia(iquat, inertia, this->fullinertia);
+    if (err) {
+      throw mjCError(this, "error '%s' in fullinertia", err);
+    }
+  }
+
+  if (ialt.type != mjORIENTATION_QUAT) {
+    const char* err = ResolveOrientation(iquat, compiler->degree, compiler->eulerseq, ialt);
+    if (err) {
+      throw mjCError(this, "error '%s' in inertia alternative", err);
+    }
+  }
+
+  // compile all geoms
+  for (int i=0; i < geoms.size(); i++) {
+    geoms[i]->inferinertia = id > 0 &&
+      (!explicitinertial || compiler->inertiafromgeom == mjINERTIAFROMGEOM_TRUE) &&
+      geoms[i]->spec.group >= compiler->inertiagrouprange[0] &&
+      geoms[i]->spec.group <= compiler->inertiagrouprange[1];
+    geoms[i]->Compile();
+  }
+
+  // set inertial frame from geoms if necessary
+  if (id > 0 && (compiler->inertiafromgeom == mjINERTIAFROMGEOM_TRUE ||
+                 (!mjuu_defined(ipos[0]) && compiler->inertiafromgeom == mjINERTIAFROMGEOM_AUTO))) {
+    InertiaFromGeom();
+  }
+
+  // ipos undefined: copy body frame into inertial
+  if (!mjuu_defined(ipos[0])) {
+    mjuu_copyvec(ipos, pos, 3);
+    mjuu_copyvec(iquat, quat, 4);
+  }
+
+  // check and correct mass and inertia
+  if (id > 0) {
+    // fix minimum
+    mass = std::max(mass, compiler->boundmass);
+    inertia[0] = std::max(inertia[0], compiler->boundinertia);
+    inertia[1] = std::max(inertia[1], compiler->boundinertia);
+    inertia[2] = std::max(inertia[2], compiler->boundinertia);
+
+    // check for negative values
+    if (mass < 0 || inertia[0] < 0 || inertia[1] < 0 ||inertia[2] < 0) {
+      throw mjCError(this, "mass and inertia cannot be negative");
+    }
+
+    // check for non-physical inertia
+    if (inertia[0] + inertia[1] < inertia[2] ||
+        inertia[0] + inertia[2] < inertia[1] ||
+        inertia[1] + inertia[2] < inertia[0]) {
+      if (compiler->balanceinertia) {
+        inertia[0] = inertia[1] = inertia[2] = (inertia[0] + inertia[1] + inertia[2])/3.0;
+      } else {
+        throw mjCError(this, "inertia must satisfy A + B >= C; use 'balanceinertia' to fix");
+      }
+    }
+  }
+
+  // frame
+  if (frame) {
+    mjuu_frameaccumChild(frame->pos, frame->quat, pos, quat);
+  }
+
+  // accumulate rbound, contype, conaffinity over geoms
+  contype = conaffinity = 0;
+  margin = 0;
+  for (int i=0; i < geoms.size(); i++) {
+    contype |= geoms[i]->contype;
+    conaffinity |= geoms[i]->conaffinity;
+    margin = std::max(margin, geoms[i]->margin);
+  }
+
+  // check conditions for free-joint alignment
+  bool align_free = (joints.size() == 1                  &&  // only one joint AND
+                     joints[0]->spec.type == mjJNT_FREE  &&  // it is a free joint AND
+                     bodies.empty()                      &&  // no child bodies AND
+                     (joints[0]->spec.align == 1 ||          // either joint.align="true"
+                      (joints[0]->spec.align == 2        &&  // or (joint.align="auto"
+                       compiler->alignfree)));               //     and compiler->align="true")
+
+  // free-joint alignment, phase 1 (this body + child geoms)
+  double ipos_inverse[3], iquat_inverse[4];
+  if (align_free) {
+    // accumulate iframe transformation to body frame
+    mjuu_frameaccum(pos, quat, ipos, iquat);
+
+    // compute inverse iframe transformation
+    mjuu_frameinvert(ipos_inverse, iquat_inverse, ipos, iquat);
+
+    // save iframe, set it to null
+    mjuu_setvec(ipos, 0, 0, 0);
+    mjuu_setvec(iquat, 1, 0, 0, 0);
+
+    // apply inverse iframe transformation to all child geoms
+    for (int i=0; i < geoms.size(); i++) {
+      mjuu_frameaccumChild(ipos_inverse, iquat_inverse, geoms[i]->pos, geoms[i]->quat);
+    }
+  }
+
+  // compute bounding volume hierarchy
+  ComputeBVH();
+
+  // compile all joints, count dofs
+  dofnum = 0;
+  for (int i=0; i < joints.size(); i++) {
+    dofnum += joints[i]->Compile();
+  }
+
+  // check for excessive number of dofs
+  if (dofnum > 6) {
+    throw mjCError(this, "more than 6 dofs in body '%s'", name.c_str());
+  }
+
+  // check for rotation dof after ball joint
+  bool hasball = false;
+  for (int i=0; i < joints.size(); i++) {
+    if ((joints[i]->type == mjJNT_BALL || joints[i]->type == mjJNT_HINGE) && hasball) {
+      throw mjCError(this, "ball followed by rotation in body '%s'", name.c_str());
+    }
+    if (joints[i]->type == mjJNT_BALL) {
+      hasball = true;
+    }
+  }
+
+  // make sure mocap body is fixed child of world
+  if (mocap && (dofnum || (parent && parent->name != "world"))) {
+    throw mjCError(this, "mocap body '%s' is not a fixed child of world", name.c_str());
+  }
+
+  // compute body global pose (no joint transformations in qpos0)
+  if (id > 0) {
+    mjuu_rotVecQuat(xpos0, pos, parent->xquat0);
+    mjuu_addtovec(xpos0, parent->xpos0, 3);
+    mjuu_mulquat(xquat0, parent->xquat0, quat);
+  }
+
+  // compile all sites
+  for (int i=0; i < sites.size(); i++)sites[i]->Compile();
+
+  // compile all cameras
+  for (int i=0; i < cameras.size(); i++)cameras[i]->Compile();
+
+  // compile all lights
+  for (int i=0; i < lights.size(); i++)lights[i]->Compile();
+
+  // plugin
+  if (plugin.active) {
+    if (plugin_name.empty() && plugin_instance_name.empty()) {
+      throw mjCError(
+              this, "neither 'plugin' nor 'instance' is specified for body '%s', (id = %d)",
+              name.c_str(), id);
+    }
+
+    mjCPlugin* plugin_instance = static_cast<mjCPlugin*>(plugin.element);
+    model->ResolvePlugin(this, plugin_name, plugin_instance_name, &plugin_instance);
+    plugin.element = plugin_instance;
+    const mjpPlugin* pplugin = mjp_getPluginAtSlot(plugin_instance->plugin_slot);
+    if (!(pplugin->capabilityflags & mjPLUGIN_PASSIVE)) {
+      throw mjCError(this, "plugin '%s' does not support passive forces", pplugin->name);
+    }
+  }
+
+  // free joint alignment, phase 2 (transform sites, cameras and lights)
+  if (align_free) {
+    // frames have already been compiled and applied to children
+
+    // sites
+    for (int i=0; i < sites.size(); i++) {
+      mjuu_frameaccumChild(ipos_inverse, iquat_inverse, sites[i]->pos, sites[i]->quat);
+    }
+
+    // cameras
+    for (int i=0; i < cameras.size(); i++) {
+      mjuu_frameaccumChild(ipos_inverse, iquat_inverse, cameras[i]->pos, cameras[i]->quat);
+    }
+
+    // lights
+    for (int i=0; i < lights.size(); i++) {
+      double qunit[4]= {1, 0, 0, 0};
+      mjuu_frameaccumChild(ipos_inverse, iquat_inverse, lights[i]->pos, qunit);
+      mjuu_rotVecQuat(lights[i]->dir, lights[i]->dir, iquat_inverse);
+    }
+  }
+}

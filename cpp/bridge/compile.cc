@@ -246,6 +246,44 @@ Diagnostic MakeError(std::string pass, std::string msg,
                     std::move(msg), std::move(loc)};
 }
 
+// Build the Binding for a compiled model by resolving every effective name
+// through mj_name2id. Shared by the XML and native paths: the native path emits
+// byte-identical name tables (differential-verified), so name-based lookup is a
+// correct construction of the same Binding on both paths (CDR-4). Warns when a
+// named element did not bind and a drop flag could explain it.
+void BuildNameBinding(const Model& model, mjModel* m, const CompileOptions& opts,
+                      Compiled& out) {
+  std::vector<PreEntry> pre;
+  io::AutoNames auto_names;
+  Collector collect(opts, pre, auto_names);
+  collect(model);
+
+  const DropFlags drop = ReadDropFlags(model);
+  detail::BindingBuilder builder(out.binding);
+  builder.SetContext(&model, m);
+  for (const PreEntry& pe : pre) {
+    Binding::Entry e;
+    e.elem = pe.elem;
+    e.serial = pe.serial;
+    e.objtype = pe.objtype;
+    e.etype = pe.etype;
+    e.name = pe.name;
+    e.id = pe.name.empty() ? -1 : mj_name2id(m, pe.objtype, pe.name.c_str());
+    builder.Add(e);
+
+    if (e.id < 0 && !pe.name.empty() && drop.any()) {
+      const char* flag = drop.discardvisual ? "discardvisual" : "fusestatic";
+      Diagnostic d;
+      d.severity = Diagnostic::Severity::Warning;
+      d.pass = "bind";
+      d.message = "element '" + pe.name +
+                  "' did not bind; likely removed by compiler flag '" + flag +
+                  "'";
+      out.report.warnings.push_back(std::move(d));
+    }
+  }
+}
+
 }  // namespace
 
 std::string CompileToXml(const Model& model, const CompileOptions& opts) {
@@ -265,7 +303,10 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
   // when NC1 lands stages it will return a model + native-constructed Binding.
   if (opts.path == CompilePath::NativePath) {
     mjModel* nm = compile::NativeCompile(model, opts, out.report);
-    if (nm) out.model.reset(nm);  // NC1: build the direct Binding here (CDR-4)
+    if (nm) {
+      out.model.reset(nm);
+      BuildNameBinding(model, nm, opts, out);  // CDR-4 (name-based construction)
+    }
     return out;
   }
 
@@ -280,7 +321,8 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
       out.model.reset(nm);
       out.report.taken = CompilePath::NativePath;
       out.report.fallback_reasons = probe.fallback_reasons;  // empty on success
-      return out;  // NC1: build the direct Binding here (CDR-4)
+      BuildNameBinding(model, nm, opts, out);
+      return out;
     }
     out.report.fallback_reasons = probe.fallback_reasons;
   }
@@ -305,31 +347,7 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
   out.model.reset(m);
 
   // Build the Binding by resolving every effective name through mj_name2id.
-  const DropFlags drop = ReadDropFlags(model);
-  detail::BindingBuilder builder(out.binding);
-  builder.SetContext(&model, m);
-  for (const PreEntry& pe : pre) {
-    Binding::Entry e;
-    e.elem = pe.elem;
-    e.serial = pe.serial;
-    e.objtype = pe.objtype;
-    e.etype = pe.etype;
-    e.name = pe.name;
-    e.id = pe.name.empty() ? -1
-                           : mj_name2id(m, pe.objtype, pe.name.c_str());
-    builder.Add(e);
-
-    if (e.id < 0 && !pe.name.empty() && drop.any()) {
-      const char* flag = drop.discardvisual ? "discardvisual" : "fusestatic";
-      Diagnostic d;
-      d.severity = Diagnostic::Severity::Warning;
-      d.pass = "bind";
-      d.message = "element '" + pe.name +
-                  "' did not bind; likely removed by compiler flag '" + flag +
-                  "'";
-      out.report.warnings.push_back(std::move(d));
-    }
-  }
+  BuildNameBinding(model, m, opts, out);
 
   return out;
 }

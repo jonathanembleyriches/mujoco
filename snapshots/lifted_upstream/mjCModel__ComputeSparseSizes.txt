@@ -1,0 +1,214 @@
+void mjCModel::ComputeSparseSizes() {
+  // no dofs, quick return
+  if (nv == 0) {
+    nM = nD = nB = nC = 0;
+    nJten = 0;
+    return;
+  }
+
+  // 0. allocate local index vectors
+  std::vector<int> dof_parentid_pre(nv, -1);
+  std::vector<int> dof_bodyid_pre(nv);
+  std::vector<int> body_simple_pre(nbody);
+  std::vector<int> body_rootid_pre(nbody);
+  std::vector<int> dof_simplenum_pre(nv);
+  std::vector<int> body_lastdof_map(nbody);
+
+  // 1. build dof_parentid, dof_bodyid
+  if (nbody > 0) {
+    body_lastdof_map[0] = -1;  // world has no parent dof
+  }
+  for (int i = 0; i < nbody; ++i) {
+    mjCBody* pb = bodies_[i];
+    mjCBody* par = pb->parent;
+
+    // the last dof of the current body's parent chain
+    int current_parent_dof = par ? body_lastdof_map[par->id] : -1;
+
+    for (const auto* jnt : pb->joints) {
+      for (int j1 = 0; j1 < jnt->nv(); ++j1) {
+        int dofadr = jnt->dofadr_ + j1;
+        if (dofadr < 0 || dofadr >= nv) {
+          throw mjCError(jnt, "dofadr out of bounds: dofadr=%d, nv=%d", nullptr, dofadr, nv);
+        }
+        dof_bodyid_pre[dofadr] = i;
+        dof_parentid_pre[dofadr] = current_parent_dof;
+        // the next dof in this joint is parented to the current one
+        current_parent_dof = dofadr;
+      }
+    }
+    // store the last dof added for this body
+    body_lastdof_map[i] = current_parent_dof;
+  }
+
+  // 2. compute nM
+  nM = 0;
+  for (int i = 0; i < nv; ++i) {
+    int j = i;
+    while (j != -1) {
+      nM++;
+      j = dof_parentid_pre[j];
+    }
+  }
+
+  // 3. compute nD
+  nD = 2 * nM - nv;
+
+  // 4. compute subtreedofs and nB
+  for (int i = nbody - 1; i >= 0; --i) {
+    bodies_[i]->subtreedofs = bodies_[i]->dofnum;
+    for (const auto* child : bodies_[i]->Bodies()) {
+      bodies_[i]->subtreedofs += child->subtreedofs;
+    }
+  }
+
+  nB = 0;
+  for (int i = 0; i < nbody; ++i) {
+    nB += bodies_[i]->subtreedofs;
+    mjCBody* parent = bodies_[i]->parent;
+    while (parent && parent->id > 0) {
+      nB += parent->dofnum;
+      parent = parent->parent;
+    }
+  }
+
+  // make sure all dofs are in world "subtree", SHOULD NOT OCCUR
+  if (bodies_[0]->subtreedofs != nv) {
+    throw mjCError(0, "all DOFs should be in world subtree");
+  }
+
+  // 5. compute nC
+  for (int i = 0; i < nbody; ++i) {
+    mjCBody* pb = bodies_[i];
+    mjCBody* par = pb->parent;
+    int parentid = par ? par->id : 0;
+
+    // rootid
+    if (i == 0 || !par || par->id == 0) {
+      body_rootid_pre[i] = i;
+    } else {
+      body_rootid_pre[i] = body_rootid_pre[parentid];
+    }
+
+    bool sameframe = IsNullPose(pb->ipos, pb->iquat);
+    body_simple_pre[i] = (sameframe &&
+                         (body_rootid_pre[i] == i ||
+                          (parentid > 0                       &&
+                           bodies_[parentid]->parent          &&
+                           bodies_[parentid]->parent->id == 0 &&
+                           bodies_[parentid]->dofnum == 0)));
+  }
+
+  // a parent body is never simple (unless world)
+  for (int i = 1; i < nbody; ++i) {
+    if (bodies_[i]->parent) {
+      body_simple_pre[bodies_[i]->parent->id] = 0;
+    }
+  }
+
+  // joint-based demotion for body_simple_pre
+  const double* nulldouble = nullptr;
+  for (int i = 1; i < nbody; ++i) {
+    if (!body_simple_pre[i]) continue;
+
+    // demote if non-aligned, non-zero pos, or multiple rotational joints
+    mjCBody* pb = bodies_[i];
+    int rotfound = 0;
+    for (const auto* pj : pb->joints) {
+      bool axis_aligned = ((std::abs(pj->axis[0]) > mjEPS) +
+                           (std::abs(pj->axis[1]) > mjEPS) +
+                           (std::abs(pj->axis[2]) > mjEPS)) == 1;
+      if (rotfound || !IsNullPose(pj->pos, nulldouble) ||
+          ((pj->type == mjJNT_HINGE || pj->type == mjJNT_SLIDE) && !axis_aligned)) {
+        body_simple_pre[i] = 0;
+        break;
+      }
+      if (pj->type == mjJNT_BALL || pj->type == mjJNT_HINGE) {
+        rotfound = 1;
+      }
+    }
+    if (!body_simple_pre[i]) continue;
+
+    // promote simple bodies with only sliders to level 2
+    if (pb->dofnum > 0) {
+      body_simple_pre[i] = 2;
+      for (const auto* pj : pb->joints) {
+        if (pj->type != mjJNT_SLIDE) {
+          body_simple_pre[i] = 1;
+          break;
+        }
+      }
+    }
+  }
+
+  // tendon-armature-based demotion
+  for (const auto* tendon : tendons_) {
+    if (tendon->armature > 0) {
+      for (const auto* wrap : tendon->path) {
+        int bodyId = GetBodyIdFromWrap(wrap);
+        if (bodyId != -1) {
+          body_simple_pre[bodyId] = 0;
+        }
+      }
+    }
+  }
+
+  // count dof_simplenum_pre
+  int count = 0;
+  for (int i = nv - 1; i >= 0; --i) {
+    if (dof_bodyid_pre[i] < 0 || dof_bodyid_pre[i] >= nbody) {
+      throw mjCError(0, "dof_bodyid out of bounds: dof=%d, body=%d", nullptr, i, dof_bodyid_pre[i]);
+    }
+    if (body_simple_pre[dof_bodyid_pre[i]]) {
+      count++;
+    } else {
+      count = 0;
+    }
+    dof_simplenum_pre[i] = count;
+  }
+
+  // compute nC
+  nC = 0;
+  int nOD = 0;
+  for (int i = 0; i < nv; ++i) {
+    if (!dof_simplenum_pre[i]) {
+      int j = i;
+      while (j != -1) {
+        if (j != i) nOD++;
+        j = dof_parentid_pre[j];
+      }
+    }
+  }
+  nC = nOD + nv;
+
+  nJten = 0;
+  if (nv > 0) {
+    std::vector<bool> dof_bitmap(nv, false);
+    for (const auto* tendon : tendons_) {
+      if (!tendon->path.empty() &&
+          tendon->path[0]->Type() == mjWRAP_JOINT) {
+        nJten += tendon->path.size();
+        continue;
+      }
+
+      std::fill(dof_bitmap.begin(), dof_bitmap.end(), false);
+      for (const auto* wrap : tendon->path) {
+        int bodyid = GetBodyIdFromWrap(wrap);
+        if (bodyid > 0) {
+          mjCBody* b = bodies_[bodyid];
+          while (b && b->id > 0) {
+            for (const auto* jnt : b->joints) {
+              for (int k = 0; k < jnt->nv(); k++) {
+                dof_bitmap[jnt->dofadr_ + k] = true;
+              }
+            }
+            b = b->GetParent();
+          }
+        }
+      }
+      for (int j = 0; j < nv; j++) {
+        nJten += dof_bitmap[j];
+      }
+    }
+  }
+}

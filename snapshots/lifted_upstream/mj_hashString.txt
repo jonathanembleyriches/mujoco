@@ -1,0 +1,8 @@
+uint64_t mj_hashString(const char* s, uint64_t n) {
+  uint64_t h = 5381;
+  int c;
+  while ((c = *s++)) {
+    h = ((h << 5) + h) ^ c;
+  }
+  return h % n;
+}

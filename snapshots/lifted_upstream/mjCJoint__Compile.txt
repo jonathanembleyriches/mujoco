@@ -1,0 +1,114 @@
+int mjCJoint::Compile(void) {
+  CopyFromSpec();
+
+  // resize userdata
+  if (userdata_.size() > model->nuser_jnt) {
+    throw mjCError(this, "user has more values than nuser_jnt in joint");
+  }
+  userdata_.resize(model->nuser_jnt);
+
+  // check springdamper
+  if (springdamper[0] || springdamper[1]) {
+    if (springdamper[0] <= 0 || springdamper[1] <= 0) {
+      throw mjCError(this, "when defined, springdamper values must be positive in joint");
+    }
+  }
+
+  // free joints cannot be limited
+  if (type == mjJNT_FREE) {
+    limited = mjLIMITED_FALSE;
+  }
+
+  // otherwise if limited is auto, check consistency wrt auto-limits
+  else if (limited == mjLIMITED_AUTO) {
+    bool hasrange = !(range[0] == 0 && range[1] == 0);
+    checklimited(this, compiler->autolimits, "joint", "", limited, hasrange);
+  }
+
+  // resolve limits
+  if (is_limited()) {
+    // check data
+    if (range[0] >= range[1] && type != mjJNT_BALL) {
+      throw mjCError(this, "range[0] should be smaller than range[1] in joint");
+    }
+    if (range[0] && type == mjJNT_BALL) {
+      throw mjCError(this, "range[0] should be 0 in ball joint");
+    }
+
+    // convert limits to radians
+    if (compiler->degree && (type == mjJNT_HINGE || type == mjJNT_BALL)) {
+      if (range[0]) {
+        range[0] *= mjPI/180.0;
+      }
+      if (range[1]) {
+        range[1] *= mjPI/180.0;
+      }
+    }
+  }
+
+  // actuator force range: none for free or ball joints
+  if (type == mjJNT_FREE || type == mjJNT_BALL) {
+    actfrclimited = mjLIMITED_FALSE;
+  }
+
+  // otherwise if actfrclimited is auto, check consistency wrt auto-limits
+  else if (actfrclimited == mjLIMITED_AUTO) {
+    bool hasrange = !(actfrcrange[0] == 0 && actfrcrange[1] == 0);
+    checklimited(this, compiler->autolimits, "joint", "", actfrclimited, hasrange);
+  }
+
+  // resolve actuator force range limits
+  if (is_actfrclimited()) {
+    // check data
+    if (actfrcrange[0] >= actfrcrange[1]) {
+      throw mjCError(this, "actfrcrange[0] should be smaller than actfrcrange[1] in joint");
+    }
+  }
+
+  // axis: FREE or BALL are fixed to (0,0,1)
+  if (type == mjJNT_FREE || type == mjJNT_BALL) {
+    axis[0] = axis[1] = 0;
+    axis[2] = 1;
+  }
+
+  // otherwise accumulate frame rotation
+  else if (frame) {
+    mjuu_rotVecQuat(axis, axis, frame->quat);
+  }
+
+  // normalize axis, check norm
+  if (mjuu_normvec(axis, 3) < mjEPS) {
+    throw mjCError(this, "axis too small in joint");
+  }
+
+  // check data
+  if (type == mjJNT_FREE && limited == mjLIMITED_TRUE) {
+    throw mjCError(this, "limits should not be defined in free joint");
+  }
+
+  // pos: FREE is fixed to (0,0,0)
+  if (type == mjJNT_FREE) {
+    mjuu_zerovec(pos, 3);
+  }
+
+  // otherwise accumulate frame translation
+  else if (frame) {
+    double qunit[4] = {1, 0, 0, 0};
+    mjuu_frameaccumChild(frame->pos, frame->quat, pos, qunit);
+  }
+
+  // convert reference angles to radians for hinge joints
+  if (type == mjJNT_HINGE && compiler->degree) {
+    ref *= mjPI/180.0;
+    springref *= mjPI/180.0;
+  }
+
+  // return dofnum
+  if (type == mjJNT_FREE) {
+    return 6;
+  } else if (type == mjJNT_BALL) {
+    return 3;
+  } else {
+    return 1;
+  }
+}

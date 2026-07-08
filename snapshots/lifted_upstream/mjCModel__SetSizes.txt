@@ -1,0 +1,260 @@
+void mjCModel::SetSizes() {
+  // set from object list sizes
+  nbody = (int)bodies_.size();
+  njnt = (int)joints_.size();
+  ngeom = (int)geoms_.size();
+  nsite = (int)sites_.size();
+  ncam = (int)cameras_.size();
+  nlight = (int)lights_.size();
+  nflex = (int)flexes_.size();
+  nmesh = (int)meshes_.size();
+  nskin = (int)skins_.size();
+  nhfield = (int)hfields_.size();
+  ntex = (int)textures_.size();
+  nmat = (int)materials_.size();
+  npair = (int)pairs_.size();
+  nexclude = (int)excludes_.size();
+  neq = (int)equalities_.size();
+  ntendon = (int)tendons_.size();
+  nsensor = (int)sensors_.size();
+  nnumeric = (int)numerics_.size();
+  ntext = (int)texts_.size();
+  ntuple = (int)tuples_.size();
+  nkey = (int)keys_.size();
+  nplugin = (int)plugins_.size();
+  nq = nv = ntree = nu = na = nmocap = 0;
+
+  // nq, nv, ntree
+  for (int i=0; i < njnt; i++) {
+    nq += joints_[i]->nq();
+    nv += joints_[i]->nv();
+
+    // increment ntree if this is the first joint in a moving body with static ancestry
+    mjCBody* parent = joints_[i]->GetParent();
+    bool is_first_joint = joints_[i] == parent->joints[0];
+    if (is_first_joint) {
+      // check if all ancestors are static
+      bool static_ancestry = true;
+      mjCBody* ancestor = parent;
+      while (ancestor != bodies_[0]) {
+        ancestor = ancestor->GetParent();
+        if (!ancestor->joints.empty()) {
+          static_ancestry = false;
+          break;
+        }
+      }
+
+      // if all ancestors are static, this joint starts a new kinematic tree
+      if (static_ancestry) {
+        ntree++;
+      }
+    }
+  }
+
+  // nu, na
+  for (int i=0; i < actuators_.size(); i++) {
+    nu++;
+    na += actuators_[i]->actdim;
+  }
+
+  // nbvh, nbvhstatic, nbvhdynamic
+  for (int i=0; i < nbody; i++) {
+    nbvhstatic += bodies_[i]->tree.Nbvh();
+  }
+  for (int i=0; i < nmesh; i++) {
+    nbvhstatic += meshes_[i]->tree().Nbvh();
+    noct += meshes_[i]->octree().NumNodes();
+  }
+  for (int i=0; i < nflex; i++) {
+    nbvhdynamic += flexes_[i]->tree.Nbvh();
+  }
+  nbvh = nbvhstatic + nbvhdynamic;
+
+  // flex counts
+  for (int i=0; i < nflex; i++) {
+    nflexnode += flexes_[i]->nnode;
+    nflexvert += flexes_[i]->nvert;
+    nflexedge += flexes_[i]->nedge;
+    nflexelem += flexes_[i]->nelem;
+    nflexelemdata += flexes_[i]->nelem * (flexes_[i]->dim + 1);
+    nflexelemedge += flexes_[i]->nelem * mjCFlex::kNumEdges[flexes_[i]->dim - 1];
+    nflexshelldata += (int)flexes_[i]->shell.size();
+    nflexevpair += (int)flexes_[i]->evpair.size()/2;
+    nflextexcoord += (flexes_[i]->HasTexcoord() ? flexes_[i]->get_texcoord().size()/2 : 0);
+    nflexstiffness += flexes_[i]->stiffness.size();
+    nflexbending += flexes_[i]->bending.size();
+    if (flexes_[i]->interpolated || flexes_[i]->rigid) {
+      continue;
+    }
+
+    // count number of non-zero elements in the edge Jacobian matrix
+    for (const auto& edge : flexes_[i]->edge) {
+      mjCBody* b1 = bodies_[flexes_[i]->vertbodyid[edge.first]];
+      mjCBody* b2 = bodies_[flexes_[i]->vertbodyid[edge.second]];
+      std::unordered_set<mjCBody*> bodies_in_jac;
+      while (b1 || b2) {
+        if (b1) {
+          bodies_in_jac.insert(b1);
+          b1 = b1->parent;
+        }
+        if (b2) {
+          bodies_in_jac.insert(b2);
+          b2 = b2->parent;
+        }
+      }
+      for (mjCBody* b : bodies_in_jac) {
+        nJfe += b->dofnum;
+      }
+    }
+
+    // compute nJfv
+    std::vector<std::vector<int>> adj(flexes_[i]->nvert);
+    for (const auto& edge : flexes_[i]->edge) {
+      adj[edge.first].push_back(edge.second);
+      adj[edge.second].push_back(edge.first);
+    }
+    for (int j=0; j < flexes_[i]->nvert; j++) {
+      std::unordered_set<int> vert_bodies;
+      vert_bodies.insert(flexes_[i]->vertbodyid[j]);
+      for (int neighbor : adj[j]) {
+        vert_bodies.insert(flexes_[i]->vertbodyid[neighbor]);
+      }
+      std::unordered_set<mjCBody*> bodies_in_jac;
+      for (int body_id : vert_bodies) {
+        mjCBody* b = bodies_[body_id];
+        while (b) {
+          bodies_in_jac.insert(b);
+          b = b->parent;
+        }
+      }
+      for (mjCBody* b : bodies_in_jac) {
+        nJfv += b->dofnum;
+      }
+    }
+  }
+
+  // mesh counts
+  for (int i=0; i < nmesh; i++) {
+    nmeshvert += meshes_[i]->nvert();
+    nmeshnormal += meshes_[i]->nnormal();
+    nmeshface += meshes_[i]->nface();
+    nmeshtexcoord += (meshes_[i]->HasTexcoord() ? meshes_[i]->ntexcoord() : 0);
+    nmeshgraph += meshes_[i]->szgraph();
+    nmeshpoly += meshes_[i]->npolygon();
+    nmeshpolyvert += meshes_[i]->npolygonvert();
+    nmeshpolymap += meshes_[i]->npolygonmap();
+  }
+
+  // skin counts
+  for (int i=0; i < nskin; i++) {
+    nskinvert += skins_[i]->get_vert().size()/3;
+    nskintexvert += skins_[i]->get_texcoord().size()/2;
+    nskinface += skins_[i]->get_face().size()/3;
+    nskinbone += skins_[i]->bodyid.size();
+    for (int j=0; j < skins_[i]->bodyid.size(); j++) {
+      nskinbonevert += skins_[i]->get_vertid()[j].size();
+    }
+  }
+
+  // nhfielddata
+  for (int i=0; i < nhfield; i++) {
+    nhfielddata += static_cast<mjtSize>(hfields_[i]->nrow) * hfields_[i]->ncol;
+  }
+
+  // ntexdata
+  for (int i=0; i < ntex; i++) {
+    const mjCTexture* tex = textures_[i];
+    ntexdata += static_cast<mjtSize>(tex->nchannel) * tex->width * tex->height;
+  }
+
+  // nwrap
+  for (int i=0; i < ntendon; i++) {
+    nwrap += static_cast<mjtSize>(tendons_[i]->path.size());
+  }
+
+  // nsensordata
+  for (int i=0; i < nsensor; i++) {
+    nsensordata += sensors_[i]->dim;
+  }
+
+  // nhistory: layout is [user, cursor, times(n), values(n*dim)] = 2+2n per actuator (dim=1)
+  nhistory = 0;
+  for (int i=0; i < actuators_.size(); i++) {
+    if (actuators_[i]->nsample > 0) {
+      nhistory += 2 + 2 * actuators_[i]->nsample;
+    }
+  }
+  // sensor delay: layout is [user, cursor, times(n), values(n*dim)] = 2 + n + n*dim
+  for (int i=0; i < sensors_.size(); i++) {
+    if (sensors_[i]->nsample > 0) {
+      nhistory += 2 + sensors_[i]->nsample + sensors_[i]->nsample * sensors_[i]->dim;
+    }
+  }
+
+  // nnumericdata
+  for (int i=0; i < nnumeric; i++) {
+    nnumericdata += numerics_[i]->size;
+  }
+
+  // ntextdata
+  for (int i=0; i < ntext; i++) {
+    ntextdata += (int)texts_[i]->data_.size() + 1;
+  }
+
+  // ntupledata
+  for (int i=0; i < ntuple; i++) {
+    ntupledata += (int)tuples_[i]->objtype_.size();
+  }
+
+  // npluginattr
+  for (int i=0; i < nplugin; i++) {
+    npluginattr += (int)plugins_[i]->flattened_attributes.size();
+  }
+
+  // nnames
+  nnames = (int)modelname_.size() + 1;
+  for (int i=0; i < nbody; i++)    nnames += (int)bodies_[i]->name.length() + 1;
+  for (int i=0; i < njnt; i++)     nnames += (int)joints_[i]->name.length() + 1;
+  for (int i=0; i < ngeom; i++)    nnames += (int)geoms_[i]->name.length() + 1;
+  for (int i=0; i < nsite; i++)    nnames += (int)sites_[i]->name.length() + 1;
+  for (int i=0; i < ncam; i++)     nnames += (int)cameras_[i]->name.length() + 1;
+  for (int i=0; i < nlight; i++)   nnames += (int)lights_[i]->name.length() + 1;
+  for (int i=0; i < nflex; i++)    nnames += (int)flexes_[i]->name.length() + 1;
+  for (int i=0; i < nmesh; i++)    nnames += (int)meshes_[i]->name.length() + 1;
+  for (int i=0; i < nskin; i++)    nnames += (int)skins_[i]->name.length() + 1;
+  for (int i=0; i < nhfield; i++)  nnames += (int)hfields_[i]->name.length() + 1;
+  for (int i=0; i < ntex; i++)     nnames += (int)textures_[i]->name.length() + 1;
+  for (int i=0; i < nmat; i++)     nnames += (int)materials_[i]->name.length() + 1;
+  for (int i=0; i < npair; i++)    nnames += (int)pairs_[i]->name.length() + 1;
+  for (int i=0; i < nexclude; i++) nnames += (int)excludes_[i]->name.length() + 1;
+  for (int i=0; i < neq; i++)      nnames += (int)equalities_[i]->name.length() + 1;
+  for (int i=0; i < ntendon; i++)  nnames += (int)tendons_[i]->name.length() + 1;
+  for (int i=0; i < nu; i++)       nnames += (int)actuators_[i]->name.length() + 1;
+  for (int i=0; i < nsensor; i++)  nnames += (int)sensors_[i]->name.length() + 1;
+  for (int i=0; i < nnumeric; i++) nnames += (int)numerics_[i]->name.length() + 1;
+  for (int i=0; i < ntext; i++)    nnames += (int)texts_[i]->name.length() + 1;
+  for (int i=0; i < ntuple; i++)   nnames += (int)tuples_[i]->name.length() + 1;
+  for (int i=0; i < nkey; i++)     nnames += (int)keys_[i]->name.length() + 1;
+  for (int i=0; i < nplugin; i++)  nnames += (int)plugins_[i]->name.length() + 1;
+
+  // npaths
+  npaths = 0;
+  npaths += getpathslength(hfields_);
+  npaths += getpathslength(meshes_);
+  npaths += getpathslength(skins_);
+  npaths += getpathslength(textures_);
+  if (npaths == 0) {
+    npaths = 1;
+  }
+
+  // nemax
+  for (int i=0; i < neq; i++) {
+    if (equalities_[i]->type == mjEQ_CONNECT) {
+      nemax += 3;
+    } else if (equalities_[i]->type == mjEQ_WELD) {
+      nemax += 7;
+    } else {
+      nemax += 1;
+    }
+  }
+}
