@@ -19,7 +19,10 @@ IO work; test harnesses authored by a different agent than the code they test.
 | M6 SDK | **DONE** | 8992efe; header-only builders/traversal/refs/class-ops/attach over Visit/reflect |
 | M7 pybind | **DONE** | ce87505; protospec module (typed 142 elements, builders, compile+step+numpy views); TRYME.md verified |
 | NC0 native scaffolding | **DONE** | afb8ecd; lift registry + drift gate; ps_native_diff + self-arming ratchet; gated NativeCompile dispatch; mj_makeModel NOT public in 3.10.0 -> lifted (mjxmacro-driven layout) |
-| NC1 rigid-body native compiler | **IN FLIGHT** | T1.1-T1.6 sequential; exit = in-scope corpus slice bit-identical vs XML path, ratchet armed |
+| NC1+NC1b rigid-body native compiler | **DONE** | 255eeba/b2e92fa; full spine (collect->defaults->resolvers->body chain->sparse sizes->names->fill->mj_setConst); frames/sites/cameras/lights/mocap/keyframes/pair-sort; ratchet 34; alignfree descoped (1 file) |
+| NC2 drive/constraint native | **DONE** | 65f455d; equality data[11] packer, tendon wrap paths, 8 actuator spellings (lifted mjs_setTo* math), 34 sensor tags; ratchet 102; found upstream cylinder-bias stack-overflow UB |
+| NC3 assets native | **DONE** | 5371075; materials, builtin textures, hfields, full mesh pipeline (qhull+tinyobjloader linked, OBJ/STL/MSH, hull graph, principal-axis inertia, face BVH); ratchet 161; deferred: PNG file textures (18), file hfields (4), skins (4), mesh-fit (4), sdf (3) |
+| NC4 quick wins (size.memory/custom/replicate/attach) | **IN FLIGHT** | incremental ratcheting, stop-early discipline |
 | Native compiler (RAW ProtoSpec->mjModel; NO mjSpec/mjs_*/mjC* anywhere) | **planned** | cd0998a: docs/plan_native_compiler.md — 62-row reuse ledger (18% call-as-is public API, 39% lift-verbatim with provenance registry + drift gate, 35% re-plumb, 5 rows deleted-hazard-classes); direct id-assignment Binding; phases NC1(10% corpus)→NC2(35%)→NC3(62%)→NC4(~80%)→NC5(~100%); XML path retained as oracle/fallback; survey: docs/native_compiler_survey.md (its mjs decode mapping is historical) |
 
 Key facts a fresh session needs: repo is standalone at C:\Users\jonat\Documents\protospec (this
