@@ -1213,6 +1213,12 @@ def main() -> None:
 
     files = generate()
 
+    # Milestone 7: the Python-binding generated tree is produced by the same
+    # invocation (additive; it writes to cpp/python/generated/, never touching
+    # the cpp/generated/ files above). Imported lazily so the core C++ emitter
+    # has no hard dependency on the pybind emitter.
+    from . import emit_py
+
     if args.check:
         stale = []
         for name, content in files.items():
@@ -1224,15 +1230,20 @@ def main() -> None:
                 current = fh.read()
             if current.replace("\r\n", "\n") != content:
                 stale.append(name)
+        py_stale = ["python/generated/" + n for n in emit_py.run(check=True)]
+        stale += py_stale
         if stale:
             sys.stderr.write(
-                "cpp/generated/ is out of date; re-run "
+                "generated code is out of date; re-run "
                 "`python -m protospec_gen.emit`:\n  "
                 + "\n  ".join(stale)
                 + "\n"
             )
             sys.exit(1)
-        print(f"cpp/generated/ is up to date ({len(files)} files)")
+        print(
+            f"cpp/generated/ is up to date ({len(files)} files); "
+            "cpp/python/generated/ is up to date"
+        )
         return
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -1242,7 +1253,8 @@ def main() -> None:
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(content)
         total += content.count("\n") + 1
-    print(f"wrote {len(files)} files to {OUT_DIR} ({total} lines)")
+    emit_py.run(check=False)
+    print(f"wrote {len(files)} files to {OUT_DIR} ({total} lines) + python bindings")
 
 
 if __name__ == "__main__":
