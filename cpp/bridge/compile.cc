@@ -15,6 +15,7 @@
 #include <mujoco/mujoco.h>
 
 #include "mjcf.h"
+#include "native.h"
 #include "reflect.h"
 #include "visit.h"
 
@@ -259,18 +260,32 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
   Compiled out;
   out.report.requested = opts.path;
 
-  // NativePath is contractual but unimplemented: a hard error, never a silent
-  // XML fallback (impl-plan CompilePath::NativePath semantics).
+  // NativePath is forced: run the native compiler and never fall back to XML.
+  // Today it always returns null with UnsupportedNatively (compile/native.cc);
+  // when NC1 lands stages it will return a model + native-constructed Binding.
   if (opts.path == CompilePath::NativePath) {
-    out.report.taken = CompilePath::NativePath;
-    out.report.errors.push_back(MakeError(
-        "gate", "native compile path is not implemented (UnsupportedNatively); "
-                "use CompilePath::Auto or ::XmlPath"));
+    mjModel* nm = compile::NativeCompile(model, opts, out.report);
+    if (nm) out.model.reset(nm);  // NC1: build the direct Binding here (CDR-4)
     return out;
   }
 
-  // Auto and XmlPath both resolve to the XML path today (the native manifest is
-  // empty, so Auto admits nothing to native). taken == XmlPath.
+  // Auto: try native first; on any unsupported feature, fall back LOUDLY to the
+  // XML oracle -- the fallback reasons are carried into the report, the native
+  // "UnsupportedNatively" error is not (the XML compile is what actually ran).
+  if (opts.path == CompilePath::Auto) {
+    CompileReport probe;
+    probe.requested = opts.path;
+    mjModel* nm = compile::NativeCompile(model, opts, probe);
+    if (nm) {
+      out.model.reset(nm);
+      out.report.taken = CompilePath::NativePath;
+      out.report.fallback_reasons = probe.fallback_reasons;  // empty on success
+      return out;  // NC1: build the direct Binding here (CDR-4)
+    }
+    out.report.fallback_reasons = probe.fallback_reasons;
+  }
+
+  // XmlPath (forced) and Auto-after-fallback resolve to the XML path.
   out.report.taken = CompilePath::XmlPath;
 
   // Collect bindable elements + auto-names (single const walk; tree untouched).

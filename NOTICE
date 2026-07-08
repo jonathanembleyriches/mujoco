@@ -1,0 +1,23 @@
+ProtoSpec
+Copyright 2026 the ProtoSpec authors.
+
+This product includes software lifted, with modification, from MuJoCo
+(https://github.com/google-deepmind/mujoco), which is:
+
+    Copyright DeepMind Technologies Limited
+    Licensed under the Apache License, Version 2.0.
+    http://www.apache.org/licenses/LICENSE-2.0
+
+The native compiler (cpp/compile/) copies specific algorithms from the vendored
+MuJoCo source tree (pin mjVERSION_HEADER 3010000 / MuJoCo 3.10.0) into
+cpp/compile/lifted/ with provenance headers. Each lifted symbol or file is
+recorded in snapshots/lifted_code.json together with the exact upstream text at
+lift time (snapshots/lifted_upstream/) and is drift-gated against the vendored
+tree by tools/lift_registry.py. The lifted code retains its Apache-2.0 license;
+adaptations (namespacing, error-type retargeting, data-plumbing changes) are
+noted per entry in the registry.
+
+Currently lifted:
+  - src/user/user_util.{h,cc}   the mjuu_* free-standing math/util pool
+  - src/engine/engine_io.c      mj_makeModel, mj_setPtrModel,
+                                safeAddToBufferSize, SKIP (mjModel allocation)

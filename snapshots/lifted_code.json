@@ -1,0 +1,74 @@
+{
+  "pin": "3010000",
+  "entries": [
+    {
+      "id": "make_model",
+      "upstream_rel_path": "src/engine/engine_io.c",
+      "symbol": "mj_makeModel",
+      "line_span": "227-421",
+      "content_hash": "a2bd01ce702ccf576f39ec861fdf4de24ce1f3e1a17fe0451baec83671eeb953",
+      "snapshot": "snapshots/lifted_upstream/mj_makeModel.txt",
+      "local_path": [
+        "cpp/compile/lifted/make_model.cc",
+        "cpp/compile/lifted/make_model.h"
+      ],
+      "lifted": "2026-07-08",
+      "notes": "positional size args -> read n* from a caller mjModel; reuse/freeModelBuffers branch dropped; buffer layout verbatim"
+    },
+    {
+      "id": "safe_add_buffer",
+      "upstream_rel_path": "src/engine/engine_io.c",
+      "symbol": "safeAddToBufferSize",
+      "line_span": "173-217",
+      "content_hash": "58aaa759c19f924bfb7436f662f9bbffb7da3949d7e0b75e74ed79199a69c75d",
+      "snapshot": "snapshots/lifted_upstream/safeAddToBufferSize.txt",
+      "local_path": "cpp/compile/lifted/make_model.cc",
+      "lifted": "2026-07-08",
+      "notes": "MSVC portable-overflow branch lifted (no __builtin_*_overflow)"
+    },
+    {
+      "id": "set_ptr_model",
+      "upstream_rel_path": "src/engine/engine_io.c",
+      "symbol": "mj_setPtrModel",
+      "line_span": "142-165",
+      "content_hash": "f99146fee480451eadff72a58d470369b28a89b8da8b6b50a95d3e2a9d7b37c8",
+      "snapshot": "snapshots/lifted_upstream/mj_setPtrModel.txt",
+      "local_path": "cpp/compile/lifted/make_model.cc",
+      "lifted": "2026-07-08",
+      "notes": "verbatim; ASAN poison macros dropped"
+    },
+    {
+      "id": "skip_align",
+      "upstream_rel_path": "src/engine/engine_io.c",
+      "symbol": "SKIP",
+      "line_span": "132-136",
+      "content_hash": "34adba0aee5b37ee95ad06db7dfb2f08b4513470b059a148cfa63a3d6ee6b4dd",
+      "snapshot": "snapshots/lifted_upstream/SKIP.txt",
+      "local_path": "cpp/compile/lifted/make_model.cc",
+      "lifted": "2026-07-08",
+      "notes": "64-byte alignment padding; verbatim"
+    },
+    {
+      "id": "user_util_cc",
+      "upstream_rel_path": "src/user/user_util.cc",
+      "symbol": "*",
+      "line_span": "1-1366",
+      "content_hash": "eab1068120157ec1a947de0b4f319d97dbfca352b495af3fa515bfb04603b06f",
+      "snapshot": "snapshots/lifted_upstream/user_util.cc",
+      "local_path": "cpp/compile/lifted/mjuu_util.cc",
+      "lifted": "2026-07-08",
+      "notes": "whole mjuu_* impl; namespaced, engine_crossplatform.h replaced by a strcasecmp shim"
+    },
+    {
+      "id": "user_util_h",
+      "upstream_rel_path": "src/user/user_util.h",
+      "symbol": "*",
+      "line_span": "1-302",
+      "content_hash": "49b60019981675637b1f405f84f270de5463c0fb7ae88512e93f3904e2ad6f5b",
+      "snapshot": "snapshots/lifted_upstream/user_util.h",
+      "local_path": "cpp/compile/lifted/mjuu_util.h",
+      "lifted": "2026-07-08",
+      "notes": "whole mjuu_* header; symbols namespaced to ps::mjcf::compile::lifted, MJAPI stripped"
+    }
+  ]
+}

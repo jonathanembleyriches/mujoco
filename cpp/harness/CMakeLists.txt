@@ -26,9 +26,22 @@ if(NOT EXISTS "${MUJOCO_IMPORT_LIB}")
     "mujoco.lib not found at ${MUJOCO_IMPORT_LIB}; set -DMUJOCO_ROOT=...")
 endif()
 
+# The mjModel comparison core, shared by the mj_model_diff CLI and the
+# ps_native_diff three-way harness (impl-plan T0.2). MuJoCo only.
+add_library(model_diff_lib STATIC model_diff_lib.cc)
+target_include_directories(model_diff_lib PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  "${MUJOCO_INCLUDE_DIR}")
+target_link_libraries(model_diff_lib PUBLIC "${MUJOCO_IMPORT_LIB}")
+if(MSVC)
+  target_compile_options(model_diff_lib PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(model_diff_lib PRIVATE -Wall -Wextra)
+endif()
+
 add_executable(mj_model_diff mj_model_diff.cc)
 target_include_directories(mj_model_diff PRIVATE "${MUJOCO_INCLUDE_DIR}")
-target_link_libraries(mj_model_diff PRIVATE "${MUJOCO_IMPORT_LIB}")
+target_link_libraries(mj_model_diff PRIVATE model_diff_lib "${MUJOCO_IMPORT_LIB}")
 
 if(MSVC)
   target_compile_options(mj_model_diff PRIVATE /W4 /permissive-)

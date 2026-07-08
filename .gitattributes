@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Lifted upstream snapshots are hashed LF-normalized; never let autocrlf
+# rewrite them (would produce false lifted-code drift-gate failures).
+snapshots/lifted_upstream/** -text

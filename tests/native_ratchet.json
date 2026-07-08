@@ -1,0 +1,5 @@
+{
+  "comment": "Self-arming native-compiler ratchet (impl-plan T0.2). native_files lists corpus models (rel paths) the native path is expected to compile and produce bit-identical mjModels for; native_count is the floor. The differential test fails if a listed file regresses to fallback or diverges, or if the total native count drops below the floor. Growing native_supported.h (NC1+) moves this ratchet up. Today everything is fallback: 0 native files.",
+  "native_count": 0,
+  "native_files": []
+}

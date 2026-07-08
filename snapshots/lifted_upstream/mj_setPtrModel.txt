@@ -1,0 +1,24 @@
+static void mj_setPtrModel(mjModel* m) {
+  char* ptr = (char*)m->buffer;
+
+  // prepare symbols needed by xmacro
+  MJMODEL_POINTERS_PREAMBLE(m);
+
+  // assign pointers with padding
+#define X(type, name, nr, nc)                             \
+  m->name = (type*)(ptr + SKIP((intptr_t)ptr));           \
+  ASAN_POISON_MEMORY_REGION(ptr, PTRDIFF(m->name, ptr));  \
+  ptr += SKIP((intptr_t)ptr) + sizeof(type)*(m->nr)*(nc);
+
+  MJMODEL_POINTERS
+#undef X
+
+  // check size
+  ptrdiff_t sz = ptr - (char*)m->buffer;
+  if (m->nbuffer != sz) {
+    mjERROR(
+        "mjModel buffer size mismatch, "
+        "expected size: %" PRIu64 ",  actual size: %td",
+        m->nbuffer, sz);
+  }
+}

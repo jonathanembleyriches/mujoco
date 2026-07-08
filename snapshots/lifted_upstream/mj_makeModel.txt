@@ -1,0 +1,195 @@
+void mj_makeModel(mjModel** dest,
+    mjtSize nq, mjtSize nv, mjtSize nu, mjtSize na, mjtSize nbody, mjtSize nbvh, mjtSize nbvhstatic,
+    mjtSize nbvhdynamic, mjtSize noct, mjtSize njnt, mjtSize ntree, mjtSize nM, mjtSize nB,
+    mjtSize nC, mjtSize nD, mjtSize ngeom, mjtSize nsite, mjtSize ncam, mjtSize nlight,
+    mjtSize nflex, mjtSize nflexnode, mjtSize nflexvert, mjtSize nflexedge, mjtSize nflexelem,
+    mjtSize nflexelemdata, mjtSize nflexstiffness, mjtSize nflexbending, mjtSize nflexelemedge,
+    mjtSize nflexshelldata, mjtSize nflexevpair, mjtSize nflextexcoord, mjtSize nJfe, mjtSize nJfv,
+    mjtSize nmesh, mjtSize nmeshvert, mjtSize nmeshnormal, mjtSize nmeshtexcoord, mjtSize nmeshface,
+    mjtSize nmeshgraph, mjtSize nmeshpoly, mjtSize nmeshpolyvert, mjtSize nmeshpolymap,
+    mjtSize nskin, mjtSize nskinvert, mjtSize nskintexvert, mjtSize nskinface, mjtSize nskinbone,
+    mjtSize nskinbonevert, mjtSize nhfield, mjtSize nhfielddata, mjtSize ntex, mjtSize ntexdata,
+    mjtSize nmat, mjtSize npair, mjtSize nexclude, mjtSize neq, mjtSize ntendon, mjtSize nJten,
+    mjtSize nwrap, mjtSize nsensor, mjtSize nnumeric, mjtSize nnumericdata, mjtSize ntext,
+    mjtSize ntextdata, mjtSize ntuple, mjtSize ntupledata, mjtSize nkey, mjtSize nmocap,
+    mjtSize nplugin, mjtSize npluginattr, mjtSize nuser_body, mjtSize nuser_jnt, mjtSize nuser_geom,
+    mjtSize nuser_site, mjtSize nuser_cam, mjtSize nuser_tendon, mjtSize nuser_actuator,
+    mjtSize nuser_sensor, mjtSize nnames, mjtSize npaths) {
+  intptr_t offset = 0;
+  int allocate = *dest ? 0 : 1;
+  mjModel* m = NULL;
+
+  // CHECK SIZE PARAMETERS
+  {
+    // dummy variables for MJMODEL_SIZES set after mjModel construction
+    int nnames_map = 0, nJmom = 0, ngravcomp = 0, nemax = 0, njmax = 0, nconmax=0;
+    int nuserdata=0, nsensordata=0, npluginstate=0, nhistory=0, narena=0, nbuffer=0;
+
+    // sizes must be non-negative and fit in int, except for the byte arrays texdata and textdata
+    #define X(name)                                                                   \
+      if (name < 0) {                                                                 \
+        mju_warning("Invalid model: %s is negative (%lld).", #name, (long long)name); \
+        return;                                                                       \
+      }                                                                               \
+      if (name >= MAX_ARRAY_SIZE &&                                                   \
+          strcmp(#name, "ntexdata") != 0 && strcmp(#name, "ntextdata") != 0) {        \
+        mju_warning("Invalid model: %s is too large. Expected < %d. Got %lld.",       \
+                    #name, MAX_ARRAY_SIZE, (long long)name);                          \
+        return;                                                                       \
+      }
+    MJMODEL_SIZES
+#undef X
+
+    // suppress unused variable warnings
+    (void)nnames_map; (void)nJmom; (void)ngravcomp; (void)nemax; (void)njmax; (void)nconmax;
+    (void)nuserdata; (void)nsensordata; (void)npluginstate; (void)nhistory; (void)narena;
+    (void)nbuffer;
+  }
+
+  // nbody should always be positive
+  if (nbody == 0) {
+    mju_warning("Invalid model: nbody == 0");
+    return;
+  }
+
+  // allocate mjModel
+  if (!allocate) {
+    m = *dest;
+    freeModelBuffers(m);
+  } else {
+    m = (mjModel*)mju_malloc(sizeof(mjModel));
+  }
+
+  if (!m) {
+    mjERROR("could not allocate mjModel");
+  }
+  memset(m, 0, sizeof(mjModel));
+
+  // set size parameters
+  m->nq = nq;
+  m->nv = nv;
+  m->nu = nu;
+  m->na = na;
+  m->nbody = nbody;
+  m->nbvh = nbvh;
+  m->nbvhstatic = nbvhstatic;
+  m->nbvhdynamic = nbvhdynamic;
+  m->noct = noct;
+  m->njnt = njnt;
+  m->ntree = ntree;
+  m->nM = nM;
+  m->nB = nB;
+  m->nC = nC;
+  m->nD = nD;
+  m->ngeom = ngeom;
+  m->nsite = nsite;
+  m->ncam = ncam;
+  m->nlight = nlight;
+  m->nflex = nflex;
+  m->nflexnode = nflexnode;
+  m->nflexvert = nflexvert;
+  m->nflexedge = nflexedge;
+  m->nflexelem = nflexelem;
+  m->nflexelemdata = nflexelemdata;
+  m->nflexstiffness = nflexstiffness;
+  m->nflexbending = nflexbending;
+  m->nflexelemedge = nflexelemedge;
+  m->nflexshelldata = nflexshelldata;
+  m->nflexevpair = nflexevpair;
+  m->nflextexcoord = nflextexcoord;
+  m->nJfe = nJfe;
+  m->nJfv = nJfv;
+  m->nmesh = nmesh;
+  m->nmeshvert = nmeshvert;
+  m->nmeshnormal = nmeshnormal;
+  m->nmeshtexcoord = nmeshtexcoord;
+  m->nmeshface = nmeshface;
+  m->nmeshgraph = nmeshgraph;
+  m->nmeshpoly = nmeshpoly;
+  m->nmeshpolyvert = nmeshpolyvert;
+  m->nmeshpolymap = nmeshpolymap;
+  m->nskin = nskin;
+  m->nskinvert = nskinvert;
+  m->nskintexvert = nskintexvert;
+  m->nskinface = nskinface;
+  m->nskinbone = nskinbone;
+  m->nskinbonevert = nskinbonevert;
+  m->nhfield = nhfield;
+  m->nhfielddata = nhfielddata;
+  m->ntex = ntex;
+  m->ntexdata = ntexdata;
+  m->nmat = nmat;
+  m->npair = npair;
+  m->nexclude = nexclude;
+  m->neq = neq;
+  m->ntendon = ntendon;
+  m->nJten = nJten;
+  m->nwrap = nwrap;
+  m->nsensor = nsensor;
+  m->nnumeric = nnumeric;
+  m->nnumericdata = nnumericdata;
+  m->ntext = ntext;
+  m->ntextdata = ntextdata;
+  m->ntuple = ntuple;
+  m->ntupledata = ntupledata;
+  m->nkey = nkey;
+  m->nmocap = nmocap;
+  m->nplugin = nplugin;
+  m->npluginattr = npluginattr;
+  m->nuser_body = nuser_body;
+  m->nuser_jnt = nuser_jnt;
+  m->nuser_geom = nuser_geom;
+  m->nuser_site = nuser_site;
+  m->nuser_cam = nuser_cam;
+  m->nuser_tendon = nuser_tendon;
+  m->nuser_actuator = nuser_actuator;
+  m->nuser_sensor = nuser_sensor;
+  m->nnames = nnames;
+  long nnames_map = (long)nbody + njnt + ngeom + nsite + ncam + nlight + nflex + nmesh + nskin +
+                    nhfield + ntex + nmat + npair + nexclude + neq + ntendon + nu + nsensor +
+                    nnumeric + ntext + ntuple + nkey + nplugin;
+  if (nnames_map >= INT_MAX / mjLOAD_MULTIPLE) {
+    if (allocate) mju_free(m);
+    mju_warning("Invalid model: size of nnames_map is larger than INT_MAX");
+    return;
+  }
+  m->nnames_map = mjLOAD_MULTIPLE * nnames_map;
+  m->npaths = npaths;
+
+  // compute buffer size
+  m->nbuffer = 0;
+#define X(type, name, nr, nc)                                                \
+  if (!safeAddToBufferSize(&offset, &m->nbuffer, sizeof(type), m->nr, nc)) { \
+    if (allocate) mju_free(m);                                               \
+    mju_warning("Invalid model: " #name " too large.");                      \
+    return;                                                                  \
+  }
+
+  MJMODEL_POINTERS
+#undef X
+
+  // allocate buffer
+  m->buffer = mju_malloc(m->nbuffer);
+  if (!m->buffer) {
+    if (allocate) mju_free(m);
+    mjERROR("could not allocate mjModel buffer");
+  }
+
+  // clear, set pointers in buffer
+  memset(m->buffer, 0, m->nbuffer);
+#ifdef MEMORY_SANITIZER
+  // tell msan to treat the entire buffer as uninitialized
+  __msan_allocated_memory(m->buffer, m->nbuffer);
+#endif
+  mj_setPtrModel(m);
+
+  // set default options
+  mj_defaultOption(&m->opt);
+  mj_defaultVisual(&m->vis);
+  mj_defaultStatistic(&m->stat);
+
+  // copy pointer if allocated here
+  if (allocate) {
+    *dest = m;
+  }
+}

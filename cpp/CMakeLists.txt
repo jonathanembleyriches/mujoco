@@ -119,18 +119,58 @@ set(MUJOCO_IMPORT_LIB  "${MUJOCO_ROOT}/build/lib/Release/mujoco.lib")
 set(MUJOCO_DLL         "${MUJOCO_ROOT}/build/bin/Release/mujoco.dll")
 
 if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LIB}")
+  # Lifted MuJoCo code (CDR-3): copied-with-provenance algorithms, tracked in
+  # snapshots/lifted_code.json. Its own TU so the conformance mode (/permissive-)
+  # that the handwritten compiler builds under does not reject verbatim upstream
+  # C++; still /W4. Symbols live in ps::mjcf::compile::lifted.
+  add_library(protospec_lifted STATIC
+    compile/lifted/make_model.cc
+    compile/lifted/mjuu_util.cc
+  )
+  target_include_directories(protospec_lifted
+    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/compile/lifted
+    PRIVATE ${MUJOCO_INCLUDE_DIR}
+  )
+  target_link_libraries(protospec_lifted PRIVATE "${MUJOCO_IMPORT_LIB}")
+  if(MSVC)
+    target_compile_options(protospec_lifted PRIVATE /W4)
+  else()
+    target_compile_options(protospec_lifted PRIVATE -Wall -Wextra)
+  endif()
+
+  # The native compiler (impl-plan NC0+): ProtoSpec tree -> mjModel directly.
+  # Jointly with bridge/ this is the MuJoCo quarantine zone. Today it is
+  # scaffolding (the feature gate admits nothing, so it always reports
+  # UnsupportedNatively); it plugs in behind the bridge dispatch below.
+  add_library(protospec_compile STATIC
+    compile/native.cc
+  )
+  target_include_directories(protospec_compile
+    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/compile
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+            ${MUJOCO_INCLUDE_DIR}
+  )
+  target_link_libraries(protospec_compile PUBLIC protospec protospec_io protospec_lifted
+                                          PRIVATE "${MUJOCO_IMPORT_LIB}")
+  if(MSVC)
+    target_compile_options(protospec_compile PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(protospec_compile PRIVATE -Wall -Wextra)
+  endif()
+
   # The one quarantine zone for mujoco.h besides the harness: Model -> mjModel +
   # Binding + Recompile (plan DR-5/DR-10/DR-11). Links the object model, the MJCF
-  # writer (XML path) and MuJoCo. /W4 like every project target.
+  # writer (XML path), the native compiler, and MuJoCo. /W4 like every target.
   add_library(protospec_bridge STATIC
     bridge/compile.cc
     bridge/binding.cc
   )
   target_include_directories(protospec_bridge
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/bridge
-    PRIVATE ${MUJOCO_INCLUDE_DIR}
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/compile
+            ${MUJOCO_INCLUDE_DIR}
   )
-  target_link_libraries(protospec_bridge PUBLIC protospec protospec_io
+  target_link_libraries(protospec_bridge PUBLIC protospec protospec_io protospec_compile
                                          PRIVATE "${MUJOCO_IMPORT_LIB}")
   if(MSVC)
     target_compile_options(protospec_bridge PRIVATE /W4 /permissive-)
@@ -186,4 +226,43 @@ add_test(NAME protospec_sdk_tests COMMAND protospec_sdk_tests)
 # separate agent; wire it in only when present.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/harness/CMakeLists.txt)
   add_subdirectory(harness)
+endif()
+
+# --------------------------------------------------------------------------- #
+# Native-compiler harness + tests (impl-plan NC0). Placed after the harness    #
+# subdirectory so model_diff_lib exists. Guarded on both the bridge and the    #
+# comparison lib being available.                                              #
+# --------------------------------------------------------------------------- #
+if(TARGET protospec_bridge AND TARGET model_diff_lib)
+  # Three-way differential driver (leg B XML path vs leg C native path).
+  add_executable(ps_native_diff harness/ps_native_diff.cc)
+  target_include_directories(ps_native_diff PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge ${MUJOCO_INCLUDE_DIR})
+  target_link_libraries(ps_native_diff
+    PRIVATE protospec_bridge model_diff_lib "${MUJOCO_IMPORT_LIB}")
+  if(MSVC)
+    target_compile_options(ps_native_diff PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(ps_native_diff PRIVATE -Wall -Wextra)
+  endif()
+  ps_copy_mujoco_dll(ps_native_diff)
+
+  # Native-compiler ctest: purity gate, feature-gate correctness, report shape
+  # (T0.4) + the mjModel allocator round-trip spike (T0.5) + mjuu_* lifted
+  # smoke goldens (T0.1).
+  add_executable(protospec_compile_tests test/test_native.cc)
+  target_include_directories(protospec_compile_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/compile
+    ${CMAKE_CURRENT_SOURCE_DIR}/compile/lifted
+    ${MUJOCO_INCLUDE_DIR})
+  target_link_libraries(protospec_compile_tests
+    PRIVATE protospec_bridge protospec_compile model_diff_lib "${MUJOCO_IMPORT_LIB}")
+  if(MSVC)
+    target_compile_options(protospec_compile_tests PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(protospec_compile_tests PRIVATE -Wall -Wextra)
+  endif()
+  ps_copy_mujoco_dll(protospec_compile_tests)
+  add_test(NAME protospec_compile_tests COMMAND protospec_compile_tests)
 endif()
