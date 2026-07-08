@@ -76,7 +76,10 @@ static const char* kPendulum =
     "    </body>\n"
     "  </worldbody>\n"
     "  <actuator>\n"
-    "    <motor name='m1' joint='j1'/>\n"
+    // dcmotor is a still-gated actuator spelling, so the native path falls back
+    // (TestNativePathRejected) while other bridge tests drive the XML path; named
+    // m1 so the actuator Binding cross-check is unchanged.
+    "    <dcmotor name='m1' joint='j1' motorconst='0.1 0.1' resistance='1'/>\n"
     "  </actuator>\n"
     "</mujoco>\n";
 

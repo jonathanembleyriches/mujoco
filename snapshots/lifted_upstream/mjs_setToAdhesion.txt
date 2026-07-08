@@ -1,0 +1,12 @@
+const char* mjs_setToAdhesion(mjsActuator* actuator, double gain) {
+  actuator->gainprm[0] = gain;
+  actuator->ctrllimited = 1;
+  actuator->gaintype = mjGAIN_FIXED;
+  actuator->biastype = mjBIAS_NONE;
+
+  if (gain < 0)
+    return "adhesion gain cannot be negative";
+  if (actuator->ctrlrange[0] < 0 || actuator->ctrlrange[1] < 0)
+    return "adhesion control range cannot be negative";
+  return "";
+}

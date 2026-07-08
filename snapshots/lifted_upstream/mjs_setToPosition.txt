@@ -1,0 +1,35 @@
+const char* mjs_setToPosition(mjsActuator* actuator, double kp, double kv[1],
+                              double dampratio[1], double timeconst[1], double inheritrange) {
+  actuator->gainprm[0] = kp;
+  actuator->biasprm[1] = -kp;
+
+  // set biasprm[2]; negative: regular damping, positive: dampratio
+  if (dampratio && kv) {
+    return "kv and dampratio cannot both be defined";
+  }
+
+  if (kv) {
+    if (*kv < 0) return "kv cannot be negative";
+    actuator->biasprm[2] = -(*kv);
+  }
+  if (dampratio) {
+    if (*dampratio < 0) return "dampratio cannot be negative";
+    actuator->biasprm[2] = *dampratio;
+  }
+  if (timeconst) {
+    if (*timeconst < 0) return "timeconst cannot be negative";
+    actuator->dynprm[0] = *timeconst;
+    actuator->dyntype = *timeconst == 0 ? mjDYN_NONE : mjDYN_FILTEREXACT;
+  }
+  actuator->inheritrange = inheritrange;
+
+  if (inheritrange > 0) {
+    if (actuator->ctrlrange[0] || actuator->ctrlrange[1]) {
+      return "ctrlrange and inheritrange cannot both be defined";
+    }
+  }
+
+  actuator->gaintype = mjGAIN_FIXED;
+  actuator->biastype = mjBIAS_AFFINE;
+  return "";
+}

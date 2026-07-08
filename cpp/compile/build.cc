@@ -1764,7 +1764,8 @@ int NameList(const std::vector<std::string>& list, int adr, int* name_adr,
 // tables and map segments are trivially correct.
 struct NameLists {
   std::string modelname;
-  std::vector<std::string> body, jnt, geom, site, cam, light, pair, exclude, key;
+  std::vector<std::string> body, jnt, geom, site, cam, light, pair, exclude, eq,
+      tendon, actuator, sensor, key;
 
   int TotalNames() const {
     int n = static_cast<int>(modelname.size()) + 1;
@@ -1772,7 +1773,8 @@ struct NameLists {
       for (const auto& s : v) n += static_cast<int>(s.size()) + 1;
     };
     add(body); add(jnt); add(geom); add(site); add(cam); add(light);
-    add(pair); add(exclude); add(key);
+    add(pair); add(exclude); add(eq); add(tendon); add(actuator); add(sensor);
+    add(key);
     return n;
   }
 };
@@ -1798,6 +1800,10 @@ void FillNames(mjModel* m, const NameLists& nl) {
   pass(nl.light, m->name_lightadr);
   pass(nl.pair, m->name_pairadr);
   pass(nl.exclude, m->name_excludeadr);
+  pass(nl.eq, m->name_eqadr);
+  pass(nl.tendon, m->name_tendonadr);
+  pass(nl.actuator, m->name_actuatoradr);
+  pass(nl.sensor, m->name_sensoradr);
   pass(nl.key, m->name_keyadr);
 }
 
@@ -1933,6 +1939,1243 @@ void FillExcludes(mjModel* m, const std::vector<CExclude>& excludes) {
 }
 
 // --------------------------------------------------------------------------- //
+// Equality constraints (S8). The typed -> data[mjNEQDATA] packing lives only    //
+// in MuJoCo's XML reader (OneEquality, xml_native_reader.cc:2192-2311); on the  //
+// native path it is the fill rule for eq_data. Object resolution mirrors        //
+// mjCEquality::ResolveReferences (user_objects.cc:6267): connect/weld target    //
+// body|site, joint/tendon equalities target joints|tendons, a missing body2 is  //
+// the world (id 0). Defaults use a distinct EqualityDefault partial that        //
+// ps::sdk::Effective does not merge, so the active/solref/solimp class chain is  //
+// resolved here (top-level elements: governing class is the element's own class  //
+// or root, no body childclass). Lifted: equality_pack (registry).               //
+// --------------------------------------------------------------------------- //
+struct CEquality {
+  const void* src = nullptr;   // Connect/Weld/EqualityJoint/EqualityTendon*
+  std::uint64_t serial = 0;
+  ps::opt<std::string> name;
+  int type = mjEQ_CONNECT;
+  int objtype = 0;             // mjtObj (BODY/SITE for connect/weld)
+  int obj1id = -1, obj2id = -1;
+  bool active = true;
+  double solref[2] = {0.02, 1};
+  double solimp[5] = {0.9, 0.95, 0.001, 0.5, 2};
+  double data[mjNEQDATA] = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+};
+
+// Resolve active/solref/solimp from the EqualityDefault class chain (element's
+// own class then ancestors up to root; IDL defaults are already the CEquality
+// initializers). Fill-unauthored order: authored value wins, else nearest class.
+void MergeEqualityClassChain(const ps::sdk::detail::DefaultIndex& idx,
+                             const std::string& cls,
+                             const ps::opt<bool>& a_auth,
+                             const ps::opt<ps::InlineVec<double, 2>>& sr_auth,
+                             const ps::opt<ps::InlineVec<double, 5>>& si_auth,
+                             CEquality& ce) {
+  // Partial solref/solimp keep their defaults for the unspecified entries
+  // (ReadAttr overwrites only the values present), so copy only the authored
+  // length, never the full array.
+  auto copy_ref = [](double* dst, const ps::InlineVec<double, 2>& v) {
+    for (std::size_t k = 0; k < v.size() && k < 2; ++k) dst[k] = v[k];
+  };
+  auto copy_imp = [](double* dst, const ps::InlineVec<double, 5>& v) {
+    for (std::size_t k = 0; k < v.size() && k < 5; ++k) dst[k] = v[k];
+  };
+  bool have_a = a_auth.has_value(), have_sr = sr_auth.has_value(),
+       have_si = si_auth.has_value();
+  if (have_a) ce.active = *a_auth;
+  if (have_sr) copy_ref(ce.solref, *sr_auth);
+  if (have_si) copy_imp(ce.solimp, *si_auth);
+  for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d;
+       d = idx.ParentOf(d)) {
+    if (d->equality.empty() || !d->equality.front()) continue;
+    const EqualityDefault& ed = *d->equality.front();
+    if (!have_a && ed.active) { ce.active = *ed.active; have_a = true; }
+    if (!have_sr && ed.solref) { copy_ref(ce.solref, *ed.solref); have_sr = true; }
+    if (!have_si && ed.solimp) { copy_imp(ce.solimp, *ed.solimp); have_si = true; }
+  }
+}
+
+// Pack a connect equality (OneEquality mjEQ_CONNECT branch).
+void PackConnect(const Connect& c, CEquality& ce) {
+  ce.type = mjEQ_CONNECT;
+  const bool body_semantic = c.body1.has_value();
+  ce.objtype = body_semantic ? mjOBJ_BODY : mjOBJ_SITE;
+  if (c.anchor) for (int k = 0; k < 3; ++k) ce.data[k] = (*c.anchor)[k];
+}
+
+// Pack a weld equality (OneEquality mjEQ_WELD branch).
+void PackWeld(const Weld& w, CEquality& ce) {
+  ce.type = mjEQ_WELD;
+  const bool body_semantic = w.body1.has_value();
+  const bool has_anchor = w.anchor.has_value();
+  ce.objtype = body_semantic ? mjOBJ_BODY : mjOBJ_SITE;
+  if (has_anchor) for (int k = 0; k < 3; ++k) ce.data[k] = (*w.anchor)[k];
+  if (w.relpose) for (int k = 0; k < 7; ++k) ce.data[3 + k] = (*w.relpose)[k];
+  // body semantics with no anchor: zero the anchor slot (upstream mjuu_zerovec).
+  if (body_semantic && !has_anchor) ce.data[0] = ce.data[1] = ce.data[2] = 0;
+  if (w.torquescale) ce.data[10] = *w.torquescale;
+}
+
+// Pack joint/tendon polycoef into data[0..4] (default {0,1,0,0,0}).
+void PackPolycoef(const ps::opt<std::vector<double>>& poly, CEquality& ce) {
+  if (poly)
+    for (int k = 0; k < 5 && k < static_cast<int>(poly->size()); ++k)
+      ce.data[k] = (*poly)[k];
+}
+
+using NameIdMap = std::unordered_map<std::string, int>;
+
+// Compile one equality element of any spelling.
+CEquality EqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
+                          const EqualityAny& any, const NameIdMap& bodyid,
+                          const NameIdMap& siteid, const NameIdMap& jointid,
+                          const NameIdMap& tendonid) {
+  CEquality ce;
+  auto resolve = [](const NameIdMap& m, const std::string& nm) -> int {
+    auto it = m.find(nm);
+    return it == m.end() ? -1 : it->second;
+  };
+  switch (any.kind()) {
+    case EqualityAny::Kind::Connect: {
+      const Connect& c = *std::get<std::unique_ptr<Connect>>(any.node);
+      ce.src = &c; ce.serial = c.serial; ce.name = c.name;
+      PackConnect(c, ce);
+      MergeEqualityClassChain(idx, c.dclass ? c.dclass->name : "", c.active,
+                              c.solref, c.solimp, ce);
+      const NameIdMap& m = (ce.objtype == mjOBJ_BODY) ? bodyid : siteid;
+      if (c.body1) ce.obj1id = resolve(m, c.body1->name);
+      else if (c.site1) ce.obj1id = resolve(m, c.site1->name);
+      if (c.body2) ce.obj2id = resolve(m, c.body2->name);
+      else if (c.site2) ce.obj2id = resolve(m, c.site2->name);
+      break;
+    }
+    case EqualityAny::Kind::Weld: {
+      const Weld& w = *std::get<std::unique_ptr<Weld>>(any.node);
+      ce.src = &w; ce.serial = w.serial; ce.name = w.name;
+      PackWeld(w, ce);
+      MergeEqualityClassChain(idx, w.dclass ? w.dclass->name : "", w.active,
+                              w.solref, w.solimp, ce);
+      const NameIdMap& m = (ce.objtype == mjOBJ_BODY) ? bodyid : siteid;
+      if (w.body1) ce.obj1id = resolve(m, w.body1->name);
+      else if (w.site1) ce.obj1id = resolve(m, w.site1->name);
+      if (w.body2) ce.obj2id = resolve(m, w.body2->name);
+      else if (w.site2) ce.obj2id = resolve(m, w.site2->name);
+      break;
+    }
+    case EqualityAny::Kind::EqualityJoint: {
+      const EqualityJoint& j = *std::get<std::unique_ptr<EqualityJoint>>(any.node);
+      ce.src = &j; ce.serial = j.serial; ce.name = j.name;
+      ce.type = mjEQ_JOINT;  // objtype stays 0: OneEquality sets it only for
+                             // connect/weld (joint/tendon leave it unset).
+      PackPolycoef(j.polycoef, ce);
+      MergeEqualityClassChain(idx, j.dclass ? j.dclass->name : "", j.active,
+                              j.solref, j.solimp, ce);
+      if (j.joint1) ce.obj1id = resolve(jointid, j.joint1->name);
+      if (j.joint2) ce.obj2id = resolve(jointid, j.joint2->name);
+      break;
+    }
+    case EqualityAny::Kind::EqualityTendon: {
+      const EqualityTendon& t = *std::get<std::unique_ptr<EqualityTendon>>(any.node);
+      ce.src = &t; ce.serial = t.serial; ce.name = t.name;
+      ce.type = mjEQ_TENDON;  // objtype stays 0 (see EqualityJoint).
+      PackPolycoef(t.polycoef, ce);
+      MergeEqualityClassChain(idx, t.dclass ? t.dclass->name : "", t.active,
+                              t.solref, t.solimp, ce);
+      if (t.tendon1) ce.obj1id = resolve(tendonid, t.tendon1->name);
+      if (t.tendon2) ce.obj2id = resolve(tendonid, t.tendon2->name);
+      break;
+    }
+    default:
+      break;  // flex equalities gated out
+  }
+  // missing body2 -> world (mjCEquality::ResolveReferences).
+  if (ce.objtype == mjOBJ_BODY && ce.obj2id == -1) ce.obj2id = 0;
+  return ce;
+}
+
+void FillEqualities(mjModel* m, const std::vector<CEquality>& eqs) {
+  for (int i = 0; i < static_cast<int>(eqs.size()); ++i) {
+    const CEquality& ce = eqs[i];
+    m->eq_type[i] = ce.type;
+    m->eq_obj1id[i] = ce.obj1id;
+    m->eq_obj2id[i] = ce.obj2id;
+    m->eq_objtype[i] = ce.objtype;
+    m->eq_active0[i] = static_cast<mjtByte>(ce.active);
+    lift::mjuu_copyvec(m->eq_solref + mjNREF * i, ce.solref, mjNREF);
+    lift::mjuu_copyvec(m->eq_solimp + mjNIMP * i, ce.solimp, mjNIMP);
+    lift::mjuu_copyvec(m->eq_data + mjNEQDATA * i, ce.data, mjNEQDATA);
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Tendons (S8), spatial + fixed. The wrap path is built from the ProtoSpec      //
+// PathItemAny / FixedJoint lists (WrapSite/WrapGeom/WrapPulley/WrapJoint,        //
+// user_objects.cc:6470-6540); wrap type/objid/prm and geom sphere->cylinder     //
+// selection + sidesite follow mjCWrap::ResolveReferences (:6800). Limits use    //
+// islimited (checklimited/Q-AUTO). Defaults use the distinct TendonDefault       //
+// partial (not merged by ps::sdk::Effective), resolved here over the class       //
+// chain. Length range / actuatorfrcrange are copied through; nJten is computed   //
+// as in ComputeSparseSizes (:1088). Material/armature route to fallback (gate).  //
+// --------------------------------------------------------------------------- //
+struct CWrap {
+  int type = 0;      // mjtWrap
+  int objid = -1;
+  double prm = 0;
+  int sideid = -1;
+};
+
+struct CTendon {
+  const void* src = nullptr;
+  std::uint64_t serial = 0;
+  ps::opt<std::string> name;
+  bool spatial = true;
+  std::vector<CWrap> path;
+  int group = 0;
+  bool limited = false, actfrclimited = false;
+  double width = 0.003;
+  double solref_lim[2] = {0.02, 1};
+  double solimp_lim[5] = {0.9, 0.95, 0.001, 0.5, 2};
+  double solref_fri[2] = {0.02, 1};
+  double solimp_fri[5] = {0.9, 0.95, 0.001, 0.5, 2};
+  double range[2] = {0, 0}, actfrcrange[2] = {0, 0};
+  double margin = 0;
+  double stiffness[3] = {0, 0, 0};   // [scalar, poly0, poly1]
+  double damping[3] = {0, 0, 0};
+  double armature = 0, frictionloss = 0;
+  double springlength[2] = {-1, -1};
+  float rgba[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+  std::vector<double> user;
+  int matid = -1;
+};
+
+// Common authored-field bag so Spatial and Fixed share one resolver. `has_*`
+// gate is the opt presence; class-chain / IDL fill unauthored fields.
+struct TendonAuthored {
+  ps::opt<int32_t> group;
+  ps::opt<TriState> limited, actfrclimited;
+  ps::opt<std::array<double, 2>> range, actfrcrange;
+  ps::opt<ps::InlineVec<double, 2>> solreflimit, solreffriction;
+  ps::opt<ps::InlineVec<double, 5>> solimplimit, solimpfriction;
+  ps::opt<double> frictionloss;
+  ps::opt<ps::InlineVec<double, 2>> springlength;
+  ps::opt<double> width, margin, armature;
+  ps::opt<ps::InlineVec<double, 3>> stiffness, damping;
+  ps::opt<std::array<float, 4>> rgba;
+  ps::opt<std::vector<double>> user;
+};
+
+template <int N>
+void CopyVecOpt(double* dst, const ps::InlineVec<double, N>& v) {
+  for (std::size_t k = 0; k < v.size() && k < static_cast<std::size_t>(N); ++k)
+    dst[k] = v[k];
+}
+
+// Resolve authored -> class chain -> IDL (CTendon initializers) for the scalar
+// and small-array fields shared by spatial and fixed tendons.
+void ResolveTendonFields(const ps::sdk::detail::DefaultIndex& idx,
+                         const std::string& cls, const TendonAuthored& a,
+                         CTendon& ct) {
+  // gather class-chain TendonDefault snapshots (nearest first).
+  std::vector<const TendonDefault*> chain;
+  for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d;
+       d = idx.ParentOf(d))
+    if (!d->tendon.empty() && d->tendon.front())
+      chain.push_back(d->tendon.front().get());
+
+  // group
+  if (a.group) ct.group = *a.group;
+  else for (const auto* td : chain) if (td->group) { ct.group = *td->group; break; }
+  // width
+  if (a.width) ct.width = *a.width;
+  else for (const auto* td : chain) if (td->width) { ct.width = *td->width; break; }
+  // margin
+  if (a.margin) ct.margin = *a.margin;
+  else for (const auto* td : chain) if (td->margin) { ct.margin = *td->margin; break; }
+  // armature (no TendonDefault field; gated non-zero) -> authored only
+  if (a.armature) ct.armature = *a.armature;
+  // frictionloss
+  if (a.frictionloss) ct.frictionloss = *a.frictionloss;
+  else for (const auto* td : chain)
+    if (td->frictionloss) { ct.frictionloss = *td->frictionloss; break; }
+  // range
+  if (a.range) { ct.range[0] = (*a.range)[0]; ct.range[1] = (*a.range)[1]; }
+  else for (const auto* td : chain)
+    if (td->range) { ct.range[0] = (*td->range)[0]; ct.range[1] = (*td->range)[1]; break; }
+  // actfrcrange (no TendonDefault field) -> authored only
+  if (a.actfrcrange) { ct.actfrcrange[0] = (*a.actfrcrange)[0];
+                       ct.actfrcrange[1] = (*a.actfrcrange)[1]; }
+  // springlength
+  if (a.springlength) CopyVecOpt<2>(ct.springlength, *a.springlength);
+  else for (const auto* td : chain)
+    if (td->springlength) { ct.springlength[0] = (*td->springlength)[0];
+                            ct.springlength[1] = (*td->springlength)[1]; break; }
+  // solref/solimp limit + friction
+  auto resolve_ref = [&](double* dst, const ps::opt<ps::InlineVec<double, 2>>& au,
+                         auto pick) {
+    if (au) { CopyVecOpt<2>(dst, *au); return; }
+    for (const auto* td : chain) { const auto& f = pick(td);
+      if (f) { CopyVecOpt<2>(dst, *f); return; } }
+  };
+  auto resolve_imp = [&](double* dst, const ps::opt<ps::InlineVec<double, 5>>& au,
+                         auto pick) {
+    if (au) { CopyVecOpt<5>(dst, *au); return; }
+    for (const auto* td : chain) { const auto& f = pick(td);
+      if (f) { CopyVecOpt<5>(dst, *f); return; } }
+  };
+  resolve_ref(ct.solref_lim, a.solreflimit, [](const TendonDefault* t){ return t->solreflimit; });
+  resolve_imp(ct.solimp_lim, a.solimplimit, [](const TendonDefault* t){ return t->solimplimit; });
+  resolve_ref(ct.solref_fri, a.solreffriction, [](const TendonDefault* t){ return t->solreffriction; });
+  resolve_imp(ct.solimp_fri, a.solimpfriction, [](const TendonDefault* t){ return t->solimpfriction; });
+  // stiffness / damping (InlineVec<3> authored; array<3> in default)
+  if (a.stiffness) CopyVecOpt<3>(ct.stiffness, *a.stiffness);
+  else for (const auto* td : chain) if (td->stiffness) {
+    for (int k = 0; k < 3; ++k) ct.stiffness[k] = (*td->stiffness)[k]; break; }
+  if (a.damping) CopyVecOpt<3>(ct.damping, *a.damping);
+  else for (const auto* td : chain) if (td->damping) {
+    for (int k = 0; k < 3; ++k) ct.damping[k] = (*td->damping)[k]; break; }
+  // rgba
+  if (a.rgba) for (int k = 0; k < 4; ++k) ct.rgba[k] = (*a.rgba)[k];
+  else for (const auto* td : chain) if (td->rgba) {
+    for (int k = 0; k < 4; ++k) ct.rgba[k] = (*td->rgba)[k]; break; }
+  // user
+  if (a.user) ct.user = *a.user;
+  else for (const auto* td : chain) if (td->user) { ct.user = *td->user; break; }
+
+  // limits (islimited over resolved limited state + range).
+  auto tri = [](const ps::opt<TriState>& t) {
+    return t ? static_cast<int>(*t) : mjLIMITED_AUTO;
+  };
+  int lim = a.limited ? static_cast<int>(*a.limited) : mjLIMITED_AUTO;
+  if (!a.limited)
+    for (const auto* td : chain) if (td->limited) { lim = static_cast<int>(*td->limited); break; }
+  ct.limited = IsLimited(lim, ct.range);
+  ct.actfrclimited = IsLimited(tri(a.actfrclimited), ct.actfrcrange);
+}
+
+void FillTendonAuthoredSpatial(const Spatial& s, TendonAuthored& a) {
+  a.group = s.group; a.limited = s.limited; a.actfrclimited = s.actuatorfrclimited;
+  a.range = s.range; a.actfrcrange = s.actuatorfrcrange;
+  a.solreflimit = s.solreflimit; a.solimplimit = s.solimplimit;
+  a.solreffriction = s.solreffriction; a.solimpfriction = s.solimpfriction;
+  a.frictionloss = s.frictionloss; a.springlength = s.springlength;
+  a.width = s.width; a.margin = s.margin; a.armature = s.armature;
+  a.stiffness = s.stiffness; a.damping = s.damping; a.rgba = s.rgba; a.user = s.user;
+}
+
+void FillTendonAuthoredFixed(const Fixed& f, TendonAuthored& a) {
+  a.group = f.group; a.limited = f.limited; a.actfrclimited = f.actuatorfrclimited;
+  a.range = f.range; a.actfrcrange = f.actuatorfrcrange;
+  a.solreflimit = f.solreflimit; a.solimplimit = f.solimplimit;
+  a.solreffriction = f.solreffriction; a.solimpfriction = f.solimpfriction;
+  a.frictionloss = f.frictionloss; a.springlength = f.springlength;
+  a.margin = f.margin; a.armature = f.armature;
+  a.stiffness = f.stiffness; a.damping = f.damping; a.user = f.user;
+}
+
+CTendon TendonCompile(const ps::sdk::detail::DefaultIndex& idx,
+                      const TendonAny& any, const NameIdMap& siteid,
+                      const NameIdMap& geomid, const NameIdMap& jointid,
+                      const std::vector<CGeom>& geoms) {
+  CTendon ct;
+  auto resolve = [](const NameIdMap& m, const std::string& nm) -> int {
+    auto it = m.find(nm);
+    return it == m.end() ? -1 : it->second;
+  };
+  TendonAuthored a;
+  if (any.kind() == TendonAny::Kind::Spatial) {
+    const Spatial& s = *std::get<std::unique_ptr<Spatial>>(any.node);
+    ct.src = &s; ct.serial = s.serial; ct.name = s.name; ct.spatial = true;
+    FillTendonAuthoredSpatial(s, a);
+    ResolveTendonFields(idx, s.dclass ? s.dclass->name : "", a, ct);
+    for (const PathItemAny& item : s.path) {
+      CWrap w;
+      switch (item.kind()) {
+        case PathItemAny::Kind::SpatialSite: {
+          const SpatialSite& ss = *std::get<std::unique_ptr<SpatialSite>>(item.node);
+          w.type = mjWRAP_SITE;
+          if (ss.site) w.objid = resolve(siteid, ss.site->name);
+          break;
+        }
+        case PathItemAny::Kind::SpatialGeom: {
+          const SpatialGeom& sg = *std::get<std::unique_ptr<SpatialGeom>>(item.node);
+          w.type = mjWRAP_SPHERE;
+          if (sg.geom) w.objid = resolve(geomid, sg.geom->name);
+          if (w.objid >= 0 && geoms[w.objid].type == mjGEOM_CYLINDER)
+            w.type = mjWRAP_CYLINDER;
+          if (sg.sidesite) w.sideid = resolve(siteid, sg.sidesite->name);
+          break;
+        }
+        case PathItemAny::Kind::Pulley: {
+          const Pulley& p = *std::get<std::unique_ptr<Pulley>>(item.node);
+          w.type = mjWRAP_PULLEY;
+          w.prm = p.divisor ? *p.divisor : 0;
+          break;
+        }
+        default:
+          break;
+      }
+      ct.path.push_back(w);
+    }
+  } else {
+    const Fixed& f = *std::get<std::unique_ptr<Fixed>>(any.node);
+    ct.src = &f; ct.serial = f.serial; ct.name = f.name; ct.spatial = false;
+    FillTendonAuthoredFixed(f, a);
+    ResolveTendonFields(idx, f.dclass ? f.dclass->name : "", a, ct);
+    for (const auto& fj : f.fixedJoints) {
+      if (!fj) continue;
+      CWrap w;
+      w.type = mjWRAP_JOINT;
+      if (fj->joint) w.objid = resolve(jointid, fj->joint->name);
+      w.prm = fj->coef ? *fj->coef : 0;
+      ct.path.push_back(w);
+    }
+  }
+  return ct;
+}
+
+// nJten (ComputeSparseSizes user_model.cc:1088): fixed tendons contribute one
+// per joint wrap; spatial tendons contribute the number of dofs on the ancestor
+// chains of every wrapped body.
+int ComputeNJten(const std::vector<CTendon>& tendons,
+                 const std::vector<CBody>& cbs, const std::vector<CGeom>& geoms,
+                 const std::vector<CSite>& sites, int nv) {
+  int nJten = 0;
+  if (nv <= 0) return 0;
+  std::vector<char> bitmap(nv, 0);
+  for (const CTendon& t : tendons) {
+    if (!t.path.empty() && t.path[0].type == mjWRAP_JOINT) {
+      nJten += static_cast<int>(t.path.size());
+      continue;
+    }
+    std::fill(bitmap.begin(), bitmap.end(), 0);
+    for (const CWrap& w : t.path) {
+      int bodyid = -1;
+      if (w.type == mjWRAP_SITE && w.objid >= 0) bodyid = sites[w.objid].bodyid;
+      else if ((w.type == mjWRAP_SPHERE || w.type == mjWRAP_CYLINDER) && w.objid >= 0)
+        bodyid = geoms[w.objid].bodyid;
+      if (bodyid <= 0) continue;
+      for (int b = bodyid; b > 0; b = cbs[b].parentid)
+        for (int d = cbs[b].dofadr; d < cbs[b].dofadr + cbs[b].dofnum && cbs[b].dofadr >= 0; ++d)
+          bitmap[d] = 1;
+    }
+    for (int j = 0; j < nv; ++j) nJten += bitmap[j];
+  }
+  return nJten;
+}
+
+void FillTendons(mjModel* m, const std::vector<CTendon>& tendons) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(tendons.size()); ++i) {
+    const CTendon& t = tendons[i];
+    m->tendon_adr[i] = adr;
+    m->tendon_num[i] = static_cast<int>(t.path.size());
+    m->tendon_matid[i] = t.matid;
+    m->tendon_group[i] = t.group;
+    m->tendon_limited[i] = static_cast<mjtByte>(t.limited);
+    m->tendon_actfrclimited[i] = static_cast<mjtByte>(t.actfrclimited);
+    m->tendon_width[i] = t.width;
+    lift::mjuu_copyvec(m->tendon_solref_lim + mjNREF * i, t.solref_lim, mjNREF);
+    lift::mjuu_copyvec(m->tendon_solimp_lim + mjNIMP * i, t.solimp_lim, mjNIMP);
+    lift::mjuu_copyvec(m->tendon_solref_fri + mjNREF * i, t.solref_fri, mjNREF);
+    lift::mjuu_copyvec(m->tendon_solimp_fri + mjNIMP * i, t.solimp_fri, mjNIMP);
+    m->tendon_range[2 * i] = t.range[0];
+    m->tendon_range[2 * i + 1] = t.range[1];
+    m->tendon_actfrcrange[2 * i] = t.actfrcrange[0];
+    m->tendon_actfrcrange[2 * i + 1] = t.actfrcrange[1];
+    m->tendon_margin[i] = t.margin;
+    m->tendon_stiffness[i] = t.stiffness[0];
+    lift::mjuu_copyvec(m->tendon_stiffnesspoly + mjNPOLY * i, t.stiffness + 1, mjNPOLY);
+    m->tendon_damping[i] = t.damping[0];
+    lift::mjuu_copyvec(m->tendon_dampingpoly + mjNPOLY * i, t.damping + 1, mjNPOLY);
+    m->tendon_armature[i] = t.armature;
+    m->tendon_frictionloss[i] = t.frictionloss;
+    m->tendon_lengthspring[2 * i] = t.springlength[0];
+    m->tendon_lengthspring[2 * i + 1] = t.springlength[1];
+    for (int k = 0; k < m->nuser_tendon && k < static_cast<int>(t.user.size()); ++k)
+      m->tendon_user[m->nuser_tendon * i + k] = t.user[k];
+    for (int k = 0; k < 4; ++k) m->tendon_rgba[4 * i + k] = t.rgba[k];
+
+    for (int j = 0; j < static_cast<int>(t.path.size()); ++j) {
+      const CWrap& w = t.path[j];
+      m->wrap_type[adr + j] = w.type;
+      m->wrap_objid[adr + j] = w.objid;
+      m->wrap_prm[adr + j] = (w.type == mjWRAP_SPHERE || w.type == mjWRAP_CYLINDER)
+                                 ? static_cast<double>(w.sideid)
+                                 : w.prm;
+    }
+    adr += static_cast<int>(t.path.size());
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Actuators (S8). ProtoSpec stores the TYPED shortcut variants (motor/position  //
+// /.../muscle); the shortcut->general lowering math lives only in the mjs_setTo* //
+// helpers (user_api.cc:1133-1294) and is LIFTED verbatim below, operating on a   //
+// plain ActParams that maps 1:1 to the mjsActuator gain/bias/dyn fields. The     //
+// per-shortcut defaults are mjs_defaultActuator's (gainprm[0]=1, dynprm[0]=1),   //
+// which the reader reads through before overriding, so an unauthored shortcut    //
+// inherits those. Transmission resolution + actdim + inheritrange follow         //
+// mjCActuator::Compile/ResolveReferences (user_objects.cc:7099,6910). Lifted:    //
+// actuator_lower (registry). Scope: motor/position/velocity/intvelocity/damper/  //
+// cylinder/adhesion/muscle with joint/jointinparent/tendon/body transmission;    //
+// dcmotor, plugin, site/refsite/slidercrank transmission, and delay are gated.   //
+// --------------------------------------------------------------------------- //
+struct ActParams {
+  int dyntype = mjDYN_NONE, gaintype = mjGAIN_FIXED, biastype = mjBIAS_NONE;
+  double dynprm[mjNDYN] = {0};
+  double gainprm[mjNGAIN] = {0};
+  double biasprm[mjNBIAS] = {0};
+  double ctrlrange[2] = {0, 0}, actrange[2] = {0, 0}, forcerange[2] = {0, 0};
+  int ctrllimited = mjLIMITED_AUTO, forcelimited = mjLIMITED_AUTO,
+      actlimited = mjLIMITED_AUTO;
+  double inheritrange = 0;
+  int actdim = -1, actearly = 0;
+
+  // mjs_defaultActuator base (user_init.c): the values an unauthored shortcut
+  // reads through before lowering.
+  ActParams() { gainprm[0] = 1; dynprm[0] = 1; }
+};
+
+namespace actlower {  // lifted from user_api.cc mjs_setTo* (verbatim math)
+
+void SetToMotor(ActParams& a) {
+  a.gainprm[0] = 1;
+  a.dyntype = mjDYN_NONE;
+  a.gaintype = mjGAIN_FIXED;
+  a.biastype = mjBIAS_NONE;
+}
+
+void SetToPosition(ActParams& a, double kp, const double* kv,
+                   const double* dampratio, const double* timeconst,
+                   double inheritrange) {
+  a.gainprm[0] = kp;
+  a.biasprm[1] = -kp;
+  if (kv) a.biasprm[2] = -(*kv);
+  if (dampratio) a.biasprm[2] = *dampratio;
+  if (timeconst) {
+    a.dynprm[0] = *timeconst;
+    a.dyntype = *timeconst == 0 ? mjDYN_NONE : mjDYN_FILTEREXACT;
+  }
+  a.inheritrange = inheritrange;
+  a.gaintype = mjGAIN_FIXED;
+  a.biastype = mjBIAS_AFFINE;
+}
+
+void SetToIntVelocity(ActParams& a, double kp, const double* kv,
+                      const double* dampratio, const double* timeconst,
+                      double inheritrange) {
+  SetToPosition(a, kp, kv, dampratio, timeconst, inheritrange);
+  a.dyntype = mjDYN_INTEGRATOR;
+  a.actlimited = 1;
+}
+
+void SetToVelocity(ActParams& a, double kv) {
+  for (int i = 0; i < mjNBIAS; ++i) a.biasprm[i] = 0;
+  a.gainprm[0] = kv;
+  a.biasprm[2] = -kv;
+  a.dyntype = mjDYN_NONE;
+  a.gaintype = mjGAIN_FIXED;
+  a.biastype = mjBIAS_AFFINE;
+}
+
+void SetToDamper(ActParams& a, double kv) {
+  for (int i = 0; i < mjNGAIN; ++i) a.gainprm[i] = 0;
+  a.gainprm[2] = -kv;
+  a.ctrllimited = 1;
+  a.dyntype = mjDYN_NONE;
+  a.gaintype = mjGAIN_AFFINE;
+  a.biastype = mjBIAS_NONE;
+}
+
+void SetToCylinder(ActParams& a, double timeconst, double bias, double area,
+                   double diameter) {
+  a.dynprm[0] = timeconst;
+  a.biasprm[0] = bias;
+  a.gainprm[0] = area;
+  if (diameter >= 0) a.gainprm[0] = mjPI / 4 * diameter * diameter;
+  a.dyntype = mjDYN_FILTER;
+  a.gaintype = mjGAIN_FIXED;
+  a.biastype = mjBIAS_AFFINE;
+}
+
+void SetToMuscle(ActParams& a, const double timeconst[2], double tausmooth,
+                 const double range[2], double force, double scale, double lmin,
+                 double lmax, double vmax, double fpmax, double fvmax) {
+  if (a.dynprm[0] == 1) a.dynprm[0] = 0.01;
+  if (a.dynprm[1] == 0) a.dynprm[1] = 0.04;
+  if (a.gainprm[0] == 1) a.gainprm[0] = 0.75;
+  if (a.gainprm[1] == 0) a.gainprm[1] = 1.05;
+  if (a.gainprm[2] == 0) a.gainprm[2] = -1;
+  if (a.gainprm[3] == 0) a.gainprm[3] = 200;
+  if (a.gainprm[4] == 0) a.gainprm[4] = 0.5;
+  if (a.gainprm[5] == 0) a.gainprm[5] = 1.6;
+  if (a.gainprm[6] == 0) a.gainprm[6] = 1.5;
+  if (a.gainprm[7] == 0) a.gainprm[7] = 1.3;
+  if (a.gainprm[8] == 0) a.gainprm[8] = 1.2;
+  a.dynprm[2] = tausmooth;
+  if (timeconst[0] >= 0) a.dynprm[0] = timeconst[0];
+  if (timeconst[1] >= 0) a.dynprm[1] = timeconst[1];
+  if (range[0] >= 0) a.gainprm[0] = range[0];
+  if (range[1] >= 0) a.gainprm[1] = range[1];
+  if (force >= 0) a.gainprm[2] = force;
+  if (scale >= 0) a.gainprm[3] = scale;
+  if (lmin >= 0) a.gainprm[4] = lmin;
+  if (lmax >= 0) a.gainprm[5] = lmax;
+  if (vmax >= 0) a.gainprm[6] = vmax;
+  if (fpmax >= 0) a.gainprm[7] = fpmax;
+  if (fvmax >= 0) a.gainprm[8] = fvmax;
+  for (int n = 0; n < 9; ++n) a.biasprm[n] = a.gainprm[n];
+  a.dyntype = mjDYN_MUSCLE;
+  a.gaintype = mjGAIN_MUSCLE;
+  a.biastype = mjBIAS_MUSCLE;
+}
+
+void SetToAdhesion(ActParams& a, double gain) {
+  a.gainprm[0] = gain;
+  a.ctrllimited = 1;
+  a.gaintype = mjGAIN_FIXED;
+  a.biastype = mjBIAS_NONE;
+}
+
+}  // namespace actlower
+
+struct CActuator {
+  const void* src = nullptr;
+  std::uint64_t serial = 0;
+  ps::opt<std::string> name;
+  int trntype = mjTRN_UNDEFINED;
+  int trnid[2] = {-1, -1};
+  int gaintype = mjGAIN_FIXED, biastype = mjBIAS_NONE, dyntype = mjDYN_NONE;
+  double dynprm[mjNDYN] = {0}, gainprm[mjNGAIN] = {0}, biasprm[mjNBIAS] = {0};
+  double gear[6] = {1, 0, 0, 0, 0, 0};
+  double ctrlrange[2] = {0, 0}, forcerange[2] = {0, 0}, actrange[2] = {0, 0},
+         lengthrange[2] = {0, 0};
+  double damping[3] = {0, 0, 0}, armature = 0, cranklength = 0;
+  int group = 0, actdim = 0, actadr = -1;
+  bool ctrllimited = false, forcelimited = false, actlimited = false;
+  bool actearly = false;
+  std::vector<double> user;
+};
+
+using OptStr = ps::opt<std::string>;
+
+// Resolve the effective actuator element (class chain + IDL) via ps::sdk, lower
+// its typed shortcuts through the lifted math, resolve the transmission target,
+// and finish actdim / limits / inheritrange like mjCActuator::Compile.
+template <class T>
+void FillActuatorCommon(const T& eff, CActuator& ca, ActParams& ap) {
+  if (eff.group) ca.group = *eff.group;
+  if constexpr (requires { eff.gear; })
+    if (eff.gear) for (std::size_t k = 0; k < eff.gear->size() && k < 6; ++k)
+      ca.gear[k] = (*eff.gear)[k];
+  if constexpr (requires { eff.ctrlrange; })
+    if (eff.ctrlrange) { ca.ctrlrange[0] = (*eff.ctrlrange)[0];
+                         ca.ctrlrange[1] = (*eff.ctrlrange)[1];
+                         ap.ctrlrange[0] = ca.ctrlrange[0];
+                         ap.ctrlrange[1] = ca.ctrlrange[1]; }
+  if constexpr (requires { eff.forcerange; })
+    if (eff.forcerange) { ca.forcerange[0] = (*eff.forcerange)[0];
+                          ca.forcerange[1] = (*eff.forcerange)[1];
+                          ap.forcerange[0] = ca.forcerange[0];
+                          ap.forcerange[1] = ca.forcerange[1]; }
+  if constexpr (requires { eff.lengthrange; })
+    if (eff.lengthrange) { ca.lengthrange[0] = (*eff.lengthrange)[0];
+                           ca.lengthrange[1] = (*eff.lengthrange)[1]; }
+  if constexpr (requires { eff.damping; }) {
+    if (eff.damping) for (std::size_t k = 0; k < eff.damping->size() && k < 3; ++k)
+      ca.damping[k] = (*eff.damping)[k];
+  }
+  if constexpr (requires { eff.armature; }) if (eff.armature) ca.armature = *eff.armature;
+  if constexpr (requires { eff.cranklength; }) if (eff.cranklength) ca.cranklength = *eff.cranklength;
+  if (eff.user) ca.user = *eff.user;
+  if constexpr (requires { eff.ctrllimited; })
+    if (eff.ctrllimited) ap.ctrllimited = static_cast<int>(*eff.ctrllimited);
+  if constexpr (requires { eff.forcelimited; })
+    if (eff.forcelimited) ap.forcelimited = static_cast<int>(*eff.forcelimited);
+}
+
+// Transmission target from the first present ref (reader precedence:
+// joint > jointinparent > tendon > cranksite(slidercrank) > site > body).
+template <class T>
+void ResolveTransmission(const T& eff, CActuator& ca, const NameIdMap& jointid,
+                         const NameIdMap& tendonid, const NameIdMap& bodyid) {
+  auto id = [](const NameIdMap& m, const std::string& n) {
+    auto it = m.find(n); return it == m.end() ? -1 : it->second;
+  };
+  if (eff.joint) { ca.trntype = mjTRN_JOINT; ca.trnid[0] = id(jointid, eff.joint->name); }
+  else if (eff.jointinparent) { ca.trntype = mjTRN_JOINTINPARENT;
+                                ca.trnid[0] = id(jointid, eff.jointinparent->name); }
+  else if (eff.tendon) { ca.trntype = mjTRN_TENDON; ca.trnid[0] = id(tendonid, eff.tendon->name); }
+  else if constexpr (requires { eff.body; }) {
+    if (eff.body) { ca.trntype = mjTRN_BODY; ca.trnid[0] = id(bodyid, eff.body->name); }
+  }
+}
+
+// Range accessors for inheritrange: a target joint or tendon's compiled range.
+struct RangeLookup {
+  const std::vector<CJoint>* joints;
+  const std::vector<CTendon>* tendons;
+  const NameIdMap* jointid;
+  const NameIdMap* tendonid;
+};
+
+CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
+                          const NameIdMap& jointid, const NameIdMap& tendonid,
+                          const NameIdMap& bodyid, const RangeLookup& rl) {
+  CActuator ca;
+  ActParams ap;
+  auto ptr = [](const double* v) { return v; };
+  (void)ptr;
+
+  switch (any.kind()) {
+    case ActuatorAny::Kind::ActuatorGeneral: {
+      const ActuatorGeneral& g = *std::get<std::unique_ptr<ActuatorGeneral>>(any.node);
+      std::unique_ptr<ActuatorGeneral> eff = ps::sdk::Effective(model, g);
+      ca.src = &g; ca.serial = g.serial; ca.name = g.name;
+      FillActuatorCommon(*eff, ca, ap);
+      if (eff->dyntype) ap.dyntype = static_cast<int>(*eff->dyntype);
+      if (eff->gaintype) ap.gaintype = static_cast<int>(*eff->gaintype);
+      if (eff->biastype) ap.biastype = static_cast<int>(*eff->biastype);
+      if (eff->actearly) ap.actearly = *eff->actearly ? 1 : 0;
+      if (eff->dynprm) for (std::size_t k = 0; k < eff->dynprm->size() && k < mjNDYN; ++k)
+        ap.dynprm[k] = (*eff->dynprm)[k];
+      if (eff->gainprm) for (std::size_t k = 0; k < eff->gainprm->size() && k < mjNGAIN; ++k)
+        ap.gainprm[k] = (*eff->gainprm)[k];
+      if (eff->biasprm) for (std::size_t k = 0; k < eff->biasprm->size() && k < mjNBIAS; ++k)
+        ap.biasprm[k] = (*eff->biasprm)[k];
+      if (eff->actrange) { ca.actrange[0] = (*eff->actrange)[0]; ca.actrange[1] = (*eff->actrange)[1];
+                           ap.actrange[0] = ca.actrange[0]; ap.actrange[1] = ca.actrange[1]; }
+      if (eff->actlimited) ap.actlimited = static_cast<int>(*eff->actlimited);
+      if (eff->actdim) ap.actdim = *eff->actdim;
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      break;
+    }
+    case ActuatorAny::Kind::Motor: {
+      const Motor& e = *std::get<std::unique_ptr<Motor>>(any.node);
+      std::unique_ptr<Motor> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      FillActuatorCommon(*eff, ca, ap);
+      actlower::SetToMotor(ap);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      break;
+    }
+    case ActuatorAny::Kind::Position:
+    case ActuatorAny::Kind::IntVelocity: {
+      const bool intvel = any.kind() == ActuatorAny::Kind::IntVelocity;
+      // Position and IntVelocity share the same shortcut set.
+      auto lower = [&](auto& eff) {
+        ca.name = eff.name;
+        FillActuatorCommon(eff, ca, ap);
+        double kp = eff.kp ? *eff.kp : ap.gainprm[0];
+        double kvv = 0, drr = 0, tcc = 0;
+        const double* kv = nullptr; const double* dr = nullptr; const double* tc = nullptr;
+        if (eff.kv) { kvv = *eff.kv; kv = &kvv; }
+        if (eff.dampratio) { drr = *eff.dampratio; dr = &drr; }
+        if constexpr (requires { eff.timeconst; })
+          if (eff.timeconst) { tcc = *eff.timeconst; tc = &tcc; }
+        double inherit = eff.inheritrange ? *eff.inheritrange : ap.inheritrange;
+        if constexpr (requires { eff.actrange; }) {
+          if (eff.actrange) { ca.actrange[0] = (*eff.actrange)[0]; ca.actrange[1] = (*eff.actrange)[1];
+                              ap.actrange[0] = ca.actrange[0]; ap.actrange[1] = ca.actrange[1]; }
+        }
+        if (intvel) {
+          actlower::SetToIntVelocity(ap, kp, kv, dr, tc, inherit);
+        } else {
+          actlower::SetToPosition(ap, kp, kv, dr, tc, inherit);
+        }
+        ResolveTransmission(eff, ca, jointid, tendonid, bodyid);
+      };
+      if (intvel) {
+        const IntVelocity& e = *std::get<std::unique_ptr<IntVelocity>>(any.node);
+        std::unique_ptr<IntVelocity> eff = ps::sdk::Effective(model, e);
+        ca.src = &e; ca.serial = e.serial; lower(*eff);
+      } else {
+        const Position& e = *std::get<std::unique_ptr<Position>>(any.node);
+        std::unique_ptr<Position> eff = ps::sdk::Effective(model, e);
+        ca.src = &e; ca.serial = e.serial; lower(*eff);
+      }
+      break;
+    }
+    case ActuatorAny::Kind::Velocity: {
+      const Velocity& e = *std::get<std::unique_ptr<Velocity>>(any.node);
+      std::unique_ptr<Velocity> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      FillActuatorCommon(*eff, ca, ap);
+      actlower::SetToVelocity(ap, eff->kv ? *eff->kv : ap.gainprm[0]);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      break;
+    }
+    case ActuatorAny::Kind::Damper: {
+      const Damper& e = *std::get<std::unique_ptr<Damper>>(any.node);
+      std::unique_ptr<Damper> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      FillActuatorCommon(*eff, ca, ap);
+      actlower::SetToDamper(ap, eff->kv ? *eff->kv : 0);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      break;
+    }
+    case ActuatorAny::Kind::Cylinder: {
+      const Cylinder& e = *std::get<std::unique_ptr<Cylinder>>(any.node);
+      std::unique_ptr<Cylinder> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      FillActuatorCommon(*eff, ca, ap);
+      double timeconst = eff->timeconst ? *eff->timeconst : ap.dynprm[0];
+      double bias = eff->bias ? (*eff->bias)[0] : ap.biasprm[0];
+      double area = eff->area ? *eff->area : ap.gainprm[0];
+      double diameter = eff->diameter ? *eff->diameter : -1;
+      actlower::SetToCylinder(ap, timeconst, bias, area, diameter);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      break;
+    }
+    case ActuatorAny::Kind::Muscle: {
+      const Muscle& e = *std::get<std::unique_ptr<Muscle>>(any.node);
+      std::unique_ptr<Muscle> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      FillActuatorCommon(*eff, ca, ap);
+      double tausmooth = eff->tausmooth ? *eff->tausmooth : ap.dynprm[2];
+      double tc[2] = {eff->timeconst ? (*eff->timeconst)[0] : -1,
+                      eff->timeconst ? (*eff->timeconst)[1] : -1};
+      double range[2] = {eff->range ? (*eff->range)[0] : -1,
+                         eff->range ? (*eff->range)[1] : -1};
+      auto g = [](const ps::opt<double>& v) { return v ? *v : -1.0; };
+      actlower::SetToMuscle(ap, tc, tausmooth, range, g(eff->force), g(eff->scale),
+                            g(eff->lmin), g(eff->lmax), g(eff->vmax), g(eff->fpmax),
+                            g(eff->fvmax));
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      break;
+    }
+    case ActuatorAny::Kind::Adhesion: {
+      const Adhesion& e = *std::get<std::unique_ptr<Adhesion>>(any.node);
+      std::unique_ptr<Adhesion> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      FillActuatorCommon(*eff, ca, ap);
+      if (eff->ctrlrange) { ca.ctrlrange[0] = (*eff->ctrlrange)[0];
+                            ca.ctrlrange[1] = (*eff->ctrlrange)[1];
+                            ap.ctrlrange[0] = ca.ctrlrange[0]; ap.ctrlrange[1] = ca.ctrlrange[1]; }
+      actlower::SetToAdhesion(ap, eff->gain ? *eff->gain : ap.gainprm[0]);
+      if (eff->body) { auto it = bodyid.find(eff->body->name);
+                       ca.trntype = mjTRN_BODY; ca.trnid[0] = it == bodyid.end() ? -1 : it->second; }
+      break;
+    }
+    default:
+      break;  // dcmotor / plugin gated out
+  }
+
+  // Copy lowered gain/bias/dyn state into the compiled actuator.
+  ca.gaintype = ap.gaintype; ca.biastype = ap.biastype; ca.dyntype = ap.dyntype;
+  for (int k = 0; k < mjNDYN; ++k) ca.dynprm[k] = ap.dynprm[k];
+  for (int k = 0; k < mjNGAIN; ++k) ca.gainprm[k] = ap.gainprm[k];
+  for (int k = 0; k < mjNBIAS; ++k) ca.biasprm[k] = ap.biasprm[k];
+  ca.actearly = ap.actearly != 0;
+
+  // inheritrange (mjCActuator::Compile): position/intvelocity with matching
+  // affine semantics inherit the target's range into ctrlrange/actrange.
+  if (ap.gaintype == mjGAIN_FIXED && ap.biastype == mjBIAS_AFFINE &&
+      ap.gainprm[0] == -ap.biasprm[1] && ap.inheritrange > 0) {
+    double* range = (ap.dyntype == mjDYN_NONE || ap.dyntype == mjDYN_FILTEREXACT)
+                        ? ca.ctrlrange
+                        : ca.actrange;
+    const double* tr = nullptr;
+    if (ca.trntype == mjTRN_JOINT) {
+      auto it = rl.jointid->find(""); (void)it;
+      if (ca.trnid[0] >= 0) tr = (*rl.joints)[ca.trnid[0]].range;
+    } else if (ca.trntype == mjTRN_TENDON) {
+      if (ca.trnid[0] >= 0) tr = (*rl.tendons)[ca.trnid[0]].range;
+    }
+    if (tr && tr[0] != tr[1]) {
+      double mean = 0.5 * (tr[1] + tr[0]);
+      double radius = 0.5 * (tr[1] - tr[0]) * ap.inheritrange;
+      range[0] = mean - radius;
+      range[1] = mean + radius;
+    }
+  }
+
+  // actdim (mjCActuator::Compile): default -1 becomes 1 for a stateful dyntype.
+  int actdim = ap.actdim;
+  if (actdim < 0)
+    actdim = (ap.dyntype != mjDYN_NONE && ap.dyntype != mjDYN_DCMOTOR) ? 1 : 0;
+  ca.actdim = actdim;
+
+  // tri-state limits -> booleans (islimited).
+  ca.ctrllimited = IsLimited(ap.ctrllimited, ca.ctrlrange);
+  ca.forcelimited = IsLimited(ap.forcelimited, ca.forcerange);
+  ca.actlimited = IsLimited(ap.actlimited, ca.actrange);
+  return ca;
+}
+
+// nJmom (CountNJmom user_model.cc:3248) over the built transmission set; scope
+// covers joint/jointinparent/tendon/body (site/slidercrank are gated).
+int ComputeNJmom(const std::vector<CActuator>& acts,
+                 const std::vector<CJoint>& joints,
+                 const std::vector<CTendon>& tendons,
+                 const std::vector<CBody>& cbs, const std::vector<CGeom>& geoms,
+                 const std::vector<CSite>& sites, int nv) {
+  int count = 0;
+  for (const CActuator& a : acts) {
+    switch (a.trntype) {
+      case mjTRN_JOINT:
+      case mjTRN_JOINTINPARENT: {
+        int jt = a.trnid[0] >= 0 ? joints[a.trnid[0]].type : mjJNT_HINGE;
+        count += jt == mjJNT_BALL ? 3 : jt == mjJNT_FREE ? 6 : 1;
+        break;
+      }
+      case mjTRN_TENDON: {
+        std::vector<CTendon> one;
+        if (a.trnid[0] >= 0) one.push_back(tendons[a.trnid[0]]);
+        count += ComputeNJten(one, cbs, geoms, sites, nv);
+        break;
+      }
+      case mjTRN_BODY:
+        count += nv;
+        break;
+      default:
+        break;
+    }
+  }
+  return count;
+}
+
+void FillActuators(mjModel* m, const std::vector<CActuator>& acts) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(acts.size()); ++i) {
+    const CActuator& a = acts[i];
+    m->actuator_trntype[i] = a.trntype;
+    m->actuator_dyntype[i] = a.dyntype;
+    m->actuator_gaintype[i] = a.gaintype;
+    m->actuator_biastype[i] = a.biastype;
+    m->actuator_trnid[2 * i] = a.trnid[0];
+    m->actuator_trnid[2 * i + 1] = a.trnid[1];
+    m->actuator_actnum[i] = a.actdim;
+    m->actuator_actadr[i] = a.actdim ? adr : -1;
+    adr += a.actdim;
+    m->actuator_group[i] = a.group;
+    m->actuator_plugin[i] = -1;
+    m->actuator_delay[i] = 0;
+    m->actuator_history[2 * i] = 0;
+    m->actuator_history[2 * i + 1] = 0;
+    m->actuator_historyadr[i] = -1;
+    m->actuator_ctrllimited[i] = static_cast<mjtByte>(a.ctrllimited);
+    m->actuator_forcelimited[i] = static_cast<mjtByte>(a.forcelimited);
+    m->actuator_actlimited[i] = static_cast<mjtByte>(a.actlimited);
+    m->actuator_actearly[i] = static_cast<mjtByte>(a.actearly);
+    m->actuator_cranklength[i] = a.cranklength;
+    lift::mjuu_copyvec(m->actuator_gear + 6 * i, a.gear, 6);
+    m->actuator_damping[i] = a.damping[0];
+    lift::mjuu_copyvec(m->actuator_dampingpoly + mjNPOLY * i, a.damping + 1, mjNPOLY);
+    m->actuator_armature[i] = a.armature;
+    lift::mjuu_copyvec(m->actuator_dynprm + mjNDYN * i, a.dynprm, mjNDYN);
+    lift::mjuu_copyvec(m->actuator_gainprm + mjNGAIN * i, a.gainprm, mjNGAIN);
+    lift::mjuu_copyvec(m->actuator_biasprm + mjNBIAS * i, a.biasprm, mjNBIAS);
+    lift::mjuu_copyvec(m->actuator_ctrlrange + 2 * i, a.ctrlrange, 2);
+    lift::mjuu_copyvec(m->actuator_forcerange + 2 * i, a.forcerange, 2);
+    lift::mjuu_copyvec(m->actuator_actrange + 2 * i, a.actrange, 2);
+    lift::mjuu_copyvec(m->actuator_lengthrange + 2 * i, a.lengthrange, 2);
+    for (int k = 0; k < m->nuser_actuator && k < static_cast<int>(a.user.size()); ++k)
+      m->actuator_user[m->nuser_actuator * i + k] = a.user[k];
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Sensors (S8). type/objtype/objid/reftype/refid resolution + the per-type      //
+// datatype/needstage/dim tables lifted from sensorDatatype/sensorNeedstage      //
+// (user_objects.cc:7481-7604) and mjs_sensorDim (user_api.cc:1694). Objtype is   //
+// implied by the sensor type (site/joint/tendon/actuator/body sensors) or an     //
+// explicit string for frame sensors (mju_str2Type). Plugin/user/tactile/contact //
+// /rangefinder/camprojection/insidesite/geom-distance sensors are gated (their   //
+// dims need runtime/plugin state or extra refs). Lifted: sensor_tables.          //
+// --------------------------------------------------------------------------- //
+int SensorDatatype(int type) {
+  switch (type) {
+    case mjSENS_TOUCH: case mjSENS_INSIDESITE:
+      return mjDATATYPE_POSITIVE;
+    case mjSENS_FRAMEXAXIS: case mjSENS_FRAMEYAXIS: case mjSENS_FRAMEZAXIS:
+    case mjSENS_GEOMNORMAL:
+      return mjDATATYPE_AXIS;
+    case mjSENS_BALLQUAT: case mjSENS_FRAMEQUAT:
+      return mjDATATYPE_QUATERNION;
+    default:
+      return mjDATATYPE_REAL;
+  }
+}
+
+int SensorNeedstage(int type) {
+  switch (type) {
+    case mjSENS_TOUCH: case mjSENS_ACCELEROMETER: case mjSENS_FORCE:
+    case mjSENS_TORQUE: case mjSENS_ACTUATORFRC: case mjSENS_JOINTACTFRC:
+    case mjSENS_TENDONACTFRC: case mjSENS_JOINTLIMITFRC: case mjSENS_TENDONLIMITFRC:
+    case mjSENS_FRAMELINACC: case mjSENS_FRAMEANGACC: case mjSENS_CONTACT:
+    case mjSENS_TACTILE:
+      return mjSTAGE_ACC;
+    case mjSENS_VELOCIMETER: case mjSENS_GYRO: case mjSENS_JOINTVEL:
+    case mjSENS_TENDONVEL: case mjSENS_ACTUATORVEL: case mjSENS_BALLANGVEL:
+    case mjSENS_JOINTLIMITVEL: case mjSENS_TENDONLIMITVEL: case mjSENS_FRAMELINVEL:
+    case mjSENS_FRAMEANGVEL: case mjSENS_SUBTREELINVEL: case mjSENS_SUBTREEANGMOM:
+      return mjSTAGE_VEL;
+    default:
+      return mjSTAGE_POS;
+  }
+}
+
+// Fixed dim for the in-scope (non-variable-dim) sensor types.
+int SensorDim(int type) {
+  switch (type) {
+    case mjSENS_CAMPROJECTION: return 2;
+    case mjSENS_ACCELEROMETER: case mjSENS_VELOCIMETER: case mjSENS_GYRO:
+    case mjSENS_FORCE: case mjSENS_TORQUE: case mjSENS_MAGNETOMETER:
+    case mjSENS_BALLANGVEL: case mjSENS_FRAMEPOS: case mjSENS_FRAMEXAXIS:
+    case mjSENS_FRAMEYAXIS: case mjSENS_FRAMEZAXIS: case mjSENS_FRAMELINVEL:
+    case mjSENS_FRAMEANGVEL: case mjSENS_FRAMELINACC: case mjSENS_FRAMEANGACC:
+    case mjSENS_SUBTREECOM: case mjSENS_SUBTREELINVEL: case mjSENS_SUBTREEANGMOM:
+    case mjSENS_GEOMNORMAL:
+      return 3;
+    case mjSENS_GEOMFROMTO: return 6;
+    case mjSENS_BALLQUAT: case mjSENS_FRAMEQUAT: return 4;
+    default: return 1;  // touch/joint*/tendon*/actuator*/clock/energy
+  }
+}
+
+struct CSensor {
+  const void* src = nullptr;
+  std::uint64_t serial = 0;
+  ps::opt<std::string> name;
+  int type = 0;
+  int datatype = mjDATATYPE_REAL, needstage = mjSTAGE_POS, dim = 0;
+  int objtype = mjOBJ_UNKNOWN, objid = -1;
+  int reftype = mjOBJ_UNKNOWN, refid = -1;
+  double cutoff = 0, noise = 0;
+  double interval[2] = {0, 0};
+  std::vector<double> user;
+};
+
+// Resolve an object id by mjtObj + name over the per-family id maps.
+struct SensorMaps {
+  const NameIdMap* body;
+  const NameIdMap* geom;
+  const NameIdMap* site;
+  const NameIdMap* cam;
+  const NameIdMap* joint;
+  const NameIdMap* tendon;
+  const NameIdMap* actuator;
+};
+
+int ResolveObj(const SensorMaps& sm, int objtype, const std::string& name) {
+  const NameIdMap* m = nullptr;
+  switch (objtype) {
+    case mjOBJ_BODY: case mjOBJ_XBODY: m = sm.body; break;
+    case mjOBJ_GEOM: m = sm.geom; break;
+    case mjOBJ_SITE: m = sm.site; break;
+    case mjOBJ_CAMERA: m = sm.cam; break;
+    case mjOBJ_JOINT: m = sm.joint; break;
+    case mjOBJ_TENDON: m = sm.tendon; break;
+    case mjOBJ_ACTUATOR: m = sm.actuator; break;
+    default: return -1;
+  }
+  if (!m || name.empty()) return -1;
+  auto it = m->find(name);
+  return it == m->end() ? -1 : it->second;
+}
+
+CSensor SensorCompile(const Model& model, const SensorAny& any,
+                      const SensorMaps& sm) {
+  CSensor cs;
+  std::string objname, refname;
+
+  auto site_sensor = [&](auto& e, int t) {
+    cs.type = t; cs.objtype = mjOBJ_SITE;
+    if (e.site) objname = e.site->name;
+  };
+  auto joint_sensor = [&](auto& e, int t) {
+    cs.type = t; cs.objtype = mjOBJ_JOINT;
+    if (e.joint) objname = e.joint->name;
+  };
+  auto tendon_sensor = [&](auto& e, int t) {
+    cs.type = t; cs.objtype = mjOBJ_TENDON;
+    if (e.tendon) objname = e.tendon->name;
+  };
+  auto actuator_sensor = [&](auto& e, int t) {
+    cs.type = t; cs.objtype = mjOBJ_ACTUATOR;
+    if (e.actuator) objname = *e.actuator;
+  };
+  auto body_sensor = [&](auto& e, int t) {
+    cs.type = t; cs.objtype = mjOBJ_BODY;
+    if (e.body) objname = *e.body;
+  };
+  auto frame_sensor = [&](auto& e, int t) {
+    cs.type = t;
+    if (e.objtype) cs.objtype = mju_str2Type(e.objtype->c_str());
+    if (e.objname) objname = *e.objname;
+    if constexpr (requires { e.reftype; }) {
+      if (e.reftype) { cs.reftype = mju_str2Type(e.reftype->c_str());
+                       if (e.refname) refname = *e.refname; }
+    }
+  };
+
+  using K = SensorAny::Kind;
+  auto& node = any.node;
+  auto get = [&](auto tag) -> auto& {
+    return *std::get<std::unique_ptr<std::decay_t<decltype(tag)>>>(node);
+  };
+  switch (any.kind()) {
+    case K::Touch: { auto& e = get(Touch{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_TOUCH); cs.cutoff=e.cutoff?*e.cutoff:0;
+                     cs.noise=e.noise?*e.noise:0; if(e.user)cs.user=*e.user;
+                     if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Accelerometer: { auto& e=get(Accelerometer{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_ACCELEROMETER); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Velocimeter: { auto& e=get(Velocimeter{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_VELOCIMETER); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Gyro: { auto& e=get(Gyro{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_GYRO); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Force: { auto& e=get(Force{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_FORCE); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Torque: { auto& e=get(Torque{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_TORQUE); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Magnetometer: { auto& e=get(Magnetometer{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     site_sensor(e, mjSENS_MAGNETOMETER); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Jointpos: { auto& e=get(Jointpos{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_JOINTPOS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Jointvel: { auto& e=get(Jointvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_JOINTVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Jointactuatorfrc: { auto& e=get(Jointactuatorfrc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_JOINTACTFRC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Ballquat: { auto& e=get(Ballquat{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_BALLQUAT); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Ballangvel: { auto& e=get(Ballangvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_BALLANGVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Jointlimitpos: { auto& e=get(Jointlimitpos{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_JOINTLIMITPOS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Jointlimitvel: { auto& e=get(Jointlimitvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_JOINTLIMITVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Jointlimitfrc: { auto& e=get(Jointlimitfrc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     joint_sensor(e, mjSENS_JOINTLIMITFRC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tendonpos: { auto& e=get(Tendonpos{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     tendon_sensor(e, mjSENS_TENDONPOS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tendonvel: { auto& e=get(Tendonvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     tendon_sensor(e, mjSENS_TENDONVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tendonactuatorfrc: { auto& e=get(Tendonactuatorfrc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     tendon_sensor(e, mjSENS_TENDONACTFRC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tendonlimitpos: { auto& e=get(Tendonlimitpos{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     tendon_sensor(e, mjSENS_TENDONLIMITPOS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tendonlimitvel: { auto& e=get(Tendonlimitvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     tendon_sensor(e, mjSENS_TENDONLIMITVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tendonlimitfrc: { auto& e=get(Tendonlimitfrc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     tendon_sensor(e, mjSENS_TENDONLIMITFRC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Actuatorpos: { auto& e=get(Actuatorpos{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     actuator_sensor(e, mjSENS_ACTUATORPOS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Actuatorvel: { auto& e=get(Actuatorvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     actuator_sensor(e, mjSENS_ACTUATORVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Actuatorfrc: { auto& e=get(Actuatorfrc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     actuator_sensor(e, mjSENS_ACTUATORFRC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Subtreecom: { auto& e=get(Subtreecom{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     body_sensor(e, mjSENS_SUBTREECOM); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Subtreelinvel: { auto& e=get(Subtreelinvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     body_sensor(e, mjSENS_SUBTREELINVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Subtreeangmom: { auto& e=get(Subtreeangmom{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     body_sensor(e, mjSENS_SUBTREEANGMOM); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Framepos: { auto& e=get(Framepos{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEPOS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Framequat: { auto& e=get(Framequat{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEQUAT); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Framexaxis: { auto& e=get(Framexaxis{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEXAXIS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Frameyaxis: { auto& e=get(Frameyaxis{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEYAXIS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Framezaxis: { auto& e=get(Framezaxis{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEZAXIS); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Framelinvel: { auto& e=get(Framelinvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMELINVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Frameangvel: { auto& e=get(Frameangvel{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEANGVEL); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Framelinacc: { auto& e=get(Framelinacc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMELINACC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Frameangacc: { auto& e=get(Frameangacc{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     frame_sensor(e, mjSENS_FRAMEANGACC); cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Clock: { auto& e=get(Clock{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_CLOCK; cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::EPotential: { auto& e=get(EPotential{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_E_POTENTIAL; cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::EKinetic: { auto& e=get(EKinetic{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_E_KINETIC; cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    default:
+      break;  // gated types (plugin/user/tactile/contact/rangefinder/...)
+  }
+  (void)model;
+  cs.objid = ResolveObj(sm, cs.objtype, objname);
+  cs.refid = ResolveObj(sm, cs.reftype, refname);
+  cs.datatype = SensorDatatype(cs.type);
+  cs.needstage = SensorNeedstage(cs.type);
+  cs.dim = SensorDim(cs.type);
+  return cs;
+}
+
+void FillSensors(mjModel* m, const std::vector<CSensor>& sensors) {
+  int adr = 0;
+  for (int i = 0; i < static_cast<int>(sensors.size()); ++i) {
+    const CSensor& s = sensors[i];
+    m->sensor_type[i] = s.type;
+    m->sensor_datatype[i] = s.datatype;
+    m->sensor_needstage[i] = s.needstage;
+    m->sensor_objtype[i] = s.objtype;
+    m->sensor_objid[i] = s.objid;
+    m->sensor_reftype[i] = s.reftype;
+    m->sensor_refid[i] = s.refid;
+    m->sensor_plugin[i] = -1;
+    for (int k = 0; k < mjNSENS; ++k) m->sensor_intprm[i * mjNSENS + k] = 0;
+    m->sensor_dim[i] = s.dim;
+    m->sensor_cutoff[i] = s.cutoff;
+    m->sensor_noise[i] = s.noise;
+    m->sensor_delay[i] = 0;
+    m->sensor_history[2 * i] = 0;
+    m->sensor_history[2 * i + 1] = 0;
+    m->sensor_interval[2 * i] = s.interval[0];
+    m->sensor_interval[2 * i + 1] = s.interval[1];
+    m->sensor_historyadr[i] = -1;
+    for (int k = 0; k < m->nuser_sensor && k < static_cast<int>(s.user.size()); ++k)
+      m->sensor_user[m->nuser_sensor * i + k] = s.user[k];
+    m->sensor_adr[i] = adr;
+    adr += s.dim;
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // Keyframe fill (S12), mirroring ExpandAllKeyframes + mjCKey::Compile: an       //
 // absent qpos defaults to qpos0, qvel/act/ctrl to 0, mpos/mquat to the mocap    //
 // bodies' reference pose; ball/free qpos quats and mocap quats are normalized.  //
@@ -2033,6 +3276,14 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (int i = 0; i < static_cast<int>(geoms.size()); ++i)
     if (geoms[i].src && geoms[i].src->name) geomid_of[*geoms[i].src->name] = i;
 
+  // Site / joint name -> id maps for equality (and later actuator/sensor) ref
+  // resolution. Authored names only (referenceable targets are always named).
+  std::unordered_map<std::string, int> siteid_of, jointid_of, tendonid_of;
+  for (int i = 0; i < static_cast<int>(sites.size()); ++i)
+    if (sites[i].src && sites[i].src->name) siteid_of[*sites[i].src->name] = i;
+  for (int i = 0; i < static_cast<int>(joints.size()); ++i)
+    if (!joints[i].name.empty()) jointid_of[joints[i].name] = i;
+
   // Contact pairs + excludes (S8): compile, stable-sort by body signature,
   // reassign ids (their position after sorting is the id).
   std::vector<CPair> pairs;
@@ -2053,6 +3304,58 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
                      return a.signature < b.signature;
                    });
 
+  ps::sdk::detail::DefaultIndex default_idx(m);
+
+  // Tendons (S8): document order across all <tendon> sections. Compiled before
+  // equalities so equality-tendon refs (and later actuator tendon targets) can
+  // resolve tendon ids by name.
+  std::vector<CTendon> tendons;
+  for (const auto& tn : m.tendons) {
+    if (!tn) continue;
+    for (const auto& any : tn->tendons)
+      tendons.push_back(TendonCompile(default_idx, any, siteid_of, geomid_of,
+                                      jointid_of, geoms));
+  }
+  for (int i = 0; i < static_cast<int>(tendons.size()); ++i)
+    if (tendons[i].name) tendonid_of[*tendons[i].name] = i;
+
+  // Equality constraints (S8): document order across all <equality> sections.
+  std::vector<CEquality> equalities;
+  for (const auto& eq : m.equalitys) {
+    if (!eq) continue;
+    for (const auto& any : eq->equalities)
+      equalities.push_back(EqualityCompile(default_idx, any, bodyid_of,
+                                           siteid_of, jointid_of, tendonid_of));
+  }
+
+  // Actuators (S8): document order across all <actuator> sections. Transmission
+  // targets resolve against joint/tendon/body id maps built above.
+  RangeLookup rlook{&joints, &tendons, &jointid_of, &tendonid_of};
+  std::vector<CActuator> actuators;
+  for (const auto& ac : m.actuators) {
+    if (!ac) continue;
+    for (const auto& any : ac->actuators)
+      actuators.push_back(ActuatorCompile(m, any, jointid_of, tendonid_of,
+                                          bodyid_of, rlook));
+  }
+
+  // Actuator / camera name -> id maps for sensor targets.
+  std::unordered_map<std::string, int> actuatorid_of, cameraid_of;
+  for (int i = 0; i < static_cast<int>(actuators.size()); ++i)
+    if (actuators[i].name) actuatorid_of[*actuators[i].name] = i;
+  for (int i = 0; i < static_cast<int>(cameras.size()); ++i)
+    if (cameras[i].src && cameras[i].src->name) cameraid_of[*cameras[i].src->name] = i;
+
+  // Sensors (S8): document order across all <sensor> sections.
+  SensorMaps smaps{&bodyid_of, &geomid_of, &siteid_of, &cameraid_of,
+                   &jointid_of, &tendonid_of, &actuatorid_of};
+  std::vector<CSensor> sensors;
+  for (const auto& sn : m.sensors) {
+    if (!sn) continue;
+    for (const auto& any : sn->sensors)
+      sensors.push_back(SensorCompile(m, any, smaps));
+  }
+
   // Keyframes (S12): flattened key list, document order.
   std::vector<const Key*> keys;
   for (const auto& kf : m.keyframes) {
@@ -2068,7 +3371,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   // nuser_* (SetNuser): the <size nuser_X> override, else max authored user
   // length over the family (auto).
   int nuser_body = -1, nuser_jnt = -1, nuser_geom = -1, nuser_site = -1,
-      nuser_cam = -1;
+      nuser_cam = -1, nuser_tendon = -1, nuser_actuator = -1, nuser_sensor = -1;
   for (const auto& sz : m.sizes) {
     if (!sz) continue;
     if (sz->nuser_body) nuser_body = *sz->nuser_body;
@@ -2076,6 +3379,9 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     if (sz->nuser_geom) nuser_geom = *sz->nuser_geom;
     if (sz->nuser_site) nuser_site = *sz->nuser_site;
     if (sz->nuser_cam) nuser_cam = *sz->nuser_cam;
+    if (sz->nuser_tendon) nuser_tendon = *sz->nuser_tendon;
+    if (sz->nuser_actuator) nuser_actuator = *sz->nuser_actuator;
+    if (sz->nuser_sensor) nuser_sensor = *sz->nuser_sensor;
   }
   auto maxlen = [](int cur, std::size_t n) {
     return cur > static_cast<int>(n) ? cur : static_cast<int>(n);
@@ -2090,6 +3396,12 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     for (const CSite& cs2 : sites) nuser_site = maxlen(nuser_site, cs2.user.size()); }
   if (nuser_cam == -1) { nuser_cam = 0;
     for (const CCamera& cc : cameras) nuser_cam = maxlen(nuser_cam, cc.user.size()); }
+  if (nuser_tendon == -1) { nuser_tendon = 0;
+    for (const CTendon& t : tendons) nuser_tendon = maxlen(nuser_tendon, t.user.size()); }
+  if (nuser_actuator == -1) { nuser_actuator = 0;
+    for (const CActuator& a : actuators) nuser_actuator = maxlen(nuser_actuator, a.user.size()); }
+  if (nuser_sensor == -1) { nuser_sensor = 0;
+    for (const CSensor& s : sensors) nuser_sensor = maxlen(nuser_sensor, s.user.size()); }
 
   // mocap ids (SetSizes/CopyTree): count mocap bodies, assign in body order.
   int nmocap = 0;
@@ -2116,6 +3428,22 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CPair& cp : pairs) nl.pair.push_back(EffectiveName(*cp.src, opts));
   for (const CExclude& ce : excludes)
     nl.exclude.push_back(EffectiveName(*ce.src, opts));
+  // Equality (all spellings share the auto-name token "eq").
+  auto serial_name = [&](const ps::opt<std::string>& nm, std::uint64_t serial,
+                         const char* tok) -> std::string {
+    if (nm) return *nm;
+    if (opts.auto_name)
+      return opts.auto_name_prefix + tok + ":" + std::to_string(serial);
+    return "";
+  };
+  for (const CEquality& ce : equalities)
+    nl.eq.push_back(serial_name(ce.name, ce.serial, "eq"));
+  for (const CTendon& t : tendons)
+    nl.tendon.push_back(serial_name(t.name, t.serial, "tendon"));
+  for (const CActuator& a : actuators)
+    nl.actuator.push_back(serial_name(a.name, a.serial, "act"));
+  for (const CSensor& s : sensors)
+    nl.sensor.push_back(serial_name(s.name, s.serial, "sensor"));
   for (const Key* k : keys) nl.key.push_back(EffectiveName(*k, opts));
 
   // nbvh census (SetSizes): static BVH nodes over all bodies.
@@ -2133,13 +3461,34 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   sizes.nlight = static_cast<int>(lights.size());
   sizes.npair = static_cast<int>(pairs.size());
   sizes.nexclude = static_cast<int>(excludes.size());
+  sizes.neq = static_cast<int>(equalities.size());
+  // nemax (SetSizes user_model.cc:2358): connect +3, weld +7, else +1.
+  int nemax = 0;
+  for (const CEquality& ce : equalities)
+    nemax += ce.type == mjEQ_CONNECT ? 3 : ce.type == mjEQ_WELD ? 7 : 1;
+  sizes.nemax = nemax;
+  sizes.ntendon = static_cast<int>(tendons.size());
+  int nwrap = 0;
+  for (const CTendon& t : tendons) nwrap += static_cast<int>(t.path.size());
+  sizes.nwrap = nwrap;
+  sizes.nJten = ComputeNJten(tendons, cbs, geoms, sites, nv);
+  sizes.nuser_tendon = nuser_tendon;
+  sizes.nu = static_cast<int>(actuators.size());
+  int na = 0;
+  for (const CActuator& a : actuators) na += a.actdim;
+  sizes.na = na;
+  sizes.nJmom = ComputeNJmom(actuators, joints, tendons, cbs, geoms, sites, nv);
+  sizes.nuser_actuator = nuser_actuator;
+  sizes.nsensor = static_cast<int>(sensors.size());
+  int nsensordata = 0;
+  for (const CSensor& s : sensors) nsensordata += s.dim;
+  sizes.nsensordata = nsensordata;
+  sizes.nuser_sensor = nuser_sensor;
   sizes.nkey = static_cast<int>(keys.size());
   sizes.nbvh = nbvhstatic;
   sizes.nbvhstatic = nbvhstatic;
   sizes.nq = nq;
   sizes.nv = nv;
-  sizes.na = 0;
-  sizes.nu = 0;
   sizes.ntree = dt.ntree;
   sizes.nmocap = nmocap;
   sizes.nM = dt.nM;
@@ -2177,6 +3526,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   FillVisual(out, sites, cameras, lights, bodyid_of);
   FillPairs(out, pairs);
   FillExcludes(out, excludes);
+  FillEqualities(out, equalities);
+  FillTendons(out, tendons);
+  FillActuators(out, actuators);
+  FillSensors(out, sensors);
   // Keyframe padding uses qpos0 / body_pos / body_quat / body_mocapid, all set
   // by FillTree above (mjCKey::Compile).
   FillKeyframes(out, keys);

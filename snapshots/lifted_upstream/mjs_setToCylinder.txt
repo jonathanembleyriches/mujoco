@@ -1,0 +1,13 @@
+const char* mjs_setToCylinder(mjsActuator* actuator, double timeconst, double bias,
+                       double area, double diameter) {
+  actuator->dynprm[0] = timeconst;
+  actuator->biasprm[0] = bias;
+  actuator->gainprm[0] = area;
+  if (diameter >= 0) {
+    actuator->gainprm[0] = mjPI / 4 * diameter*diameter;
+  }
+  actuator->dyntype = mjDYN_FILTER;
+  actuator->gaintype = mjGAIN_FIXED;
+  actuator->biastype = mjBIAS_AFFINE;
+  return "";
+}

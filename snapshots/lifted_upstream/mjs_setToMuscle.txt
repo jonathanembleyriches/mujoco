@@ -1,0 +1,42 @@
+const char* mjs_setToMuscle(mjsActuator* actuator, double timeconst[2], double tausmooth,
+                            double range[2], double force, double scale, double lmin,
+                            double lmax, double vmax, double fpmax, double fvmax) {
+  // set muscle defaults if same as global defaults
+  if (actuator->dynprm[0] == 1) actuator->dynprm[0] = 0.01;    // tau act
+  if (actuator->dynprm[1] == 0) actuator->dynprm[1] = 0.04;    // tau deact
+  if (actuator->gainprm[0] == 1) actuator->gainprm[0] = 0.75;  // range[0]
+  if (actuator->gainprm[1] == 0) actuator->gainprm[1] = 1.05;  // range[1]
+  if (actuator->gainprm[2] == 0) actuator->gainprm[2] = -1;    // force
+  if (actuator->gainprm[3] == 0) actuator->gainprm[3] = 200;   // scale
+  if (actuator->gainprm[4] == 0) actuator->gainprm[4] = 0.5;   // lmin
+  if (actuator->gainprm[5] == 0) actuator->gainprm[5] = 1.6;   // lmax
+  if (actuator->gainprm[6] == 0) actuator->gainprm[6] = 1.5;   // vmax
+  if (actuator->gainprm[7] == 0) actuator->gainprm[7] = 1.3;   // fpmax
+  if (actuator->gainprm[8] == 0) actuator->gainprm[8] = 1.2;   // fvmax
+
+  if (tausmooth < 0)
+    return "muscle tausmooth cannot be negative";
+
+  actuator->dynprm[2] = tausmooth;
+  if (timeconst[0] >= 0) actuator->dynprm[0] = timeconst[0];
+  if (timeconst[1] >= 0) actuator->dynprm[1] = timeconst[1];
+  if (range[0] >= 0) actuator->gainprm[0] = range[0];
+  if (range[1] >= 0) actuator->gainprm[1] = range[1];
+  if (force >= 0) actuator->gainprm[2] = force;
+  if (scale >= 0) actuator->gainprm[3] = scale;
+  if (lmin >= 0) actuator->gainprm[4] = lmin;
+  if (lmax >= 0) actuator->gainprm[5] = lmax;
+  if (vmax >= 0) actuator->gainprm[6] = vmax;
+  if (fpmax >= 0) actuator->gainprm[7] = fpmax;
+  if (fvmax >= 0) actuator->gainprm[8] = fvmax;
+
+  // biasprm = gainprm
+  for (int n=0; n < 9; n++) {
+    actuator->biasprm[n] = actuator->gainprm[n];
+  }
+
+  actuator->dyntype = mjDYN_MUSCLE;
+  actuator->gaintype = mjGAIN_MUSCLE;
+  actuator->biastype = mjBIAS_MUSCLE;
+  return "";
+}

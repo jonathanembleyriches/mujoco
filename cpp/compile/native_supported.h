@@ -56,6 +56,60 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "key") {
     return true;
   }
+  // NC2 equality: connect/weld (body|site) and joint/tendon polycoef equalities.
+  // The container tag is "equality"; "connect"/"weld" are the element tags.
+  // EqualityJoint shares the "joint" tag (admitted above) and EqualityTendon the
+  // "tendon" tag (admitted with the tendon family); flex equalities keep the
+  // unsupported "flex" tag and route to fallback.
+  if (feature_key == "equality" || feature_key == "connect" ||
+      feature_key == "weld") {
+    return true;
+  }
+  // NC2 tendons: spatial (site/geom/pulley wraps) and fixed (joint) tendons.
+  // A tendon material ref or non-zero armature routes to fallback (finer scan).
+  if (feature_key == "tendon" || feature_key == "spatial" ||
+      feature_key == "fixed" || feature_key == "pulley") {
+    return true;
+  }
+  // NC2 actuators: general/motor/position/velocity/intvelocity/damper/cylinder/
+  // adhesion with joint/jointinparent/tendon/body transmission. muscle (needs
+  // mj_setLengthRange), dcmotor, plugin actuators, site/refsite/slidercrank
+  // transmission, and delay buffers route to the XML fallback (finer scan or
+  // unlisted tag).
+  if (feature_key == "actuator" || feature_key == "general" ||
+      feature_key == "motor" || feature_key == "position" ||
+      feature_key == "velocity" || feature_key == "intvelocity" ||
+      feature_key == "damper" || feature_key == "cylinder" ||
+      feature_key == "adhesion") {
+    return true;
+  }
+  // NC2 sensors: fixed-dim, single-typed-target (site/joint/tendon/actuator/
+  // body) and frame sensors, plus the scalar energy/clock sensors. Gated:
+  // plugin/user (dim/needstage from callbacks), tactile/contact/rangefinder
+  // (variable dim + intprm), camprojection/insidesite (extra refs), and the
+  // geom-distance sensors (distance/normal/fromto) -- their tags stay unlisted.
+  if (feature_key == "sensor" || feature_key == "touch" ||
+      feature_key == "accelerometer" || feature_key == "velocimeter" ||
+      feature_key == "gyro" || feature_key == "force" ||
+      feature_key == "torque" || feature_key == "magnetometer" ||
+      feature_key == "jointpos" || feature_key == "jointvel" ||
+      feature_key == "jointactuatorfrc" || feature_key == "ballquat" ||
+      feature_key == "ballangvel" || feature_key == "jointlimitpos" ||
+      feature_key == "jointlimitvel" || feature_key == "jointlimitfrc" ||
+      feature_key == "tendonpos" || feature_key == "tendonvel" ||
+      feature_key == "tendonactuatorfrc" || feature_key == "tendonlimitpos" ||
+      feature_key == "tendonlimitvel" || feature_key == "tendonlimitfrc" ||
+      feature_key == "actuatorpos" || feature_key == "actuatorvel" ||
+      feature_key == "actuatorfrc" || feature_key == "subtreecom" ||
+      feature_key == "subtreelinvel" || feature_key == "subtreeangmom" ||
+      feature_key == "framepos" || feature_key == "framequat" ||
+      feature_key == "framexaxis" || feature_key == "frameyaxis" ||
+      feature_key == "framezaxis" || feature_key == "framelinvel" ||
+      feature_key == "frameangvel" || feature_key == "framelinacc" ||
+      feature_key == "frameangacc" || feature_key == "clock" ||
+      feature_key == "e_potential" || feature_key == "e_kinetic") {
+    return true;
+  }
   return false;
 }
 

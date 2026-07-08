@@ -1,0 +1,145 @@
+void mjXReader::OneEquality(XMLElement* elem, mjsEquality* equality) {
+  int n;
+  string text, name1, name2, name;
+
+  // read type (bad keywords already detected by schema)
+  text = elem->Value();
+  equality->type = (mjtEq)FindKey(equality_map, equality_sz, text);
+
+  // regular only
+  if (!readingdefaults) {
+    if (ReadAttrTxt(elem, "name", name)) {
+      if (mjs_setName(equality->element, name.c_str())) {
+        throw mjXError(elem, "%s", mjs_getError(spec));
+      }
+    }
+
+    switch (equality->type) {
+      case mjEQ_CONNECT: {
+        auto maybe_site1 = ReadAttrStr(elem, "site1");
+        auto maybe_site2 = ReadAttrStr(elem, "site2");
+        auto maybe_body1 = ReadAttrStr(elem, "body1");
+        auto maybe_body2 = ReadAttrStr(elem, "body2");
+        bool has_anchor = ReadAttr(elem, "anchor", 3, equality->data, text);
+
+        bool maybe_site = maybe_site1.has_value() || maybe_site2.has_value();
+        bool maybe_body = maybe_body1.has_value() || maybe_body2.has_value() || has_anchor;
+
+        if (maybe_site && maybe_body) {
+          throw mjXError(elem, "body and site semantics cannot be mixed");
+        }
+
+        bool site_semantic = maybe_site1.has_value() && maybe_site2.has_value();
+        bool body_semantic = maybe_body1.has_value() && has_anchor;
+        if (site_semantic == body_semantic) {
+          throw mjXError(elem, "either both body1 and anchor must be defined,"
+                         " or both site1 and site2 must be defined");
+        }
+
+        if (body_semantic) {
+          name1 = maybe_body1.value();
+          if (maybe_body2.has_value()) {
+            name2 = maybe_body2.value();
+          }
+          equality->objtype = mjOBJ_BODY;
+        } else {
+          name1 = maybe_site1.value();
+          name2 = maybe_site2.value();
+          equality->objtype = mjOBJ_SITE;
+        }
+      }
+      break;
+
+      case mjEQ_WELD: {
+        auto maybe_site1 = ReadAttrStr(elem, "site1");
+        auto maybe_site2 = ReadAttrStr(elem, "site2");
+        auto maybe_body1 = ReadAttrStr(elem, "body1");
+        auto maybe_body2 = ReadAttrStr(elem, "body2");
+        bool has_anchor = ReadAttr(elem, "anchor", 3, equality->data, text);
+        bool has_relpose = ReadAttr(elem, "relpose", 7, equality->data+3, text);
+
+        bool maybe_site = maybe_site1.has_value() || maybe_site2.has_value();
+        bool maybe_body = maybe_body1.has_value() ||
+                          maybe_body2.has_value() ||
+                          has_anchor              ||
+                          has_relpose;
+
+        if (maybe_site && maybe_body) {
+          throw mjXError(elem, "body and site semantics cannot be mixed");
+        }
+
+        bool site_semantic = maybe_site1.has_value() && maybe_site2.has_value();
+        bool body_semantic = maybe_body1.has_value();
+
+        if (site_semantic == body_semantic) {
+          throw mjXError(
+                  elem,
+                  "either body1 must be defined and optionally {body2, anchor, relpose},"
+                  " or site1 and site2 must be defined");
+        }
+
+        if (body_semantic) {
+          name1 = maybe_body1.value();
+          if (maybe_body2.has_value()) {
+            name2 = maybe_body2.value();
+          }
+          equality->objtype = mjOBJ_BODY;
+          if (!has_anchor) {
+            mjuu_zerovec(equality->data, 3);
+          }
+        } else {
+          name1 = maybe_site1.value();
+          name2 = maybe_site2.value();
+          equality->objtype = mjOBJ_SITE;
+        }
+
+        ReadAttr(elem, "torquescale", 1, equality->data+10, text);
+      }
+      break;
+
+      case mjEQ_JOINT:
+        ReadAttrTxt(elem, "joint1", name1, true);
+        ReadAttrTxt(elem, "joint2", name2);
+        ReadAttr(elem, "polycoef", 5, equality->data, text, false, false);
+        break;
+
+      case mjEQ_TENDON:
+        ReadAttrTxt(elem, "tendon1", name1, true);
+        ReadAttrTxt(elem, "tendon2", name2);
+        ReadAttr(elem, "polycoef", 5, equality->data, text, false, false);
+        break;
+
+      case mjEQ_FLEX:
+      case mjEQ_FLEXVERT:
+        ReadAttrTxt(elem, "flex", name1, true);
+        break;
+
+      case mjEQ_FLEXSTRAIN:
+        ReadAttrTxt(elem, "flex", name1, true);
+        ReadAttr(elem, "cell", 3, equality->data, text);
+        break;
+
+      case mjEQ_DISTANCE:
+        throw mjXError(elem, "support for distance equality constraints was removed in MuJoCo 2.2.2");
+        break;
+
+      default:                  // SHOULD NOT OCCUR
+        throw mjXError(elem, "unrecognized equality constraint type");
+    }
+
+    mjs_setString(equality->name1, name1.c_str());
+    if (!name2.empty()) {
+      mjs_setString(equality->name2, name2.c_str());
+    }
+  }
+
+  // read attributes
+  if (MapValue(elem, "active", &n, bool_map, 2)) {
+    equality->active = (n == 1);
+  }
+  ReadAttr(elem, "solref", mjNREF, equality->solref, text, false, false);
+  ReadAttr(elem, "solimp", mjNIMP, equality->solimp, text, false, false);
+
+  // write error info
+  mjs_setString(equality->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
+}

@@ -2,6 +2,94 @@
   "pin": "3010000",
   "entries": [
     {
+      "id": "actuator_setToAdhesion",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToAdhesion",
+      "line_span": "1299-1310",
+      "content_hash": "d2d5c8d4477d6285582f071e9173a042a82217f1d039fa51cd62a4b596f6b555",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToAdhesion.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "adhesion lowering"
+    },
+    {
+      "id": "actuator_setToCylinder",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToCylinder",
+      "line_span": "1236-1248",
+      "content_hash": "5f82ed7d0e04f60e3f925a804dd261dbcc00506ad32014f5e30864a3e5d57a80",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToCylinder.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "cylinder lowering"
+    },
+    {
+      "id": "actuator_setToDamper",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToDamper",
+      "line_span": "1216-1231",
+      "content_hash": "98b74f34c286b8352227a0ec3548214f323ce8279b39649226d37c938b803b9b",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToDamper.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "damper lowering"
+    },
+    {
+      "id": "actuator_setToIntVelocity",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToIntVelocity",
+      "line_span": "1186-1198",
+      "content_hash": "7d089d81db72fb06e4b42c9c9e2c1f44dce9567ca6189710a18f46e6e62649bb",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToIntVelocity.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "intvelocity lowering"
+    },
+    {
+      "id": "actuator_setToMotor",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToMotor",
+      "line_span": "1133-1142",
+      "content_hash": "09dff9b32d38eb17309a8c4e96a490fe045dd242c4e96b21ad899e6e45687f30",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToMotor.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "motor lowering"
+    },
+    {
+      "id": "actuator_setToMuscle",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToMuscle",
+      "line_span": "1253-1294",
+      "content_hash": "d37e19234b46364ff2da7facc16f15225590ca7d84fddabf50da6a37a374db04",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToMuscle.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "muscle lowering + defaults"
+    },
+    {
+      "id": "actuator_setToPosition",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToPosition",
+      "line_span": "1147-1181",
+      "content_hash": "a20c24d56c28241fc500948991b041d97dbb28eb6f6f81fdcafdf3e980c28b9c",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToPosition.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "position lowering incl. kv/dampratio biasprm[2] sign encoding"
+    },
+    {
+      "id": "actuator_setToVelocity",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_setToVelocity",
+      "line_span": "1203-1211",
+      "content_hash": "cc723cadd4230ff1423d3f00b15369ff536c6d41ba313faa282623278838a403",
+      "snapshot": "snapshots/lifted_upstream/mjs_setToVelocity.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "velocity lowering"
+    },
+    {
       "id": "body_compile",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCBody::Compile",
@@ -77,6 +165,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-08",
       "notes": "body/jnt/dof/geom fill, qpos0, dof_parentid/treeid, sameframe/simple"
+    },
+    {
+      "id": "equality_pack",
+      "upstream_rel_path": "src/xml/xml_native_reader.cc",
+      "symbol": "mjXReader::OneEquality",
+      "line_span": "2192-2336",
+      "content_hash": "7b0e44ecf29cbd3000b9bd5f6523f844e25bf982681efe5c20b7e476e09adddd",
+      "snapshot": "snapshots/lifted_upstream/mjXReader__OneEquality.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "typed equality -> data[mjNEQDATA] packing (connect/weld/joint/tendon)"
     },
     {
       "id": "finalize_simple",
@@ -245,6 +344,39 @@
       "local_path": "cpp/compile/lifted/make_model.cc",
       "lifted": "2026-07-08",
       "notes": "MSVC portable-overflow branch lifted (no __builtin_*_overflow)"
+    },
+    {
+      "id": "sensor_datatype",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "sensorDatatype",
+      "line_span": "7481-7542",
+      "content_hash": "31586e6bc071cab60f290b7a266f60c8c4af6a43406b17ca48620bab277c8f40",
+      "snapshot": "snapshots/lifted_upstream/sensorDatatype.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "per-type sensor datatype table"
+    },
+    {
+      "id": "sensor_dim",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_sensorDim",
+      "line_span": "1694-1777",
+      "content_hash": "a1fd72bca21d11732e9670c2418ed888c2750dc5dc49ead4f1cbefb55bd91857",
+      "snapshot": "snapshots/lifted_upstream/mjs_sensorDim.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "per-type sensor dim table"
+    },
+    {
+      "id": "sensor_needstage",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "sensorNeedstage",
+      "line_span": "7545-7604",
+      "content_hash": "b0a4c909d13eeae0668911c7d8d2acc66c18e14788259a6d12adbcf6afb6d8e1",
+      "snapshot": "snapshots/lifted_upstream/sensorNeedstage.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "per-type sensor needstage table"
     },
     {
       "id": "set_ptr_model",

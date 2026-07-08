@@ -72,10 +72,10 @@ static const char* kPendulum =
     "  </worldbody>\n"
     "</mujoco>\n";
 
-// A model whose <actuator> is outside the NC1/NC1b native slice: the gate routes
-// the whole model to the XML fallback. (Sites, cameras, lights, frames, contact
-// pairs/excludes and keyframes are native as of NC1b, so an unsupported example
-// must reach for a still-unsupported family -- here, an actuator.)
+// A model whose actuator is outside the NC2 native slice: a dcmotor (still
+// gated -- its lowering/state derivation is not lifted). The gate routes the
+// whole model to the XML fallback. (Motors, position/velocity/etc. are native as
+// of NC2, so the unsupported example must reach for a still-gated spelling.)
 static const char* kUnsupported =
     "<mujoco>\n"
     "  <worldbody>\n"
@@ -85,7 +85,8 @@ static const char* kUnsupported =
     "      <site name='s1' pos='0 0 0'/>\n"
     "    </body>\n"
     "  </worldbody>\n"
-    "  <actuator><motor name='m1' joint='j1'/></actuator>\n"
+    "  <actuator><dcmotor name='m1' joint='j1' motorconst='0.1 0.1'"
+  "    resistance='1'/></actuator>\n"
     "</mujoco>\n";
 
 // --- purity sweep (serial, loc) for every element, document order ----------- //
@@ -143,12 +144,12 @@ static void TestGateUnsupported() {
 
   auto reasons = compile::CollectUnsupportedFeatures(*model);
   CHECK(!reasons.empty());
-  bool saw_motor = false;
+  bool saw_dcmotor = false;
   for (const auto& r : reasons) {
-    if (r.feature == "motor") saw_motor = true;
+    if (r.feature == "dcmotor") saw_dcmotor = true;
     CHECK(r.count > 0);
   }
-  CHECK(saw_motor);
+  CHECK(saw_dcmotor);
 
   CompileOptions native;
   native.path = CompilePath::NativePath;
@@ -311,6 +312,10 @@ static void CheckBitIdentical(const char* label, const char* xml) {
   if (!err.empty() || rep.Differs()) {
     std::printf("FAIL bit-identity [%s]: %s\n", label,
                 rep.FirstDivergence().c_str());
+    for (const auto& f : rep.fields)
+      for (const auto& e : f.examples)
+        std::printf("    %s[%lld] xml=%.9g nat=%.9g\n", f.field.c_str(),
+                    (long long)e.index, e.a, e.b);
     ++g_failed;
   }
   ++g_checks;
@@ -447,6 +452,207 @@ static void TestNc1bBitIdentical() {
       "</contact></mujoco>");
 }
 
+// NC2 equality: connect/weld (body + site semantics), joint polycoef equality,
+// anchor/relpose/torquescale packing, and class-default active/solref/solimp.
+static void TestNc2Equality() {
+  // Connect: body semantics (anchor) and site semantics.
+  CheckBitIdentical(
+      "eq_connect",
+      "<mujoco><worldbody>"
+      "<body name='b1' pos='0 0 1'><freejoint/><geom type='sphere' size='0.1'/>"
+      "<site name='s1' pos='0.1 0 0'/></body>"
+      "<body name='b2' pos='0.3 0 1'><joint type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.08'/><site name='s2' pos='0 0 0'/></body>"
+      "</worldbody><equality>"
+      "<connect body1='b1' body2='b2' anchor='0.1 0.2 0.3'/>"
+      "<connect site1='s1' site2='s2'/>"
+      "</equality></mujoco>");
+
+  // Weld: body semantics with relpose + torquescale, and site semantics.
+  CheckBitIdentical(
+      "eq_weld",
+      "<mujoco><worldbody>"
+      "<body name='b1' pos='0 0 1'><freejoint/><geom type='sphere' size='0.1'/>"
+      "<site name='s1'/></body>"
+      "<body name='b2' pos='0.3 0 1'><geom type='sphere' size='0.08'/>"
+      "<site name='s2'/></body>"
+      "</worldbody><equality>"
+      "<weld body1='b1' body2='b2' relpose='0 0 0.1 1 0 0 0' torquescale='0.5'"
+      "      anchor='0.05 0 0'/>"
+      "<weld body1='b1'/>"
+      "<weld site1='s1' site2='s2'/>"
+      "</equality></mujoco>");
+
+  // Joint equality: polycoef, plus a class-default solref/solimp/active.
+  CheckBitIdentical(
+      "eq_joint",
+      "<mujoco><default><default class='eqc'>"
+      "<equality solref='0.01 1' solimp='0.8 0.9 0.001 0.5 2'/>"
+      "</default></default>"
+      "<worldbody>"
+      "<body pos='0 0 1'><joint name='j1' type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.1'/>"
+      "<body pos='0.2 0 0'><joint name='j2' type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/></body></body>"
+      "</worldbody><equality>"
+      "<joint joint1='j1' joint2='j2' polycoef='0 1 0.5 0 0'/>"
+      "<joint class='eqc' joint1='j1' polycoef='0.1 2 0 0 0' active='false'/>"
+      "</equality></mujoco>");
+}
+
+// NC2 tendons: fixed (joint coefs), spatial (site/geom/pulley wraps with a side
+// site + sphere->cylinder selection), limits/springlength, class defaults, and
+// an equality-tendon coupling two tendons.
+static void TestNc2Tendon() {
+  // Fixed tendon: two joint coefficients, limited range, springlength.
+  CheckBitIdentical(
+      "ten_fixed",
+      "<mujoco><worldbody>"
+      "<body pos='0 0 1'><joint name='j1' type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/>"
+      "<body pos='0.2 0 0'><joint name='j2' type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/></body></body>"
+      "</worldbody><tendon>"
+      "<fixed name='t1' limited='true' range='-0.5 0.5' stiffness='10'>"
+      "<joint joint='j1' coef='1'/><joint joint='j2' coef='-1'/></fixed>"
+      "</tendon></mujoco>");
+
+  // Spatial tendon: sites, a sphere geom wrap with a side site, and a pulley.
+  CheckBitIdentical(
+      "ten_spatial",
+      "<mujoco><worldbody>"
+      "<site name='s0' pos='0 0 1'/>"
+      "<geom name='wrapg' type='sphere' size='0.1' pos='0.2 0 1' contype='0' conaffinity='0'/>"
+      "<site name='sside' pos='0.2 0.1 1'/>"
+      "<body pos='0.4 0 1'><joint name='jj' type='hinge' axis='0 1 0'/>"
+      "<geom type='sphere' size='0.05'/><site name='s1' pos='0 0 0'/></body>"
+      "</worldbody><tendon>"
+      "<spatial name='ts' width='0.005' rgba='1 0 0 1'>"
+      "<site site='s0'/><geom geom='wrapg' sidesite='sside'/><site site='s1'/>"
+      "</spatial></tendon></mujoco>");
+
+  // Spatial tendon with a pulley branch and a class default.
+  CheckBitIdentical(
+      "ten_pulley",
+      "<mujoco><default><default class='tc'>"
+      "<tendon width='0.004' stiffness='5 0 0' rgba='0 1 0 1'/></default></default>"
+      "<worldbody>"
+      "<site name='a' pos='0 0 1'/><site name='b' pos='0.3 0 1'/>"
+      "<body pos='0.5 0 1'><joint type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/><site name='c' pos='0 0 0'/></body>"
+      "</worldbody><tendon>"
+      "<spatial class='tc' name='tp'>"
+      "<site site='a'/><site site='b'/><pulley divisor='2'/>"
+      "<site site='b'/><site site='c'/>"
+      "</spatial></tendon></mujoco>");
+
+  // Equality coupling two fixed tendons (polycoef), tendon ref resolution.
+  CheckBitIdentical(
+      "eq_tendon",
+      "<mujoco><worldbody>"
+      "<body pos='0 0 1'><joint name='j1' type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/></body>"
+      "<body pos='0.3 0 1'><joint name='j2' type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/></body>"
+      "</worldbody><tendon>"
+      "<fixed name='ta'><joint joint='j1' coef='1'/></fixed>"
+      "<fixed name='tb'><joint joint='j2' coef='1'/></fixed>"
+      "</tendon><equality>"
+      "<tendon tendon1='ta' tendon2='tb' polycoef='0 1 0 0 0'/>"
+      "</equality></mujoco>");
+}
+
+// NC2 actuators: the lifted mjs_setTo* lowering per spelling, transmission
+// resolution (joint/jointinparent/tendon/body), gear, tri-state limits,
+// activation (na/actadr) for stateful dyntypes, inheritrange, and class defaults.
+static void TestNc2Actuator() {
+  // motor / position(kp,kv,timeconst) / velocity / damper / cylinder on joints.
+  CheckBitIdentical(
+      "act_basic",
+      "<mujoco><worldbody>"
+      "<body pos='0 0 1'><joint name='j1' type='hinge' axis='0 1 0' range='-1 1'/>"
+      "<geom type='capsule' size='0.05 0.3'/>"
+      "<body pos='0 0 -0.6'><joint name='j2' type='slide' axis='0 0 1'/>"
+      "<geom type='sphere' size='0.05'/></body></body>"
+      "</worldbody><actuator>"
+      "<motor joint='j1' gear='2 0 0 0 0 0' ctrlrange='-1 1' ctrllimited='true'/>"
+      "<position joint='j1' kp='100' kv='10'/>"
+      "<position joint='j2' kp='50' dampratio='1' timeconst='0.01'/>"
+      "<velocity joint='j2' kv='5'/>"
+      "<damper joint='j1' kv='3' ctrlrange='0 1'/>"
+      "<cylinder joint='j2' timeconst='0.2' area='0.5'/>"
+      "</actuator></mujoco>");
+
+  // intvelocity (stateful, actlimited) + inheritrange from the joint range.
+  CheckBitIdentical(
+      "act_intvel_inherit",
+      "<mujoco><worldbody>"
+      "<body pos='0 0 1'><joint name='j1' type='hinge' axis='0 1 0' range='-1.5 1.5'/>"
+      "<geom type='sphere' size='0.1'/></body>"
+      "</worldbody><actuator>"
+      "<intvelocity joint='j1' kp='20' actrange='-2 2'/>"
+      "<position joint='j1' kp='30' inheritrange='1'/>"
+      "</actuator></mujoco>");
+
+  // adhesion (body transmission) + a class default for a position servo.
+  CheckBitIdentical(
+      "act_adhesion_default",
+      "<mujoco><default><default class='srv'>"
+      "<position kp='80' kv='4'/></default></default>"
+      "<worldbody>"
+      "<body name='grip' pos='0 0 1'><joint name='j1' type='slide' axis='0 0 1'/>"
+      "<geom type='box' size='0.1 0.1 0.1'/></body>"
+      "</worldbody><actuator>"
+      "<position class='srv' joint='j1'/>"
+      "<adhesion body='grip' ctrlrange='0 1' gain='2'/>"
+      "</actuator></mujoco>");
+
+  // tendon transmission (motor + position on a fixed tendon).
+  CheckBitIdentical(
+      "act_tendon",
+      "<mujoco><worldbody>"
+      "<body pos='0 0 1'><joint name='j1' type='slide' axis='1 0 0'/>"
+      "<geom type='sphere' size='0.05'/></body>"
+      "</worldbody><tendon>"
+      "<fixed name='t1' limited='true' range='-1 1'><joint joint='j1' coef='1'/></fixed>"
+      "</tendon><actuator>"
+      "<motor tendon='t1' gear='3'/>"
+      "<position tendon='t1' kp='50'/>"
+      "</actuator></mujoco>");
+}
+
+// NC2 sensors: site/joint/tendon/actuator/body targets, frame sensors with an
+// explicit objtype (+optional reftype), and the scalar energy/clock sensors --
+// verifying type/objtype/objid/datatype/needstage/dim/sensor_adr fill.
+static void TestNc2Sensor() {
+  CheckBitIdentical(
+      "sensors",
+      "<mujoco><worldbody>"
+      "<body name='b1' pos='0 0 1'><joint name='j1' type='hinge' axis='0 1 0' range='-1 1'/>"
+      "<geom name='g1' type='capsule' size='0.05 0.3'/>"
+      "<site name='s1' pos='0 0 0'/>"
+      "<body name='b2' pos='0 0 -0.6'><joint name='jb' type='ball'/>"
+      "<geom type='sphere' size='0.05'/><site name='s2'/></body></body>"
+      "</worldbody><tendon>"
+      "<fixed name='t1' limited='true' range='-1 1'><joint joint='j1' coef='1'/></fixed>"
+      "</tendon><actuator>"
+      "<motor name='m1' joint='j1'/>"
+      "</actuator><sensor>"
+      "<accelerometer site='s1'/><gyro site='s1'/><force site='s2'/>"
+      "<jointpos joint='j1'/><jointvel joint='j1'/>"
+      "<jointlimitpos joint='j1'/>"
+      "<ballquat joint='jb'/><ballangvel joint='jb'/>"
+      "<tendonpos tendon='t1'/><tendonlimitfrc tendon='t1'/>"
+      "<actuatorpos actuator='m1'/><actuatorfrc actuator='m1'/>"
+      "<subtreecom body='b1'/><subtreelinvel body='b1'/>"
+      "<framepos objtype='site' objname='s1'/>"
+      "<framequat objtype='body' objname='b2'/>"
+      "<framepos objtype='site' objname='s2' reftype='site' refname='s1'/>"
+      "<framexaxis objtype='geom' objname='g1'/>"
+      "<clock/><e_potential/><e_kinetic/>"
+      "</sensor></mujoco>");
+}
+
 int main() {
   TestNativePurity();
   TestGateUnsupported();
@@ -456,6 +662,10 @@ int main() {
   TestReportShape();
   TestNc1BitIdentical();
   TestNc1bBitIdentical();
+  TestNc2Equality();
+  TestNc2Tendon();
+  TestNc2Actuator();
+  TestNc2Sensor();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

@@ -1,0 +1,62 @@
+mjtDataType sensorDatatype(mjtSensor type) {
+  switch (type) {
+  case mjSENS_TOUCH:
+  case mjSENS_INSIDESITE:
+    return mjDATATYPE_POSITIVE;
+
+  case mjSENS_FRAMEXAXIS:
+  case mjSENS_FRAMEYAXIS:
+  case mjSENS_FRAMEZAXIS:
+  case mjSENS_GEOMNORMAL:
+    return mjDATATYPE_AXIS;
+
+  case mjSENS_BALLQUAT:
+  case mjSENS_FRAMEQUAT:
+    return mjDATATYPE_QUATERNION;
+
+  case mjSENS_ACCELEROMETER:
+  case mjSENS_VELOCIMETER:
+  case mjSENS_GYRO:
+  case mjSENS_FORCE:
+  case mjSENS_TORQUE:
+  case mjSENS_MAGNETOMETER:
+  case mjSENS_CAMPROJECTION:
+  case mjSENS_JOINTPOS:
+  case mjSENS_JOINTVEL:
+  case mjSENS_TENDONPOS:
+  case mjSENS_TENDONVEL:
+  case mjSENS_ACTUATORPOS:
+  case mjSENS_ACTUATORVEL:
+  case mjSENS_ACTUATORFRC:
+  case mjSENS_JOINTACTFRC:
+  case mjSENS_TENDONACTFRC:
+  case mjSENS_BALLANGVEL:
+  case mjSENS_JOINTLIMITPOS:
+  case mjSENS_JOINTLIMITVEL:
+  case mjSENS_JOINTLIMITFRC:
+  case mjSENS_TENDONLIMITPOS:
+  case mjSENS_TENDONLIMITVEL:
+  case mjSENS_TENDONLIMITFRC:
+  case mjSENS_FRAMEPOS:
+  case mjSENS_FRAMELINVEL:
+  case mjSENS_FRAMEANGVEL:
+  case mjSENS_FRAMELINACC:
+  case mjSENS_FRAMEANGACC:
+  case mjSENS_SUBTREECOM:
+  case mjSENS_SUBTREELINVEL:
+  case mjSENS_SUBTREEANGMOM:
+  case mjSENS_GEOMDIST:
+  case mjSENS_GEOMFROMTO:
+  case mjSENS_RANGEFINDER:
+  case mjSENS_CONTACT:
+  case mjSENS_TACTILE:
+  case mjSENS_E_POTENTIAL:
+  case mjSENS_E_KINETIC:
+  case mjSENS_CLOCK:
+  case mjSENS_PLUGIN:
+  case mjSENS_USER:
+    return mjDATATYPE_REAL;
+  }
+
+  return mjDATATYPE_REAL;  // all cases are covered but GCC is extra persnickety
+}

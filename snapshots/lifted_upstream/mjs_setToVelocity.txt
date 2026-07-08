@@ -1,0 +1,9 @@
+const char* mjs_setToVelocity(mjsActuator* actuator, double kv) {
+  mjuu_zerovec(actuator->biasprm, mjNBIAS);
+  actuator->gainprm[0] = kv;
+  actuator->biasprm[2] = -kv;
+  actuator->dyntype = mjDYN_NONE;
+  actuator->gaintype = mjGAIN_FIXED;
+  actuator->biastype = mjBIAS_AFFINE;
+  return "";
+}

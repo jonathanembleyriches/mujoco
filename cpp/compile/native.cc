@@ -48,6 +48,7 @@
 #include <mujoco/mujoco.h>
 
 #include "build.h"
+#include "classes.h"   // ps::sdk defaults resolution (partial-array detector)
 #include "context.h"
 #include "native_supported.h"
 #include "reflect.h"
@@ -55,6 +56,59 @@
 
 namespace ps::mjcf::compile {
 namespace {
+
+// The nearest class in a geom/site's governing chain that authors `size`, and
+// how many elements it authors. MuJoCo eager-copies a class's full size array
+// then overwrites only the authored prefix of the element (ReadAttr copies just
+// the present values), so a geom/site that authors FEWER size values than its
+// class default provides inherits the class's tail -- a semantic ProtoSpec's
+// whole-field presence merge (CDR-5) does not reproduce. Detect and fall back.
+template <class T>
+int ClassSizeLen(const Model& m, const ps::sdk::detail::DefaultIndex& idx,
+                 const ps::sdk::ParentMap& pm, const T& e) {
+  std::string cls = ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(e), &e);
+  for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d; d = idx.ParentOf(d)) {
+    const auto* vec = ps::sdk::DefaultVec<T>(*d);
+    if (vec && !vec->empty() && vec->front() && vec->front()->size)
+      return static_cast<int>(vec->front()->size->size());
+  }
+  return 0;
+}
+
+template <class T>
+bool PartialSizeInherit(const Model& m, const ps::sdk::detail::DefaultIndex& idx,
+                        const ps::sdk::ParentMap& pm, const T& e) {
+  const int authored = e.size ? static_cast<int>(e.size->size()) : -1;
+  if (authored < 0 || authored >= 3) return false;  // full or unauthored: no tail
+  return authored < ClassSizeLen(m, idx, pm, e);
+}
+
+// MuJoCo shares one actuator default per class across every spelling; ProtoSpec
+// keeps a per-spelling partial and ps::sdk::Effective merges only the matching
+// one. So when an actuator's governing class chain also carries an actuator
+// partial of a DIFFERENT spelling (e.g. a root <general ctrllimited="true">
+// inherited by a <velocity>), MuJoCo's shared default applies fields the native
+// per-spelling merge misses. Detect a foreign actuator partial and fall back.
+template <class T>
+bool ForeignActuatorDefault(const ps::sdk::detail::DefaultIndex& idx,
+                            const ps::sdk::ParentMap& pm, const T& e) {
+  std::string cls = ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(e), &e);
+  for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d; d = idx.ParentOf(d)) {
+    auto has = [&](const auto& vec) { return !vec.empty() && vec.front(); };
+    // every actuator family except the element's own T
+    if (!std::is_same_v<T, ActuatorGeneral> && has(d->general)) return true;
+    if (!std::is_same_v<T, Motor> && has(d->motor)) return true;
+    if (!std::is_same_v<T, Position> && has(d->position)) return true;
+    if (!std::is_same_v<T, Velocity> && has(d->velocity)) return true;
+    if (!std::is_same_v<T, IntVelocity> && has(d->intvelocity)) return true;
+    if (!std::is_same_v<T, Damper> && has(d->damper)) return true;
+    if (!std::is_same_v<T, Cylinder> && has(d->cylinder)) return true;
+    if (!std::is_same_v<T, Muscle> && has(d->muscle)) return true;
+    if (!std::is_same_v<T, Adhesion> && has(d->adhesion)) return true;
+    if (has(d->dcmotor)) return true;  // dcmotor is always gated anyway
+  }
+  return false;
+}
 
 // The feature key a used element contributes to the gate. Today this is the
 // element's MJCF tag (falling back to its IR name for tagless families) -- a
@@ -142,9 +196,23 @@ class SubFeatureScanner {
       return;  // class templates are not compiled objects
     } else {
       if constexpr (std::is_same_v<E, Geom>) Check(e);
+      else if constexpr (std::is_same_v<E, Body>) CheckBody(e);
       else if constexpr (std::is_same_v<E, Site>) CheckSite(e);
       else if constexpr (std::is_same_v<E, Light>) CheckLight(e);
+      else if constexpr (std::is_same_v<E, Joint>) CheckJoint(e);
       else if constexpr (std::is_same_v<E, FreeJoint>) CheckFreeJoint(e);
+      else if constexpr (std::is_same_v<E, Spatial>) CheckSpatial(e);
+      else if constexpr (std::is_same_v<E, Fixed>) CheckFixed(e);
+      else if constexpr (std::is_same_v<E, ActuatorGeneral> ||
+                         std::is_same_v<E, Motor> ||
+                         std::is_same_v<E, Position> ||
+                         std::is_same_v<E, Velocity> ||
+                         std::is_same_v<E, IntVelocity> ||
+                         std::is_same_v<E, Damper> ||
+                         std::is_same_v<E, Cylinder> ||
+                         std::is_same_v<E, Adhesion>)
+        CheckActuator(e);
+      else if constexpr (std::is_same_v<E, SensorContact>) CheckSensorContact(e);
       else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
       Recurse rec{this};
       Visit(e, rec);
@@ -170,6 +238,70 @@ class SubFeatureScanner {
   // the NC1b rigid-body slice, so route such a model to the XML fallback.
   void CheckFreeJoint(const FreeJoint& fj) {
     if (fj.align && *fj.align == TriState::true_) Note("freejoint.align", fj.loc);
+  }
+  // springdamper drives the AutoSpringDamper post-build pass (stiffness/damping
+  // from dof_invweight0), which the native path does not yet run: route to the
+  // XML fallback until it lands.
+  void CheckJoint(const Joint& j) {
+    if (j.springdamper) Note("joint.springdamper", j.loc);
+  }
+  // A non-default per-body sleep policy sets tree_sleep_policy, which the native
+  // path does not yet emit (it writes mjSLEEP_AUTO for every tree).
+  void CheckBody(const Body& b) {
+    if (b.sleep) Note("body.sleep", b.loc);
+  }
+  // Tendon armature drives a sparse-size (nC/body_simple) demotion the native
+  // path does not yet model; route such tendons to the XML fallback.
+  void CheckSpatial(const Spatial& s) {
+    if (s.armature && *s.armature != 0) Note("tendon.armature", s.loc);
+  }
+  void CheckFixed(const Fixed& f) {
+    if (f.armature && *f.armature != 0) Note("tendon.armature", f.loc);
+  }
+  // The native path resolves joint/jointinparent/tendon/body transmission only,
+  // has no history/delay buffer, and does not run mj_setLengthRange, so site /
+  // refsite / slidercrank transmission, a delay buffer, or a length-range-needing
+  // gain/bias type (muscle/user) route to the XML fallback.
+  template <class E>
+  void CheckActuator(const E& a) {
+    if constexpr (requires { a.site; })
+      if (a.site) Note("actuator.site_transmission", a.loc);
+    if constexpr (requires { a.refsite; })
+      if (a.refsite) Note("actuator.site_transmission", a.loc);
+    if constexpr (requires { a.cranksite; })
+      if (a.cranksite) Note("actuator.slidercrank", a.loc);
+    if constexpr (requires { a.slidersite; })
+      if (a.slidersite) Note("actuator.slidercrank", a.loc);
+    if constexpr (requires { a.nsample; })
+      if (a.nsample) Note("actuator.delay", a.loc);
+    if constexpr (requires { a.delay; })
+      if (a.delay) Note("actuator.delay", a.loc);
+    // MuJoCo's cylinder reader reads the 3-vector `bias` into a single double
+    // (ReadAttr("bias", 3, &bias)), overflowing the stack and corrupting the
+    // adjacent `timeconst` with bias[1] -- deterministic upstream UB that leg B
+    // reproduces but the native path cannot. Gate any cylinder authoring bias.
+    if constexpr (std::is_same_v<E, Cylinder>) {
+      if (a.bias) Note("cylinder.bias", a.loc);
+    }
+    if constexpr (std::is_same_v<E, ActuatorGeneral>) {
+      if (a.gaintype && (*a.gaintype == GainType::muscle ||
+                         *a.gaintype == GainType::user ||
+                         *a.gaintype == GainType::dcmotor))
+        Note("actuator.gaintype", a.loc);
+      if (a.biastype && (*a.biastype == BiasType::muscle ||
+                         *a.biastype == BiasType::user ||
+                         *a.biastype == BiasType::dcmotor))
+        Note("actuator.biastype", a.loc);
+      if (a.dyntype && (*a.dyntype == DynType::user ||
+                        *a.dyntype == DynType::dcmotor))
+        Note("actuator.dyntype", a.loc);
+    }
+  }
+  // The contact sensor shares the "contact" tag with the <contact> section
+  // (admitted for pairs/excludes), so it slips past the family gate; its
+  // variable dim + intprm bitmask are out of NC2 scope. Force the fallback.
+  void CheckSensorContact(const SensorContact& s) {
+    Note("sensor.contact", s.loc);
   }
   void CheckCompiler(const Compiler& c) {
     if (c.alignfree && *c.alignfree) Note("compiler.alignfree", c.loc);
@@ -205,6 +337,60 @@ class SubFeatureScanner {
   std::unordered_map<std::string, FeatureUse>& out_;
 };
 
+// Walks geoms/sites and flags the eager-copy partial-size-default case.
+class PartialArrayScanner {
+ public:
+  PartialArrayScanner(const Model& m, std::unordered_map<std::string, FeatureUse>& out)
+      : m_(m), idx_(m), pm_(m), out_(out) {}
+
+  void operator()(const Model& m) { Recurse rec{this}; Visit(m, rec); }
+
+  template <class E>
+  void operator()(const E& e) {
+    if constexpr (std::is_same_v<E, Default>) { (void)e; return; }
+    else {
+      if constexpr (std::is_same_v<E, Geom>) {
+        if (PartialSizeInherit(m_, idx_, pm_, e)) Note("geom.partial_size_default", e.loc);
+      } else if constexpr (std::is_same_v<E, Site>) {
+        if (PartialSizeInherit(m_, idx_, pm_, e)) Note("site.partial_size_default", e.loc);
+      } else if constexpr (std::is_same_v<E, ActuatorGeneral> ||
+                           std::is_same_v<E, Motor> || std::is_same_v<E, Position> ||
+                           std::is_same_v<E, Velocity> || std::is_same_v<E, IntVelocity> ||
+                           std::is_same_v<E, Damper> || std::is_same_v<E, Cylinder> ||
+                           std::is_same_v<E, Muscle> || std::is_same_v<E, Adhesion>) {
+        if (ForeignActuatorDefault(idx_, pm_, e))
+          Note("actuator.cross_spelling_default", e.loc);
+      }
+      Recurse rec{this};
+      Visit(e, rec);
+    }
+  }
+
+ private:
+  void Note(const char* key, const ps::SourceLoc& loc) {
+    FeatureUse& u = out_[key];
+    if (u.count == 0) u.first = loc;
+    ++u.count;
+  }
+  struct Recurse {
+    PartialArrayScanner* c;
+    template <class T> void field(int, const char*, const T&) {}
+    template <class T>
+    void child(int, const char*, const std::vector<std::unique_ptr<T>>& l) {
+      for (const auto& p : l) if (p) (*c)(*p);
+    }
+    template <class U>
+    void union_child(int, const char*, const std::vector<U>& l) {
+      for (const auto& it : l)
+        std::visit([&](const auto& p) { if (p) (*c)(*p); }, it.node);
+    }
+  };
+  const Model& m_;
+  ps::sdk::detail::DefaultIndex idx_;
+  ps::sdk::ParentMap pm_;
+  std::unordered_map<std::string, FeatureUse>& out_;
+};
+
 std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::unordered_map<ElementType, FeatureUse> used;
   FeatureCollector collect(used);
@@ -227,6 +413,8 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::unordered_map<std::string, FeatureUse> sub;
   SubFeatureScanner gs(sub);
   gs(m);
+  PartialArrayScanner pas(m, sub);
+  pas(m);
   for (const auto& [key, use] : sub) {
     FeatureUse& agg = by_key[key];
     if (agg.count == 0 || (use.first.line && !agg.first.line)) agg.first = use.first;

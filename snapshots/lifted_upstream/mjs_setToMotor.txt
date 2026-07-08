@@ -1,0 +1,10 @@
+const char* mjs_setToMotor(mjsActuator* actuator) {
+  // unit gain
+  actuator->gainprm[0] = 1;
+
+  // implied parameters
+  actuator->dyntype = mjDYN_NONE;
+  actuator->gaintype = mjGAIN_FIXED;
+  actuator->biastype = mjBIAS_NONE;
+  return "";
+}

@@ -1,0 +1,16 @@
+const char* mjs_setToDamper(mjsActuator* actuator, double kv) {
+  mjuu_zerovec(actuator->gainprm, mjNGAIN);
+  actuator->gainprm[2] = -kv;
+  actuator->ctrllimited = 1;
+  actuator->dyntype = mjDYN_NONE;
+  actuator->gaintype = mjGAIN_AFFINE;
+  actuator->biastype = mjBIAS_NONE;
+
+  if (kv < 0) {
+    return "damping coefficient cannot be negative";
+  }
+  if (actuator->ctrlrange[0] < 0 || actuator->ctrlrange[1] < 0) {
+    return "damper control range cannot be negative";
+  }
+  return "";
+}
