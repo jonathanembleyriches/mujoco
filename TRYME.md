@@ -1,4 +1,22 @@
-# ProtoSpec Python bindings — try it out
+# ProtoSpec — try it out
+
+## Studio (interactive editor)
+
+```bash
+cmake -S apps/studio -B apps/studio/build -G "Visual Studio 17 2022"
+cmake --build apps/studio/build --config Release
+apps/studio/build/Release/protospec_studio.exe path\to\model.xml   # or drag-drop a file
+```
+
+Edit mode (default, paused at the spec pose): click to select, **W/E/R** translate/rotate/
+scale gizmos, **Q** select, **F** frame selection, Local/World + snap in the toolbar.
+Hierarchy: right-click for Add child / Rename / Delete, **Ctrl+D** duplicate, drag to
+reparent. Right-click the viewport to add a primitive at that point; File ▸ Import Mesh
+auto-builds a mesh geom; File ▸ New starts a blank scene. **▶/⏸/⏹** (Space) simulate —
+Stop discards sim state (Unity semantics). **Ctrl+Z/Y** undo/redo, **Ctrl+S** save
+(form-preserving MJCF).
+
+## Python bindings
 
 Build the `protospec` extension (pybind11 + MuJoCo, from the repo's uv venv):
 
