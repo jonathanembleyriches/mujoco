@@ -149,20 +149,36 @@ appended to the `mjvScene` after `mjv_updateScene` via `mjv_initGeom` (renders o
 backends; needs one small hook in the renderer between update and draw). No `mjvPerturb`
 involvement in Edit mode.
 
-**Drag math (the correct inverse).** For element E with parent-chain world pose `P` (read
-from the compiled model at qpos0 — display-side only) and gizmo target world pose `W_new`:
+**Drag math — the delta rule (DR-S6).** Compiled poses are NOT invertible into authored
+fields, and mesh geoms prove it: the compiler *bakes the mesh frame into the geom frame* —
+`mjuu_frameaccum(pos, quat, meshpos, mesh->GetQuatPtr())` at `user_objects.cc:4048-4054`
+composes the mesh's re-centering/principal-axis transform (stored per-mesh in
+`mjModel.mesh_pos/mesh_quat`, `mjmodel.h:636-637`) into `geom_pos/geom_quat`. Reading a
+mesh geom's compiled pose and writing it back into the authored field double-applies that
+transform: the mesh jumps on every round trip (the exact historical "never saved back
+nicely" failure — it was structural, not a code bug).
+
+Therefore gizmos never reconstruct absolute authored poses. They apply the drag **delta**,
+conjugated into the parent frame, onto the existing authored value:
 
 ```
-local_new = inverse(P) * W_new
-E.pos     = local_new.translation
-E.orient  = Quat(local_new.rotation)     // materialized as quaternion
+W = P ∘ L_authored ∘ M        // M = any compiler-baked suffix (mesh frame, or identity)
+W_new = D ∘ W                 // D = world-space gizmo delta
+⇒ L_new = (inv(P) ∘ D ∘ P) ∘ L_authored      // M cancels exactly; never inverted
 ```
 
-- Class-inherited (unset) pose fields materialize on first edit (Details shows the badge
-  flip). Euler/axisangle-authored orientations are rewritten as quat by gizmo rotations
+`P` (parent world pose at qpos0) and the gizmo anchor (`W`, on the visible geometry) come
+from the compiled model — display-side only. `L_authored` comes from the tree (via
+`Effective()` when class-inherited, materializing the field on first edit — Details shows
+the badge flip). One uniform rule for every element type; mesh geoms need no special case
+because the baked suffix cancels algebraically.
+
+- Euler/axisangle-authored orientations are rewritten as quat by gizmo rotations
   (status-line note); the authored form remains editable in Details.
 - Frames are part of `P`; editing a frame moves its subtree (MJCF semantics for free).
 - Scale gizmo → geom/site `size` (per-axis where the type allows); bodies have no scale.
+  Mesh geom "scale" maps to the mesh asset's `scale` (affects all users — Details warns),
+  not geom size.
 
 **Recompile cadence (DR-S3).** Debounced native recompile (~30-60 ms) *is* the drag
 preview — measured rigid-model native compiles are low single-digit ms, so preview and
