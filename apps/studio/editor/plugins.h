@@ -15,15 +15,27 @@ namespace ps::studio {
 // The ModelSource plugin that owns the ProtoSpec load/compile pipeline.
 void RegisterProtoSpecEditorPlugin(EditorContext& ctx);
 
-// The Gui panel plugins (Hierarchy / Details / Assets / Diagnostics).
+// The authored-tree Hierarchy panel (hierarchy_panel.cc).
+void RegisterHierarchyPanel(EditorContext& ctx);
+
+// The Assets / Diagnostics / File panels + the undo/redo/save key handlers
+// (panels.cc).
 void RegisterEditorPanels(EditorContext& ctx);
 
 // The Viewport plugin that ray-picks and logs the resolved element.
 void RegisterPickLogger(EditorContext& ctx);
 
+// The generated Details panel, owned by the concurrent SE1b cluster
+// (details_panel.cc, namespace ps::studio::details).
+namespace details {
+void RegisterDetailsPanel(EditorContext& ctx);
+}  // namespace details
+
 // Registers the whole cluster.
 inline void RegisterEditorPlugins(EditorContext& ctx) {
   RegisterProtoSpecEditorPlugin(ctx);
+  RegisterHierarchyPanel(ctx);
+  details::RegisterDetailsPanel(ctx);
   RegisterEditorPanels(ctx);
   RegisterPickLogger(ctx);
 }

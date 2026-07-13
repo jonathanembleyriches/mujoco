@@ -1,63 +1,22 @@
-// ProtoSpec Studio: the editor Gui panel plugins (ps::studio, ours). SE0 ships
-// the §3 dock layout panels (Hierarchy / Details / Assets / Diagnostics) as
-// GuiPlugins with placeholder-but-live content driven off the shared
-// EditorContext; SE1 fills Hierarchy + Details with the generated tree/inspector.
+// ProtoSpec Studio: the remaining editor Gui panels + commands (ps::studio,
+// ours). Hierarchy lives in hierarchy_panel.cc and the generated Details panel in
+// details_panel.cc (SE1b); this TU keeps Assets / Diagnostics, the File menu
+// (load / save), and the Ctrl+Z / Ctrl+Y / Ctrl+S key handlers.
 
 #include <string>
 
 #include <imgui.h>
+#include <imgui_stdlib.h>
 
-#include "binding.h"
 #include "editor/editor_context.h"
+#include "editor/editor_ops.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
-#include "reflect.h"
-#include "types.h"
 
 namespace ps::studio {
 
-namespace reflect = ps::mjcf::reflect;
-namespace bridge = ps::mjcf::bridge;
-
 static EditorContext* Ctx(void* data) {
   return static_cast<EditorContext*>(data);
-}
-
-// Hierarchy: for SE0, a flat list of the compiled bodies from the Binding (SE1
-// replaces this with the authored ProtoSpec worldbody subtree + typed icons).
-static void HierarchyUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
-  if (!c->model_ready) {
-    ImGui::TextUnformatted("No model loaded.");
-    return;
-  }
-  ImGui::Text("Model: %s", c->source_name.c_str());
-  ImGui::Separator();
-  for (const bridge::Binding::Entry& e : c->compiled.binding.entries()) {
-    if (e.etype != ps::mjcf::ElementType::Body) {
-      continue;
-    }
-    const bool selected = e.serial == c->selected_serial;
-    ImGui::PushID(static_cast<int>(e.serial));
-    if (ImGui::Selectable(e.name.empty() ? "<unnamed body>" : e.name.c_str(),
-                          selected)) {
-      c->selected_serial = e.serial;
-      c->selected_desc = "Body '" + e.name + "' (serial " +
-                         std::to_string(e.serial) + ")";
-    }
-    ImGui::PopID();
-  }
-}
-
-// Details: the current selection (SE1 replaces with the generated inspector).
-static void DetailsUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
-  if (c->selected_desc.empty()) {
-    ImGui::TextUnformatted("No selection.");
-    ImGui::TextDisabled("Double-click a geom in the viewport to select.");
-    return;
-  }
-  ImGui::TextWrapped("%s", c->selected_desc.c_str());
 }
 
 // Assets: placeholder grid (SE3 wires mesh/texture/material/hfield import).
@@ -84,21 +43,83 @@ static void DiagnosticsUpdate(GuiPlugin* self) {
   ImGui::EndChild();
 }
 
-static void RegisterGuiPanel(const char* name, GuiPlugin::UpdateFn fn,
+// File menu: a simple path input for load / save (no vendored file dialog in
+// SE0). Lives in the main menu bar; drag-drop and the CLI arg still feed loads.
+static void FileMenuUpdate(GuiPlugin* self) {
+  EditorContext* c = Ctx(self->data);
+  static std::string load_path;
+  static std::string save_path;
+
+  ImGui::TextUnformatted("Load model (.xml):");
+  ImGui::SetNextItemWidth(-1);
+  const bool load_enter =
+      ImGui::InputTextWithHint("##loadpath", "path to MJCF...", &load_path,
+                               ImGuiInputTextFlags_EnterReturnsTrue);
+  if ((ImGui::Button("Load") || load_enter) && !load_path.empty()) {
+    c->pending.Request(load_path);  // consumed by the ModelSource poll
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Save %s", c->dirty ? "(unsaved changes)" : "(up to date)");
+  if (save_path.empty() && !c->source_path.empty()) {
+    save_path = c->source_path;
+  }
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputTextWithHint("##savepath", "path to write...", &save_path);
+  const bool can_save = c->model_ready && !save_path.empty();
+  ImGui::BeginDisabled(!c->model_ready || c->source_path.empty());
+  if (ImGui::Button("Save")) {
+    SaveModel(*c, c->source_path);
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!can_save);
+  if (ImGui::Button("Save As")) {
+    SaveModel(*c, save_path);
+  }
+  ImGui::EndDisabled();
+}
+
+static void RegisterGuiPanel(const char* name, GuiPlugin::UpdateFn fn, bool active,
                              EditorContext& ctx) {
   GuiPlugin plugin;
   plugin.name = name;
   plugin.update = fn;
-  plugin.active = true;  // panels visible by default (SE0 dock layout)
+  plugin.active = active;
   plugin.data = &ctx;
   RegisterPlugin<GuiPlugin>(plugin);
 }
 
+static void RegisterKey(const char* name, int chord,
+                        KeyHandlerPlugin::OnKeyPressedFn fn, EditorContext& ctx) {
+  KeyHandlerPlugin plugin;
+  plugin.name = name;
+  plugin.key_chord = chord;
+  plugin.on_key_pressed = fn;
+  plugin.data = &ctx;
+  RegisterPlugin<KeyHandlerPlugin>(plugin);
+}
+
 void RegisterEditorPanels(EditorContext& ctx) {
-  RegisterGuiPanel("Hierarchy", HierarchyUpdate, ctx);
-  RegisterGuiPanel("Details", DetailsUpdate, ctx);
-  RegisterGuiPanel("Assets", AssetsUpdate, ctx);
-  RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, ctx);
+  RegisterGuiPanel("Assets", AssetsUpdate, true, ctx);
+  RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, true, ctx);
+  RegisterGuiPanel("File", FileMenuUpdate, false, ctx);
+
+  RegisterKey(
+      "Undo", ImGuiMod_Ctrl | ImGuiKey_Z,
+      [](KeyHandlerPlugin* self) { Undo(*Ctx(self->data)); }, ctx);
+  RegisterKey(
+      "Redo", ImGuiMod_Ctrl | ImGuiKey_Y,
+      [](KeyHandlerPlugin* self) { Redo(*Ctx(self->data)); }, ctx);
+  RegisterKey(
+      "Save", ImGuiMod_Ctrl | ImGuiKey_S,
+      [](KeyHandlerPlugin* self) {
+        EditorContext* c = Ctx(self->data);
+        if (c->model_ready && !c->source_path.empty()) {
+          SaveModel(*c, c->source_path);
+        }
+      },
+      ctx);
 }
 
 }  // namespace ps::studio

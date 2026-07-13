@@ -24,18 +24,29 @@ void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
 
   plugin.poll_compiled = [](ModelSourcePlugin* self, CompiledModel* out) -> bool {
     EditorContext* c = Ctx(self->data);
-    if (!c->pending.pending()) {
-      return false;
-    }
-    const std::string path = c->pending.Take();
-    if (path.empty()) {
-      return false;
-    }
-    if (!LoadModel(*c, path)) {
+
+    // A pending file load takes priority (fresh tree + compile).
+    if (c->pending.pending()) {
+      const std::string path = c->pending.Take();
+      if (!path.empty() && LoadModel(*c, path)) {
+        c->recompile_requested = false;  // the load already produced an artifact
+        out->model = c->compiled.model.get();  // host borrows; plugin retains
+        return true;
+      }
       return false;  // errors already logged to Diagnostics
     }
-    out->model = c->compiled.model.get();  // host borrows; plugin retains
-    return true;
+
+    // Otherwise service a debounced recompile request (edits coalesce to at most
+    // one compile per frame, DR-S3). A failed recompile keeps the last good
+    // artifact running and does not re-adopt.
+    if (c->recompile_requested) {
+      c->recompile_requested = false;
+      if (RecompileTree(*c)) {
+        out->model = c->compiled.model.get();
+        return true;
+      }
+    }
+    return false;
   };
 
   RegisterPlugin<ModelSourcePlugin>(plugin);

@@ -137,9 +137,14 @@ add_library(protospec_studio_shell STATIC
   platform/ux/ps_plugin_ext.cc
   host/app.cc
   editor/editor_ops.cc
+  editor/undo.cc
+  editor/hierarchy_model.cc
+  editor/hierarchy_panel.cc
   editor/protospec_editor.cc
   editor/panels.cc
   editor/pick_logger.cc
+  # SE1b (generated Details panel) adds its source here:
+  editor/details_panel.cc
 )
 target_include_directories(protospec_studio_shell PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -174,6 +179,8 @@ enable_testing()
 add_executable(protospec_studio_tests
   test/test_studio.cc
   editor/editor_ops.cc
+  editor/undo.cc
+  editor/hierarchy_model.cc
 )
 target_link_libraries(protospec_studio_tests PRIVATE
   protospec_studio_core
@@ -191,3 +198,26 @@ add_custom_command(TARGET protospec_studio_tests POST_BUILD
           "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_tests>"
   VERBATIM)
 add_test(NAME protospec_studio_tests COMMAND protospec_studio_tests)
+
+# --- SE1b generated-Details windowless tests (own main) -------------------- #
+# details_panel.h is windowless (no ImGui); these tests link only the core.
+add_executable(protospec_studio_details_tests
+  test/test_details.cc
+)
+target_link_libraries(protospec_studio_details_tests PRIVATE
+  protospec_studio_core
+  "${MUJOCO_IMPORT_LIB}"
+)
+target_include_directories(protospec_studio_details_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_details_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_details_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_details_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_details_tests
+         COMMAND protospec_studio_details_tests)
