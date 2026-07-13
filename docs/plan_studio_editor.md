@@ -248,10 +248,12 @@ loop is one organism); SE3 parallel per-op; verification by a different agent vi
 `Editor`-level tests (no window needed for the command/undo/commit logic) + offscreen
 smoke.
 
-## 11. Open questions (owner input wanted)
+## 11. Resolved decisions (owner, 2026-07-08)
 
-1. Gizmo rotations on euler-authored orientations: materialize quat + status note
-   (proposed) vs axis-aligned euler preservation attempts.
-2. Play→Stop always discards sim state (proposed, Unity semantics) — acceptable, given
-   "save pose to keyframe" arrives later as the explicit escape hatch?
-3. Classic renderer visuals acceptable for SE0-SE4 (Filament later)?
+1. Gizmo rotations materialize quat (+ status note); euler stays editable in Details. No
+   euler-preservation heuristics.
+2. Play→Stop discards simulation state (Unity semantics); "save pose to keyframe" is the
+   later explicit escape hatch.
+3. Classic `mjr` renderer for SE0-SE4; Filament later behind the HAL.
+4. **Gizmos are the core deliverable** — SE2 is the milestone that matters; everything
+   else serves it.
