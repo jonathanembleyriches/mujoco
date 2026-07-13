@@ -27,6 +27,7 @@ set(PROTOSPEC_CPP "${PROTOSPEC_ROOT}/cpp")
 include(FetchContent)
 FetchContent_GetProperties(qhull)
 FetchContent_GetProperties(tinyobjloader)
+FetchContent_GetProperties(dear_imgui)
 
 # --- ProtoSpec core: generated object model + IO + validation + bridge ------ #
 file(GLOB PROTOSPEC_GENERATED_SRC CONFIGURE_DEPENDS
@@ -96,6 +97,9 @@ add_library(protospec_editor STATIC
 target_include_directories(protospec_editor PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/src
+)
+target_include_directories(protospec_editor PRIVATE
+  ${dear_imgui_SOURCE_DIR}/misc/cpp
 )
 target_link_libraries(protospec_editor PUBLIC
   protospec_core
