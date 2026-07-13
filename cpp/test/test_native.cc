@@ -727,21 +727,17 @@ static void TestNc4Size() {
     if (model) CHECK(compile::CollectUnsupportedFeatures(*model).empty());
   }
 
-  // Two default nodes sharing the root key shadow in DefaultIndex -> gated.
-  {
-    auto model = ParseOrDie(
-        "<mujoco><default><motor ctrlrange='-1 1' ctrllimited='true'/></default>"
-        "<default><geom size='0.1'/></default>"
-        "<worldbody><body><joint name='j' type='hinge'/><geom/></body></worldbody>"
-        "<actuator><motor name='m' joint='j'/></actuator></mujoco>");
-    if (model) {
-      auto reasons = compile::CollectUnsupportedFeatures(*model);
-      bool saw = false;
-      for (const auto& r : reasons)
-        if (r.feature == "default.duplicate_class") saw = true;
-      CHECK(saw);
-    }
-  }
+  // Several top-level <default> blocks all merge field-wise into the one `main`
+  // (the norm once <include> fuses two files' top-level blocks). The SDK
+  // DefaultIndex reproduces the parse-time snapshot (Roots()/MergeClassChain), so
+  // a class-free element sees every block merged -- native-identical to the XML
+  // reader's single `main`.
+  CheckBitIdentical(
+      "multi_block_default",
+      "<mujoco><default><motor ctrlrange='-1 1' ctrllimited='true'/></default>"
+      "<default><geom size='0.1'/></default>"
+      "<worldbody><body><joint name='j' type='hinge'/><geom/></body></worldbody>"
+      "<actuator><motor name='m' joint='j'/></actuator></mujoco>");
 }
 
 // NC4.2: custom fields. Numeric size-padding, text NUL packing, and tuple

@@ -628,30 +628,6 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   for (const auto& d : m.defaults)
     if (d) scan_defaults(*d);
 
-  // Shadowed default classes: ps::sdk's DefaultIndex keys the class table by
-  // name (empty/"main" both being the root), so when a model carries two
-  // default nodes with the same key -- the norm once <include> merges two files'
-  // top-level <default> blocks -- the later one silently overwrites the earlier
-  // in the index and Effective drops the shadowed node's partials, diverging
-  // from the XML reader (which merges them). Detect a repeated key and route to
-  // the XML fallback until the index merges instead of overwrites.
-  {
-    std::unordered_map<std::string, int> seen;
-    ps::SourceLoc dup_loc;
-    std::function<void(const Default&)> walk = [&](const Default& d) {
-      std::string name = d.dclass ? *d.dclass : std::string();
-      const std::string key =
-          (name.empty() || name == "main") ? std::string("\x01root") : name;
-      if (++seen[key] == 2 && !dup_loc.line) dup_loc = d.loc;
-      for (const auto& sc : d.subclasses)
-        if (sc) walk(*sc);
-    };
-    for (const auto& d : m.defaults)
-      if (d) walk(*d);
-    for (const auto& [key, n] : seen)
-      if (n >= 2) note_sub("default.duplicate_class", dup_loc);
-  }
-
   // Replicate gates that need whole-model context: a childclass in scope (the
   // native ParentMap can't reach the clones) and a model-level element that
   // references a name authored inside a replicate subtree (mjs_attach would
