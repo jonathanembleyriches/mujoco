@@ -88,6 +88,16 @@ struct DragFrame {
   Rigid local;                  // L_authored (materialised) at grab
   double anchor[3] = {0, 0, 0}; // world pos of the element's frame origin
   double world_quat[4] = {1, 0, 0, 0};  // element world orientation (for local-axis modes)
+
+  // fromto-authored geom/site (capsule/cylinder/box/ellipsoid limbs): when a
+  // shape variant carries `fromto`, the compiler DERIVES pos/quat from the two
+  // endpoints and IGNORES any authored pos/quat (build.cc geom/site Compile).
+  // Editing pos would therefore be a no-op; the gizmo must edit the endpoints
+  // instead. These are the grab-time endpoints in the element's PARENT frame
+  // (the frame `fromto` is authored in, i.e. the frame P conjugates into).
+  bool is_fromto = false;
+  double from[3] = {0, 0, 0};
+  double to[3] = {0, 0, 0};
 };
 
 // Build the drag frame for `serial`: resolves P from the compiled model+data (at
@@ -123,6 +133,14 @@ struct ScaleBase {
   double size[3] = {0, 0, 0};   // grab-time geom/site size
   double mesh_scale[3] = {1, 1, 1};  // grab-time mesh asset scale (mesh geoms)
   std::uint64_t mesh_serial = 0;     // the referenced Mesh element (mesh geoms)
+
+  // fromto-authored geom/site: the half-length (long axis) is DERIVED from the
+  // endpoint separation, not from `size`, so a long-axis scale must move the
+  // endpoints apart/together about their midpoint; only the radius (size[0])
+  // maps to the `size` field. size[0] holds the grab-time radius here.
+  bool is_fromto = false;
+  double from[3] = {0, 0, 0};
+  double to[3] = {0, 0, 0};
 };
 ScaleBase BuildScaleBase(mj::Model& tree, std::uint64_t serial);
 

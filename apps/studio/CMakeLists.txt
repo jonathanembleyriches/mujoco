@@ -233,6 +233,34 @@ add_custom_command(TARGET protospec_studio_gizmo_tests POST_BUILD
   VERBATIM)
 add_test(NAME protospec_studio_gizmo_tests COMMAND protospec_studio_gizmo_tests)
 
+# --- SE2 movability audit windowless tests (own main) ---------------------- #
+# The class-catching test: drive a translate through the gizmo core path over
+# every body/geom/site/camera/light in a corpus (inline fixtures + vendored
+# models) and assert each element's compiled world pose moved. Links the core
+# plus the transform/undo helpers, like the gizmo delta battery.
+add_executable(protospec_studio_movability_tests
+  test/test_movability.cc
+  editor/transform_math.cc
+  editor/undo.cc
+)
+target_link_libraries(protospec_studio_movability_tests PRIVATE
+  protospec_studio_core
+  "${MUJOCO_IMPORT_LIB}"
+)
+target_include_directories(protospec_studio_movability_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_movability_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_movability_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_movability_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_movability_tests
+         COMMAND protospec_studio_movability_tests)
+
 # --- SE1b generated-Details windowless tests (own main) -------------------- #
 # details_panel.h is windowless (no ImGui); these tests link only the core.
 add_executable(protospec_studio_details_tests

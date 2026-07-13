@@ -65,6 +65,20 @@ void QuatRotate(const double q[4], const double v[3], double out[3]) {
   out[2] = t[2];
 }
 
+// Unit quat rotating +z onto `vec` (mjuu_z2quat / build.cc fromto path), so the
+// gizmo's local axes align with the derived fromto capsule axis.
+static void Z2Quat(double quat[4], const double vec[3]) {
+  double v[3] = {vec[0], vec[1], vec[2]};
+  double axis[3] = {-v[1], v[0], 0};  // z x v
+  const double s = Norm(axis, 3);
+  const double ang = std::atan2(s, v[2]);
+  if (s < 1e-10) {
+    axis[0] = 1;
+    axis[1] = axis[2] = 0;
+  }
+  QuatFromAxisAngle(axis, ang, quat);
+}
+
 void QuatFromAxisAngle(const double axis[3], double angle, double out[4]) {
   double a[3] = {axis[0], axis[1], axis[2]};
   if (Norm(a, 3) < 1e-12) {
@@ -329,6 +343,33 @@ static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
   return L;
 }
 
+// The effective fromto endpoints of a geom/site (via Effective, so a
+// class-inherited shape resolves), or false when the element is not
+// fromto-authored. Only Geom/Site carry the `shape` variant.
+template <class E>
+static bool EffectiveFromTo(mj::Model& tree, E& e, double from[3],
+                            double to[3]) {
+  if constexpr (requires { e.shape; }) {
+    ps::opt<mj::GeomShape> shape;
+    if (e.shape) {
+      shape = e.shape;
+    } else if constexpr (sdk::HasDefaultFamily<E>::value) {
+      std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
+      shape = eff->shape;
+    }
+    if (shape) {
+      if (const mj::FromTo* ft = std::get_if<mj::FromTo>(&*shape)) {
+        for (int i = 0; i < 3; ++i) {
+          from[i] = ft->fromto[i];
+          to[i] = ft->fromto[i + 3];
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 template <class E>
 static DragFrame BuildFor(mj::Model& tree, const mjData* data,
                           const mj::bridge::Binding& binding,
@@ -339,6 +380,18 @@ static DragFrame BuildFor(mj::Model& tree, const mjData* data,
   f.type = mj::element_type_of<E>::value;
   f.parent = ComputeParentPose(data, binding, pm, oc, &e);
   f.local = MaterializeLocal(tree, e, oc);
+
+  // fromto override: the compiled pose is the endpoint midpoint + the z->axis
+  // rotation, NOT the authored pos/orient. Anchor the gizmo on the capsule
+  // centre and align world_quat with the derived axis so local-axis modes and
+  // the scale gizmo act on the limb, not on an ignored authored frame.
+  if (EffectiveFromTo(tree, e, f.from, f.to)) {
+    f.is_fromto = true;
+    double vec[3] = {f.from[0] - f.to[0], f.from[1] - f.to[1],
+                     f.from[2] - f.to[2]};
+    for (int i = 0; i < 3; ++i) f.local.pos[i] = 0.5 * (f.from[i] + f.to[i]);
+    Z2Quat(f.local.quat, vec);
+  }
 
   // anchor = P . L (world frame origin);  world_quat = P.quat . L.quat.
   double rl[3];
@@ -395,12 +448,33 @@ static void WriteQuat(E& e, const double q[4]) {
 }
 
 template <class E>
+static void WriteFromTo(E& e, const double from[3], const double to[3]) {
+  e.shape = mj::GeomShape(mj::FromTo{
+      {from[0], from[1], from[2], to[0], to[1], to[2]}});
+}
+
+template <class E>
 static void TranslateElem(E& e, const DragFrame& f, const double world_delta[3]) {
-  // L_new.pos = L_base.pos + inv(P).quat * world_delta.
+  // Parent-frame delta: inv(P).quat * world_delta.
   double pq[4];
   QuatConj(f.parent.quat, pq);
   double dl[3];
   QuatRotate(pq, world_delta, dl);
+  if constexpr (requires { e.shape; }) {
+    // fromto: translate BOTH endpoints by the parent-frame delta (the midpoint,
+    // hence the compiled pose, follows; the axis is unchanged). Writing pos here
+    // would be silently ignored by the compiler.
+    if (f.is_fromto) {
+      double nf[3], nt[3];
+      for (int i = 0; i < 3; ++i) {
+        nf[i] = f.from[i] + dl[i];
+        nt[i] = f.to[i] + dl[i];
+      }
+      WriteFromTo(e, nf, nt);
+      return;
+    }
+  }
+  // L_new.pos = L_base.pos + inv(P).quat * world_delta.
   double np[3] = {f.local.pos[0] + dl[0], f.local.pos[1] + dl[1],
                   f.local.pos[2] + dl[2]};
   WritePos(e, np);
@@ -413,6 +487,34 @@ static void RotateElem(E& e, const DragFrame& f, const double axis[3],
   QuatFromAxisAngle(axis, angle, qd);
   double pq[4];
   QuatConj(f.parent.quat, pq);
+  if constexpr (requires { e.shape; }) {
+    // fromto: rotate BOTH endpoints about their midpoint by the parent-frame
+    // rotation qL = conj(P).quat . qD . P.quat. Radius (size) and the derived
+    // pos/quat are untouched. A rotation about an axis parallel to the fromto
+    // direction is a NO-OP (the endpoint offsets lie along that axis and are
+    // fixed by the rotation) -- fromto capsules/cylinders are axisymmetric, so
+    // twist about the limb axis is not representable and produces no visible
+    // change, which is the correct behaviour.
+    if (f.is_fromto) {
+      double t2[4], qL[4];
+      QuatMul(qd, f.parent.quat, t2);
+      QuatMul(pq, t2, qL);
+      double m[3];
+      for (int i = 0; i < 3; ++i) m[i] = 0.5 * (f.from[i] + f.to[i]);
+      double vf[3] = {f.from[0] - m[0], f.from[1] - m[1], f.from[2] - m[2]};
+      double vt[3] = {f.to[0] - m[0], f.to[1] - m[1], f.to[2] - m[2]};
+      double rf[3], rt[3];
+      QuatRotate(qL, vf, rf);
+      QuatRotate(qL, vt, rt);
+      double nf[3], nt[3];
+      for (int i = 0; i < 3; ++i) {
+        nf[i] = m[i] + rf[i];
+        nt[i] = m[i] + rt[i];
+      }
+      WriteFromTo(e, nf, nt);
+      return;
+    }
+  }
   if constexpr (requires { e.orient; }) {
     // L_new.quat = conj(P.quat) . qD . P.quat . L_base.quat  (pos unchanged: the
     // pivot is the element's own frame origin).
@@ -518,6 +620,12 @@ static ScaleBase BuildScaleFor(mj::Model& tree, E& e) {
       b.size[i] = (*eff->size)[i];
     }
   }
+  // fromto: the long axis (half-length) is derived from the endpoints, so the
+  // scale gizmo drives the endpoint separation for the axis component and the
+  // `size` radius for the radial components. size[0] holds the grab-time radius.
+  if constexpr (requires { e.shape; }) {
+    if (EffectiveFromTo(tree, e, b.from, b.to)) b.is_fromto = true;
+  }
   return b;
 }
 
@@ -529,6 +637,24 @@ ScaleBase BuildScaleBase(mj::Model& tree, std::uint64_t serial) {
   if (ref.type == mj::ElementType::Site)
     return BuildScaleFor(tree, *static_cast<mj::Site*>(ref.ptr));
   return {};
+}
+
+template <class E>
+static void ApplyScaleFromTo(E& e, const ScaleBase& base, const double factor[3]) {
+  // Local z is the fromto axis (Z2Quat), so factor[2] drives the half-length by
+  // moving the endpoints about their midpoint; factor[0] drives the radius.
+  const double axf = factor[2];
+  const double rf = factor[0];
+  double m[3], nf[3], nt[3];
+  for (int i = 0; i < 3; ++i) {
+    m[i] = 0.5 * (base.from[i] + base.to[i]);
+    nf[i] = m[i] + axf * (base.from[i] - m[i]);
+    nt[i] = m[i] + axf * (base.to[i] - m[i]);
+  }
+  WriteFromTo(e, nf, nt);
+  ps::InlineVec<double, 3> size;   // fromto derives the axis size; only the
+  size.push_back(base.size[0] * rf);  // radius (size[0]) is authored.
+  e.size = size;
 }
 
 template <class E>
@@ -564,10 +690,17 @@ void ApplyScale(mj::Model& tree, std::uint64_t serial, const ScaleBase& base,
   }
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref) return;
-  if (ref.type == mj::ElementType::Geom)
-    ApplyScaleSize(*static_cast<mj::Geom*>(ref.ptr), base, factor);
-  else if (ref.type == mj::ElementType::Site)
-    ApplyScaleSize(*static_cast<mj::Site*>(ref.ptr), base, factor);
+  if (ref.type == mj::ElementType::Geom) {
+    if (base.is_fromto)
+      ApplyScaleFromTo(*static_cast<mj::Geom*>(ref.ptr), base, factor);
+    else
+      ApplyScaleSize(*static_cast<mj::Geom*>(ref.ptr), base, factor);
+  } else if (ref.type == mj::ElementType::Site) {
+    if (base.is_fromto)
+      ApplyScaleFromTo(*static_cast<mj::Site*>(ref.ptr), base, factor);
+    else
+      ApplyScaleSize(*static_cast<mj::Site*>(ref.ptr), base, factor);
+  }
 }
 
 }  // namespace ps::studio
