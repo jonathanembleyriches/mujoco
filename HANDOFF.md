@@ -64,3 +64,8 @@ uv run python tools/lift_registry.py check
 - `mjspec.h` comment bugs: `:455` ("errorsx"), `:644-645` (exclude bodynames say "geom").
 - UNVERIFIED: plugin-ordering check reachability (`xml_native_reader.cc:3148-3151`) — trace
   `Parse()` section order before filing.
+- Studio build breaks under the Visual Studio generator: `cmake/third_party_deps/filament.cmake`'s
+  `/FI cstring` CXX workaround leaks onto Filament's generated `.c` resource files
+  (C1189/STL1003 in `fxaa.c`). Ninja+MSVC is unaffected (CXX flags stay off C files). Windows
+  build rule for Studio: `vcvars64` + `-G Ninja`; never the VS generator; clang-cl is rejected
+  by this Filament pin ("Building with Clang on Windows is no longer supported").

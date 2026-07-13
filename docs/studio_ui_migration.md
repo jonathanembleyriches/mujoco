@@ -19,8 +19,12 @@ in the vendored tree was modified.
 
 ## 0. TL;DR
 
-- **Spike:** the real Studio configures and builds on this machine. See §1 for the
-  exact outcome (updated after the build completed).
+- **Spike: SUCCESS.** The real Studio builds and runs on this machine —
+  `mujoco_studio.exe` built out of tree with **Ninja + MSVC** (the Visual Studio
+  generator fails on a CXX-flag leak into Filament's generated C files, and clang-cl
+  is rejected by Filament itself), launched with the humanoid model, full Studio UI +
+  Filament rendering + stepping physics confirmed on screen. Details + toolchain
+  diagnosis trail in §1.5-1.6.
 - **Hosting option (recommended):** **(b) a `studio` branch cut from upstream on the
   owner's `jonathanembleyriches/mujoco` fork, with the ProtoSpec editor carried as a
   subdirectory + a small, reviewable patch to `app.cc`/`gui.cc`/`model_holder`/
@@ -129,7 +133,98 @@ CMake 4.x emits `FetchContent_Populate` deprecation warnings (from the vendored
 `FindOrFetch.cmake`) but they are non-fatal. Two ignored cache vars (`BUILD_SHARED_LIB`,
 `USE_STATIC_LIBCXX`) — harmless, they are `build.sh` leftovers.
 
-<!-- SPIKE-BUILD-OUTCOME -->
+### 1.6 Build outcome and the toolchain diagnosis trail
+
+Four attempts, one real disease:
+
+1. **VS 2022 generator + MSVC cl: FAILED** deep into Filament core with exactly one
+   error: `yvals_core.h(28) C1189 / STL1003: Unexpected compiler, expected C++
+   compiler` while compiling `generated/resources/fxaa.c` in `filament.vcxproj`.
+   Root cause: MuJoCo's `cmake/third_party_deps/filament.cmake` appends
+   `/FI cstring /FI optional` to `CMAKE_CXX_FLAGS` (a workaround for two missing
+   includes in Filament). Under the **Visual Studio generator**, directory-level CXX
+   flags land in the project-wide `<ClCompile>` options and leak into **C** sources
+   too; force-including the C++ header `<cstring>` into a resgen-generated `.c`
+   byte-array file trips the MSVC STL's C-compiler guard. (The adjacent
+   `D9002: ignoring unknown option '-fno-rtti'` warning is the same leak class —
+   Filament emits clang-style flags on some paths; cl warns and ignores them.)
+2. **VS 2022 + ClangCL toolset: FAILED at configure** — `MSB8020: build tools for
+   ClangCL cannot be found` (this machine has clang-cl 19.1.5 but not the VS MSBuild
+   ClangCL toolset component).
+3. **Ninja + clang-cl: FAILED at configure, decisively** —
+   `filament-src/CMakeLists.txt:347: FATAL_ERROR "Building with Clang on Windows is
+   no longer supported. Use MSVC 2019 instead."` The pinned Filament
+   (`da22932b…`) explicitly **rejects clang-cl on Windows**
+   (`CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"` guard) and supports **plain MSVC**. So
+   MSVC is the required Windows toolchain for this Filament, not Clang.
+4. **Ninja + MSVC cl: the fix.** Ninja keeps `CMAKE_CXX_FLAGS` away from `.c`
+   sources, so the `/FI` workaround stays C++-only, which is exactly what MuJoCo's
+   `filament.cmake` intends. Same fetched sources (reused via
+   `FETCHCONTENT_SOURCE_DIR_*`), configure clean, compile proceeded past the
+   VS-generator failure point with **zero errors** through abseil/Filament.
+
+**Toolchain requirement (build-doc line item):** on Windows, build MuJoCo Studio with
+**MSVC + the Ninja generator** (`vcvars64` + `-G Ninja`), NOT the Visual Studio
+generator (CXX-flag leak into C files breaks Filament resources) and NOT clang-cl
+(Filament fatals). Studio's own `build.sh` "works on Windows in a git-bash shell"
+only when the default generator resolves to Ninja. MSVC-built protospec libs and an
+MSVC/Ninja-built Studio are the same ABI, so the integration story in §2 is
+unaffected either way.
+
+**Final spike outcome: SUCCESS.** With Ninja + MSVC, `mujoco_studio.exe` (2.1 MB,
+plus `mujoco.dll` and the Filament host tools matc/cmgen/resgen) built with **zero
+compile or link errors** (~1,082 build steps after the shared deps; roughly 25 min
+wall on 12 of 24 cores). Launched with `model/humanoid/humanoid.xml`: window
+"MuJoCo Studio : Humanoid", full Studio UI confirmed on screen — menu bar, toolbar
+(run/speed/threads/camera/Label/Frame), left Options panel
+(Physics/Rendering/Visibility Groups/Visualization), right Explorer/Editor/Inspector
+tabs (Joints/Controls/Sensor/Watch/State), status bar `Running` — with the humanoid
+PBR-rendered by Filament (default `FilamentOpenGl` backend) and physics stepping.
+
+Two operational footnotes from the run:
+
+- The one "failure" in the final build step was the POST_BUILD font copy, an
+  artifact of this spike reusing the first attempt's `_deps` sources via
+  `FETCHCONTENT_SOURCE_DIR_*` (the copy step hardcodes `bin/../_deps/opensans-src`);
+  a normal from-scratch Ninja build will not hit it. The exe still linked; copying
+  `OpenSans-Regular.ttf`, `fontawesome-webfont.ttf`, and
+  `src/render/filament/assets/*` into `bin/assets/` by hand completed the install.
+- Launch Studio from cmd/PowerShell, or use `--model_file=<path>` (equals form).
+  Under git-bash, `--model_file <path>` got mangled by MSYS argument handling and
+  Studio reported `Load Error: could not decode content` (resource named `'1'`);
+  same binary + PowerShell loaded the same file fine.
+
+### 1.7 Fallback evaluated: Studio's presentation layer on our classic shell
+
+Insurance if Filament ever becomes a blocker on a target machine (and a fast interim
+path): port Studio's **presentation layer** onto our existing SDL2 + classic-`mjr`
+shell. This is viable because the owner's complaint is the UI, and the entire Studio
+look lives in renderer-agnostic files — of all of `platform/ux`, **only
+`imgui_bridge.{h,cc}` touches Filament**:
+
+| Piece | Where (platform) | Size | Filament dep |
+|---|---|---|---|
+| Theme (`SetupTheme`, dark/light/classic palettes) | `ux/gui.cc:56-200` | ~150 LOC | none — pure `ImGuiStyle` |
+| Dock layout (`ConfigureDockingLayout`: Options left 22%, Explorer/Editor/Inspector right tabs, Properties, Stats, Profiler, passthrough center) | `ux/gui.cc:235-360` | ~130 LOC | none — pure DockBuilder |
+| Fonts (OpenSans 20px + FontAwesome 14px icon-merge via the `font:` resource provider) | `hal/window.cc:70-85` + main.cc provider | ~40 LOC | none |
+| Widget kit (their toolbar buttons, sliders, tables look) | `ux/imgui_widgets.cc` | 506 LOC | none |
+| Toolbar / status bar / main menu / options panels *content* | `studio/app.cc` (1,856 total) | a few hundred LOC to adapt | none (ImGui + mj state) |
+| ImguiBridge (render ImGui via Filament) | `ux/imgui_bridge.*` | 321 LOC | **yes — skip**; our SDL2+GL3 backend replaces it |
+
+So "looks like real Studio" decomposes as: dock structure + theme + fonts + widget
+kit + toolbar/status-bar chrome ≈ **~830 LOC portable verbatim + a few hundred LOC of
+panel adaptation**, all buildable in our current shell with zero new dependencies
+beyond the two font files. What it does NOT capture is the Filament 3D scene look
+(PBR materials, shadows, tonemapping) — the viewport itself would still render
+classic `mjr`. Notably Studio itself ships `GraphicsMode::ClassicOpenGl` and can run
+with the classic renderer at **runtime**, so "Studio UI + classic scene" is a
+configuration DeepMind themselves support — but Studio still requires Filament at
+**build** time (`platform` links `mujoco::filament` unconditionally), which is why
+this fallback ports the presentation files rather than building Studio without
+Filament. Verdict: the fallback captures most of the perceived "real Studio UI"
+(chrome, layout, typography, panels), at the cost of maintaining ported copies of
+`gui.cc`/`imgui_widgets.cc` — acceptable as insurance, inferior to hosting in real
+Studio (§2/§3) because it keeps our shell alive and drifts from upstream.
 
 ---
 
@@ -176,7 +271,10 @@ Two options:
   our Binding-by-id identity is thrown away (names survive, so we could re-derive the
   Binding by name each load — extra work, and it loses the native-compile artifact).
   An `application/mjb` round-trip is byte-exact and name-preserving but sets `spec_=null`
-  (their Explorer shows "No mjSpec loaded").
+  (their Explorer shows "No mjSpec loaded"). A third stock route exists —
+  `ModelHolder::FromSpec(mjSpec*)` takes ownership of a caller-built spec — but it too
+  recompiles (`mj_compile` in `PostInit`), so it has the same identity loss as XML,
+  just without the serialize/parse round trip.
 - **Adopt seam (recommended, ~15-30 lines):** add `ModelHolder::FromModel(mjModel*,
   mjData*)` (skip `PostInit` compile) + an `App` method to swap `model_holder_`, then a
   `ModelSourcePlugin::poll_compiled` hook in `ProcessPendingLoads`. This is precisely
@@ -225,8 +323,9 @@ camera-motion block in `HandleMouseEvents`** — a handful of lines.
   or (ii) add `DockBuilderDockWindow("Hierarchy", inspector)` etc. — a **few lines** in
   `ConfigureDockingLayout`.
 - **Hiding their editor.** Their Explorer + Editor + **Inspector** share one runtime bool
-  `tmp_.inspector_panel` (Shift+Tab). Flipping it off also kills the Data Inspector, and
-  there is no compile flag. To cleanly hide only the old-spec Explorer/Editor while keeping
+  `tmp_.inspector_panel` (`studio/app.cc:893-905`; toggled at `:602` and via the View
+  menu at `:1659`). Flipping it off also kills the Data Inspector, and there is no
+  compile flag. To cleanly hide only the old-spec Explorer/Editor while keeping
   the Data Inspector, **split that flag** (2-3 lines in `app.h`/`app.cc`) or drop the
   `SpecExplorerGui`/`SpecEditorGui` calls behind a new `-DSTUDIO_HOST_EXTERNAL_EDITOR`
   guard. Either is a small, localized edit.
@@ -295,14 +394,14 @@ was always a stand-in for Studio and is what gets replaced.
 | **SE0 host / substrate** | `host/app.*`, `platform/hal/window.*`, `platform/hal/renderer.*`, `main.cc` | — | The frame loop, overlay-hook fan-out, model-adopt, viewport-input dispatch become the **§2 Studio patch** (~80-150 lines in their `app.cc`/`renderer.*`/`model_holder.*`). Logic is a direct port of `host/app.cc`. | The window/GL/context code (Studio's SDL2+Filament HAL supersedes our `hal/`); our classic-`mjr` `Renderer::Render`; our `main.cc` entry (Studio owns `main`). |
 | **SE0 pick math** | `platform/ux/interaction.*` | Pick-ray / camera math is a copy of MuJoCo's; Studio already has `interaction.cc` `Pick`/`MakePickRay`. | Point our `ViewportPlugin` at Studio's pick helpers instead of our copy. | Our vendored `interaction.cc` copy (Studio's is the original). |
 | **Plugin ABI + registry** | `platform/ux/plugin.h`, `ps_plugin_ext.*`, `registry.*` | `plugin.h` is verbatim → drop ours, use Studio's. `ps_plugin_ext.h` (4 ext structs) ports as-is (add to Studio's platform). | Registry: Studio's `plugin.cc` provides `RegisterPlugin`/`ForEachPlugin`; instantiate our 4 ext types against it (our `registry.inc.h` mechanism is equivalent). | Our `registry.inc.h`/`registry.cc` reimpl (Studio's registry replaces it). |
-| **SE1 Hierarchy** | `editor/hierarchy_model.cc` (271), `editor/hierarchy_panel.*` (365) | **Yes** — a `GuiPlugin`, windowless model builder + thin ImGui skin. | Only: dock into Studio's `inspector` node (1 `DockBuilderDockWindow` line). | — |
-| **SE1 Details** | `editor/details_panel.*` (868) | **Yes** — reflection-driven, windowless core (`test_details`) + `GuiPlugin` skin. | Dock placement only. | — |
-| **SE1 editor core / undo** | `editor/editor_ops.*` (553), `editor/undo.*` (212), `editor/editor_context.h` (177) | **Yes** — fully windowless; the DR-S1 authority (ProtoSpec tree + `bridge::Compiled` + Binding). | None (compile path is ours, not Studio's ModelHolder). | — |
-| **SE2 gizmos** | `editor/gizmo.*` (648), `editor/gizmo_math.*` (255), `editor/transform_math.*` (710) | **Yes** — ImGui-drawlist (renderer-agnostic), delta math windowless-tested (`test_gizmo`). Works over Filament unchanged (foreground draw list). | None. | — |
+| **SE1 Hierarchy** | `editor/hierarchy_model.cc` (271), `editor/hierarchy_panel.cc` (313) | **Yes** — a `GuiPlugin`, windowless model builder + thin ImGui skin. | Only: dock into Studio's `inspector` node (1 `DockBuilderDockWindow` line). | — |
+| **SE1 Details** | `editor/details_panel.cc` (612) | **Yes** — reflection-driven, windowless core (`test_details`) + `GuiPlugin` skin. | Dock placement only. | — |
+| **SE1 editor core / undo** | `editor/editor_ops.cc` (450), `editor/undo.cc` (116), `editor/editor_context.h` (177) | **Yes** — fully windowless; the DR-S1 authority (ProtoSpec tree + `bridge::Compiled` + Binding). | None (compile path is ours, not Studio's ModelHolder). | — |
+| **SE2 gizmos** | `editor/gizmo.cc` (569), `editor/gizmo_math.cc` (170), `editor/transform_math.cc` (706) | **Yes** — ImGui-drawlist (renderer-agnostic), delta math windowless-tested (`test_gizmo`). Works over Filament unchanged (foreground draw list). | None. | — |
 | **SE2 viewport plugin** | `editor/viewport_plugin.cc` (353) | **Yes** — the `ViewportPlugin` + `ViewportGuiPlugin` + `OverlayPlugin` + tool keys. | Its three ext hooks need the §2 Studio dispatch seams wired (input/overlay/gui-draw). | — |
-| **SE3 authoring** | `editor/authoring_ops.*` (1015), `editor/asset_import.*` (195) | **Yes** — windowless SDK ops (add/duplicate/reparent/new-model/mesh-import+VFS), `test_authoring`. | None (operate on our ProtoSpec tree, recompile via our bridge). | — |
+| **SE3 authoring** | `editor/authoring_ops.cc` (866), `editor/asset_import.cc` (141) | **Yes** — windowless SDK ops (add/duplicate/reparent/new-model/mesh-import+VFS), `test_authoring`. | None (operate on our ProtoSpec tree, recompile via our bridge). | — |
 | **SE editor panels** | `editor/panels.cc` (235) | **Yes** — Assets/Diagnostics/File/+Add `GuiPlugin`s + undo/redo/save keys. | Dock placement. | — |
-| **Tests** | `test/test_studio.cc`, `test_gizmo.cc`, `test_details.cc`, `test_authoring.cc` (~42 fns / ~319 CHECKs) | **Yes** — all windowless, link only the core + editor TUs; run headless in CI unchanged. | Rewire the 2 in-binary smoke paths (`SmokeRun`/`SmokeEditRun`) onto Studio's `App` loop. | — |
+| **Tests** | `test/test_studio.cc`, `test_gizmo.cc`, `test_details.cc`, `test_authoring.cc` (+ `test_movability.cc`) — ~46 test fns / ~405 CHECKs | **Yes** — all windowless, link only the core + editor TUs; run headless in CI unchanged. | Rewire the 2 in-binary smoke paths (`SmokeRun`/`SmokeEditRun`) onto Studio's `App` loop. | — |
 | **Studio's old editor** | (their side) | — | — | We hide (not delete) their `SpecExplorerGui`/`SpecEditorGui`/`SpecEditor`/`ModelHolder`-from-spec editing — the old-spec authoring we replace. |
 
 **Quantified:** of the ProtoSpec editor, **~5,900 LOC (the entire `editor/` cluster + the
@@ -320,10 +419,13 @@ documented extensions.
 
 ## 5. Answers to the brief
 
-- **Spike outcome:** see §1.5 + the outcome block. Configure succeeds; Studio requires
-  `MUJOCO_BUILD_STUDIO=ON` + `MUJOCO_USE_FILAMENT=ON`; Filament + SDL2 + imgui + implot +
-  webp are all built from source (no prebuilts); the risk was Filament-on-MSVC and the
-  machine has Vulkan 1.4 + an OpenGL GPU (default backend `FilamentOpenGl`).
+- **Spike outcome: built and ran.** `MUJOCO_BUILD_STUDIO=ON` + `MUJOCO_USE_FILAMENT=ON`,
+  out of tree, **Ninja + MSVC** (mandatory on Windows: the VS generator leaks the
+  `/FI cstring` CXX workaround into Filament's generated `.c` resources → C1189, and
+  Filament hard-rejects clang-cl). Filament + SDL2 + imgui + implot + webp all build
+  from source (no prebuilts). Machine has Vulkan 1.4 + OpenGL GPU; default backend
+  `FilamentOpenGl` worked. `mujoco_studio.exe` ran the humanoid with the full Studio
+  UI and stepping physics.
 - **Recommended hosting option:** **(b)** — a `studio` branch cut from upstream on the
   owner's mujoco fork, ProtoSpec editor as a subdir + a small reviewable engine patch;
   patch-files **(a)** only as bootstrap.
