@@ -305,41 +305,20 @@ enum TriState {
   auto           = "auto"
 }
 
-# --- Orientation, shape and inertia variants (DR-3) -----------------------
+# --- Shape / texture variants (DR-3) + canonical orientation --------------
 
-struct Quat      { w : double  x : double  y : double  z : double }
-struct AxisAngle { axis : double[3]  angle : double (unit=angle) }
-struct XYAxes    { xyaxes : double[6] }
-struct ZAxis     { zaxis : double[3] }
-struct Euler     { angles : double[3] (unit=angle) }
-
-variant Orientation {
-  quat      : Quat        # unit quaternion (canonical form)
-  axisangle : AxisAngle   # rotation axis + angle
-  xyaxes    : XYAxes      # x and y axes
-  zaxis     : ZAxis       # z axis (minimal rotation)
-  euler     : Euler       # euler angles, sequence from compiler.eulerseq
-}
+# Orientation is canonicalized to a single unit quaternion at read time
+# (Q-ORIENT, docs/plan_canonicalization.md Wave A): the reader accepts all five
+# MJCF spellings and folds euler/axisangle/xyaxes/zaxis into `quat` against the
+# effective compiler.angle/eulerseq. The four non-canonical spellings are
+# read-only input aliases (see the `aliases` annotation on each canonical
+# `quat`/`iquat`); the writer emits `quat` only.
 
 struct Explicit { size : double[0..3] }
 struct FromTo   { fromto : double[6] }
 variant GeomShape {
   explicit : Explicit     # type-specific size, at the element's own pose
   fromto   : FromTo       # capsule/cylinder/box/ellipsoid endpoints
-}
-
-struct DiagInertia { diaginertia : double[3] }
-struct FullInertia { fullinertia : double[6] }
-variant InertiaSpec {
-  diaginertia : DiagInertia   # diagonal inertia in the inertial frame
-  fullinertia : FullInertia   # full (non-axis-aligned) inertia matrix
-}
-
-struct Fovy  { fovy : double (unit=angle) }
-struct Focal { focal : double[2] }
-variant CameraIntrinsics {
-  fovy  : Fovy    # vertical field of view
-  focal : Focal   # focal length (length units)
 }
 
 struct TexFile { file : string }
@@ -349,8 +328,8 @@ variant TextureSource {
 }
 
 mixin Posed {
-  pos    : double[3] = {0, 0, 0}   # position offset
-  orient : variant Orientation     # quat | axisangle | xyaxes | zaxis | euler
+  pos  : double[3] = {0, 0, 0}   # position offset
+  quat : double[4] (aliases="euler axisangle xyaxes zaxis", resolver=orientation)   # orientation (canonical quat; also accepts euler/axisangle/xyaxes/zaxis)
 }
 
 # --- Unions (ordered heterogeneous child lists / any-of refs) -------------
@@ -940,10 +919,10 @@ element Body {
 }
 
 element Inertial {
-  pos     : double[3]   # frame position
-  mass    : double   # mass
-  iorient : variant Orientation   # inertial frame orientation
-  inertia : variant InertiaSpec   # diagonal or full inertia
+  pos         : double[3]   # frame position
+  mass        : double   # mass
+  iquat       : double[4] (aliases="euler axisangle xyaxes zaxis", resolver=orientation, xml="quat")   # inertial frame orientation (canonical quat)
+  diaginertia : double[3] (aliases="fullinertia", resolver=inertia)   # diagonal inertia (canonical; also accepts fullinertia)
 }
 
 element Joint {
@@ -1045,7 +1024,8 @@ element Camera {
   principalpixel : float[2]   # principal point (pixel)
   sensorsize     : float[2]   # sensor size (length)
   user           : double[]   # user data
-  intrinsics     : variant CameraIntrinsics   # field of view or focal length
+  fovy           : double   # vertical field of view (deg; length if ortho)
+  focal          : double[2]   # focal length (length)
 }
 
 element Light {
@@ -1166,11 +1146,7 @@ element Flexcomp {
   rgba       : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   flatskin   : bool   # render flex skin with flat shading
   pos        : double[3]
-  quat       : double[4]
-  axisangle  : double[4]
-  xyaxes     : double[6]
-  zaxis      : double[3]
-  euler      : double[3]
+  quat       : double[4] (aliases="euler axisangle xyaxes zaxis", resolver=orientation)   # orientation (canonical quat; also accepts euler/axisangle/xyaxes/zaxis)
   origin     : double[3]
   children flexcompEdges : FlexcompEdge ?
   children flexElasticitys : FlexElasticity ?

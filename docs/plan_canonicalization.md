@@ -290,16 +290,25 @@ invariants.
 
 ## 7. Flagged for owner
 
+**All three flags OWNER-APPROVED 2026-07-13** (resolutions inline below).
+
 1. **fromto reversal (§5.2).** The owner leaned "include unless blocker"; the audit found one
    (class-authored fromto is per-consumer via type-dependent size packing; corpus-real). Sign-off
    requested on KEEP — or on the non-uniform element-only variant with its documented caveats.
+   **APPROVED 2026-07-13: fromto stays KEEP** (the `GeomShape` variant and the fromto gizmo
+   special-casing are retained; Wave A does not touch them).
 2. **Pathological-precedence divergences** introduced deliberately: element-quat vs class-alt
    (§3, ReadAlternative wart) and element-area vs class-diameter (#6). No corpus witnesses; both
    make ProtoSpec's merge element-wins-atomic where MuJoCo's is spelling-priority. Confirm this is
    acceptable as a documented fix-of-wart rather than something to emulate.
+   **APPROVED 2026-07-13: both divergences accepted** as documented fix-of-wart. The element-quat
+   vs class-euler case is realized in Wave A (element-wins-atomic; reader header documents it);
+   the class-diameter case is Wave B (cylinder area).
 3. **Numeric `size` deletion (#8):** materializing `size="5"` (no data) as five zeros erases the
    "reserve without initializing" authoring nuance (compiled result identical). Cheap to keep the
    field instead; default is delete per the minimality mandate.
+   **APPROVED 2026-07-13: numeric padding accepted.** This is Wave B (scalar/slot canonicalizations),
+   not Wave A — no action here.
 4. ~~Keyword-set ordering (#9)~~ — resolved during the audit: camera `output`/rangefinder `data`
    are pure OR bitmasks (`xml_native_reader.cc:2078-2084`); the contact sensor already rejects
    out-of-order `data` (`:4517-4530`, output slots keyed by `mjCONDATA_*` bits in

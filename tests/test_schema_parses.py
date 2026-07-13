@@ -29,6 +29,7 @@ def index(schema):
         "elements": {e["name"]: e for e in schema["elements"]},
         "enums": {e["name"]: e for e in schema["enums"]},
         "variants": {v["name"]: v for v in schema["variants"]},
+        "structs": {s["name"]: s for s in schema["structs"]},
         "mixins": {m["name"]: m for m in schema["mixins"]},
     }
 
@@ -49,19 +50,36 @@ def test_parses_clean():
 # Posed + Orientation on the spatial elements                                  #
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("name", ["Body", "Geom", "Site", "Camera", "Frame"])
-def test_posed_elements_use_posed_and_orientation(name, index):
+def test_posed_elements_use_posed_and_canonical_quat(name, index):
+    # Q-ORIENT canonicalization (docs/plan_canonicalization.md Wave A): orientation
+    # is a single canonical `quat` field; euler/axisangle/xyaxes/zaxis resolve into
+    # it at read. The five-arm Orientation variant no longer exists.
     elem = index["elements"][name]
     assert "Posed" in elem["uses"], f"{name} should use the Posed mixin"
-    orient = _field(elem, "orient")
-    assert orient is not None, f"{name} has no orient field"
-    assert orient["type"]["kind"] == "variant"
-    assert orient["type"]["target"] == "Orientation"
-    assert orient["source_mixin"] == "Posed"
+    quat = _field(elem, "quat")
+    assert quat is not None, f"{name} has no quat field"
+    assert quat["type"] == {
+        "kind": "prim", "prim": "double",
+        "arity": {"kind": "fixed", "size": 4},
+        "line": quat["type"]["line"], "col": quat["type"]["col"],
+    }
+    assert quat["source_mixin"] == "Posed"
+    assert quat["annotations"]["resolver"] == "orientation"
+    assert quat["annotations"]["aliases"].split() == [
+        "euler", "axisangle", "xyaxes", "zaxis"
+    ]
 
 
-def test_orientation_variant_arms(index):
-    arms = [a["tag"] for a in index["variants"]["Orientation"]["arms"]]
-    assert arms == ["quat", "axisangle", "xyaxes", "zaxis", "euler"]
+def test_orientation_variant_is_canonicalized_away(index):
+    # The Orientation variant and its arm structs are gone; the four non-canonical
+    # spellings survive only as read-only input aliases on the canonical quat.
+    assert "Orientation" not in index["variants"]
+    for struct in ("Quat", "AxisAngle", "XYAxes", "ZAxis", "Euler"):
+        assert struct not in index["structs"], struct
+    posed_quat = next(
+        f for f in index["mixins"]["Posed"]["fields"] if f["name"] == "quat"
+    )
+    assert posed_quat["annotations"]["resolver"] == "orientation"
 
 
 def test_posed_mixin_has_pos(index):

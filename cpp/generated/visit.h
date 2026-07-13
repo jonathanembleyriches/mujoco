@@ -20,38 +20,6 @@
 namespace ps::mjcf {
 
 // Struct (variant-arm) visitors.
-template <class V> void Visit(AxisAngle& e, V&& v) {
-  v.field(0, "axis", e.axis);
-  v.field(1, "angle", e.angle);
-  (void)v;
-}
-
-template <class V> void Visit(const AxisAngle& e, V&& v) {
-  v.field(0, "axis", e.axis);
-  v.field(1, "angle", e.angle);
-  (void)v;
-}
-
-template <class V> void Visit(DiagInertia& e, V&& v) {
-  v.field(0, "diaginertia", e.diaginertia);
-  (void)v;
-}
-
-template <class V> void Visit(const DiagInertia& e, V&& v) {
-  v.field(0, "diaginertia", e.diaginertia);
-  (void)v;
-}
-
-template <class V> void Visit(Euler& e, V&& v) {
-  v.field(0, "angles", e.angles);
-  (void)v;
-}
-
-template <class V> void Visit(const Euler& e, V&& v) {
-  v.field(0, "angles", e.angles);
-  (void)v;
-}
-
 template <class V> void Visit(Explicit& e, V&& v) {
   v.field(0, "size", e.size);
   (void)v;
@@ -59,26 +27,6 @@ template <class V> void Visit(Explicit& e, V&& v) {
 
 template <class V> void Visit(const Explicit& e, V&& v) {
   v.field(0, "size", e.size);
-  (void)v;
-}
-
-template <class V> void Visit(Focal& e, V&& v) {
-  v.field(0, "focal", e.focal);
-  (void)v;
-}
-
-template <class V> void Visit(const Focal& e, V&& v) {
-  v.field(0, "focal", e.focal);
-  (void)v;
-}
-
-template <class V> void Visit(Fovy& e, V&& v) {
-  v.field(0, "fovy", e.fovy);
-  (void)v;
-}
-
-template <class V> void Visit(const Fovy& e, V&& v) {
-  v.field(0, "fovy", e.fovy);
   (void)v;
 }
 
@@ -92,32 +40,6 @@ template <class V> void Visit(const FromTo& e, V&& v) {
   (void)v;
 }
 
-template <class V> void Visit(FullInertia& e, V&& v) {
-  v.field(0, "fullinertia", e.fullinertia);
-  (void)v;
-}
-
-template <class V> void Visit(const FullInertia& e, V&& v) {
-  v.field(0, "fullinertia", e.fullinertia);
-  (void)v;
-}
-
-template <class V> void Visit(Quat& e, V&& v) {
-  v.field(0, "w", e.w);
-  v.field(1, "x", e.x);
-  v.field(2, "y", e.y);
-  v.field(3, "z", e.z);
-  (void)v;
-}
-
-template <class V> void Visit(const Quat& e, V&& v) {
-  v.field(0, "w", e.w);
-  v.field(1, "x", e.x);
-  v.field(2, "y", e.y);
-  v.field(3, "z", e.z);
-  (void)v;
-}
-
 template <class V> void Visit(TexFile& e, V&& v) {
   v.field(0, "file", e.file);
   (void)v;
@@ -125,26 +47,6 @@ template <class V> void Visit(TexFile& e, V&& v) {
 
 template <class V> void Visit(const TexFile& e, V&& v) {
   v.field(0, "file", e.file);
-  (void)v;
-}
-
-template <class V> void Visit(XYAxes& e, V&& v) {
-  v.field(0, "xyaxes", e.xyaxes);
-  (void)v;
-}
-
-template <class V> void Visit(const XYAxes& e, V&& v) {
-  v.field(0, "xyaxes", e.xyaxes);
-  (void)v;
-}
-
-template <class V> void Visit(ZAxis& e, V&& v) {
-  v.field(0, "zaxis", e.zaxis);
-  (void)v;
-}
-
-template <class V> void Visit(const ZAxis& e, V&& v) {
-  v.field(0, "zaxis", e.zaxis);
   (void)v;
 }
 
@@ -626,7 +528,7 @@ template <class V> void Visit(const Ballquat& e, V&& v) {
 
 template <class V> void Visit(Body& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "childclass", e.childclass);
   v.field(4, "mocap", e.mocap);
@@ -640,7 +542,7 @@ template <class V> void Visit(Body& e, V&& v) {
 
 template <class V> void Visit(const Body& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "childclass", e.childclass);
   v.field(4, "mocap", e.mocap);
@@ -654,7 +556,7 @@ template <class V> void Visit(const Body& e, V&& v) {
 
 template <class V> void Visit(Camera& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.field(4, "projection", e.projection);
@@ -668,13 +570,14 @@ template <class V> void Visit(Camera& e, V&& v) {
   v.field(12, "principalpixel", e.principalpixel);
   v.field(13, "sensorsize", e.sensorsize);
   v.field(14, "user", e.user);
-  v.field(15, "intrinsics", e.intrinsics);
+  v.field(15, "fovy", e.fovy);
+  v.field(16, "focal", e.focal);
   (void)v;
 }
 
 template <class V> void Visit(const Camera& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.field(4, "projection", e.projection);
@@ -688,7 +591,8 @@ template <class V> void Visit(const Camera& e, V&& v) {
   v.field(12, "principalpixel", e.principalpixel);
   v.field(13, "sensorsize", e.sensorsize);
   v.field(14, "user", e.user);
-  v.field(15, "intrinsics", e.intrinsics);
+  v.field(15, "fovy", e.fovy);
+  v.field(16, "focal", e.focal);
   (void)v;
 }
 
@@ -1713,11 +1617,7 @@ template <class V> void Visit(Flexcomp& e, V&& v) {
   v.field(19, "flatskin", e.flatskin);
   v.field(20, "pos", e.pos);
   v.field(21, "quat", e.quat);
-  v.field(22, "axisangle", e.axisangle);
-  v.field(23, "xyaxes", e.xyaxes);
-  v.field(24, "zaxis", e.zaxis);
-  v.field(25, "euler", e.euler);
-  v.field(26, "origin", e.origin);
+  v.field(22, "origin", e.origin);
   v.child(0, "flexcompEdges", e.flexcompEdges);
   v.child(1, "flexElasticitys", e.flexElasticitys);
   v.child(2, "flexContacts", e.flexContacts);
@@ -1749,11 +1649,7 @@ template <class V> void Visit(const Flexcomp& e, V&& v) {
   v.field(19, "flatskin", e.flatskin);
   v.field(20, "pos", e.pos);
   v.field(21, "quat", e.quat);
-  v.field(22, "axisangle", e.axisangle);
-  v.field(23, "xyaxes", e.xyaxes);
-  v.field(24, "zaxis", e.zaxis);
-  v.field(25, "euler", e.euler);
-  v.field(26, "origin", e.origin);
+  v.field(22, "origin", e.origin);
   v.child(0, "flexcompEdges", e.flexcompEdges);
   v.child(1, "flexElasticitys", e.flexElasticitys);
   v.child(2, "flexContacts", e.flexContacts);
@@ -1866,7 +1762,7 @@ template <class V> void Visit(const Force& e, V&& v) {
 
 template <class V> void Visit(Frame& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.child(0, "inertial", e.inertial);
@@ -1876,7 +1772,7 @@ template <class V> void Visit(Frame& e, V&& v) {
 
 template <class V> void Visit(const Frame& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.child(0, "inertial", e.inertial);
@@ -2212,7 +2108,7 @@ template <class V> void Visit(const Fromto& e, V&& v) {
 
 template <class V> void Visit(Geom& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.field(4, "type", e.type);
@@ -2246,7 +2142,7 @@ template <class V> void Visit(Geom& e, V&& v) {
 
 template <class V> void Visit(const Geom& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.field(4, "type", e.type);
@@ -2329,16 +2225,16 @@ template <class V> void Visit(const Hfield& e, V&& v) {
 template <class V> void Visit(Inertial& e, V&& v) {
   v.field(0, "pos", e.pos);
   v.field(1, "mass", e.mass);
-  v.field(2, "iorient", e.iorient);
-  v.field(3, "inertia", e.inertia);
+  v.field(2, "iquat", e.iquat);
+  v.field(3, "diaginertia", e.diaginertia);
   (void)v;
 }
 
 template <class V> void Visit(const Inertial& e, V&& v) {
   v.field(0, "pos", e.pos);
   v.field(1, "mass", e.mass);
-  v.field(2, "iorient", e.iorient);
-  v.field(3, "inertia", e.inertia);
+  v.field(2, "iquat", e.iquat);
+  v.field(3, "diaginertia", e.diaginertia);
   (void)v;
 }
 
@@ -3472,7 +3368,7 @@ template <class V> void Visit(const SensorUser& e, V&& v) {
 
 template <class V> void Visit(Site& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.field(4, "type", e.type);
@@ -3487,7 +3383,7 @@ template <class V> void Visit(Site& e, V&& v) {
 
 template <class V> void Visit(const Site& e, V&& v) {
   v.field(0, "pos", e.pos);
-  v.field(1, "orient", e.orient);
+  v.field(1, "quat", e.quat);
   v.field(2, "name", e.name);
   v.field(3, "dclass", e.dclass);
   v.field(4, "type", e.type);

@@ -200,6 +200,17 @@
       "notes": "nested frame pose composition"
     },
     {
+      "id": "full_inertia",
+      "upstream_rel_path": "src/user/user_util.cc",
+      "symbol": "mjuu_fullInertia",
+      "line_span": "861-890",
+      "content_hash": "e451555ff8d5c0fa666d2d23d7172c520f5f2e55e43ef50c44806aad5b8993ee",
+      "snapshot": "snapshots/lifted_upstream/mjuu_fullInertia.txt",
+      "local_path": "cpp/core/resolve.cc",
+      "lifted": "2026-07-08",
+      "notes": "fullinertia -> diaginertia + iquat eigendecomposition (Q-INERTIA); mjuu_eig3 + mjuu_* helpers copied into the same MuJoCo-free module."
+    },
+    {
       "id": "geom_added_mass_kappa",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCGeom::GetAddedMassKappa",
@@ -630,9 +641,9 @@
       "line_span": "241-349",
       "content_hash": "3cabc0e7c98e32906e44d55f841b073c184e19f830e9bb6c324cafa33095634d",
       "snapshot": "snapshots/lifted_upstream/ResolveOrientation.txt",
-      "local_path": "cpp/compile/build.cc",
+      "local_path": "cpp/core/resolve.cc",
       "lifted": "2026-07-08",
-      "notes": "5 orientation forms + degree/eulerseq; over ProtoSpec Orientation variant"
+      "notes": "5 orientation forms + degree/eulerseq; parse-end fold over raw authored values (Q-ORIENT). MuJoCo-free so the reader consumes it."
     },
     {
       "id": "safe_add_buffer",

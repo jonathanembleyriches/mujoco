@@ -32,9 +32,23 @@ target_include_directories(tinyxml2 PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2
 )
 
+# Core resolvers: orientation + inertia canonicalization (Q-ORIENT/Q-INERTIA),
+# a MuJoCo-free translation unit of lifted math (plan.md Section 3 core/resolve).
+# The reader folds authored orientation/inertia spellings into their canonical
+# quat/diaginertia forms at parse end through this library, so protospec_io stays
+# MuJoCo-free (no mujoco.h, no mujoco.dll runtime dependency for ps_roundtrip).
+add_library(protospec_core STATIC core/resolve.cc)
+target_include_directories(protospec_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/core)
+target_link_libraries(protospec_core PUBLIC protospec)
+if(MSVC)
+  target_compile_options(protospec_core PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(protospec_core PRIVATE -Wall -Wextra)
+endif()
+
 # MJCF IO: reader (tinyxml2 -> Model) + writer (Model -> MJCF), table-driven by
-# the generated xml_binding, with handwritten quirk handlers. Links tinyxml2 and
-# the core object model.
+# the generated xml_binding, with handwritten quirk handlers. Links tinyxml2, the
+# core object model, and the MuJoCo-free canonicalization resolvers.
 add_library(protospec_io STATIC
   io/numeric.cc
   io/include.cc
@@ -45,7 +59,7 @@ add_library(protospec_io STATIC
 target_include_directories(protospec_io PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/io
 )
-target_link_libraries(protospec_io PUBLIC protospec PRIVATE tinyxml2)
+target_link_libraries(protospec_io PUBLIC protospec protospec_core PRIVATE tinyxml2)
 if(MSVC)
   target_compile_options(protospec_io PRIVATE /W4 /permissive-)
 else()

@@ -540,7 +540,7 @@ std::unique_ptr<Body> Clone(const Body& src) {
   auto out = std::make_unique<Body>();
   out->loc = src.loc;
   out->pos = src.pos;
-  out->orient = src.orient;
+  out->quat = src.quat;
   out->name = src.name;
   out->childclass = src.childclass;
   out->mocap = src.mocap;
@@ -555,7 +555,7 @@ std::unique_ptr<Body> Clone(const Body& src) {
 
 bool operator==(const Body& a, const Body& b) {
   return a.pos == b.pos &&
-         a.orient == b.orient &&
+         a.quat == b.quat &&
          a.name == b.name &&
          a.childclass == b.childclass &&
          a.mocap == b.mocap &&
@@ -570,7 +570,7 @@ std::unique_ptr<Camera> Clone(const Camera& src) {
   auto out = std::make_unique<Camera>();
   out->loc = src.loc;
   out->pos = src.pos;
-  out->orient = src.orient;
+  out->quat = src.quat;
   out->name = src.name;
   out->dclass = src.dclass;
   out->projection = src.projection;
@@ -584,13 +584,14 @@ std::unique_ptr<Camera> Clone(const Camera& src) {
   out->principalpixel = src.principalpixel;
   out->sensorsize = src.sensorsize;
   out->user = src.user;
-  out->intrinsics = src.intrinsics;
+  out->fovy = src.fovy;
+  out->focal = src.focal;
   return out;
 }
 
 bool operator==(const Camera& a, const Camera& b) {
   return a.pos == b.pos &&
-         a.orient == b.orient &&
+         a.quat == b.quat &&
          a.name == b.name &&
          a.dclass == b.dclass &&
          a.projection == b.projection &&
@@ -604,7 +605,8 @@ bool operator==(const Camera& a, const Camera& b) {
          a.principalpixel == b.principalpixel &&
          a.sensorsize == b.sensorsize &&
          a.user == b.user &&
-         a.intrinsics == b.intrinsics;
+         a.fovy == b.fovy &&
+         a.focal == b.focal;
 }
 
 std::unique_ptr<Camprojection> Clone(const Camprojection& src) {
@@ -1665,10 +1667,6 @@ std::unique_ptr<Flexcomp> Clone(const Flexcomp& src) {
   out->flatskin = src.flatskin;
   out->pos = src.pos;
   out->quat = src.quat;
-  out->axisangle = src.axisangle;
-  out->xyaxes = src.xyaxes;
-  out->zaxis = src.zaxis;
-  out->euler = src.euler;
   out->origin = src.origin;
   out->flexcompEdges = ps::PtrVecClone(src.flexcompEdges);
   out->flexElasticitys = ps::PtrVecClone(src.flexElasticitys);
@@ -1701,10 +1699,6 @@ bool operator==(const Flexcomp& a, const Flexcomp& b) {
          a.flatskin == b.flatskin &&
          a.pos == b.pos &&
          a.quat == b.quat &&
-         a.axisangle == b.axisangle &&
-         a.xyaxes == b.xyaxes &&
-         a.zaxis == b.zaxis &&
-         a.euler == b.euler &&
          a.origin == b.origin &&
          ps::PtrVecEq(a.flexcompEdges, b.flexcompEdges) &&
          ps::PtrVecEq(a.flexElasticitys, b.flexElasticitys) &&
@@ -1824,7 +1818,7 @@ std::unique_ptr<Frame> Clone(const Frame& src) {
   auto out = std::make_unique<Frame>();
   out->loc = src.loc;
   out->pos = src.pos;
-  out->orient = src.orient;
+  out->quat = src.quat;
   out->name = src.name;
   out->dclass = src.dclass;
   out->inertial = ps::PtrVecClone(src.inertial);
@@ -1835,7 +1829,7 @@ std::unique_ptr<Frame> Clone(const Frame& src) {
 
 bool operator==(const Frame& a, const Frame& b) {
   return a.pos == b.pos &&
-         a.orient == b.orient &&
+         a.quat == b.quat &&
          a.name == b.name &&
          a.dclass == b.dclass &&
          ps::PtrVecEq(a.inertial, b.inertial) &&
@@ -2183,7 +2177,7 @@ std::unique_ptr<Geom> Clone(const Geom& src) {
   auto out = std::make_unique<Geom>();
   out->loc = src.loc;
   out->pos = src.pos;
-  out->orient = src.orient;
+  out->quat = src.quat;
   out->name = src.name;
   out->dclass = src.dclass;
   out->type = src.type;
@@ -2217,7 +2211,7 @@ std::unique_ptr<Geom> Clone(const Geom& src) {
 
 bool operator==(const Geom& a, const Geom& b) {
   return a.pos == b.pos &&
-         a.orient == b.orient &&
+         a.quat == b.quat &&
          a.name == b.name &&
          a.dclass == b.dclass &&
          a.type == b.type &&
@@ -2303,16 +2297,16 @@ std::unique_ptr<Inertial> Clone(const Inertial& src) {
   out->loc = src.loc;
   out->pos = src.pos;
   out->mass = src.mass;
-  out->iorient = src.iorient;
-  out->inertia = src.inertia;
+  out->iquat = src.iquat;
+  out->diaginertia = src.diaginertia;
   return out;
 }
 
 bool operator==(const Inertial& a, const Inertial& b) {
   return a.pos == b.pos &&
          a.mass == b.mass &&
-         a.iorient == b.iorient &&
-         a.inertia == b.inertia;
+         a.iquat == b.iquat &&
+         a.diaginertia == b.diaginertia;
 }
 
 std::unique_ptr<Insidesite> Clone(const Insidesite& src) {
@@ -3485,7 +3479,7 @@ std::unique_ptr<Site> Clone(const Site& src) {
   auto out = std::make_unique<Site>();
   out->loc = src.loc;
   out->pos = src.pos;
-  out->orient = src.orient;
+  out->quat = src.quat;
   out->name = src.name;
   out->dclass = src.dclass;
   out->type = src.type;
@@ -3500,7 +3494,7 @@ std::unique_ptr<Site> Clone(const Site& src) {
 
 bool operator==(const Site& a, const Site& b) {
   return a.pos == b.pos &&
-         a.orient == b.orient &&
+         a.quat == b.quat &&
          a.name == b.name &&
          a.dclass == b.dclass &&
          a.type == b.type &&

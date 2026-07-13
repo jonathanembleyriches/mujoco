@@ -209,7 +209,7 @@ void RegisterElements0(pybind11::module_& m) {
     c.def(pyb::init<>());
     ElementBase(c);
     OptField(c, "pos", &Body::pos);
-    OptField(c, "orient", &Body::orient);
+    OptField(c, "quat", &Body::quat);
     OptField(c, "name", &Body::name);
     OptField(c, "childclass", &Body::childclass);
     OptField(c, "mocap", &Body::mocap);
@@ -224,7 +224,7 @@ void RegisterElements0(pybind11::module_& m) {
     c.def(pyb::init<>());
     ElementBase(c);
     OptField(c, "pos", &Camera::pos);
-    OptField(c, "orient", &Camera::orient);
+    OptField(c, "quat", &Camera::quat);
     OptField(c, "name", &Camera::name);
     OptField(c, "dclass", &Camera::dclass);
     OptField(c, "projection", &Camera::projection);
@@ -238,7 +238,8 @@ void RegisterElements0(pybind11::module_& m) {
     OptField(c, "principalpixel", &Camera::principalpixel);
     OptField(c, "sensorsize", &Camera::sensorsize);
     OptField(c, "user", &Camera::user);
-    OptField(c, "intrinsics", &Camera::intrinsics);
+    OptField(c, "fovy", &Camera::fovy);
+    OptField(c, "focal", &Camera::focal);
     Augment(c);
   }
   { pyb::class_<Camprojection> c(m, "Camprojection");

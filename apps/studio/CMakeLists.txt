@@ -88,6 +88,7 @@ target_link_libraries(dear_imgui PUBLIC SDL2::SDL2-static)
 file(GLOB PS_GENERATED_SRC CONFIGURE_DEPENDS "${CPP_ROOT}/generated/*.cc")
 set(PROTOSPEC_SRC
   ${PS_GENERATED_SRC}
+  ${CPP_ROOT}/core/resolve.cc
   ${CPP_ROOT}/io/numeric.cc
   ${CPP_ROOT}/io/include.cc
   ${CPP_ROOT}/io/defaults.cc
@@ -109,6 +110,7 @@ add_library(protospec_studio_core STATIC ${PROTOSPEC_SRC})
 target_include_directories(protospec_studio_core PUBLIC
   ${CPP_ROOT}/include
   ${CPP_ROOT}/generated
+  ${CPP_ROOT}/core
   ${CPP_ROOT}/io
   ${CPP_ROOT}/validate
   ${CPP_ROOT}/bridge

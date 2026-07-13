@@ -144,11 +144,14 @@ static void TestAngle() {
   </mujoco>)");
   CHECK(r.ok());
   const Body* b = FirstBody(*World(*r.model));
-  // The body carries the euler orientation exactly as authored (degrees here).
-  CHECK(b->orient.has_value());
-  const auto& eu = std::get<Euler>(*b->orient);
-  CHECK(Near(eu.angles[0], 90.0));
-  CHECK(Near(eu.angles[1], 0.0) && Near(eu.angles[2], 0.0));
+  // Q-ORIENT: the body's euler is canonicalized to quat at read (angle="degree",
+  // eulerseq "xyz"). euler="90 0 0" deg -> rotate +90 deg about x ->
+  // (cos45, sin45, 0, 0) = (sqrt2/2, sqrt2/2, 0, 0). Joint angle FIELDS below stay
+  // authored (Q-ANGLE): angle-field preservation is unaffected by Q-ORIENT.
+  CHECK(b->quat.has_value());
+  CHECK(Near((*b->quat)[0], 0.7071067811865476));
+  CHECK(Near((*b->quat)[1], 0.7071067811865476));
+  CHECK(Near((*b->quat)[2], 0.0) && Near((*b->quat)[3], 0.0));
 
   const Joint& h = *NthOf<Joint>(*b, 0);
   CHECK(Near((*h.range)[0], -90.0) && Near((*h.range)[1], 180.0));
@@ -169,8 +172,15 @@ static void TestAngle() {
     <worldbody><body euler="1.5707963 0 0"/></worldbody>
   </mujoco>)");
   CHECK(rad.ok());
-  const auto& eu2 = std::get<Euler>(*FirstBody(*World(*rad.model))->orient);
-  CHECK(Near(eu2.angles[0], 1.5707963));
+  // angle="radian": euler is interpreted verbatim (no deg->rad conversion), so
+  // the half-angle is 1.5707963/2. Computing the expected quat with the same math
+  // demonstrates the radian interpretation exactly.
+  const Body* b2 = FirstBody(*World(*rad.model));
+  CHECK(b2->quat.has_value());
+  const double half = 1.5707963 / 2;
+  CHECK(Near((*b2->quat)[0], std::cos(half)));
+  CHECK(Near((*b2->quat)[1], std::sin(half)));
+  CHECK(Near((*b2->quat)[2], 0.0) && Near((*b2->quat)[3], 0.0));
   std::string rad_out = WriteMjcf(*rad.model);
   CHECK(rad_out.find("angle=\"radian\"") != std::string::npos);
 }
@@ -182,9 +192,12 @@ static void TestOrient() {
   </worldbody></mujoco>)");
   CHECK(ok.ok());
   const auto& g = *FirstOf<Geom>(*World(*ok.model));
-  CHECK(g.orient.has_value());
-  const auto& aa = std::get<AxisAngle>(*g.orient);
-  CHECK(Near(aa.axis[2], 1.0) && Near(aa.angle, 90.0));  // authored, verbatim
+  // Q-ORIENT: axisangle="0 0 1 90" (deg default) canonicalizes to a +90 deg
+  // rotation about z -> (cos45, 0, 0, sin45) = (sqrt2/2, 0, 0, sqrt2/2).
+  CHECK(g.quat.has_value());
+  CHECK(Near((*g.quat)[0], 0.7071067811865476));
+  CHECK(Near((*g.quat)[1], 0.0) && Near((*g.quat)[2], 0.0));
+  CHECK(Near((*g.quat)[3], 0.7071067811865476));
 
   auto multi = Parse(R"(<mujoco><worldbody>
     <geom type="sphere" size="1" quat="1 0 0 0" euler="0 0 0"/>
@@ -226,7 +239,15 @@ static void TestInertia() {
   const auto& body = *FirstBody(*World(*full.model));
   CHECK(!body.inertial.empty());
   const auto& in = *body.inertial.front();
-  CHECK(in.inertia.has_value() && std::holds_alternative<FullInertia>(*in.inertia));
+  // Q-INERTIA: fullinertia is eigendecomposed at read into diaginertia (principal
+  // moments, descending) + iquat (principal frame). The exact eigenvalues are
+  // hard to hand-write, but two invariants pin them: their sum equals the trace
+  // (xx+yy+zz = 1+2+3 = 6) and they are positive and sorted descending.
+  CHECK(in.diaginertia.has_value());
+  CHECK(in.iquat.has_value());
+  const auto& di = *in.diaginertia;
+  CHECK(di[0] >= di[1] && di[1] >= di[2] && di[2] > 0.0);
+  CHECK(Near(di[0] + di[1] + di[2], 6.0));
 
   auto both = Parse(R"(<mujoco><worldbody><body>
     <inertial pos="0 0 0" mass="1" fullinertia="1 2 3 0 0 0" euler="0 0 0"/>
@@ -234,6 +255,51 @@ static void TestInertia() {
   CHECK(!both.ok());
   CHECK(both.errors[0].message.find("fullinertia and inertial orientation") !=
         std::string::npos);
+}
+
+// --- Q-ORIENT: parse-end resolution is document-order independent ---------- //
+static void TestOrientDocumentOrder() {
+  // A <compiler> block AFTER <worldbody> still governs orientation resolution:
+  // the reader folds the effective compiler context at parse end, so document
+  // order does not matter. angle="radian" means the euler is read verbatim; a
+  // (wrong) mid-parse resolve would use the default degree and give a different
+  // quat. euler 1.5707963 rad about x -> (cos(h), sin(h), 0, 0), h = angle/2.
+  auto r = Parse(R"(<mujoco>
+    <worldbody><body euler="1.5707963 0 0"/></worldbody>
+    <compiler angle="radian"/>
+  </mujoco>)");
+  CHECK(r.ok());
+  const Body* b = FirstBody(*World(*r.model));
+  CHECK(b->quat.has_value());
+  const double half = 1.5707963 / 2;
+  CHECK(Near((*b->quat)[0], std::cos(half)));
+  CHECK(Near((*b->quat)[1], std::sin(half)));
+  CHECK(Near((*b->quat)[2], 0.0) && Near((*b->quat)[3], 0.0));
+}
+
+// --- Q-ORIENT: a default class stores the canonical quat (inheritance) ------ //
+static void TestOrientClassInheritance() {
+  // A default class authoring euler stores the resolved quat, exactly like an
+  // element (canonicalization runs per authored site, classes included). class
+  // euler="0 0 90" deg -> +90 about z -> (cos45, 0, 0, sin45). Inheritance is
+  // atomic over quat: an element in the class with no own orientation inherits it.
+  auto r = Parse(R"(<mujoco>
+    <default><default class="c"><geom euler="0 0 90"/></default></default>
+    <worldbody><geom class="c" type="sphere" size="1"/></worldbody>
+  </mujoco>)");
+  CHECK(r.ok());
+  // The class geom stores the canonical quat (not the authored euler).
+  const auto& root = *r.model->defaults.front();
+  const auto& c = *root.subclasses.front();
+  CHECK(!c.geom.empty());
+  const auto& cg = *c.geom.front();
+  CHECK(cg.quat.has_value());
+  CHECK(Near((*cg.quat)[0], 0.7071067811865476));
+  CHECK(Near((*cg.quat)[3], 0.7071067811865476));
+  // The element authored no orientation of its own -> its quat stays unset and
+  // it inherits the class quat through Effective() (atomic field inheritance).
+  const auto& g = *FirstOf<Geom>(*World(*r.model));
+  CHECK(!g.quat.has_value());
 }
 
 // --- Q-ARITY: fewer-than-max OK, more-than-max errors ---------------------- //
@@ -1161,6 +1227,8 @@ int main() {
   TestOrient();
   TestFromto();
   TestInertia();
+  TestOrientDocumentOrder();
+  TestOrientClassInheritance();
   TestArity();
   TestNumeric();
   TestPresence();

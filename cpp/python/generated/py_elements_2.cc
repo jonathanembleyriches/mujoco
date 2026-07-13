@@ -29,10 +29,6 @@ void RegisterElements2(pybind11::module_& m) {
     OptField(c, "flatskin", &Flexcomp::flatskin);
     OptField(c, "pos", &Flexcomp::pos);
     OptField(c, "quat", &Flexcomp::quat);
-    OptField(c, "axisangle", &Flexcomp::axisangle);
-    OptField(c, "xyaxes", &Flexcomp::xyaxes);
-    OptField(c, "zaxis", &Flexcomp::zaxis);
-    OptField(c, "euler", &Flexcomp::euler);
     OptField(c, "origin", &Flexcomp::origin);
     ChildList(c, "flexcompEdges", &Flexcomp::flexcompEdges);
     ChildList(c, "flexElasticitys", &Flexcomp::flexElasticitys);
@@ -101,7 +97,7 @@ void RegisterElements2(pybind11::module_& m) {
     c.def(pyb::init<>());
     ElementBase(c);
     OptField(c, "pos", &Frame::pos);
-    OptField(c, "orient", &Frame::orient);
+    OptField(c, "quat", &Frame::quat);
     OptField(c, "name", &Frame::name);
     OptField(c, "dclass", &Frame::dclass);
     ChildList(c, "inertial", &Frame::inertial);
@@ -286,7 +282,7 @@ void RegisterElements2(pybind11::module_& m) {
     c.def(pyb::init<>());
     ElementBase(c);
     OptField(c, "pos", &Geom::pos);
-    OptField(c, "orient", &Geom::orient);
+    OptField(c, "quat", &Geom::quat);
     OptField(c, "name", &Geom::name);
     OptField(c, "dclass", &Geom::dclass);
     OptField(c, "type", &Geom::type);
@@ -348,8 +344,8 @@ void RegisterElements2(pybind11::module_& m) {
     ElementBase(c);
     OptField(c, "pos", &Inertial::pos);
     OptField(c, "mass", &Inertial::mass);
-    OptField(c, "iorient", &Inertial::iorient);
-    OptField(c, "inertia", &Inertial::inertia);
+    OptField(c, "iquat", &Inertial::iquat);
+    OptField(c, "diaginertia", &Inertial::diaginertia);
     Augment(c);
   }
   { pyb::class_<Insidesite> c(m, "Insidesite");

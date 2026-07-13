@@ -149,7 +149,7 @@ void RegisterElements4(pybind11::module_& m) {
     c.def(pyb::init<>());
     ElementBase(c);
     OptField(c, "pos", &Site::pos);
-    OptField(c, "orient", &Site::orient);
+    OptField(c, "quat", &Site::quat);
     OptField(c, "name", &Site::name);
     OptField(c, "dclass", &Site::dclass);
     OptField(c, "type", &Site::type);

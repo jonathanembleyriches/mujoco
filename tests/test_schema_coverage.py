@@ -13,7 +13,10 @@ Coverage mapping rules (plan Section 5 / task brief):
 * an IDL field covers the MJCF attribute named by its ``xml=`` annotation, or,
   by default, its own name;
 * a ``variant`` field covers every XML attribute named by its variant
-  definition's arm tags (Orientation's quat/axisangle/xyaxes/zaxis/euler);
+  definition's arm tags (GeomShape's fromto);
+* a canonicalized field additionally covers its ``aliases`` MJCF spellings, the
+  read-only input forms folded into it at read (Q-ORIENT: euler/axisangle/xyaxes/
+  zaxis -> quat; Q-INERTIA: fullinertia -> diaginertia+iquat);
 * a plain child list covers its one child element;
 * a ``union`` child list covers every member element's XML tag (the ordered
   heterogeneous sections: actuator/sensor/equality/tendon and the spatial path).
@@ -69,7 +72,11 @@ def _schema_index():
                 for arm in variants[t["target"]]["arms"]:
                     attrs.add(arm["tag"])
             else:
-                attrs.add((f.get("annotations") or {}).get("xml", f["name"]))
+                anns = f.get("annotations") or {}
+                attrs.add(anns.get("xml", f["name"]))
+                # Canonicalized fields (Q-ORIENT/Q-INERTIA) also accept their
+                # `aliases` MJCF spellings on input (euler/axisangle/... -> quat).
+                attrs.update(anns.get("aliases", "").split())
         return attrs
 
     def child_targets(elem):

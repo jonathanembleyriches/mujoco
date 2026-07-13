@@ -457,59 +457,20 @@ enum class TriState {
 };
 
 // --- POD structs (variant arms, no identity) ---
-struct AxisAngle { std::array<double, 3> axis = {}; double angle = {};
-  friend bool operator==(const AxisAngle&, const AxisAngle&) = default;
-};
-
-struct DiagInertia { std::array<double, 3> diaginertia = {};
-  friend bool operator==(const DiagInertia&, const DiagInertia&) = default;
-};
-
-struct Euler { std::array<double, 3> angles = {};
-  friend bool operator==(const Euler&, const Euler&) = default;
-};
-
 struct Explicit { ps::InlineVec<double, 3> size = {};
   friend bool operator==(const Explicit&, const Explicit&) = default;
-};
-
-struct Focal { std::array<double, 2> focal = {};
-  friend bool operator==(const Focal&, const Focal&) = default;
-};
-
-struct Fovy { double fovy = {};
-  friend bool operator==(const Fovy&, const Fovy&) = default;
 };
 
 struct FromTo { std::array<double, 6> fromto = {};
   friend bool operator==(const FromTo&, const FromTo&) = default;
 };
 
-struct FullInertia { std::array<double, 6> fullinertia = {};
-  friend bool operator==(const FullInertia&, const FullInertia&) = default;
-};
-
-struct Quat { double w = {}; double x = {}; double y = {}; double z = {};
-  friend bool operator==(const Quat&, const Quat&) = default;
-};
-
 struct TexFile { std::string file = {};
   friend bool operator==(const TexFile&, const TexFile&) = default;
 };
 
-struct XYAxes { std::array<double, 6> xyaxes = {};
-  friend bool operator==(const XYAxes&, const XYAxes&) = default;
-};
-
-struct ZAxis { std::array<double, 3> zaxis = {};
-  friend bool operator==(const ZAxis&, const ZAxis&) = default;
-};
-
 // --- Variant aliases (DR-3 aliasing groups) ---
-using CameraIntrinsics = std::variant<Fovy, Focal>;
 using GeomShape = std::variant<Explicit, FromTo>;
-using InertiaSpec = std::variant<DiagInertia, FullInertia>;
-using Orientation = std::variant<Quat, AxisAngle, XYAxes, ZAxis, Euler>;
 using TextureSource = std::variant<TextureBuiltin, TexFile>;
 
 // --- Union child-list item wrappers (Section 6 interleave) ---
@@ -846,7 +807,7 @@ struct Body {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::array<double, 3>> pos = {};
-  ps::opt<Orientation> orient = {};
+  ps::opt<std::array<double, 4>> quat = {};
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> childclass = {};
   ps::opt<bool> mocap = {};
@@ -861,7 +822,7 @@ struct Camera {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::array<double, 3>> pos = {};
-  ps::opt<Orientation> orient = {};
+  ps::opt<std::array<double, 4>> quat = {};
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
   ps::opt<CameraProjection> projection = {};
@@ -875,7 +836,8 @@ struct Camera {
   ps::opt<std::array<float, 2>> principalpixel = {};
   ps::opt<std::array<float, 2>> sensorsize = {};
   ps::opt<std::vector<double>> user = {};
-  ps::opt<CameraIntrinsics> intrinsics = {};
+  ps::opt<double> fovy = {};
+  ps::opt<std::array<double, 2>> focal = {};
 };
 
 struct Camprojection {
@@ -1436,10 +1398,6 @@ struct Flexcomp {
   ps::opt<bool> flatskin = {};
   ps::opt<std::array<double, 3>> pos = {};
   ps::opt<std::array<double, 4>> quat = {};
-  ps::opt<std::array<double, 4>> axisangle = {};
-  ps::opt<std::array<double, 6>> xyaxes = {};
-  ps::opt<std::array<double, 3>> zaxis = {};
-  ps::opt<std::array<double, 3>> euler = {};
   ps::opt<std::array<double, 3>> origin = {};
   std::vector<std::unique_ptr<FlexcompEdge>> flexcompEdges;
   std::vector<std::unique_ptr<FlexElasticity>> flexElasticitys;
@@ -1508,7 +1466,7 @@ struct Frame {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::array<double, 3>> pos = {};
-  ps::opt<Orientation> orient = {};
+  ps::opt<std::array<double, 4>> quat = {};
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
   std::vector<std::unique_ptr<Inertial>> inertial;
@@ -1693,7 +1651,7 @@ struct Geom {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::array<double, 3>> pos = {};
-  ps::opt<Orientation> orient = {};
+  ps::opt<std::array<double, 4>> quat = {};
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
   ps::opt<GeomType> type = {};
@@ -1755,8 +1713,8 @@ struct Inertial {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::array<double, 3>> pos = {};
   ps::opt<double> mass = {};
-  ps::opt<Orientation> iorient = {};
-  ps::opt<InertiaSpec> inertia = {};
+  ps::opt<std::array<double, 4>> iquat = {};
+  ps::opt<std::array<double, 3>> diaginertia = {};
 };
 
 struct Insidesite {
@@ -2363,7 +2321,7 @@ struct Site {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::array<double, 3>> pos = {};
-  ps::opt<Orientation> orient = {};
+  ps::opt<std::array<double, 4>> quat = {};
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
   ps::opt<GeomType> type = {};

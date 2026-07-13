@@ -9,7 +9,7 @@
 // Lifted from MuJoCo (CDR-3, pin mjVERSION_HEADER 3010000, Apache-2.0, (c)
 // DeepMind Technologies Limited -- see NOTICE). The numeric kernels below are
 // lifted verbatim or near-verbatim and registered in snapshots/lifted_code.json
-// (ids: resolve_orientation, geom_set_inertia, geom_compute_aabb, geom_get_rbound,
+// (ids: geom_set_inertia, geom_compute_aabb, geom_get_rbound,
 // inertia_from_geom, joint_compile, checklimited, bvh_makebvh, body_compile,
 // compute_sparse_sizes, set_sizes, copy_tree, copy_names, finalize_simple,
 // hash_string); their sources are user_objects.cc / user_model.cc /
@@ -44,7 +44,8 @@
 #include "make_model.h"    // lifted::MakeModel
 #include "mesh_pipeline.h" // lifted mesh compile
 #include "mjuu_util.h"     // lifted math
-#include "reflect.h"
+#include "reflect.h"       // reflection tables
+#include "resolve.h"       // core::ResolveOrientation (canonical orientation)
 #include "visit.h"
 
 // Exported engine-internal builders (MJAPI in engine_io.h, not surfaced in
@@ -261,56 +262,19 @@ struct CJoint {
 };
 
 // --------------------------------------------------------------------------- //
-// Orientation resolver (S5, T1.2), lifted from ResolveOrientation              //
-// (user_objects.cc:241-349). All five forms + degree + eulerseq.               //
+// Orientation copy (Q-ORIENT). Orientation is canonicalized to a unit quaternion
+// at read (cpp/core/resolve.cc, the same lifted ResolveOrientation math), so the
+// native compiler consumes the pre-resolved `quat` field and only renormalizes.
+// The degree/eulerseq fold no longer lives here; ReplicateEulerQuat (below) is
+// the one native site that still folds euler, via core::ResolveOrientation.
 // --------------------------------------------------------------------------- //
-void ResolveQuat(const ps::opt<Orientation>& orient, const CompilerSettings& cs,
-                 double quat[4]) {
-  quat[0] = 1; quat[1] = quat[2] = quat[3] = 0;
-  if (!orient) return;
-  const bool degree = cs.degree;
-
-  if (const Quat* q = std::get_if<Quat>(&*orient)) {
-    quat[0] = q->w; quat[1] = q->x; quat[2] = q->y; quat[3] = q->z;
-    lift::mjuu_normvec(quat, 4);
-  } else if (const AxisAngle* aa = std::get_if<AxisAngle>(&*orient)) {
-    double ax[4] = {aa->axis[0], aa->axis[1], aa->axis[2], aa->angle};
-    if (degree) ax[3] = ax[3] / 180.0 * mjPI;
-    if (lift::mjuu_normvec(ax, 3) < lift::mjEPS) return;
-    double ang2 = ax[3] / 2;
-    quat[0] = std::cos(ang2); quat[1] = std::sin(ang2) * ax[0];
-    quat[2] = std::sin(ang2) * ax[1]; quat[3] = std::sin(ang2) * ax[2];
-  } else if (const XYAxes* xy = std::get_if<XYAxes>(&*orient)) {
-    double a[6]; for (int k = 0; k < 6; ++k) a[k] = xy->xyaxes[k];
-    if (lift::mjuu_normvec(a, 3) < lift::mjEPS) return;
-    double d = lift::mjuu_dot3(a, a + 3);
-    a[3] -= a[0] * d; a[4] -= a[1] * d; a[5] -= a[2] * d;
-    if (lift::mjuu_normvec(a + 3, 3) < lift::mjEPS) return;
-    double z[3];
-    lift::mjuu_crossvec(z, a, a + 3);
-    if (lift::mjuu_normvec(z, 3) < lift::mjEPS) return;
-    lift::mjuu_frame2quat(quat, a, a + 3, z);
-  } else if (const ZAxis* za = std::get_if<ZAxis>(&*orient)) {
-    double z[3] = {za->zaxis[0], za->zaxis[1], za->zaxis[2]};
-    if (lift::mjuu_normvec(z, 3) < lift::mjEPS) return;
-    lift::mjuu_z2quat(quat, z);
-  } else if (const Euler* eu = std::get_if<Euler>(&*orient)) {
-    double e[3] = {eu->angles[0], eu->angles[1], eu->angles[2]};
-    if (degree) for (int i = 0; i < 3; ++i) e[i] = e[i] / 180.0 * mjPI;
-    lift::mjuu_setvec(quat, 1, 0, 0, 0);
-    const std::string& seq = cs.eulerseq;
-    for (int i = 0; i < 3 && i < static_cast<int>(seq.size()); ++i) {
-      double tmp[4], qrot[4] = {std::cos(e[i] / 2), 0, 0, 0};
-      double sa = std::sin(e[i] / 2);
-      char c = seq[i];
-      if (c == 'x' || c == 'X') qrot[1] = sa;
-      else if (c == 'y' || c == 'Y') qrot[2] = sa;
-      else if (c == 'z' || c == 'Z') qrot[3] = sa;
-      if (c == 'x' || c == 'y' || c == 'z') lift::mjuu_mulquat(tmp, quat, qrot);
-      else lift::mjuu_mulquat(tmp, qrot, quat);
-      lift::mjuu_copyvec(quat, tmp, 4);
-    }
-    lift::mjuu_normvec(quat, 4);
+void ResolveQuat(const ps::opt<std::array<double, 4>>& quat, double out[4]) {
+  if (quat) {
+    out[0] = (*quat)[0]; out[1] = (*quat)[1];
+    out[2] = (*quat)[2]; out[3] = (*quat)[3];
+    lift::mjuu_normvec(out, 4);
+  } else {
+    out[0] = 1; out[1] = out[2] = out[3] = 0;
   }
 }
 
@@ -324,7 +288,8 @@ FrameXform ResolveFrame(const Frame& f, const CompilerSettings& cs,
   out.present = true;
   if (f.pos) { out.pos[0] = (*f.pos)[0]; out.pos[1] = (*f.pos)[1];
                out.pos[2] = (*f.pos)[2]; }
-  ResolveQuat(f.orient, cs, out.quat);
+  (void)cs;
+  ResolveQuat(f.quat, out.quat);
   lift::mjuu_frameaccumChild(parent.pos, parent.quat, out.pos, out.quat);
   lift::mjuu_normvec(out.quat, 4);
   return out;
@@ -338,19 +303,15 @@ void ResolveInertial(const Inertial& in, const CompilerSettings& cs, CBody& cb) 
   if (in.pos) { cb.ipos[0] = (*in.pos)[0]; cb.ipos[1] = (*in.pos)[1];
                 cb.ipos[2] = (*in.pos)[2]; }
   cb.mass = in.mass ? *in.mass : 0;
-  ResolveQuat(in.iorient, cs, cb.iquat);
-  if (in.inertia) {
-    if (const DiagInertia* d = std::get_if<DiagInertia>(&*in.inertia)) {
-      cb.inertia[0] = d->diaginertia[0];
-      cb.inertia[1] = d->diaginertia[1];
-      cb.inertia[2] = d->diaginertia[2];
-    } else if (const FullInertia* f = std::get_if<FullInertia>(&*in.inertia)) {
-      double q[4];
-      lift::mjuu_fullInertia(q, cb.inertia, f->fullinertia.data());
-      // Compose: iquat carries the eigenframe (iorient must be absent for full).
-      cb.iquat[0] = q[0]; cb.iquat[1] = q[1];
-      cb.iquat[2] = q[2]; cb.iquat[3] = q[3];
-    }
+  (void)cs;
+  // Q-INERTIA: inertia is canonicalized at read to diaginertia + iquat (the
+  // reader eigendecomposes fullinertia into both), so the native compiler copies
+  // the principal moments and the pre-resolved inertial-frame quaternion.
+  ResolveQuat(in.iquat, cb.iquat);
+  if (in.diaginertia) {
+    cb.inertia[0] = (*in.diaginertia)[0];
+    cb.inertia[1] = (*in.diaginertia)[1];
+    cb.inertia[2] = (*in.diaginertia)[2];
   }
 }
 
@@ -616,6 +577,7 @@ void GeomFluidCoefs(int type, const double size[3], const double coefs[5],
 CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
                   int bodyid, bool inferinertia, const AssetBinds& assets) {
   std::unique_ptr<Geom> eff = ps::sdk::Effective(model, g);
+  (void)cs;  // orientation is pre-resolved (Q-ORIENT); no degree needed here
   CGeom cg;
   cg.src = &g;
   cg.bodyid = bodyid;
@@ -660,7 +622,7 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
                                                            : mjINERTIA_VOLUME;
 
   // normalize quaternion / resolve orientation
-  ResolveQuat(eff->orient, cs, cg.quat);
+  ResolveQuat(eff->quat, cg.quat);
   lift::mjuu_normvec(cg.quat, 4);
 
   // fromto path
@@ -912,6 +874,7 @@ struct CSite {
 CSite SiteCompile(const Model& model, const Site& s, const CompilerSettings& cs,
                   int bodyid, const FrameXform& xf) {
   std::unique_ptr<Site> eff = ps::sdk::Effective(model, s);
+  (void)cs;  // orientation is pre-resolved (Q-ORIENT)
   CSite cs2;
   cs2.src = &s;
   cs2.bodyid = bodyid;
@@ -941,7 +904,7 @@ CSite SiteCompile(const Model& model, const Site& s, const CompilerSettings& cs,
     cs2.pos[2] = (f[2] + f[5]) / 2;
     lift::mjuu_z2quat(cs2.quat, vec);
   } else {
-    ResolveQuat(eff->orient, cs, cs2.quat);
+    ResolveQuat(eff->quat, cs2.quat);
   }
   // frame accumulation, then normalize (mjCSite::Compile order).
   if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cs2.pos, cs2.quat);
@@ -988,7 +951,7 @@ CCamera CameraCompile(const Model& model, const Camera& c,
   if (eff->user) cc.user = *eff->user;
 
   // orientation, frame, normalize (mjCCamera::Compile order).
-  ResolveQuat(eff->orient, cs, cc.quat);
+  ResolveQuat(eff->quat, cc.quat);
   if (xf.present) lift::mjuu_frameaccumChild(xf.pos, xf.quat, cc.pos, cc.quat);
   lift::mjuu_normvec(cc.quat, 4);
 
@@ -997,13 +960,13 @@ CCamera CameraCompile(const Model& model, const Camera& c,
     cc.output = 0;
     for (CameraOutput o : *eff->output) cc.output |= (1 << static_cast<int>(o));
   }
+  // R1: fovy and focal are plain KEEP-semantics fields (the CameraIntrinsics
+  // variant was dissolved), each set independently as authored.
   float focal_length[2] = {0, 0};  // mjsCamera.focal_length is float
-  if (eff->intrinsics) {
-    if (const Fovy* fv = std::get_if<Fovy>(&*eff->intrinsics)) cc.fovy = fv->fovy;
-    else if (const Focal* fl = std::get_if<Focal>(&*eff->intrinsics)) {
-      focal_length[0] = static_cast<float>(fl->focal[0]);
-      focal_length[1] = static_cast<float>(fl->focal[1]);
-    }
+  if (eff->fovy) cc.fovy = *eff->fovy;
+  if (eff->focal) {
+    focal_length[0] = static_cast<float>((*eff->focal)[0]);
+    focal_length[1] = static_cast<float>((*eff->focal)[1]);
   }
   float focal_pixel[2] = {0, 0}, principal_length[2] = {0, 0},
         principal_pixel[2] = {0, 0}, sensor_size[2] = {0, 0};
@@ -1248,13 +1211,19 @@ std::string ReplicateSuffix(const std::string& sep, int count, int i) {
   return sep + pad + is;
 }
 
-// scale*euler -> quat (mjs_resolveOrientation with EULER, reader precision).
+// scale*euler -> quat. Replicate's per-copy euler is #28 KEEP (a family
+// parameterization, not a redundant encoding): copy i re-resolves i*euler. The
+// fold uses the shared core resolver over the effective compiler context.
 void ReplicateEulerQuat(const ps::opt<std::array<double, 3>>& euler, double scale,
                         const CompilerSettings& cs, double q[4]) {
-  Euler e;
-  if (euler) for (int k = 0; k < 3; ++k) e.angles[k] = (*euler)[k] * scale;
-  Orientation o = e;
-  ResolveQuat(ps::opt<Orientation>(o), cs, q);
+  double raw[3] = {0, 0, 0};
+  if (euler) for (int k = 0; k < 3; ++k) raw[k] = (*euler)[k] * scale;
+  ps::core::OrientContext ctx;
+  ctx.degree = cs.degree;
+  ctx.eulerseq = cs.eulerseq;
+  std::array<double, 4> out =
+      ps::core::ResolveOrientation(ps::core::OrientKind::Euler, raw, ctx);
+  q[0] = out[0]; q[1] = out[1]; q[2] = out[2]; q[3] = out[3];
 }
 
 BodyChildAny CloneBodyChild(const BodyChildAny& c);
@@ -1378,7 +1347,7 @@ std::vector<BodyChildAny> ExpandReplicateNode(const Replicate& rep,
     ReplicateEulerQuat(rep.euler, static_cast<double>(i), cs, quat_i);
     auto frame = std::make_unique<Frame>();
     frame->pos = std::array<double, 3>{pos[0], pos[1], pos[2]};
-    frame->orient = Orientation(Quat{quat_i[0], quat_i[1], quat_i[2], quat_i[3]});
+    frame->quat = std::array<double, 4>{quat_i[0], quat_i[1], quat_i[2], quat_i[3]};
     for (const BodyChildAny& ic : inner)
       frame->subtree.push_back(CloneBodyChild(ic));  // base names already baked
     NamespaceSubtree(frame->subtree, ReplicateSuffix(sep, rep.count, i));
@@ -1670,7 +1639,7 @@ class BodyCollector {
     cb.weldid = cb.has_joints ? id : (id == 0 ? 0 : bodies_[cb.parentid].weldid);
     if (b.pos) { cb.pos[0] = (*b.pos)[0]; cb.pos[1] = (*b.pos)[1];
                  cb.pos[2] = (*b.pos)[2]; }
-    ResolveQuat(b.orient, cs_, cb.quat);
+    ResolveQuat(b.quat, cb.quat);
     lift::mjuu_normvec(cb.quat, 4);
     cb.mocap = b.mocap && *b.mocap;
     if (b.user) cb.user = *b.user;

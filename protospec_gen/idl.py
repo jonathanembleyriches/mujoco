@@ -140,7 +140,16 @@ __all__ = ["parse_spec", "Schema", "SchemaError"]
 
 _PRIMS = frozenset({"int32", "uint64", "float", "double", "bool", "string"})
 _FIELD_ANNOTS = frozenset(
-    {"xml", "unit", "required", "variant_group", "variant_tag", "element_text"}
+    {
+        "xml",
+        "unit",
+        "required",
+        "variant_group",
+        "variant_tag",
+        "element_text",
+        "aliases",
+        "resolver",
+    }
 )
 _ELEMENT_ANNOTS = frozenset({"xml"})
 _FLAG_ANNOTS = frozenset({"required", "element_text"})
@@ -1182,6 +1191,23 @@ class _Parser:
                     raise self._error(
                         f"annotation 'unit' only accepts 'angle', got {value!r}", tok
                     )
+                result[key] = value
+            elif key == "aliases":
+                # Read-only MJCF input attributes this canonical field also
+                # accepts, resolved into it at parse end (Q-ORIENT/Q-INERTIA).
+                # A space-separated string of attribute names.
+                if value is None or not is_string:
+                    raise self._error(
+                        "annotation 'aliases' requires a string value, e.g. "
+                        'aliases="euler axisangle xyaxes zaxis"',
+                        tok,
+                    )
+                result[key] = value
+            elif key == "resolver":
+                # Names the parse-end resolver that folds this field's authored
+                # forms (and its aliases) into the canonical value.
+                if value is None:
+                    raise self._error("annotation 'resolver' requires a value", tok)
                 result[key] = value
             else:  # variant_group / variant_tag
                 if value is None:

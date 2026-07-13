@@ -64,23 +64,17 @@ bool InstantShouldCommit(EditorContext& ctx, bool changed) {
 }
 
 // --- Variant arm labels ---------------------------------------------------- //
-// The five variant families are a fixed schema feature; their POD arms carry no
-// reflection entry, so their selector labels are named here (the only
-// schema-shaped table in the renderer).
+// The surviving variant families (GeomShape, TextureSource) are a fixed schema
+// feature; their POD arms carry no reflection entry, so their selector labels
+// are named here. Orientation, inertia and camera intrinsics were canonicalized
+// to plain fields (Q-ORIENT/Q-INERTIA/R1) and render through the generic field
+// path -- quat/iquat/diaginertia/fovy/focal are ordinary array/scalar rows now.
 template <class A>
 const char* ArmLabel() {
-  if constexpr (std::is_same_v<A, mj::Quat>) return "quat";
-  else if constexpr (std::is_same_v<A, mj::AxisAngle>) return "axisangle";
-  else if constexpr (std::is_same_v<A, mj::XYAxes>) return "xyaxes";
-  else if constexpr (std::is_same_v<A, mj::ZAxis>) return "zaxis";
-  else if constexpr (std::is_same_v<A, mj::Euler>) return "euler";
-  else if constexpr (std::is_same_v<A, mj::Explicit>) return "size";
+  if constexpr (std::is_same_v<A, mj::Explicit>) return "size";
   else if constexpr (std::is_same_v<A, mj::FromTo>) return "fromto";
-  else if constexpr (std::is_same_v<A, mj::DiagInertia>) return "diaginertia";
-  else if constexpr (std::is_same_v<A, mj::FullInertia>) return "fullinertia";
-  else if constexpr (std::is_same_v<A, mj::Fovy>) return "fovy";
-  else if constexpr (std::is_same_v<A, mj::Focal>) return "focal";
   else if constexpr (std::is_same_v<A, mj::TexFile>) return "file";
+  else if constexpr (std::is_same_v<A, mj::TextureBuiltin>) return "builtin";
   else return "option";
 }
 

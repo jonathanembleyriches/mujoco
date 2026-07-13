@@ -170,24 +170,19 @@ static void TestRigidAlgebra() {
 }
 
 static void TestOrientationResolution() {
-  OrientContext oc;  // degree=true, eulerseq=xyz
-  // euler 90deg about z == quat (cos45, 0, 0, sin45).
-  mj::Orientation e = mj::Euler{{0, 0, 90}};
+  // Q-ORIENT: orientation is canonicalized to a quat at read, so the studio only
+  // copies + renormalizes the stored quat (the five-form resolver is tested in
+  // the reader's core::ResolveOrientation, cpp/test/test_io.cc). QuatOf copies a
+  // present quat (renormalizing) and yields identity for an absent one.
   double q[4];
-  OrientationToQuat(ps::opt<mj::Orientation>(e), oc, q);
-  CHECK_NEAR(q[0], std::cos(mjPI / 4));
-  CHECK_NEAR(q[3], std::sin(mjPI / 4));
-
-  // axisangle 180 about x.
-  mj::Orientation aa = mj::AxisAngle{{1, 0, 0}, 180};
-  OrientationToQuat(ps::opt<mj::Orientation>(aa), oc, q);
-  CHECK_NEAR(std::fabs(q[1]), 1.0);
+  QuatOf(ps::opt<std::array<double, 4>>(
+             std::array<double, 4>{0, 0, 0, 2}), q);  // renormalized
+  CHECK_NEAR(q[3], 1.0);
   CHECK_NEAR(q[0], 0.0);
 
-  // quat passthrough (normalized).
-  mj::Orientation qq = mj::Quat{0, 0, 0, 2};
-  OrientationToQuat(ps::opt<mj::Orientation>(qq), oc, q);
-  CHECK_NEAR(q[3], 1.0);
+  QuatOf(ps::opt<std::array<double, 4>>{}, q);  // absent -> identity
+  CHECK_NEAR(q[0], 1.0);
+  CHECK_NEAR(q[1], 0.0);
 }
 
 // ------------------------------------------------------------------------- //
@@ -391,9 +386,9 @@ static void TestRotateGeom() {
   const double axis[3] = {0, 0, 1};
   const double angle = mjPI / 2;  // +90 about world z
   ApplyRotate(*s.tree, g, f, axis, angle);
-  // Rotation materialises quat; pos left as authored.
+  // Rotation materialises the canonical quat; pos left as authored.
   const mj::Geom* gp = ps::sdk::Find<mj::Geom>(*s.tree, "g");
-  CHECK(std::holds_alternative<mj::Quat>(*gp->orient));
+  CHECK(gp->quat.has_value());
   CHECK_NEAR((*gp->pos)[0], 0.3);  // pos unchanged
 
   CHECK(s.Recompile());

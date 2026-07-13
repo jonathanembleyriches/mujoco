@@ -392,14 +392,16 @@ ELEM_ARITY = {
     ("FlexcompContact", "friction"): (1, 3),
 }
 
-# unit=angle fields (Q-ANGLE). Keyed by (IDL element, attr); the orientation
-# arms carry their own unit=angle inside the Orientation structs.
+# unit=angle fields (Q-ANGLE). Keyed by (IDL element, attr). Orientation is
+# canonicalized to quat at read (Q-ORIENT, Wave A), so authored euler/axisangle
+# angles are consumed by the resolver, not stored -- no unit=angle field remains
+# for them. Camera.fovy is NEVER subject to compiler.angle (it is degrees always,
+# a length for orthographic cameras -- mjmodel.h:501), so it is not listed (R2).
 UNIT_ANGLE = {
     ("Joint", "range"),
     ("Joint", "ref"),
     ("Joint", "springref"),
     ("CompositeJoint", "range"),
-    ("Camera", "fovy"),
 }
 
 # Fallback attribute types for attributes not modelled by a per-family mjSpec
@@ -920,30 +922,62 @@ def build():
                 return f" = {member}"
         return ""
 
-    # Variant-consumed attributes per element: these XML attributes are covered
-    # by a variant field (Orientation / GeomShape / InertiaSpec / CameraIntrinsics
-    # / TextureSource), so no plain field is emitted for them.
+    # Orientation input aliases (Q-ORIENT, Wave A): the four non-canonical MJCF
+    # spellings a posed element still accepts on input. They are resolved into the
+    # canonical `quat` field at parse end (folded compiler.angle/eulerseq), never
+    # stored as their own field. Listed on the canonical field's `aliases`
+    # annotation; `quat` itself is the field name / xml attribute.
+    ORIENT_ALIASES = "euler axisangle xyaxes zaxis"
+    # Attributes any posed element (Posed mixin) covers: pos + the canonical quat
+    # + its four input-alias spellings.
     ORIENT_ARMS = ["quat", "axisangle", "xyaxes", "zaxis", "euler"]
 
     def variant_fields(elem_name, attrs):
-        """Return (variant_fields, consumed_attr_set) for an element."""
+        """Return (injected_fields, consumed_attr_set) for an element.
+
+        Injected fields are canonical fields whose authored MJCF spellings a
+        resolver folds at parse end (orientation -> quat, fullinertia ->
+        diaginertia+iquat, Q-ORIENT/Q-INERTIA), plus the surviving DR-3 variants
+        (GeomShape fromto, TextureSource). The consumed set is every MJCF
+        attribute these fields cover, so `walk` emits no plain field for them.
+        """
         vf, consumed = [], set()
         aset = set(attrs)
         if elem_name == "Inertial":
-            vf.append(Field("iorient", "variant Orientation",
-                            doc="inertial frame orientation"))
+            # Inertial frame orientation is authored via quat/euler/... (same
+            # spellings as a body); its canonical field is `iquat` (wire attr
+            # `quat`). fullinertia resolves via eigendecomposition into
+            # diaginertia + iquat, so it is an alias of the canonical diaginertia.
+            vf.append(Field("iquat", "double[4]",
+                            {"xml": "quat", "aliases": ORIENT_ALIASES,
+                             "resolver": "orientation"},
+                            doc="inertial frame orientation (canonical quat)"))
             consumed |= set(ORIENT_ARMS)
-            vf.append(Field("inertia", "variant InertiaSpec",
-                            doc="diagonal or full inertia"))
+            vf.append(Field("diaginertia", "double[3]",
+                            {"aliases": "fullinertia", "resolver": "inertia"},
+                            doc="diagonal inertia (canonical; also accepts "
+                                "fullinertia)"))
             consumed |= {"diaginertia", "fullinertia"}
         if elem_name in ("Geom", "Site") and "fromto" in aset:
             vf.append(Field("shape", "variant GeomShape",
                             doc="explicit size or fromto endpoints"))
             consumed.add("fromto")
         if elem_name == "Camera":
-            vf.append(Field("intrinsics", "variant CameraIntrinsics",
-                            doc="field of view or focal length"))
+            # R1: the fovy/focal exclusion is not a real variant (fovy vs
+            # sensorsize is, and lives class-splittable at compile). Both are plain
+            # KEEP-semantics fields; the reader enforces the fovy+sensorsize error.
+            vf.append(Field("fovy", "double",
+                            doc="vertical field of view (deg; length if ortho)"))
+            vf.append(Field("focal", "double[2]", doc="focal length (length)"))
             consumed |= {"fovy", "focal"}
+        if elem_name == "Flexcomp":
+            # Flexcomp keeps pos + origin (plain) and gains the canonical quat;
+            # its four alt orientation spellings resolve into quat (Q-ORIENT #2).
+            vf.append(Field("quat", "double[4]",
+                            {"aliases": ORIENT_ALIASES, "resolver": "orientation"},
+                            doc="orientation (canonical quat; also accepts "
+                                "euler/axisangle/xyaxes/zaxis)"))
+            consumed |= set(ORIENT_ARMS)
         if elem_name == "Texture":
             vf.append(Field("source", "variant TextureSource",
                             doc="builtin generator or image file"))
@@ -1155,42 +1189,21 @@ def render(elements, keyword_maps, used_enums, unions):
         w("}")
         w("")
 
-    # Orientation + variant machinery (structs + variants + mixin)
-    w("# --- Orientation, shape and inertia variants (DR-3) " + "-" * 23)
+    # Shape / texture variants (surviving DR-3 groups) + canonicalized orientation
+    w("# --- Shape / texture variants (DR-3) + canonical orientation " + "-" * 14)
     w("")
-    w("struct Quat      { w : double  x : double  y : double  z : double }")
-    w("struct AxisAngle { axis : double[3]  angle : double (unit=angle) }")
-    w("struct XYAxes    { xyaxes : double[6] }")
-    w("struct ZAxis     { zaxis : double[3] }")
-    w("struct Euler     { angles : double[3] (unit=angle) }")
-    w("")
-    w("variant Orientation {")
-    w("  quat      : Quat        # unit quaternion (canonical form)")
-    w("  axisangle : AxisAngle   # rotation axis + angle")
-    w("  xyaxes    : XYAxes      # x and y axes")
-    w("  zaxis     : ZAxis       # z axis (minimal rotation)")
-    w("  euler     : Euler       # euler angles, sequence from compiler.eulerseq")
-    w("}")
+    w("# Orientation is canonicalized to a single unit quaternion at read time")
+    w("# (Q-ORIENT, docs/plan_canonicalization.md Wave A): the reader accepts all")
+    w("# five MJCF spellings and folds euler/axisangle/xyaxes/zaxis into `quat`")
+    w("# against the effective compiler.angle/eulerseq. The four non-canonical")
+    w("# spellings are read-only input aliases (see the `aliases` annotation on")
+    w("# each canonical `quat`/`iquat`); the writer emits `quat` only.")
     w("")
     w("struct Explicit { size : double[0..3] }")
     w("struct FromTo   { fromto : double[6] }")
     w("variant GeomShape {")
     w("  explicit : Explicit     # type-specific size, at the element's own pose")
     w("  fromto   : FromTo       # capsule/cylinder/box/ellipsoid endpoints")
-    w("}")
-    w("")
-    w("struct DiagInertia { diaginertia : double[3] }")
-    w("struct FullInertia { fullinertia : double[6] }")
-    w("variant InertiaSpec {")
-    w("  diaginertia : DiagInertia   # diagonal inertia in the inertial frame")
-    w("  fullinertia : FullInertia   # full (non-axis-aligned) inertia matrix")
-    w("}")
-    w("")
-    w("struct Fovy  { fovy : double (unit=angle) }")
-    w("struct Focal { focal : double[2] }")
-    w("variant CameraIntrinsics {")
-    w("  fovy  : Fovy    # vertical field of view")
-    w("  focal : Focal   # focal length (length units)")
     w("}")
     w("")
     w("struct TexFile { file : string }")
@@ -1200,8 +1213,10 @@ def render(elements, keyword_maps, used_enums, unions):
     w("}")
     w("")
     w("mixin Posed {")
-    w("  pos    : double[3] = {0, 0, 0}   # position offset")
-    w("  orient : variant Orientation     # quat | axisangle | xyaxes | zaxis | euler")
+    w("  pos  : double[3] = {0, 0, 0}   # position offset")
+    w('  quat : double[4] (aliases="euler axisangle xyaxes zaxis", '
+      "resolver=orientation)   # orientation (canonical quat; also accepts "
+      "euler/axisangle/xyaxes/zaxis)")
     w("}")
     w("")
 
@@ -1237,12 +1252,12 @@ def _render_element(w, elem):
             parts = []
             for k in sorted(f.annots):
                 v = f.annots[k]
-                if k == "xml":
-                    parts.append(f'{k}="{v}"')
+                if k in ("xml", "aliases"):
+                    parts.append(f'{k}="{v}"')  # string-valued annotations
                 elif v is True:
                     parts.append(k)  # bare flag (required, element_text)
                 else:
-                    parts.append(f"{k}={v}")
+                    parts.append(f"{k}={v}")  # identifier-valued (resolver, unit)
             line += f" ({', '.join(parts)})"
         line += f.default
         if f.doc:

@@ -974,6 +974,35 @@ def _field_element_text(f: dict) -> bool:
     return "element_text" in f.get("annotations", {})
 
 
+def _field_resolver(f: dict):
+    """The parse-end resolver name for a canonicalized field (Q-ORIENT/Q-INERTIA),
+    or None. Such a field's authored MJCF spellings (its own attr plus every
+    `aliases` attribute) are folded into it at parse end; the reader routes them
+    through the resolver rather than the plain attr path."""
+    return f.get("annotations", {}).get("resolver")
+
+
+def _field_aliases(f: dict) -> list[str]:
+    """Read-only MJCF input attributes this field also accepts (resolved into it).
+    Empty unless the field carries an `aliases` annotation."""
+    raw = f.get("annotations", {}).get("aliases")
+    return raw.split() if raw else []
+
+
+def _input_aliases(elem: dict) -> list[tuple[str, str]]:
+    """(alias attr, resolver) for every input-alias attribute of an element, in
+    field then alias order. These are accepted on input and canonicalized at
+    parse end; they are not stored as their own field."""
+    out: list[tuple[str, str]] = []
+    for f in elem["fields"]:
+        resolver = _field_resolver(f)
+        if resolver is None:
+            continue
+        for alias in _field_aliases(f):
+            out.append((alias, resolver))
+    return out
+
+
 def emit_xml_binding_h(s: Schema) -> str:
     o: list[str] = []
     w = o.append
@@ -1010,6 +1039,19 @@ def emit_xml_binding_h(s: Schema) -> str:
     w("  bool unit_angle;              // deg->rad at IO (compiler.angle=degree)")
     w("  bool keyword_set;             // space-separated enum keyword set")
     w("  bool element_text;            // carried as element text, not attribute")
+    w("  bool resolved;                // canonicalized at parse end (Q-ORIENT/")
+    w("                                // Q-INERTIA): read via its resolver, not")
+    w("                                // the plain attr path; still emitted plain")
+    w("};")
+    w("")
+    w("// A read-only input-alias attribute (Q-ORIENT/Q-INERTIA): an MJCF attribute")
+    w("// accepted on input that is canonicalized into a sibling field at parse end")
+    w("// (euler/axisangle/xyaxes/zaxis -> quat; fullinertia -> diaginertia+iquat).")
+    w("// It has no field of its own; the reader accepts it (so it is not an unknown")
+    w("// attribute) and its resolver names the fold. The writer never emits it.")
+    w("struct InputAliasBinding {")
+    w("  std::string_view attr;        // MJCF attribute name")
+    w("  std::string_view resolver;    // parse-end resolver that folds it")
     w("};")
     w("")
     w("// One arm of a variant field: its tag and the XML attribute that triggers")
@@ -1047,6 +1089,8 @@ def emit_xml_binding_h(s: Schema) -> str:
     w("  std::string_view tag;")
     w("  const AttrBinding* attrs;")
     w("  std::size_t attr_count;")
+    w("  const InputAliasBinding* input_aliases;")
+    w("  std::size_t input_alias_count;")
     w("  const VariantBinding* variants;")
     w("  std::size_t variant_count;")
     w("  const ChildBinding* children;")
@@ -1094,8 +1138,16 @@ def emit_xml_binding_cc(s: Schema) -> str:
                     f"FieldKind::{field_kind(t)}, ArityKind::{ak}, {amin}, {amax}, "
                     f"{'true' if _field_unit_angle(f) else 'false'}, "
                     f"{'true' if _field_keyword_set(t) else 'false'}, "
-                    f"{'true' if _field_element_text(f) else 'false'}}},"
+                    f"{'true' if _field_element_text(f) else 'false'}, "
+                    f"{'true' if _field_resolver(f) else 'false'}}},"
                 )
+            w("};")
+
+        aliases = _input_aliases(e)
+        if aliases:
+            w(f"constexpr InputAliasBinding kInputAliases_{name}[] = {{")
+            for attr, resolver in aliases:
+                w(f'    {{"{attr}", "{resolver}"}},')
             w("};")
 
         for fid, f in variants:
@@ -1138,12 +1190,15 @@ def emit_xml_binding_cc(s: Schema) -> str:
         name = e["name"]
         attrs = _attr_fields(e)
         variants = _variant_fields(e)
+        aliases = _input_aliases(e)
         aptr = f"kAttrs_{name}" if attrs else "nullptr"
+        iptr = f"kInputAliases_{name}" if aliases else "nullptr"
         vptr = f"kVariants_{name}" if variants else "nullptr"
         cptr = f"kChildren_{name}" if e["children"] else "nullptr"
         w(
             f'    {{ElementType::{name}, "{s.elem_xml(e)}", '
-            f"{aptr}, {len(attrs)}, {vptr}, {len(variants)}, "
+            f"{aptr}, {len(attrs)}, {iptr}, {len(aliases)}, "
+            f"{vptr}, {len(variants)}, "
             f"{cptr}, {len(e['children'])}}},"
         )
     w("};")

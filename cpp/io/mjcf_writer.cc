@@ -159,44 +159,15 @@ void AppendAttr(std::string& attrs, std::string_view name,
 }
 
 // Emit the attributes contributed by a variant field (DR-3 aliasing group).
-void WriteVariantArm(std::string& attrs, const Orientation& o) {
-  if (auto* q = std::get_if<Quat>(&o)) {
-    double a[4] = {q->w, q->x, q->y, q->z};
-    AppendAttr(attrs, "quat", JoinScalars(a, 4));
-  } else if (auto* aa = std::get_if<AxisAngle>(&o)) {
-    double a[4] = {aa->axis[0], aa->axis[1], aa->axis[2], aa->angle};
-    AppendAttr(attrs, "axisangle", JoinScalars(a, 4));
-  } else if (auto* xy = std::get_if<XYAxes>(&o)) {
-    AppendAttr(attrs, "xyaxes", JoinScalars(xy->xyaxes.data(), 6));
-  } else if (auto* z = std::get_if<ZAxis>(&o)) {
-    AppendAttr(attrs, "zaxis", JoinScalars(z->zaxis.data(), 3));
-  } else if (auto* eu = std::get_if<Euler>(&o)) {
-    AppendAttr(attrs, "euler", JoinScalars(eu->angles.data(), 3));
-  }
-}
-
+// Orientation, inertia and camera intrinsics are canonicalized to plain fields
+// (quat/iquat, diaginertia, fovy/focal -- Q-ORIENT/Q-INERTIA/R1), written by the
+// normal attribute path; only the surviving variants have an arm writer.
 void WriteVariantArm(std::string& attrs, const GeomShape& s) {
   if (auto* ft = std::get_if<FromTo>(&s)) {
     AppendAttr(attrs, "fromto", JoinScalars(ft->fromto.data(), 6));
   }
   // The Explicit arm carries the plain `size` field's value; it is written by
   // the size attribute, not here (avoids a duplicate size attribute).
-}
-
-void WriteVariantArm(std::string& attrs, const InertiaSpec& s) {
-  if (auto* d = std::get_if<DiagInertia>(&s)) {
-    AppendAttr(attrs, "diaginertia", JoinScalars(d->diaginertia.data(), 3));
-  } else if (auto* f = std::get_if<FullInertia>(&s)) {
-    AppendAttr(attrs, "fullinertia", JoinScalars(f->fullinertia.data(), 6));
-  }
-}
-
-void WriteVariantArm(std::string& attrs, const CameraIntrinsics& c) {
-  if (auto* f = std::get_if<Fovy>(&c)) {
-    AppendAttr(attrs, "fovy", FormatScalar(f->fovy));
-  } else if (auto* fc = std::get_if<Focal>(&c)) {
-    AppendAttr(attrs, "focal", JoinScalars(fc->focal.data(), 2));
-  }
 }
 
 void WriteVariantArm(std::string& attrs, const TextureSource& s) {
@@ -257,10 +228,7 @@ struct WriterVisitor {
   void WriteVariantField(const T& value) {
     if constexpr (is_opt<T>::value) {
       using V = typename is_opt<T>::inner;
-      if constexpr (std::is_same_v<V, Orientation> ||
-                    std::is_same_v<V, GeomShape> ||
-                    std::is_same_v<V, InertiaSpec> ||
-                    std::is_same_v<V, CameraIntrinsics> ||
+      if constexpr (std::is_same_v<V, GeomShape> ||
                     std::is_same_v<V, TextureSource>) {
         if (value.has_value()) WriteVariantArm(*attrs, *value);
       }

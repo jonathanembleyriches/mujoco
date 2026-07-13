@@ -1,10 +1,27 @@
 // MJCF reader: tinyxml2 document -> ps::Model, driven by the generated
 // xml_binding tables (attrs/variants/children) with the generated Visit hook for
 // typed field access. Hand code appears only at the quirks the tables cannot
-// carry: numeric parsing (Q-NUM, in numeric.cc), the orientation / geom-shape /
-// inertia / camera-intrinsics aliasing groups (Q-ORIENT/Q-FROMTO/Q-INERTIA),
-// variable arity (Q-ARITY), and the strict support boundary
-// (unsupported-element reporting).
+// carry: numeric parsing (Q-NUM, in numeric.cc), the surviving geom-shape
+// aliasing group (Q-FROMTO) and texture source, variable arity (Q-ARITY), and
+// the strict support boundary (unsupported-element reporting).
+//
+// Q-ORIENT / Q-INERTIA canonicalization (docs/plan_canonicalization.md, Wave A):
+// orientation is stored as a single canonical quaternion and inertia as
+// diaginertia + iquat. The reader still ACCEPTS every authored spelling (quat/
+// euler/axisangle/xyaxes/zaxis via the binding's input aliases; diaginertia/
+// fullinertia), but folds them into the canonical field. Inertia has no angular
+// context, so fullinertia is eigendecomposed inline at read (core::FullInertia
+// ToDiag). Orientation resolution IS deferred to parse end: MJCF admits
+// <compiler> blocks anywhere (even after <worldbody>) and euler/axisangle depend
+// on compiler.angle/eulerseq, so resolving mid-parse would make the result
+// depend on document order. The reader collects each authored orientation as a
+// pending fold (with a stable pointer to its destination quat field -- every
+// orientation-bearing element is heap-owned, DR-2) and resolves them all in one
+// pass over the effective, document-order-folded compiler context (core::Resolve
+// Orientation, the same math MuJoCo compiles). Element-wins-atomic: an element's
+// authored orientation always wins over a class-inherited alt spelling (a
+// deliberate, documented divergence from MuJoCo's ReadAlternative precedence
+// wart; no corpus witness -- docs/plan_canonicalization.md Section 3).
 //
 // Q-ANGLE is handled by form preservation, not read-time conversion: angle
 // values are stored exactly as authored and the compiler's angle unit round
@@ -40,6 +57,7 @@
 #include "mjcf.h"
 #include "numeric.h"
 #include "protospec/core.h"
+#include "resolve.h"
 #include "tinyxml2.h"
 #include "types.h"
 #include "visit.h"
@@ -331,6 +349,32 @@ struct has_config_children<ActuatorPlugin> : std::true_type {};
 template <>
 struct has_config_children<SensorPlugin> : std::true_type {};
 
+// The canonical quaternion field of an orientation-bearing element (Q-ORIENT),
+// or nullptr for every other element. Posed elements (Body/Geom/Site/Camera/
+// Frame) and Flexcomp store it as `quat`; Inertial stores the inertial frame as
+// `iquat`. The template fallback keeps ReadElement instantiable for every type.
+using QuatOpt = ps::opt<std::array<double, 4>>;
+template <class E>
+QuatOpt* QuatField(E&) { return nullptr; }
+inline QuatOpt* QuatField(Body& e) { return &e.quat; }
+inline QuatOpt* QuatField(Geom& e) { return &e.quat; }
+inline QuatOpt* QuatField(Site& e) { return &e.quat; }
+inline QuatOpt* QuatField(Camera& e) { return &e.quat; }
+inline QuatOpt* QuatField(Frame& e) { return &e.quat; }
+inline QuatOpt* QuatField(Flexcomp& e) { return &e.quat; }
+inline QuatOpt* QuatField(Inertial& e) { return &e.iquat; }
+
+// A collected-but-unresolved orientation: an authored spelling awaiting the
+// document-order-folded compiler context (parse-end resolution, Q-ORIENT). The
+// destination pointer is stable because every orientation-bearing element is
+// heap-owned (DR-2), and `xml` stays valid for the whole parse.
+struct PendingOrient {
+  const XMLElement* xml;
+  QuatOpt* dest;
+  ps::core::OrientKind kind;
+  double raw[6];
+};
+
 // --------------------------------------------------------------------------- //
 // Reader                                                                        //
 // --------------------------------------------------------------------------- //
@@ -380,7 +424,16 @@ class Reader {
     AttrVisitor<E> av{this, xml, &b};
     Visit(out, av);
 
-    if constexpr (std::is_same_v<E, Inertial>) InertialExclusion(xml, out);
+    // Q-ORIENT: collect the authored orientation (resolved at parse end against
+    // the folded compiler context). Orientation-bearing elements only.
+    CollectOrientation(xml, out);
+    // Q-INERTIA: fullinertia/diaginertia have no angular context, so resolve
+    // inline (eigendecomposition for fullinertia -> diaginertia + iquat).
+    if constexpr (std::is_same_v<E, Inertial>) {
+      InertialOrientExclusion(xml);
+      ResolveInertiaAttrs(xml, out);
+    }
+    if constexpr (std::is_same_v<E, Camera>) CameraIntrinsicExclusion(xml);
     if constexpr (std::is_same_v<E, Size>) MemoryFixup(xml, out);
     if constexpr (std::is_same_v<E, Connect>) ConnectExclusion(xml);
     if constexpr (std::is_same_v<E, Weld>) WeldExclusion(xml);
@@ -398,6 +451,23 @@ class Reader {
     ClassifyChildren(xml, b, out);
     ChildVisitor<E> cv{this, xml, &b};
     Visit(out, cv);
+  }
+
+  // Parse-end orientation fold (Q-ORIENT). Computes the effective compiler
+  // context by folding Model.compilers in document order (later authored
+  // attributes win, matching MuJoCo's accumulate-into-one-spec), then resolves
+  // every collected authored orientation against that single context -- so the
+  // result is document-order independent even though <compiler> may appear
+  // anywhere. Defaults when unauthored: angle="degree", eulerseq="xyz".
+  void ResolvePendingOrientations(const Model& m) {
+    ps::core::OrientContext ctx;  // degree=true, eulerseq="xyz"
+    for (const auto& c : m.compilers) {
+      if (c->angle) ctx.degree = (*c->angle == AngleUnit::degree);
+      if (c->eulerseq) ctx.eulerseq = *c->eulerseq;
+    }
+    for (const PendingOrient& p : pending_orient_) {
+      *p.dest = ps::core::ResolveOrientation(p.kind, p.raw, ctx);
+    }
   }
 
   // Construct and read the union member whose tag matches `tag`, storing it in
@@ -442,6 +512,10 @@ class Reader {
     void field(int id, const char*, T& value) {
       for (std::size_t i = 0; i < b->attr_count; ++i) {
         if (b->attrs[i].field_id == id) {
+          // Resolved (canonicalized) fields -- quat/iquat/diaginertia -- are set
+          // by the parse-end orientation fold / inline inertia resolution, not
+          // the plain attr path (Q-ORIENT/Q-INERTIA).
+          if (b->attrs[i].resolved) return;
           r->ReadAttr(xml, b->type, b->attrs[i], value);
           return;
         }
@@ -640,14 +714,8 @@ class Reader {
   void ReadVariant(XMLElement* xml, const VariantBinding&, T& value) {
     if constexpr (is_opt<T>::value) {
       using V = typename is_opt<T>::inner;
-      if constexpr (std::is_same_v<V, Orientation>) {
-        MarshalOrientation(xml, value);
-      } else if constexpr (std::is_same_v<V, GeomShape>) {
+      if constexpr (std::is_same_v<V, GeomShape>) {
         MarshalGeomShape(xml, value);
-      } else if constexpr (std::is_same_v<V, InertiaSpec>) {
-        MarshalInertiaSpec(xml, value);
-      } else if constexpr (std::is_same_v<V, CameraIntrinsics>) {
-        MarshalCameraIntrinsics(xml, value);
       } else if constexpr (std::is_same_v<V, TextureSource>) {
         MarshalTextureSource(xml, value);
       }
@@ -665,41 +733,75 @@ class Reader {
     return ReadNumberN(xml, ab, xml->Attribute(attr), out, n, n) == n;
   }
 
-  // Orientation encodings are stored exactly as authored (Q-ANGLE form
-  // preservation): euler/axisangle angles keep their unit, and MuJoCo applies
-  // compiler.angle at compile.
-  void MarshalOrientation(XMLElement* xml, ps::opt<Orientation>& out) {
+  // Q-ORIENT: collect the authored orientation spelling for later resolution
+  // against the folded compiler context (parse end). Multiple-specifier and
+  // zero-quaternion errors are reader-level (no compiler context needed) and are
+  // reported here, verbatim as MuJoCo does (xml_base.cc:73-75). A no-op for
+  // elements with no canonical quat field.
+  template <class E>
+  void CollectOrientation(XMLElement* xml, E& out) {
+    QuatOpt* dest = QuatField(out);
+    if (!dest) return;
     int count = Has(xml, "quat") + Has(xml, "axisangle") + Has(xml, "xyaxes") +
                 Has(xml, "zaxis") + Has(xml, "euler");
+    if (count == 0) return;
     if (count > 1) {
       Err(xml, "multiple orientation specifiers are not allowed");
       return;
     }
-    if (count == 0) return;
+    PendingOrient p{};
+    p.xml = xml;
+    p.dest = dest;
     if (Has(xml, "quat")) {
-      double q[4]{};
-      if (!ReadDoubleArr(xml, "quat", 4, q)) return;
-      if (q[0] == 0 && q[1] == 0 && q[2] == 0 && q[3] == 0) {
+      if (!ReadDoubleArr(xml, "quat", 4, p.raw)) return;
+      if (p.raw[0] == 0 && p.raw[1] == 0 && p.raw[2] == 0 && p.raw[3] == 0) {
         Err(xml, "zero quaternion is not allowed");
         return;
       }
-      out = Orientation{Quat{q[0], q[1], q[2], q[3]}};
+      p.kind = ps::core::OrientKind::Quat;
     } else if (Has(xml, "axisangle")) {
-      double a[4]{};
-      if (!ReadDoubleArr(xml, "axisangle", 4, a)) return;
-      out = Orientation{AxisAngle{{a[0], a[1], a[2]}, a[3]}};
+      if (!ReadDoubleArr(xml, "axisangle", 4, p.raw)) return;
+      p.kind = ps::core::OrientKind::AxisAngle;
     } else if (Has(xml, "xyaxes")) {
-      double v[6]{};
-      if (!ReadDoubleArr(xml, "xyaxes", 6, v)) return;
-      out = Orientation{XYAxes{{v[0], v[1], v[2], v[3], v[4], v[5]}}};
+      if (!ReadDoubleArr(xml, "xyaxes", 6, p.raw)) return;
+      p.kind = ps::core::OrientKind::XYAxes;
     } else if (Has(xml, "zaxis")) {
-      double v[3]{};
-      if (!ReadDoubleArr(xml, "zaxis", 3, v)) return;
-      out = Orientation{ZAxis{{v[0], v[1], v[2]}}};
+      if (!ReadDoubleArr(xml, "zaxis", 3, p.raw)) return;
+      p.kind = ps::core::OrientKind::ZAxis;
     } else {  // euler
-      double e[3]{};
-      if (!ReadDoubleArr(xml, "euler", 3, e)) return;
-      out = Orientation{Euler{{e[0], e[1], e[2]}}};
+      if (!ReadDoubleArr(xml, "euler", 3, p.raw)) return;
+      p.kind = ps::core::OrientKind::Euler;
+    }
+    pending_orient_.push_back(p);
+  }
+
+  // Q-INERTIA: diaginertia stores as authored; fullinertia is eigendecomposed
+  // into diaginertia + the inertial-frame quaternion (iquat) inline -- inertia
+  // has no angular context, so no parse-end deferral is needed. Mutual exclusion
+  // mirrors MuJoCo (user_objects.cc:2705-2716 / xml_native_reader.cc:3682-3684).
+  void ResolveInertiaAttrs(XMLElement* xml, Inertial& out) {
+    bool diag = Has(xml, "diaginertia");
+    bool full = Has(xml, "fullinertia");
+    if (diag && full) {
+      Err(xml, "diaginertia and fullinertia cannot both be specified");
+      return;
+    }
+    if (diag) {
+      double d[3]{};
+      if (!ReadDoubleArr(xml, "diaginertia", 3, d)) return;
+      out.diaginertia = std::array<double, 3>{d[0], d[1], d[2]};
+    } else if (full) {
+      double f[6]{};
+      if (!ReadDoubleArr(xml, "fullinertia", 6, f)) return;
+      double diagv[3]{}, q[4]{};
+      if (const char* e = ps::core::FullInertiaToDiag(f, diagv, q)) {
+        Err(xml, e);
+        return;
+      }
+      out.diaginertia = std::array<double, 3>{diagv[0], diagv[1], diagv[2]};
+      // fullinertia carries the inertial frame in its eigenvectors (the inertial
+      // orientation must be absent -- InertialOrientExclusion).
+      out.iquat = std::array<double, 4>{q[0], q[1], q[2], q[3]};
     }
   }
 
@@ -711,44 +813,6 @@ class Reader {
     double ft[6]{};
     if (!ReadDoubleArr(xml, "fromto", 6, ft)) return;
     out = GeomShape{FromTo{{ft[0], ft[1], ft[2], ft[3], ft[4], ft[5]}}};
-  }
-
-  void MarshalInertiaSpec(XMLElement* xml, ps::opt<InertiaSpec>& out) {
-    bool diag = Has(xml, "diaginertia");
-    bool full = Has(xml, "fullinertia");
-    if (diag && full) {
-      Err(xml, "diaginertia and fullinertia cannot both be specified");
-      return;
-    }
-    if (diag) {
-      double d[3]{};
-      if (!ReadDoubleArr(xml, "diaginertia", 3, d)) return;
-      out = InertiaSpec{DiagInertia{{d[0], d[1], d[2]}}};
-    } else if (full) {
-      double f[6]{};
-      if (!ReadDoubleArr(xml, "fullinertia", 6, f)) return;
-      out = InertiaSpec{FullInertia{{f[0], f[1], f[2], f[3], f[4], f[5]}}};
-    }
-  }
-
-  void MarshalCameraIntrinsics(XMLElement* xml, ps::opt<CameraIntrinsics>& out) {
-    bool has_fovy = Has(xml, "fovy");
-    bool has_focal = Has(xml, "focal");
-    if (has_fovy && has_focal) {
-      Err(xml, "fovy and focal cannot both be specified");
-      return;
-    }
-    if (has_fovy) {
-      // Camera fovy is a field of view in degrees in MuJoCo (mjModel.cam_fovy),
-      // not converted to radians by compiler.angle.
-      double f[1]{};
-      if (!ReadDoubleArr(xml, "fovy", 1, f)) return;
-      out = CameraIntrinsics{Fovy{f[0]}};
-    } else if (has_focal) {
-      double f[2]{};
-      if (!ReadDoubleArr(xml, "focal", 2, f)) return;
-      out = CameraIntrinsics{Focal{{f[0], f[1]}}};
-    }
   }
 
   // Q-TEX: a texture's source is either a single image file or a procedural
@@ -798,11 +862,27 @@ class Reader {
     }
   }
 
-  void InertialExclusion(XMLElement* xml, Inertial& in) {
-    const bool full =
-        in.inertia && std::holds_alternative<FullInertia>(*in.inertia);
-    if (full && in.iorient) {
+  // fullinertia carries the inertial frame in its eigenvectors, so an authored
+  // inertial orientation (quat/euler/...) alongside it is a conflict, matching
+  // MuJoCo (user_objects.cc:2705-2716). Checked on the raw XML before the
+  // orientation collect, so the evidence is intact.
+  void InertialOrientExclusion(XMLElement* xml) {
+    if (!Has(xml, "fullinertia")) return;
+    int orient = Has(xml, "quat") + Has(xml, "axisangle") + Has(xml, "xyaxes") +
+                 Has(xml, "zaxis") + Has(xml, "euler");
+    if (orient > 0) {
       Err(xml, "fullinertia and inertial orientation cannot both be specified");
+    }
+  }
+
+  // R1: a camera's field of view (fovy) and its physical sensor size are the
+  // exclusive intrinsic families on the same element (xml_native_reader.cc:
+  // 2086-2090). fovy vs focal is NOT the real exclusion (a class fovy + element
+  // sensorsize is legal and resolved at compile), so only fovy+sensorsize is a
+  // reader error; focal/principal without sensorsize stays a compile-time lint.
+  void CameraIntrinsicExclusion(XMLElement* xml) {
+    if (Has(xml, "fovy") && Has(xml, "sensorsize")) {
+      Err(xml, "fovy and sensor size cannot both be specified");
     }
   }
 
@@ -973,6 +1053,10 @@ class Reader {
   void CheckUnknownAttributes(XMLElement* xml, const ElementBinding& b) {
     std::unordered_set<std::string_view> known;
     for (std::size_t i = 0; i < b.attr_count; ++i) known.insert(b.attrs[i].attr);
+    // Read-only input aliases (euler/axisangle/xyaxes/zaxis, fullinertia) are
+    // accepted spellings canonicalized at parse end (Q-ORIENT/Q-INERTIA).
+    for (std::size_t i = 0; i < b.input_alias_count; ++i)
+      known.insert(b.input_aliases[i].attr);
     for (std::size_t i = 0; i < b.variant_count; ++i) {
       const VariantBinding& v = b.variants[i];
       for (std::size_t a = 0; a < v.arm_count; ++a) known.insert(v.arms[a].attr);
@@ -1077,6 +1161,7 @@ class Reader {
   std::vector<Diagnostic>& errors_;
   std::vector<Diagnostic>& warnings_;
   const ProvenanceMap* provenance_ = nullptr;
+  std::vector<PendingOrient> pending_orient_;
 };
 
 void ValidateEulerseq(Reader& r, XMLElement* root, const Model& m) {
@@ -1118,6 +1203,9 @@ ParseResult ReadDocument(XMLDocument& doc, const std::string& filename,
 
   auto model = std::make_unique<Model>();
   reader.ReadElement(root, *model);
+  // Q-ORIENT: fold the effective compiler context and resolve every collected
+  // orientation now that the whole (include-flattened) document is in the tree.
+  reader.ResolvePendingOrientations(*model);
   ValidateEulerseq(reader, root, *model);
   ValidateDefaultClasses(*model, result.errors);
 

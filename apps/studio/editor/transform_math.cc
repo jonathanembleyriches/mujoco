@@ -115,44 +115,7 @@ Rigid Invert(const Rigid& a) {
   return out;
 }
 
-// --- Orientation resolution (mirrors compile/build.cc ResolveQuat) -------- //
-
-static void Cross(const double a[3], const double b[3], double out[3]) {
-  out[0] = a[1] * b[2] - a[2] * b[1];
-  out[1] = a[2] * b[0] - a[0] * b[2];
-  out[2] = a[0] * b[1] - a[1] * b[0];
-}
-static double Dot(const double a[3], const double b[3]) {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-// Quaternion from an orthonormal frame whose columns are x, y, z (mjuu_frame2quat).
-static void Frame2Quat(double q[4], const double x[3], const double y[3],
-                       const double z[3]) {
-  const double* m[3] = {x, y, z};  // m[col][row]
-  if (m[0][0] + m[1][1] + m[2][2] > 0) {
-    q[0] = 0.5 * std::sqrt(1 + m[0][0] + m[1][1] + m[2][2]);
-    q[1] = 0.25 * (m[1][2] - m[2][1]) / q[0];
-    q[2] = 0.25 * (m[2][0] - m[0][2]) / q[0];
-    q[3] = 0.25 * (m[0][1] - m[1][0]) / q[0];
-  } else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
-    q[1] = 0.5 * std::sqrt(1 + m[0][0] - m[1][1] - m[2][2]);
-    q[0] = 0.25 * (m[1][2] - m[2][1]) / q[1];
-    q[2] = 0.25 * (m[1][0] + m[0][1]) / q[1];
-    q[3] = 0.25 * (m[2][0] + m[0][2]) / q[1];
-  } else if (m[1][1] > m[2][2]) {
-    q[2] = 0.5 * std::sqrt(1 - m[0][0] + m[1][1] - m[2][2]);
-    q[0] = 0.25 * (m[2][0] - m[0][2]) / q[2];
-    q[1] = 0.25 * (m[1][0] + m[0][1]) / q[2];
-    q[3] = 0.25 * (m[2][1] + m[1][2]) / q[2];
-  } else {
-    q[3] = 0.5 * std::sqrt(1 - m[0][0] - m[1][1] + m[2][2]);
-    q[0] = 0.25 * (m[0][1] - m[1][0]) / q[3];
-    q[1] = 0.25 * (m[2][0] + m[0][2]) / q[3];
-    q[2] = 0.25 * (m[2][1] + m[1][2]) / q[3];
-  }
-  Norm(q, 4);
-}
+// --- Orientation (canonical quat; Q-ORIENT) ------------------------------- //
 
 OrientContext ReadOrientContext(const mj::Model& model) {
   OrientContext oc;
@@ -164,72 +127,16 @@ OrientContext ReadOrientContext(const mj::Model& model) {
   return oc;
 }
 
-void OrientationToQuat(const ps::opt<mj::Orientation>& orient,
-                       const OrientContext& oc, double quat[4]) {
-  quat[0] = 1;
-  quat[1] = quat[2] = quat[3] = 0;
-  if (!orient) return;
-
-  if (const mj::Quat* q = std::get_if<mj::Quat>(&*orient)) {
-    quat[0] = q->w;
-    quat[1] = q->x;
-    quat[2] = q->y;
-    quat[3] = q->z;
-    Norm(quat, 4);
-  } else if (const mj::AxisAngle* aa = std::get_if<mj::AxisAngle>(&*orient)) {
-    double ax[3] = {aa->axis[0], aa->axis[1], aa->axis[2]};
-    double ang = aa->angle;
-    if (oc.degree) ang = ang / 180.0 * mjPI;
-    if (Norm(ax, 3) < 1e-9) return;
-    QuatFromAxisAngle(ax, ang, quat);
-  } else if (const mj::XYAxes* xy = std::get_if<mj::XYAxes>(&*orient)) {
-    double a[3] = {xy->xyaxes[0], xy->xyaxes[1], xy->xyaxes[2]};
-    double b[3] = {xy->xyaxes[3], xy->xyaxes[4], xy->xyaxes[5]};
-    if (Norm(a, 3) < 1e-9) return;
-    const double d = Dot(a, b);
-    b[0] -= a[0] * d;
-    b[1] -= a[1] * d;
-    b[2] -= a[2] * d;
-    if (Norm(b, 3) < 1e-9) return;
-    double z[3];
-    Cross(a, b, z);
-    if (Norm(z, 3) < 1e-9) return;
-    Frame2Quat(quat, a, b, z);
-  } else if (const mj::ZAxis* za = std::get_if<mj::ZAxis>(&*orient)) {
-    double z[3] = {za->zaxis[0], za->zaxis[1], za->zaxis[2]};
-    if (Norm(z, 3) < 1e-9) return;
-    double axis[3];
-    const double zref[3] = {0, 0, 1};
-    Cross(zref, z, axis);
-    const double s = std::sqrt(axis[0] * axis[0] + axis[1] * axis[1] +
-                               axis[2] * axis[2]);
-    const double ang = std::atan2(s, z[2]);
-    if (s < 1e-10) {
-      axis[0] = 1;
-      axis[1] = axis[2] = 0;
-    }
-    QuatFromAxisAngle(axis, ang, quat);
-  } else if (const mj::Euler* eu = std::get_if<mj::Euler>(&*orient)) {
-    double e[3] = {eu->angles[0], eu->angles[1], eu->angles[2]};
-    if (oc.degree)
-      for (double& v : e) v = v / 180.0 * mjPI;
-    quat[0] = 1;
-    quat[1] = quat[2] = quat[3] = 0;
-    for (int i = 0; i < 3 && i < static_cast<int>(oc.eulerseq.size()); ++i) {
-      const char c = oc.eulerseq[i];
-      double qrot[4] = {std::cos(e[i] / 2), 0, 0, 0};
-      const double sa = std::sin(e[i] / 2);
-      const bool intrinsic = (c == 'x' || c == 'y' || c == 'z');
-      const char lc = (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c;
-      if (lc == 'x') qrot[1] = sa;
-      else if (lc == 'y') qrot[2] = sa;
-      else if (lc == 'z') qrot[3] = sa;
-      double tmp[4];
-      if (intrinsic) QuatMul(quat, qrot, tmp);
-      else QuatMul(qrot, quat, tmp);
-      for (int k = 0; k < 4; ++k) quat[k] = tmp[k];
-    }
-    Norm(quat, 4);
+void QuatOf(const ps::opt<std::array<double, 4>>& quat, double out[4]) {
+  if (quat) {
+    out[0] = (*quat)[0];
+    out[1] = (*quat)[1];
+    out[2] = (*quat)[2];
+    out[3] = (*quat)[3];
+    Norm(out, 4);
+  } else {
+    out[0] = 1;
+    out[1] = out[2] = out[3] = 0;
   }
 }
 
@@ -312,7 +219,8 @@ static Rigid ComputeParentPose(const mjData* data,
       fr.pos[1] = (*f->pos)[1];
       fr.pos[2] = (*f->pos)[2];
     }
-    OrientationToQuat(f->orient, oc, fr.quat);
+    (void)oc;
+    QuatOf(f->quat, fr.quat);
     P = Compose(P, fr);
   }
   return P;
@@ -324,22 +232,23 @@ static Rigid ComputeParentPose(const mjData* data,
 template <class E>
 static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
   Rigid L;
+  (void)oc;
   std::array<double, 3> pos{0, 0, 0};
-  ps::opt<mj::Orientation> orient;
-  if constexpr (requires { e.orient; }) orient = e.orient;
+  ps::opt<std::array<double, 4>> quat;
+  if constexpr (requires { e.quat; }) quat = e.quat;
   if (e.pos) {
     pos = *e.pos;
   } else if constexpr (sdk::HasDefaultFamily<E>::value) {
     std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
     if (eff->pos) pos = *eff->pos;
-    if constexpr (requires { e.orient; }) {
-      if (!orient) orient = eff->orient;
+    if constexpr (requires { e.quat; }) {
+      if (!quat) quat = eff->quat;
     }
   }
   L.pos[0] = pos[0];
   L.pos[1] = pos[1];
   L.pos[2] = pos[2];
-  OrientationToQuat(orient, oc, L.quat);
+  QuatOf(quat, L.quat);
   return L;
 }
 
@@ -444,7 +353,8 @@ template <class E>
 static void WriteQuat(E& e, const double q[4]) {
   double n[4] = {q[0], q[1], q[2], q[3]};
   Norm(n, 4);
-  e.orient = mj::Orientation(mj::Quat{n[0], n[1], n[2], n[3]});
+  // Q-ORIENT: authored orientation IS the canonical quat now (no variant).
+  e.quat = std::array<double, 4>{n[0], n[1], n[2], n[3]};
 }
 
 template <class E>
@@ -515,7 +425,7 @@ static void RotateElem(E& e, const DragFrame& f, const double axis[3],
       return;
     }
   }
-  if constexpr (requires { e.orient; }) {
+  if constexpr (requires { e.quat; }) {
     // L_new.quat = conj(P.quat) . qD . P.quat . L_base.quat  (pos unchanged: the
     // pivot is the element's own frame origin).
     double t1[4], t2[4], t3[4];

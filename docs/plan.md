@@ -25,7 +25,7 @@ IO work; test harnesses authored by a different agent than the code they test.
 | NC4 quick wins | **DONE** | b0af151; size.memory, custom numeric/text/tuple, NATIVE replicate expansion (pure clone arena), geom fluid; ratchet 201; attach descoped with reason; flagged real bug: sdk DefaultIndex shadows duplicate top-level default blocks (gated `default.duplicate_class`) |
 | NC5 flex + remaining (file textures/hfields, skins, attach, muscle/LR, plugins) | queued | 158 fallbacks remain, all reasoned; flexcomp (59) is the biggest single family; NC5 recon complete (see HANDOFF.md queue) |
 | Studio editor SE0-SE3 | **DONE** (SE4 + real-UI migration pending) | docs/plan_studio_editor.md STATUS; handed to owner; movability audit + real-Studio-UI spike in flight |
-| Canonicalization (minimal representation) | **audit in flight** | owner mandate: typed semantics preserved, redundant encodings canonicalized at read (orientation→quat + fromto decided); inventory: docs/plan_canonicalization.md |
+| Canonicalization (minimal representation) | **Wave A DONE** (Wave B queued) | orientation family canonicalized at read: orientation→`quat`, inertia→`diaginertia`+`iquat`, CameraIntrinsics variant dissolved (R1/R2); `core::Resolve*` lifted+registered; differential 359/387 + native ratchet 201 held. Inventory + waves: docs/plan_canonicalization.md (3 flags owner-approved 2026-07-13). Wave B (light type, springlength, cylinder area, material layers, numeric data, keyword order) queued |
 | Native compiler (RAW ProtoSpec->mjModel; NO mjSpec/mjs_*/mjC* anywhere) | **planned** | cd0998a: docs/plan_native_compiler.md — 62-row reuse ledger (18% call-as-is public API, 39% lift-verbatim with provenance registry + drift gate, 35% re-plumb, 5 rows deleted-hazard-classes); direct id-assignment Binding; phases NC1(10% corpus)→NC2(35%)→NC3(62%)→NC4(~80%)→NC5(~100%); XML path retained as oracle/fallback; survey: docs/native_compiler_survey.md (its mjs decode mapping is historical) |
 
 Key facts a fresh session needs: repo is standalone at C:\Users\jonat\Documents\protospec (this
@@ -228,24 +228,29 @@ structural fields (e.g. joint `type`) are plain `T`.
 mutation. Strings are `std::string`, numeric arrays are `std::array`/`InlineVec<T,N>` (fixed
 capacity + filled count, for variable-arity attributes). No arenas, no offsets, no refcounts.
 
-**DR-3: Variant + resolver pattern for aliasing groups.** Every mutually-exclusive field group
-becomes one tagged variant field; "exactly one form" is a type invariant, not a runtime check.
-Canonical *values* (radians, normalized quats) are enforced at the IO boundary; canonical *form*
-is available through resolvers but the authored form is data:
+**DR-3: Typed semantics preserved; redundant encodings canonicalized at read.**
+AMENDED (canonicalization Wave A, 2026-07; see `docs/plan_canonicalization.md`). The original
+policy stored *every* mutually-exclusive field group as a tagged variant and preserved the authored
+*form* as data. The canonicalization audit refined this: a field group whose spellings resolve to
+the same compiled representation with **no per-consumer/contextual branching** is an ENCODING
+(canonicalize at read, store one form, writer emits it); a group that maps to distinct `mjModel`
+state or resolves consumer-dependently is SEMANTICS (keep the typed variant). Genuinely distinct
+semantics still become typed variants; redundant encodings are folded at the IO boundary.
 
-| Variant field | Alternatives | Resolver |
+| Field group | Verdict | Storage |
 |---|---|---|
-| `Orientation` | Quat, Euler(seq-dependent), AxisAngle, XYAxes, ZAxis | `ToQuat(eulerseq)` |
-| `GeomShape` | Explicit{pos,quat,size}, FromTo{fromto,size} | `ResolvePose(geomtype)` |
-| `InertiaSpec` | Diagonal{inertia,iquat-or-ialt}, Full{fullinertia[6]} | `ToDiagonal()` (eigen-decomp, as `mjuu_fullInertia`) |
-| `TextureSource` | Builtin{...}, File{...}, CubeFiles{...}, Buffer{bytes} | n/a (true union) |
-| `CameraIntrinsics` | Fovy, Focal{...}/Sensor{...} pixel/length forms | `ToFovy(resolution)` |
-| `Limited` (tri-state) | False, True, Auto | `Resolve(autolimits, has_range)` |
+| `Orientation` (quat/euler/axisangle/xyaxes/zaxis) | **ENCODING** (Q-ORIENT) | canonical `quat : double[4]`, folded at read against compiler.angle/eulerseq (`core::ResolveOrientation`); euler/axisangle/xyaxes/zaxis are read-only input aliases |
+| `GeomShape` (explicit vs fromto) | **KEEP** (Q-FROMTO, blocker) | variant retained: class-authored fromto is per-consumer via geom-type-dependent size packing (`docs/plan_canonicalization.md` §5.2) |
+| `InertiaSpec` (diaginertia/iquat vs fullinertia) | **ENCODING** (Q-INERTIA) | canonical `diaginertia : double[3]` + `iquat : double[4]`; fullinertia is eigendecomposed at read (`core::FullInertiaToDiag`, lifting `mjuu_fullInertia`) |
+| `TextureSource` (builtin/file/cube/buffer) | **KEEP** | true union of distinct asset inputs |
+| `CameraIntrinsics` (fovy vs focal/sensor) | **KEEP semantics; variant dissolved** (R1) | fovy + focal/focalpixel/principal/principalpixel/sensorsize are plain KEEP fields (both `cam_fovy` and `cam_intrinsic` coexist); the honest exclusion is same-element fovy+sensorsize, a reader error |
+| `Limited` (tri-state) | **KEEP** (Q-AUTO) | `TriState` {False,True,Auto}, resolved via `Resolve(autolimits, has_range)` |
 
-Angles are stored in **radians always**; `compiler.degree` is consumed at read time and recorded
-only as a write-style preference. Euler orientation keeps its values (converted to radians) and
-its form. Downstream code that wants "just a quaternion" calls the resolver; nothing downstream
-ever branches on encoding.
+Angles are stored canonically at the IO boundary: orientation angles are folded into `quat`;
+scalar angle FIELDS (`compiler.angle`-dependent joint range/ref/springref) stay form-preserving
+(Q-ANGLE, per-consumer conversion). `compiler.degree` is consumed at read for orientation and
+recorded as a write-style preference for the surviving angle fields. Downstream code reads the
+canonical `quat` directly; nothing branches on an orientation encoding.
 
 **DR-4: ProtoSpec is an authoring-level model, not a compiled model.** It represents what MJCF can
 say (like mjSpec pre-compile), including `Auto` states, default classes, unresolved refs-by-name,
@@ -534,10 +539,10 @@ Every known MJCF/mjSpec quirk and its single owner in ProtoSpec. Each entry beco
 
 | ID | Quirk (source) | ProtoSpec handling |
 |---|---|---|
-| Q-ORIENT | 5 orientation encodings; `quat` field + `alt` override; MuJoCo resolves at compile (`user_objects.cc:241-330`) | One `Orientation` variant per posed element (DR-3); resolver takes `eulerseq`; reader rejects multiple specifiers (as `ReadAlternative` does) |
+| Q-ORIENT | 5 orientation encodings; `quat` field + `alt` override; MuJoCo resolves at compile (`user_objects.cc:241-330`) | CANONICALIZED (Wave A, `docs/plan_canonicalization.md`): stored as one canonical `quat : double[4]` per posed element (+ `iquat` on Inertial). The reader accepts all five spellings and folds euler/axisangle/xyaxes/zaxis into `quat` at parse end, against the document-order-folded compiler.angle/eulerseq, using the lifted `core::ResolveOrientation` (bit-identical to MuJoCo's; the differential harness gates it). Multiple-specifier still a read error. Element-wins-atomic over a class-inherited alt (a documented fix of MuJoCo's `ReadAlternative` precedence wart; no corpus witness) |
 | Q-ANGLE | `compiler.degree` + `eulerseq` deferred to compile; conversion is PER-CONSUMER (joint range only for limited hinge/ball, ref/springref only for hinge — `user_objects.cc:3207-3282`) | AMENDED (wave 1): form preservation. Angles are stored exactly as authored and the `angle` unit round-trips verbatim; MuJoCo converts at compile. Read-time conversion was proven wrong by `auto_limits.xml`: one defaults class is consumed by both a hinge (converted) and a free joint (not), so no single pre-converted value is correct. Consumers wanting radians use a resolver that takes the compiler block |
 | Q-FROMTO | `fromto` vs pos/quat (+ site variant) sentinel-guarded | `GeomShape` variant; resolver implements the capsule/cylinder/box axis math |
-| Q-INERTIA | `fullinertia[6]` vs `inertia+iquat` vs `ialt`, NaN sentinels, mutual exclusions (`user_objects.cc:2705-2716`) | `InertiaSpec` variant; exclusivity is structural; eigen-decomposition in resolver |
+| Q-INERTIA | `fullinertia[6]` vs `inertia+iquat` vs `ialt`, NaN sentinels, mutual exclusions (`user_objects.cc:2705-2716`) | CANONICALIZED (Wave A, `docs/plan_canonicalization.md`): stored as `diaginertia : double[3]` + `iquat : double[4]`. fullinertia is eigendecomposed at read into both (`core::FullInertiaToDiag`, lifting `mjuu_fullInertia`); the alt orientation spellings for the inertial frame fold into `iquat`. Exclusivities (diaginertia vs fullinertia; fullinertia vs inertial orientation) stay read errors; MuJoCo's own writer already emits only diaginertia, so this is exactly what it round-trips |
 | Q-AUTO | `limited`/`actlimited`/`ctrllimited`/`forcelimited`/`inertiafromgeom`/`align` tri-states | `TriState` enum {False,True,Auto}; never resolved in the tree; `Resolve(autolimits, ...)` helper mirrors `checklimited` (`user_objects.cc:175-187`) |
 | Q-ARITY | Variable-arity attrs (`size` 0–3, `friction` 1–3, `gear` ≤6, polynomials `mjNPOLY+1`) with type-dependent meaning | `T[min..max]` IDL arity → `InlineVec<T,N>` with filled count; geom-type-dependent size interpretation lives in the `GeomShape` resolver |
 | Q-ACT | Ten actuator spellings lower to general via `mjs_setTo*` (`user_api.cc`); MuJoCo writer only emits `<general>`; our old biastype/gaintype round-trip bug | Typed variant per spelling is the stored form (see Section 6); the writer emits the authored tag with its named params, so round-trip is exact by construction — and since the bridge also emits MJCF, **MuJoCo's own reader performs the lowering at compile**; we never reimplement it on the compile path. A small lowering module replicating `mjs_setTo*` exists only for queries (`Lower(Position) -> General` for inspection, `Raise(General) -> opt<Position/...>` for typed editing of foreign files — implemented but dormant, explicit opt-in per actuator, never on a load path; dyntype knowledge for size computation) and is differentially tested against `mjs_setTo*` |

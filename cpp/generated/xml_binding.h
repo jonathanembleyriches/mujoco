@@ -31,6 +31,19 @@ struct AttrBinding {
   bool unit_angle;              // deg->rad at IO (compiler.angle=degree)
   bool keyword_set;             // space-separated enum keyword set
   bool element_text;            // carried as element text, not attribute
+  bool resolved;                // canonicalized at parse end (Q-ORIENT/
+                                // Q-INERTIA): read via its resolver, not
+                                // the plain attr path; still emitted plain
+};
+
+// A read-only input-alias attribute (Q-ORIENT/Q-INERTIA): an MJCF attribute
+// accepted on input that is canonicalized into a sibling field at parse end
+// (euler/axisangle/xyaxes/zaxis -> quat; fullinertia -> diaginertia+iquat).
+// It has no field of its own; the reader accepts it (so it is not an unknown
+// attribute) and its resolver names the fold. The writer never emits it.
+struct InputAliasBinding {
+  std::string_view attr;        // MJCF attribute name
+  std::string_view resolver;    // parse-end resolver that folds it
 };
 
 // One arm of a variant field: its tag and the XML attribute that triggers
@@ -68,6 +81,8 @@ struct ElementBinding {
   std::string_view tag;
   const AttrBinding* attrs;
   std::size_t attr_count;
+  const InputAliasBinding* input_aliases;
+  std::size_t input_alias_count;
   const VariantBinding* variants;
   std::size_t variant_count;
   const ChildBinding* children;

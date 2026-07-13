@@ -190,7 +190,7 @@ constexpr FieldDescriptor kFields_Ballquat[] = {
 
 constexpr FieldDescriptor kFields_Body[] = {
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, true},
-    {"orient", "orient", "Orientation", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"quat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"childclass", "childclass", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"mocap", "mocap", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false},
@@ -205,7 +205,7 @@ constexpr ChildDescriptor kChildren_Body[] = {
 
 constexpr FieldDescriptor kFields_Camera[] = {
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, true},
-    {"orient", "orient", "Orientation", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"quat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"projection", "projection", "CameraProjection", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false},
@@ -219,7 +219,8 @@ constexpr FieldDescriptor kFields_Camera[] = {
     {"principalpixel", "principalpixel", "float", FieldKind::Float, ArityKind::Fixed, 2, 2, true, false},
     {"sensorsize", "sensorsize", "float", FieldKind::Float, ArityKind::Fixed, 2, 2, true, false},
     {"user", "user", "double", FieldKind::Double, ArityKind::Unbounded, 0, 0, true, false},
-    {"intrinsics", "intrinsics", "CameraIntrinsics", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"fovy", "fovy", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
+    {"focal", "focal", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, false},
 };
 
 constexpr FieldDescriptor kFields_Camprojection[] = {
@@ -720,10 +721,6 @@ constexpr FieldDescriptor kFields_Flexcomp[] = {
     {"flatskin", "flatskin", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false},
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
     {"quat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
-    {"axisangle", "axisangle", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
-    {"xyaxes", "xyaxes", "double", FieldKind::Double, ArityKind::Fixed, 6, 6, true, false},
-    {"zaxis", "zaxis", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
-    {"euler", "euler", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
     {"origin", "origin", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
 };
 constexpr ChildDescriptor kChildren_Flexcomp[] = {
@@ -782,7 +779,7 @@ constexpr FieldDescriptor kFields_Force[] = {
 
 constexpr FieldDescriptor kFields_Frame[] = {
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, true},
-    {"orient", "orient", "Orientation", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"quat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
 };
@@ -945,7 +942,7 @@ constexpr FieldDescriptor kFields_Fromto[] = {
 
 constexpr FieldDescriptor kFields_Geom[] = {
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, true},
-    {"orient", "orient", "Orientation", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"quat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"type", "type", "GeomType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, true},
@@ -1003,8 +1000,8 @@ constexpr FieldDescriptor kFields_Hfield[] = {
 constexpr FieldDescriptor kFields_Inertial[] = {
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
     {"mass", "mass", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
-    {"iorient", "iorient", "Orientation", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
-    {"inertia", "inertia", "InertiaSpec", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"iquat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
+    {"diaginertia", "diaginertia", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
 };
 
 constexpr FieldDescriptor kFields_Insidesite[] = {
@@ -1555,7 +1552,7 @@ constexpr FieldDescriptor kFields_SensorUser[] = {
 
 constexpr FieldDescriptor kFields_Site[] = {
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, true},
-    {"orient", "orient", "Orientation", FieldKind::Variant, ArityKind::Scalar, 0, 0, true, false},
+    {"quat", "quat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false},
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"type", "type", "GeomType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, true},
@@ -2450,7 +2447,7 @@ bool Present_Body(const void* p, int fid) {
   (void)e;
   switch (fid) {
     case 0: return e.pos.has_value();
-    case 1: return e.orient.has_value();
+    case 1: return e.quat.has_value();
     case 2: return e.name.has_value();
     case 3: return e.childclass.has_value();
     case 4: return e.mocap.has_value();
@@ -2464,7 +2461,7 @@ void Clear_Body(void* p, int fid) {
   auto& e = *static_cast<Body*>(p);
   switch (fid) {
     case 0: e.pos.reset(); break;
-    case 1: e.orient.reset(); break;
+    case 1: e.quat.reset(); break;
     case 2: e.name.reset(); break;
     case 3: e.childclass.reset(); break;
     case 4: e.mocap.reset(); break;
@@ -2480,7 +2477,7 @@ bool Present_Camera(const void* p, int fid) {
   (void)e;
   switch (fid) {
     case 0: return e.pos.has_value();
-    case 1: return e.orient.has_value();
+    case 1: return e.quat.has_value();
     case 2: return e.name.has_value();
     case 3: return e.dclass.has_value();
     case 4: return e.projection.has_value();
@@ -2494,7 +2491,8 @@ bool Present_Camera(const void* p, int fid) {
     case 12: return e.principalpixel.has_value();
     case 13: return e.sensorsize.has_value();
     case 14: return e.user.has_value();
-    case 15: return e.intrinsics.has_value();
+    case 15: return e.fovy.has_value();
+    case 16: return e.focal.has_value();
     default: return false;
   }
 }
@@ -2502,7 +2500,7 @@ void Clear_Camera(void* p, int fid) {
   auto& e = *static_cast<Camera*>(p);
   switch (fid) {
     case 0: e.pos.reset(); break;
-    case 1: e.orient.reset(); break;
+    case 1: e.quat.reset(); break;
     case 2: e.name.reset(); break;
     case 3: e.dclass.reset(); break;
     case 4: e.projection.reset(); break;
@@ -2516,7 +2514,8 @@ void Clear_Camera(void* p, int fid) {
     case 12: e.principalpixel.reset(); break;
     case 13: e.sensorsize.reset(); break;
     case 14: e.user.reset(); break;
-    case 15: e.intrinsics.reset(); break;
+    case 15: e.fovy.reset(); break;
+    case 16: e.focal.reset(); break;
     default: break;
   }
 }
@@ -3649,11 +3648,7 @@ bool Present_Flexcomp(const void* p, int fid) {
     case 19: return e.flatskin.has_value();
     case 20: return e.pos.has_value();
     case 21: return e.quat.has_value();
-    case 22: return e.axisangle.has_value();
-    case 23: return e.xyaxes.has_value();
-    case 24: return e.zaxis.has_value();
-    case 25: return e.euler.has_value();
-    case 26: return e.origin.has_value();
+    case 22: return e.origin.has_value();
     default: return false;
   }
 }
@@ -3682,11 +3677,7 @@ void Clear_Flexcomp(void* p, int fid) {
     case 19: e.flatskin.reset(); break;
     case 20: e.pos.reset(); break;
     case 21: e.quat.reset(); break;
-    case 22: e.axisangle.reset(); break;
-    case 23: e.xyaxes.reset(); break;
-    case 24: e.zaxis.reset(); break;
-    case 25: e.euler.reset(); break;
-    case 26: e.origin.reset(); break;
+    case 22: e.origin.reset(); break;
     default: break;
   }
 }
@@ -3828,7 +3819,7 @@ bool Present_Frame(const void* p, int fid) {
   (void)e;
   switch (fid) {
     case 0: return e.pos.has_value();
-    case 1: return e.orient.has_value();
+    case 1: return e.quat.has_value();
     case 2: return e.name.has_value();
     case 3: return e.dclass.has_value();
     default: return false;
@@ -3838,7 +3829,7 @@ void Clear_Frame(void* p, int fid) {
   auto& e = *static_cast<Frame*>(p);
   switch (fid) {
     case 0: e.pos.reset(); break;
-    case 1: e.orient.reset(); break;
+    case 1: e.quat.reset(); break;
     case 2: e.name.reset(); break;
     case 3: e.dclass.reset(); break;
     default: break;
@@ -4242,7 +4233,7 @@ bool Present_Geom(const void* p, int fid) {
   (void)e;
   switch (fid) {
     case 0: return e.pos.has_value();
-    case 1: return e.orient.has_value();
+    case 1: return e.quat.has_value();
     case 2: return e.name.has_value();
     case 3: return e.dclass.has_value();
     case 4: return e.type.has_value();
@@ -4277,7 +4268,7 @@ void Clear_Geom(void* p, int fid) {
   auto& e = *static_cast<Geom*>(p);
   switch (fid) {
     case 0: e.pos.reset(); break;
-    case 1: e.orient.reset(); break;
+    case 1: e.quat.reset(); break;
     case 2: e.name.reset(); break;
     case 3: e.dclass.reset(); break;
     case 4: e.type.reset(); break;
@@ -4375,8 +4366,8 @@ bool Present_Inertial(const void* p, int fid) {
   switch (fid) {
     case 0: return e.pos.has_value();
     case 1: return e.mass.has_value();
-    case 2: return e.iorient.has_value();
-    case 3: return e.inertia.has_value();
+    case 2: return e.iquat.has_value();
+    case 3: return e.diaginertia.has_value();
     default: return false;
   }
 }
@@ -4385,8 +4376,8 @@ void Clear_Inertial(void* p, int fid) {
   switch (fid) {
     case 0: e.pos.reset(); break;
     case 1: e.mass.reset(); break;
-    case 2: e.iorient.reset(); break;
-    case 3: e.inertia.reset(); break;
+    case 2: e.iquat.reset(); break;
+    case 3: e.diaginertia.reset(); break;
     default: break;
   }
 }
@@ -5675,7 +5666,7 @@ bool Present_Site(const void* p, int fid) {
   (void)e;
   switch (fid) {
     case 0: return e.pos.has_value();
-    case 1: return e.orient.has_value();
+    case 1: return e.quat.has_value();
     case 2: return e.name.has_value();
     case 3: return e.dclass.has_value();
     case 4: return e.type.has_value();
@@ -5692,7 +5683,7 @@ void Clear_Site(void* p, int fid) {
   auto& e = *static_cast<Site*>(p);
   switch (fid) {
     case 0: e.pos.reset(); break;
-    case 1: e.orient.reset(); break;
+    case 1: e.quat.reset(); break;
     case 2: e.name.reset(); break;
     case 3: e.dclass.reset(); break;
     case 4: e.type.reset(); break;
@@ -6871,7 +6862,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Ballangvel", "ballangvel", ElementType::Ballangvel, kFields_Ballangvel, 9, nullptr, 0, &Present_Ballangvel, &Clear_Ballangvel},
     {"Ballquat", "ballquat", ElementType::Ballquat, kFields_Ballquat, 9, nullptr, 0, &Present_Ballquat, &Clear_Ballquat},
     {"Body", "body", ElementType::Body, kFields_Body, 8, kChildren_Body, 2, &Present_Body, &Clear_Body},
-    {"Camera", "camera", ElementType::Camera, kFields_Camera, 16, nullptr, 0, &Present_Camera, &Clear_Camera},
+    {"Camera", "camera", ElementType::Camera, kFields_Camera, 17, nullptr, 0, &Present_Camera, &Clear_Camera},
     {"Camprojection", "camprojection", ElementType::Camprojection, kFields_Camprojection, 10, nullptr, 0, &Present_Camprojection, &Clear_Camprojection},
     {"Clock", "clock", ElementType::Clock, kFields_Clock, 8, nullptr, 0, &Present_Clock, &Clear_Clock},
     {"Compiler", "compiler", ElementType::Compiler, kFields_Compiler, 20, kChildren_Compiler, 1, &Present_Compiler, &Clear_Compiler},
@@ -6906,7 +6897,7 @@ constexpr ElementDescriptor kElements[] = {
     {"FlexContact", "contact", ElementType::FlexContact, kFields_FlexContact, 14, nullptr, 0, &Present_FlexContact, &Clear_FlexContact},
     {"FlexEdge", "edge", ElementType::FlexEdge, kFields_FlexEdge, 2, nullptr, 0, &Present_FlexEdge, &Clear_FlexEdge},
     {"FlexElasticity", "elasticity", ElementType::FlexElasticity, kFields_FlexElasticity, 5, nullptr, 0, &Present_FlexElasticity, &Clear_FlexElasticity},
-    {"Flexcomp", "flexcomp", ElementType::Flexcomp, kFields_Flexcomp, 27, kChildren_Flexcomp, 5, &Present_Flexcomp, &Clear_Flexcomp},
+    {"Flexcomp", "flexcomp", ElementType::Flexcomp, kFields_Flexcomp, 23, kChildren_Flexcomp, 5, &Present_Flexcomp, &Clear_Flexcomp},
     {"FlexcompEdge", "edge", ElementType::FlexcompEdge, kFields_FlexcompEdge, 5, nullptr, 0, &Present_FlexcompEdge, &Clear_FlexcompEdge},
     {"FlexcompPin", "pin", ElementType::FlexcompPin, kFields_FlexcompPin, 4, nullptr, 0, &Present_FlexcompPin, &Clear_FlexcompPin},
     {"Flexstrain", "flexstrain", ElementType::Flexstrain, kFields_Flexstrain, 7, nullptr, 0, &Present_Flexstrain, &Clear_Flexstrain},

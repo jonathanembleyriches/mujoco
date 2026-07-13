@@ -133,8 +133,14 @@ class _SchemaIndex:
                         enum_attrs[arm["tag"]] = self._enum_values[at["name"]]
                         enum_of[arm["tag"]] = at["name"]
             else:
-                attr = (f.get("annotations") or {}).get("xml", f["name"])
+                anns = f.get("annotations") or {}
+                attr = anns.get("xml", f["name"])
                 attrs.add(attr)
+                # A canonicalized field (Q-ORIENT/Q-INERTIA) also accepts its
+                # `aliases` MJCF spellings on input (euler/axisangle/... -> quat;
+                # fullinertia -> diaginertia+iquat); each is a covered attribute.
+                for alias in (anns.get("aliases", "").split()):
+                    attrs.add(alias)
                 if t["kind"] == "named" and t.get("category") == "enum":
                     enum_attrs[attr] = self._enum_values[t["name"]]
                     enum_of[attr] = t["name"]
