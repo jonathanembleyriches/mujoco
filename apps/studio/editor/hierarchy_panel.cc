@@ -200,6 +200,24 @@ void HierarchyUpdate(GuiPlugin* self) {
   }
   ImGui::EndChild();
 
+  // Service a viewport Del request through the same referrer-confirm flow.
+  if (c->delete_request_serial != 0) {
+    const std::uint64_t sn = c->delete_request_serial;
+    c->delete_request_serial = 0;
+    std::string desc = c->selected_desc.empty()
+                           ? ("serial " + std::to_string(sn))
+                           : c->selected_desc;
+    std::vector<std::string> dangling = PreviewDeleteReferrers(*c, sn);
+    if (dangling.empty()) {
+      CommitDelete(*c, sn, /*cascade=*/false, desc);
+    } else {
+      st.delete_serial = sn;
+      st.delete_desc = desc;
+      st.delete_dangling = std::move(dangling);
+      st.open_delete = true;
+    }
+  }
+
   DrawDeleteModal(*c, st);
 }
 

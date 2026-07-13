@@ -5,5 +5,6 @@
 #include "platform/ux/registry.inc.h"
 
 PS_STUDIO_INSTANTIATE_PLUGIN(ps::studio::ViewportPlugin);
+PS_STUDIO_INSTANTIATE_PLUGIN(ps::studio::ViewportGuiPlugin);
 PS_STUDIO_INSTANTIATE_PLUGIN(ps::studio::OverlayPlugin);
 PS_STUDIO_INSTANTIATE_PLUGIN(ps::studio::ModelSourcePlugin);

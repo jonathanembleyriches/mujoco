@@ -18,6 +18,7 @@
 #include <imgui_stdlib.h>
 
 #include "binding.h"
+#include "editor/editor_ops.h"
 #include "platform/ux/plugin.h"
 #include "protospec/classes.h"
 
@@ -467,6 +468,10 @@ struct RowVisitor {
   void field(int id, const char*, T& value) {
     if (id < 0 || id >= static_cast<int>(desc.field_count)) return;
     const reflect::FieldDescriptor& fd = desc.fields[id];
+    // The name field is edited through the rename op (referrers rewritten
+    // atomically), NOT written in place -- so it is drawn by RenderNameRow and
+    // skipped here (SE1b reconciliation).
+    if (fd.xml == "name") return;
     if (IsTransformField(fd) != transform_phase) return;
     if constexpr (sdkd::is_opt<T>::value) {
       using Inner = typename sdkd::is_opt<T>::inner;
@@ -489,6 +494,48 @@ bool AnyTransformField(const reflect::ElementDescriptor& desc) {
   return false;
 }
 
+// True for an element carrying an `opt<string> name` field (excludes Default,
+// whose identity is `dclass` and whose rename is owned by the Hierarchy).
+template <class E>
+constexpr bool ElemHasName() {
+  if constexpr (std::is_same_v<E, mj::Default>) {
+    return false;
+  } else if constexpr (requires(E& x) { x.name; }) {
+    using NT = std::decay_t<decltype(std::declval<E&>().name)>;
+    return sdkd::is_opt<NT>::value &&
+           std::is_same_v<typename sdkd::is_opt<NT>::inner, std::string>;
+  } else {
+    return false;
+  }
+}
+
+// The element's name field, routed through the rename op so every typed referrer
+// is rewritten atomically (a direct write would leave danglers). Classes keep the
+// existing in-place editor (the Hierarchy owns class rename).
+template <class E>
+void RenderNameRow(EditorContext& ctx, E& e) {
+  if constexpr (ElemHasName<E>()) {
+    const std::string* nm = sdkd::NameOf(e);
+    const std::string cur = nm ? *nm : "";
+    std::string work = cur;
+    ImGui::PushID("name_field");
+    ImGui::TextUnformatted("name");
+    ImGui::SameLine(180.0f);
+    ImGui::SetNextItemWidth(kFieldWidth * 2.2f);
+    ImGui::InputText("##name", &work);
+    if (GestureShouldCommit(ctx)) {
+      if (!work.empty() && work != cur) {
+        ps::studio::RenameBySerial(ctx, e.serial, work);
+        EditCommit(ctx, "rename");
+        ps::studio::SelectBySerial(ctx, e.serial);
+      } else {
+        EditCancel(ctx);  // no effective change: drop the pending snapshot
+      }
+    }
+    ImGui::PopID();
+  }
+}
+
 template <class E>
 void RenderElement(EditorContext& ctx, E& e) {
   const reflect::ElementDescriptor& desc =
@@ -507,6 +554,8 @@ void RenderElement(EditorContext& ctx, E& e) {
     ImGui::TextDisabled("%s:%d", e.loc.file.c_str(), e.loc.line);
   }
   ImGui::Separator();
+
+  RenderNameRow(ctx, e);
 
   std::unique_ptr<E> eff_class = sdk::Effective(*ctx.tree, e, false);
   std::unique_ptr<E> eff_full = sdk::Effective(*ctx.tree, e, true);

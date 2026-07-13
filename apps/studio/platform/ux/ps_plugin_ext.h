@@ -57,6 +57,25 @@ struct ViewportPlugin final {
   void* data = nullptr;
 };
 
+// Draws editor overlays into the active ImGui frame over the viewport (the
+// screen-space gizmos, §5 / deliverable 3). Invoked each frame during GUI build
+// with the live camera + viewport metrics so the drawlist can project against
+// the rendered scene. Stock Studio hard-codes viewport overlays in app.cc; we
+// surface them as a plugin. `edit_mode` lets an overlay draw only when editing.
+struct ViewportGuiPlugin final {
+  struct Context {
+    const mjModel* model = nullptr;
+    const mjData* data = nullptr;
+    const mjvCamera* camera = nullptr;
+    float aspect_ratio = 1.0f;
+    bool edit_mode = true;
+  };
+  using DrawFn = void (*)(ViewportGuiPlugin* self, const Context& ctx);
+  const char* name = "";
+  DrawFn draw = nullptr;
+  void* data = nullptr;
+};
+
 // Appends editor overlays to the live mjvScene before it is drawn.
 struct OverlayPlugin final {
   using AddOverlayFn = void (*)(OverlayPlugin* self, const mjModel* model,

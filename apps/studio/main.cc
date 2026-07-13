@@ -18,6 +18,7 @@ namespace {
 struct Args {
   std::string model_path;
   int smoke_frames = 0;
+  bool smoke_edit = false;
 };
 
 Args ParseArgs(int argc, char** argv) {
@@ -30,6 +31,8 @@ Args ParseArgs(int argc, char** argv) {
       }
     } else if (a.rfind("--smoke-frames=", 0) == 0) {
       args.smoke_frames = std::atoi(a.c_str() + std::strlen("--smoke-frames="));
+    } else if (a == "--smoke-edit") {
+      args.smoke_edit = true;
     } else if (!a.empty() && a[0] != '-') {
       if (args.model_path.empty()) {
         args.model_path = a;
@@ -56,13 +59,15 @@ int main(int argc, char** argv) {
   // context that must outlive the loop.
   ps::studio::EditorContext editor_ctx;
   ps::studio::RegisterEditorPlugins(editor_ctx);
+  app.AttachEditor(&editor_ctx);
 
   if (!args.model_path.empty()) {
     app.RequestLoad(args.model_path);
   }
 
   if (smoke) {
-    return app.SmokeRun(args.smoke_frames);
+    return args.smoke_edit ? app.SmokeEditRun(args.smoke_frames)
+                           : app.SmokeRun(args.smoke_frames);
   }
 
   while (app.Update()) {

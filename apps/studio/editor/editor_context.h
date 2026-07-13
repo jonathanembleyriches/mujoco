@@ -62,6 +62,24 @@ class PendingLoad {
   bool pending_ = false;
 };
 
+// Unity-style mode machine (DR-S2). Edit is the default: physics paused, mjData
+// at qpos0, gizmos live. Play runs the simulation; Stop discards sim state and
+// returns to Edit.
+enum class EditorMode { Edit, Play };
+
+// The active transform tool (Q/W/E/R). Select shows no gizmo.
+enum class GizmoTool { Select, Translate, Rotate, Scale };
+
+// Gizmo interaction settings surfaced on the toolbar (§ deliverable 2).
+struct GizmoSettings {
+  GizmoTool tool = GizmoTool::Select;
+  bool world_space = true;   // Local/World toggle: true == world axes
+  bool snap = false;
+  double snap_translate = 0.1;    // metres
+  double snap_rotate_deg = 15.0;  // degrees
+  double snap_scale = 0.05;       // scale-factor increment
+};
+
 struct EditorContext {
   // The authored ProtoSpec tree (the single source of truth) and its last good
   // compiled artifact (owns mjModel + Binding + report).
@@ -74,6 +92,8 @@ struct EditorContext {
   std::string source_path;   // last loaded/saved file path (for Save)
   std::string base_dir;      // model dir for on-disk asset resolution on recompile
   bool model_ready = false;  // a compiled model is available for the host
+  bool fresh_load = false;   // one-shot: the last adopt was a file load, not a
+                            // drag recompile (host resets the free camera)
 
   // Diagnostics panel log (validation tiers 1-2, compile report, pick events).
   std::deque<std::string> diagnostics;
@@ -83,14 +103,29 @@ struct EditorContext {
   std::uint64_t selected_serial = 0;
   std::string selected_desc;
 
-  // A double-click focus request the viewport (SE2) will consume for framing;
-  // the host ignores it for now. Non-zero == a fresh request for that serial.
+  // A double-click focus request the viewport consumes for framing (F). Non-zero
+  // == a fresh request for that serial.
   std::uint64_t focus_request_serial = 0;
+
+  // A delete request from the viewport (Del key). The Hierarchy panel services it
+  // through the SE1a referrer-confirm flow (preview -> cascade/cancel modal).
+  std::uint64_t delete_request_serial = 0;
 
   // Editor state.
   UndoStack history;
   bool dirty = false;                 // unsaved authored edits pending
-  bool recompile_requested = false;   // a deferred recompile is queued (§ DR-S3)
+  bool recompile_requested = false;   // an Edit-mode debounced recompile is queued
+  bool apply_edits = false;           // one-shot: compile now regardless of mode
+                                      // (the ▶ "compile if dirty then run" path)
+
+  // Mode machine + gizmo interaction settings (SE2). The host toolbar drives the
+  // mode; the viewport/gizmo plugins read it (gizmos render only in Edit mode).
+  EditorMode mode = EditorMode::Edit;
+  bool play_paused = false;           // ⏸ within Play mode
+  GizmoSettings gizmo;
+  bool gizmo_active = false;           // a gizmo drag is in progress (host reads
+                                      // this so Esc cancels the drag, not exit)
+  std::string transient_status;       // gizmo notes (euler->quat, mesh-scale warn)
 
   void Log(std::string line) {
     diagnostics.push_back(std::move(line));

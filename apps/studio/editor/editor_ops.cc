@@ -120,6 +120,7 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
   ctx.source_path = fpath.string();
   ctx.history.Clear();
   ctx.recompile_requested = false;
+  ctx.fresh_load = true;  // host resets the free camera on this adopt
   ctx.selected_serial = 0;
   ctx.selected_desc.clear();
   return true;
@@ -130,6 +131,11 @@ bool RecompileTree(EditorContext& ctx) {
     return false;
   }
   return CompileCurrent(ctx, "recompiled");
+}
+
+bool ShouldServiceRecompile(const EditorContext& ctx) {
+  return (ctx.recompile_requested || ctx.apply_edits) &&
+         (ctx.apply_edits || ctx.mode == EditorMode::Edit);
 }
 
 bool SaveModel(EditorContext& ctx, const std::string& path) {

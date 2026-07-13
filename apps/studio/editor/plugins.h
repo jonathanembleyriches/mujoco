@@ -22,8 +22,9 @@ void RegisterHierarchyPanel(EditorContext& ctx);
 // (panels.cc).
 void RegisterEditorPanels(EditorContext& ctx);
 
-// The Viewport plugin that ray-picks and logs the resolved element.
-void RegisterPickLogger(EditorContext& ctx);
+// The Viewport editor plugin cluster (SE2): pick/select, the transform gizmo
+// (mouse + draw hooks), the selection outline, and the QWER/Del key handlers.
+void RegisterViewportEditor(EditorContext& ctx);
 
 // The generated Details panel, owned by the concurrent SE1b cluster
 // (details_panel.cc, namespace ps::studio::details).
@@ -37,7 +38,7 @@ inline void RegisterEditorPlugins(EditorContext& ctx) {
   RegisterHierarchyPanel(ctx);
   details::RegisterDetailsPanel(ctx);
   RegisterEditorPanels(ctx);
-  RegisterPickLogger(ctx);
+  RegisterViewportEditor(ctx);
 }
 
 }  // namespace ps::studio

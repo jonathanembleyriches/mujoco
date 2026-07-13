@@ -142,7 +142,11 @@ add_library(protospec_studio_shell STATIC
   editor/hierarchy_panel.cc
   editor/protospec_editor.cc
   editor/panels.cc
-  editor/pick_logger.cc
+  # SE2 viewport editor: gizmo interaction, screen-space drawing, delta math.
+  editor/viewport_plugin.cc
+  editor/gizmo.cc
+  editor/gizmo_math.cc
+  editor/transform_math.cc
   # SE1b (generated Details panel) adds its source here:
   editor/details_panel.cc
 )
@@ -198,6 +202,33 @@ add_custom_command(TARGET protospec_studio_tests POST_BUILD
           "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_tests>"
   VERBATIM)
 add_test(NAME protospec_studio_tests COMMAND protospec_studio_tests)
+
+# --- SE2 gizmo / delta-math windowless tests (own main) -------------------- #
+# The DR-S6 delta rule + gizmo projection/hit-testing math are pure (no window),
+# so they link the core plus the transform/gizmo math directly.
+add_executable(protospec_studio_gizmo_tests
+  test/test_gizmo.cc
+  editor/transform_math.cc
+  editor/gizmo_math.cc
+  editor/editor_ops.cc
+  editor/undo.cc
+)
+target_link_libraries(protospec_studio_gizmo_tests PRIVATE
+  protospec_studio_core
+  "${MUJOCO_IMPORT_LIB}"
+)
+target_include_directories(protospec_studio_gizmo_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_gizmo_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_gizmo_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_gizmo_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_gizmo_tests COMMAND protospec_studio_gizmo_tests)
 
 # --- SE1b generated-Details windowless tests (own main) -------------------- #
 # details_panel.h is windowless (no ImGui); these tests link only the core.

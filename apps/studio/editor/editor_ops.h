@@ -27,6 +27,12 @@ bool LoadModel(EditorContext& ctx, const std::string& path);
 // is ready for the host to adopt.
 bool RecompileTree(EditorContext& ctx);
 
+// The mode-machine gate on the debounced recompile: Edit mode services queued
+// recompiles (the drag preview); Play defers them so mid-play edits take effect
+// only on the next compile (DR-S2), unless the one-shot `apply_edits` is set (the
+// ▶ "compile if dirty then run" transition). The ModelSource poll calls this.
+bool ShouldServiceRecompile(const EditorContext& ctx);
+
 // Serializes the authored tree to `path` via WriteMjcf (authored forms / classes
 // / macros preserved). Clears the dirty flag and updates the source path on
 // success. Returns false and logs on I/O failure.

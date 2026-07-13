@@ -21,6 +21,7 @@
 
 #include <mujoco/mujoco.h>
 
+#include "editor/editor_context.h"
 #include "platform/hal/renderer.h"
 #include "platform/hal/window.h"
 #include "platform/sim/step_control.h"
@@ -46,6 +47,11 @@ class App {
   // ModelSource plugins on the next frame.
   void RequestLoad(std::string path);
 
+  // Attaches the shared editor context so the host can drive the mode machine
+  // (Edit/Play), render the tool/snap toolbar, and frame the selection (F). The
+  // editor plugins own their view of this same context.
+  void AttachEditor(EditorContext* editor) { editor_ = editor; }
+
   // One frame of input + plugin dispatch + physics. Returns false to quit.
   bool Update();
 
@@ -62,6 +68,10 @@ class App {
   // --smoke-frames CI hook (typically with a hidden window). Returns 0.
   int SmokeRun(int frames);
 
+  // Edit-mode smoke: selects a body and drives a gizmo drag through the testable
+  // core (the --smoke-edit CI hook). Returns 0.
+  int SmokeEditRun(int frames);
+
  private:
   void AdoptCompiledModel(mjModel* model);
   void ProcessPendingLoads();
@@ -69,6 +79,15 @@ class App {
   void HandleWindowEvents();
   void HandleInput();
   void ResetPhysics();
+
+  // Mode machine (DR-S2): derive StepControl's pause from the editor mode, and
+  // the ▶/⏸/⏹/Space transitions.
+  void ApplyMode();
+  void EnterPlay();
+  void PausePlay();
+  void StopToEdit();
+  void ToggleSpace();
+  void FrameSelection(std::uint64_t serial);
 
   void ToolBarGui();
   void StatusBarGui();
@@ -87,9 +106,12 @@ class App {
   mjvPerturb perturb_{};
   int camera_idx_ = kFreeCameraFallback;
 
+  EditorContext* editor_ = nullptr;  // shared with the editor plugins (borrowed)
+
   std::string pending_load_;
   bool has_pending_load_ = false;
   bool should_exit_ = false;
+  bool pending_play_ = false;  // ▶ pressed while dirty: compile, then start play
 
   static constexpr int kFreeCameraFallback = -3;  // matches interaction tumble
 };

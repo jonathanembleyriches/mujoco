@@ -38,9 +38,12 @@ void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
 
     // Otherwise service a debounced recompile request (edits coalesce to at most
     // one compile per frame, DR-S3). A failed recompile keeps the last good
-    // artifact running and does not re-adopt.
-    if (c->recompile_requested) {
+    // artifact running and does not re-adopt. In Play mode, recompiles are
+    // deferred (edits take effect on the next compile) unless `apply_edits` is
+    // set -- the one-shot the ▶ "compile if dirty then run" path raises.
+    if (ShouldServiceRecompile(*c)) {
       c->recompile_requested = false;
+      c->apply_edits = false;
       if (RecompileTree(*c)) {
         out->model = c->compiled.model.get();
         return true;
