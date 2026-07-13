@@ -66,7 +66,7 @@ struct ViewportGuiPlugin final {
   struct Context {
     const mjModel* model = nullptr;
     const mjData* data = nullptr;
-    const mjvCamera* camera = nullptr;
+    mjvCamera* camera = nullptr;  // mutable: an overlay may service an F-focus
     float aspect_ratio = 1.0f;
     bool edit_mode = true;
   };

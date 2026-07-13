@@ -152,6 +152,51 @@ ScaleBase BuildScaleBase(mj::Model& tree, std::uint64_t serial);
 void ApplyScale(mj::Model& tree, std::uint64_t serial, const ScaleBase& base,
                 const double factor[3]);
 
+// --- Joint rigging (SE4, kept deliberately separate) ---------------------- //
+//
+// Joints are not general spatial elements (no orient, no shape), so they are
+// NOT threaded through FindSpatial / BuildDragFrame / the generic Translate/
+// Rotate/Scale cases above. They get their own resolve + drag-frame + apply
+// functions here so an upstream transform_math sync merges without colliding
+// with the joint additions. Two edits are supported, both delta-rule (DR-S6):
+//   * W translate: move the joint's `pos` (the hinge/slide anchor) in the body
+//     frame, exactly like an element pos delta.
+//   * E reorient : rotate the joint's `axis` vector (hinge/slide) about a world
+//     axis, optionally snapping the resulting body-frame axis to +/-X/Y/Z.
+// Ball/free joints have no single axis to reorient (E is a no-op for them); all
+// joint types can be translated.
+
+// True iff `serial` resolves to a Joint or FreeJoint element in `tree`.
+bool IsJointSerial(mj::Model& tree, std::uint64_t serial);
+
+// Grab-time joint frame: the parent (body + frame chain) world pose P, plus the
+// materialised authored anchor `pos` and unit `axis`, both in the parent frame,
+// and the derived world-space anchor the gizmo draws against.
+struct JointDragFrame {
+  bool valid = false;
+  bool has_axis = false;        // hinge/slide carry a reorientable axis
+  mj::JointType type = mj::JointType::hinge;
+  Rigid parent;                 // P: parent (body/frame) world pose at qpos0
+  double pos[3] = {0, 0, 0};    // authored anchor in the parent frame
+  double axis[3] = {0, 0, 1};   // authored/effective unit axis in the parent frame
+  double world_anchor[3] = {0, 0, 0};   // P . pos
+  double world_axis[3] = {0, 0, 1};     // P.quat . axis (unit, for drawing)
+};
+JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
+                                   const mj::bridge::Binding& binding,
+                                   mj::Model& tree, std::uint64_t serial);
+
+// Move the joint's authored anchor by a cumulative world-space translation.
+void ApplyJointTranslate(mj::Model& tree, std::uint64_t serial,
+                         const JointDragFrame& f, const double world_delta[3]);
+
+// Reorient the joint's `axis` by a cumulative world rotation of `angle` (radians)
+// about unit world `axis`. With `snap_axis`, the resulting parent-frame axis is
+// snapped to the nearest signed cardinal axis (+/-X/Y/Z). No-op for ball/free.
+void ApplyJointAxisRotate(mj::Model& tree, std::uint64_t serial,
+                          const JointDragFrame& f, const double world_axis[3],
+                          double angle, bool snap_axis);
+
 }  // namespace ps::studio
 
 #endif  // PS_STUDIO_EDITOR_TRANSFORM_MATH_H_

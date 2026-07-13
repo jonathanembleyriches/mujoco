@@ -76,6 +76,34 @@ ImU32 AxisColor(int axis, bool hot) {
   }
 }
 
+// A display frame for the current selection: either the generic spatial drag
+// frame, or -- for a joint -- a synthetic frame anchored at the joint origin
+// with world axes, plus the grab-time JointDragFrame the apply step needs.
+struct DisplayFrame {
+  DragFrame f;
+  bool joint = false;
+  JointDragFrame jf;
+};
+static DisplayFrame BuildDisplay(EditorContext& ctx, const mjModel* m,
+                                 const mjData* d) {
+  DisplayFrame out;
+  if (ctx.tree && IsJointSerial(*ctx.tree, ctx.selected_serial)) {
+    out.joint = true;
+    out.jf = BuildJointDragFrame(m, d, ctx.compiled.binding, *ctx.tree,
+                                 ctx.selected_serial);
+    out.f.valid = out.jf.valid;
+    out.f.type = mj::ElementType::Joint;
+    out.f.parent = out.jf.parent;
+    for (int k = 0; k < 3; ++k) out.f.anchor[k] = out.jf.world_anchor[k];
+    out.f.world_quat[0] = 1;
+    out.f.world_quat[1] = out.f.world_quat[2] = out.f.world_quat[3] = 0;
+  } else {
+    out.f = BuildDragFrame(m, d, ctx.compiled.binding, *ctx.tree,
+                           ctx.selected_serial);
+  }
+  return out;
+}
+
 }  // namespace
 
 // Hit-test the assembled gizmo at `mouse` (pixels). Priority favours the inner
@@ -198,8 +226,12 @@ void GizmoController::Begin(EditorContext& ctx, const ViewportInput& in,
   dragging_ = true;
   grabbed_ = h;
   drag_serial_ = ctx.selected_serial;
-  frame_ = BuildDragFrame(in.model, in.data, ctx.compiled.binding, *ctx.tree,
-                          ctx.selected_serial);
+  {
+    DisplayFrame df = BuildDisplay(ctx, in.model, in.data);
+    frame_ = df.f;
+    joint_mode_ = df.joint;
+    joint_frame_ = df.jf;
+  }
   const VpMetrics m = MainViewport();
   gizmo_size_ = WorldSizeForPixels(vp, frame_.anchor, kGizmoPixels, m.h);
 
@@ -282,7 +314,10 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       if (!ClosestPointOnLine(frame_.anchor, a0, ro, rd, &t)) return;
       double dist = Snap(t - grab_axis_t_, g.snap_translate, g.snap);
       double wd[3] = {a0[0] * dist, a0[1] * dist, a0[2] * dist};
-      ApplyTranslate(*ctx.tree, drag_serial_, frame_, wd);
+      if (joint_mode_)
+        ApplyJointTranslate(*ctx.tree, drag_serial_, joint_frame_, wd);
+      else
+        ApplyTranslate(*ctx.tree, drag_serial_, frame_, wd);
       break;
     }
     case HandleKind::TransPlane:
@@ -306,7 +341,10 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
         dj = Snap(dj, g.snap_translate, true);
         for (int k = 0; k < 3; ++k) wd[k] = di*ax[i][k]+dj*ax[j][k];
       }
-      ApplyTranslate(*ctx.tree, drag_serial_, frame_, wd);
+      if (joint_mode_)
+        ApplyJointTranslate(*ctx.tree, drag_serial_, joint_frame_, wd);
+      else
+        ApplyTranslate(*ctx.tree, drag_serial_, frame_, wd);
       break;
     }
     case HandleKind::RotAxis:
@@ -335,9 +373,19 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       double delta = ang - grab_angle_;
       while (delta > kPi) delta -= 2 * kPi;
       while (delta < -kPi) delta += 2 * kPi;
-      double snapped = Snap(delta, g.snap_rotate_deg * kPi / 180.0, g.snap);
-      ApplyRotate(*ctx.tree, drag_serial_, frame_, n, snapped);
-      ctx.transient_status = "gizmo: rotation materialised as quat";
+      if (joint_mode_) {
+        // Reorient the joint axis by the continuous angle; snapping (when on)
+        // snaps the resulting axis to the nearest cardinal, not the angle.
+        ApplyJointAxisRotate(*ctx.tree, drag_serial_, joint_frame_, n, delta,
+                             g.snap);
+        ctx.transient_status =
+            g.snap ? "joint: axis reoriented (snapped to X/Y/Z)"
+                   : "joint: axis reoriented";
+      } else {
+        double snapped = Snap(delta, g.snap_rotate_deg * kPi / 180.0, g.snap);
+        ApplyRotate(*ctx.tree, drag_serial_, frame_, n, snapped);
+        ctx.transient_status = "gizmo: rotation materialised as quat";
+      }
       break;
     }
     case HandleKind::ScaleAxis: {
@@ -415,8 +463,10 @@ bool GizmoController::HandleMouse(EditorContext& ctx, const ViewportInput& in) {
 
   if (press) {
     const VpMetrics m = MainViewport();
-    DragFrame f = BuildDragFrame(in.model, in.data, ctx.compiled.binding,
-                                 *ctx.tree, ctx.selected_serial);
+    DisplayFrame df = BuildDisplay(ctx, in.model, in.data);
+    DragFrame f = df.f;
+    // Joints have no scale handle; the scale tool shows nothing for them.
+    if (f.valid && df.joint && ctx.gizmo.tool == GizmoTool::Scale) return false;
     if (f.valid) {
       const double size = WorldSizeForPixels(vp, f.anchor, kGizmoPixels, m.h);
       const ImVec2 mouse(m.x + in.x * m.w, m.y + in.y * m.h);
@@ -444,11 +494,18 @@ void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context&
 
   const ViewProj vp = BuildViewProj(vc.model, vc.data, vc.camera, vc.aspect_ratio);
   const VpMetrics m = MainViewport();
-  DragFrame f = dragging_
-                    ? frame_
-                    : BuildDragFrame(vc.model, vc.data, ctx.compiled.binding,
-                                     *ctx.tree, ctx.selected_serial);
+  bool joint_now = joint_mode_;
+  DragFrame f;
+  if (dragging_) {
+    f = frame_;
+  } else {
+    DisplayFrame df = BuildDisplay(ctx, vc.model, vc.data);
+    f = df.f;
+    joint_now = df.joint;
+  }
   if (!f.valid) return;
+  // Joints expose translate + reorient handles only, never scale.
+  if (joint_now && ctx.gizmo.tool == GizmoTool::Scale) return;
   const double size = dragging_
                           ? gizmo_size_
                           : WorldSizeForPixels(vp, f.anchor, kGizmoPixels, m.h);

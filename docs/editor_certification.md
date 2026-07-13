@@ -17,15 +17,19 @@ that counts. Sync-back is a gap item (G9).
 
 ## 1. Automated certification
 
-All five batteries plus the core-repo suites must exit 0 at the certification commit.
+All seven batteries plus the core-repo suites must exit 0 at the certification commit.
+Every battery below runs **identically in both trees** (studio branch + protospec
+`apps/studio/test/`); the parenthesised check counts are the current identical totals.
 
 | Battery | Binary | Test fns |
 |---|---|---|
-| Core (load, pick, hierarchy, rename/delete, undo, save) | `test_studio` | 11 |
-| Gizmo (delta rule, joint rig, projection, mode machine) | `test_gizmo` | 20 |
-| Movability audit (inline fixtures + 5 corpus models) | `test_movability` | 4 + audit engine |
-| Details (reflection coverage, presence, refs, enums) | `test_details` | 8 |
-| Authoring (add/duplicate/reparent/import/exit story) | `test_authoring` | 9 |
+| Core (load, pick, hierarchy, rename/delete, undo, save) | `test_studio` | 11 (112 checks) |
+| Gizmo (delta rule, joint rig, projection, mode machine, **perf gate**) | `test_gizmo` | 20 (170 checks) |
+| Movability audit (inline fixtures + 5 corpus models) | `test_movability` | 4 + audit engine (584 checks) |
+| Details (reflection coverage, presence, refs, enums) | `test_details` | 8 (75 checks) |
+| Authoring (add/duplicate/reparent/import/exit story) | `test_authoring` | 9 (114 checks) |
+| **Host** (Play/Stop discard, Save As externalize, delete-confirm) | `test_host` | 3 (55 checks) |
+| **Host-UI** (key-routing gate, overlay/geom pick, gizmo priority) | `test_hostui` | 3 (19 checks) |
 
 ### 1.1 Guarantee → evidence map (must be green)
 
@@ -57,15 +61,15 @@ Each row is a checklist item: **add the test** (or the owner initials the Waived
 
 | ID | Gap | What to add | Closed/Waived |
 |---|---|---|---|
-| G1 | **Play/Stop state-discard end-to-end in the real host.** A19 tests only the windowless gate; the host wiring (`app.cc` Play → `set_editor_mode(1)` + unpause, Stop → mode 0 + `ResetPhysics()` to qpos0, dirty edits compiled on Play) has zero coverage. | Scripted host-level test (offscreen `App` loop): edit → Play → step N → assert qpos moved → Stop → assert qpos0 and tree keeps the edit | ☐ |
-| G2 | **Key routing in the real host.** Q/W/E/R deliberately shadow Studio's camera-vis toggles and must win only while the viewport is hovered; Ctrl+S/Z/Y/D and Del routing vs ImGui text-input capture. Untested. | ImGui-injected key-dispatch test over the hosted app: keys with viewport hovered vs Details focused vs Hierarchy focused | ☐ |
-| G3 | **Overlay picking through the real renderer.** Windowless tests cover Binding reverse-lookup only ("full Pick needs a live mjvScene/camera"); the ray-pick → geom id path and gizmo-handle hit priority over camera orbit run only in the live app. | Offscreen render + synthetic-click test: click at the projected screen pos of a known geom → assert selection serial; click a gizmo handle → assert drag consumed (no orbit) | ☐ |
-| G4 | **Save As + externalization in the real host.** A16/A17 are windowless; the menu path (`SaveExternalize`: inline path field → SaveModel → ExternalizeVfsAssets → dirty flag/title clear) is untested. | Host-level scripted Save As: unsaved model with VFS mesh → Save As → assert file + sibling mesh on disk, `vfs_assets` empty, dirty cleared | ☐ |
-| G5 | **Layout persistence.** Curated dock layout (Hierarchy/Viewport/Details, spec panels hidden) on first run + imgui.ini restore across restarts. Untested. | ini round-trip check, or owner-waive to manual step M26 | ☐ |
-| G6 | **Performance bound.** Recompile perf is informational only (`ReportHumanoidRecompilePerf` prints ~3 ms, never fails); no threshold enforced; nothing larger than humanoid ever measured. | Perf gate: humanoid ≤ 10 ms/compile hard fail; add one large corpus model (e.g. a scene-scale MJCF) with a measured, recorded budget | ☐ |
-| G7 | **Delete-confirm dialog flow.** A15 tests preview/cascade logic; the `delete_request_serial` → dialog → confirm/cancel UI path is untested. | Host-level test or fold into manual step M25 (owner call) | ☐ |
-| G8 | **Diagnostics navigation.** Failed-compile errors reach the Diagnostics panel (movability's excused path proves the report exists) but click-to-select-from-diagnostic has no test. | Windowless test: diagnostic row → SourceLoc → selection serial | ☐ |
-| G9 | **Battery divergence.** `test_gizmo.cc` in the protospec repo lacks the joint-rig battery (studio branch is ahead). One source of truth or CI on both. | Sync studio-branch tests back to `apps/studio/test/` (or subtree them) and run both in CI | ☐ |
+| G1 | **Play/Stop state-discard end-to-end in the real host.** A19 tests only the windowless gate; the host wiring (`app.cc` Play → `set_editor_mode(1)` + unpause, Stop → mode 0 + `ResetPhysics()` to qpos0, dirty edits compiled on Play) has zero coverage. | Scripted host-level test (offscreen `App` loop): edit → Play → step N → assert qpos moved → Stop → assert qpos0 and tree keeps the edit | **CLOSED** — `test_host.cc` `TestPlayStopStateDiscard`. Reproduces app.cc's three host reactions verbatim (`set_editor_mode` fan-out via the real `EditorShellPlugin`/`shell.cc OnSetMode`, `StepControl` pause, `ResetPhysics`=`mj_resetData`) over the real ops: a pending edit raises the ball to z=2, **Play forces the dirty compile** (compiled qpos0 1→2) and time advances (ball falls), Pause freezes, **Stop returns to the *edited* qpos0 (2)** — not the fallen pose, not the original 1 — with the edit retained in the tree. Both trees. |
+| G2 | **Key routing in the real host.** Q/W/E/R deliberately shadow Studio's camera-vis toggles and must win only while the viewport is hovered; Ctrl+S/Z/Y/D and Del routing vs ImGui text-input capture. Untested. | ImGui-injected key-dispatch test over the hosted app: keys with viewport hovered vs Details focused vs Hierarchy focused | **CLOSED** — `test_hostui.cc` `TestKeyRoutingViewportGate`. Drives the **real registered `KeyHandlerPlugin` vtables** (Q/W/E/R) against a headless ImGui context, toggling `io.WantCaptureMouse` (the true `ViewportFocused()` gate): keys switch the tool with the viewport hovered, and are **gated out** (tool unchanged) while a panel captures the mouse. Both trees. |
+| G3 | **Overlay picking through the real renderer.** Windowless tests cover Binding reverse-lookup only ("full Pick needs a live mjvScene/camera"); the ray-pick → geom id path and gizmo-handle hit priority over camera orbit run only in the live app. | Offscreen render + synthetic-click test: click at the projected screen pos of a known geom → assert selection serial; click a gizmo handle → assert drag consumed (no orbit) | **CLOSED** — `test_hostui.cc` `TestOverlayAndGeomPick` + `TestGizmoGrabPriority`. Synthetic click at a geom's projected screen centre → real `ViewportPlugin::on_mouse` ray-pick → asserts the geom serial; a joint overlay click → `TryPickJoint` selects the joint (priority over the geom beneath). A press on the gizmo centre handle with an active tool returns **consumed** (host suppresses orbit); with the Select tool the same press is **not** consumed. Deterministic camera + real `BuildViewProj`/`WorldToScreen`. Both trees. |
+| G4 | **Save As + externalization in the real host.** A16/A17 are windowless; the menu path (`SaveExternalize`: inline path field → SaveModel → ExternalizeVfsAssets → dirty flag/title clear) is untested. | Host-level scripted Save As: unsaved model with VFS mesh → Save As → assert file + sibling mesh on disk, `vfs_assets` empty, dirty cleared | **CLOSED** — `test_host.cc` `TestSaveAsExternalizeHostPath`. New model → import mesh (registered as VFS bytes) → **Save As to a *different* directory** via the real `SaveModel` + `ExternalizeVfsAssets` (the two calls `shell.cc SaveExternalize` makes): asserts the `.xml` **and** its sibling mesh land in the destination dir, `vfs_assets` drained, **dirty cleared**, `source_path` updated, and a fresh disk load compiles. Both trees. |
+| G5 | **Layout persistence.** Curated dock layout (Hierarchy/Viewport/Details, spec panels hidden) on first run + imgui.ini restore across restarts. Untested. | ini round-trip check, or owner-waive to manual step M26 | ☐ (out of this pass; owner-waivable to manual M27) |
+| G6 | **Performance bound.** Recompile perf is informational only (`ReportHumanoidRecompilePerf` prints ~3 ms, never fails); no threshold enforced; nothing larger than humanoid ever measured. | Perf gate: humanoid ≤ 10 ms/compile hard fail; add one large corpus model (e.g. a scene-scale MJCF) with a measured, recorded budget | **CLOSED** — `test_gizmo.cc` `TestRecompilePerfGate`. Median over N recompiles, **enforced**: humanoid (nbody≈17) ≤ **10 ms** (measured ~3.3 ms), and a larger corpus model **humanoid200** (nbody≈217, 627 DOF — humanoid + 200 free objects, `test/benchmark/testdata/humanoid200.xml`) ≤ **120 ms** documented bound (measured ~74 ms Ninja / ~93 ms MSVC-Release; ~1.6x headroom). Each arm skips only when its corpus model is absent. Both trees. |
+| G7 | **Delete-confirm dialog flow.** A15 tests preview/cascade logic; the `delete_request_serial` → dialog → confirm/cancel UI path is untested. | Host-level test or fold into manual step M25 (owner call) | **CLOSED** — `test_host.cc` `TestDeleteConfirmFlow`. Drives the referrer-confirm state machine (`shell.cc:104` request → `hierarchy_panel` preview → confirm/cancel) over the real ops: a joint with a `jointpos` referrer yields a non-empty `PreviewDeleteReferrers` (dialog warranted), **Cancel** leaves the tree intact + compiling, **Confirm** cascades (`DeleteBySerial(cascade=true)`) with no referrer left dangling; a leaf geom with no referrers takes the immediate-delete arm. Both trees. |
+| G8 | **Diagnostics navigation.** Failed-compile errors reach the Diagnostics panel (movability's excused path proves the report exists) but click-to-select-from-diagnostic has no test. | Windowless test: diagnostic row → SourceLoc → selection serial | **RE-SCOPED (downgraded to manual UI-render).** There is **no click-to-select-from-diagnostic feature to test**: `EditorContext::diagnostics` is a `std::deque<std::string>` of rendered log lines with **no `SourceLoc` / serial**, and `panels.cc DiagnosticsUpdate` is display-only (`TextUnformatted`, no `Selectable`). A row→serial state machine cannot be tested without first *building* that feature (threading a serial through every `Log` site), which is out of certification-testing scope. What the guarantee actually needs — that failed compiles **reach** the panel — is already covered (movability's excused/loud path). The one selection funnel every nav uses, `SelectBySerial`, is covered by `test_studio` A18. Manual step **M25** stays as the diagnostics-visibility check; diagnostics click-to-select is descoped from the editor until the feature is built. |
+| G9 | **Battery divergence.** `test_gizmo.cc` in the protospec repo lacks the joint-rig battery (studio branch is ahead). One source of truth or CI on both. | Sync studio-branch tests back to `apps/studio/test/` (or subtree them) and run both in CI | **CLOSED** — the studio-branch joint-rig battery (`TestJointTranslateAnchor / ReorientAxis / AxisSnap / BallFreeNoAxis / CollectJointVis`) plus the Q-ORIENT sync is now byte-identical in both trees (`test_gizmo.cc`, **170 checks each**). Closing it required syncing the underlying joint-rig implementation into `apps/studio/editor/` (`joint_overlay.{h,cc}`, the joint functions in `transform_math.{h,cc}`, `editor_context.h show_all_joints`, and — to run the host-UI battery there — the canonical `viewport_plugin.cc`/`gizmo.{cc,h}` + the `ViewportGuiPlugin::Context::camera` mutable shim). Both trees build and pass all seven batteries. |
 
 ---
 
@@ -162,7 +166,7 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 
 ### Exit criteria
 
-1. All five batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
+1. All seven batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
 2. Every §1.2 gap row marked Closed (test added and green) or Waived with owner initials.
 3. All 27 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
 4. The statement below signed.
@@ -184,9 +188,9 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 
 | Metric | State |
 |---|---|
-| Humanoid drag recompile | ~3 ms/compile measured (informational print in `test_gizmo`); preview = truth well inside a 60 Hz drag budget |
-| Enforced bound | none — G6 |
-| Large-model behavior | unmeasured — G6 |
+| Humanoid drag recompile | ~3.3 ms/compile measured; **enforced ≤ 10 ms median** (`test_gizmo` `TestRecompilePerfGate`) — preview = truth well inside a 60 Hz drag budget |
+| Enforced bound | **yes** (G6 closed): humanoid ≤ 10 ms, humanoid200 ≤ 120 ms, hard-fail on the median over N recompiles |
+| Large-model behavior | **measured** (G6 closed): humanoid200 (627 DOF, nbody≈217) ~74 ms Ninja / ~93 ms MSVC-Release, bounded ≤ 120 ms |
 
 ### Certification statement
 

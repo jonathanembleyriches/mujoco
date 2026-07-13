@@ -132,6 +132,8 @@ struct EditorContext {
   GizmoSettings gizmo;
   bool gizmo_active = false;           // a gizmo drag is in progress (host reads
                                       // this so Esc cancels the drag, not exit)
+  bool show_all_joints = false;        // View toggle: draw joints for every body,
+                                      // not just the selected body (deliverable 3)
   std::string transient_status;       // gizmo notes (euler->quat, mesh-scale warn)
 
   void Log(std::string line) {

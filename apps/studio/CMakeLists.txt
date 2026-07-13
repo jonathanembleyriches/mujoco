@@ -148,6 +148,7 @@ add_library(protospec_studio_shell STATIC
   editor/viewport_plugin.cc
   editor/gizmo.cc
   editor/gizmo_math.cc
+  editor/joint_overlay.cc
   editor/transform_math.cc
   # SE1b (generated Details panel) adds its source here:
   editor/details_panel.cc
@@ -215,6 +216,7 @@ add_executable(protospec_studio_gizmo_tests
   test/test_gizmo.cc
   editor/transform_math.cc
   editor/gizmo_math.cc
+  editor/joint_overlay.cc
   editor/editor_ops.cc
   editor/undo.cc
 )
@@ -262,6 +264,63 @@ add_custom_command(TARGET protospec_studio_movability_tests POST_BUILD
   VERBATIM)
 add_test(NAME protospec_studio_movability_tests
          COMMAND protospec_studio_movability_tests)
+
+# --- Host-wiring windowless tests (own main) ------------------------------- #
+# G1 Play/Stop state discard, G4 Save As + VFS externalization, G7 delete-confirm
+# referrer flow: the host reactions are reproduced over the same windowless ops.
+add_executable(protospec_studio_host_tests
+  test/test_host.cc
+  editor/authoring_ops.cc
+  editor/asset_import.cc
+  editor/editor_ops.cc
+  editor/undo.cc
+  editor/transform_math.cc
+)
+target_link_libraries(protospec_studio_host_tests PRIVATE
+  protospec_studio_core
+  "${MUJOCO_IMPORT_LIB}"
+)
+target_include_directories(protospec_studio_host_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_host_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_host_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_host_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_host_tests COMMAND protospec_studio_host_tests)
+
+# --- Host-UI tests (headless ImGui, no window) ----------------------------- #
+# G2 key-routing gate + G3 pick / gizmo priority run the real plugin vtables over
+# a headless ImGui context. They link the shell (viewport editor + registry +
+# gizmo) and dear_imgui, but never open a window.
+add_executable(protospec_studio_hostui_tests
+  test/test_hostui.cc
+)
+target_link_libraries(protospec_studio_hostui_tests PRIVATE
+  protospec_studio_shell
+  protospec_studio_core
+  dear_imgui
+  "${MUJOCO_IMPORT_LIB}"
+)
+if(WIN32)
+  target_link_libraries(protospec_studio_hostui_tests PRIVATE opengl32)
+endif()
+target_include_directories(protospec_studio_hostui_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_hostui_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_hostui_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_hostui_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_hostui_tests COMMAND protospec_studio_hostui_tests)
 
 # --- SE1b generated-Details windowless tests (own main) -------------------- #
 # details_panel.h is windowless (no ImGui); these tests link only the core.
