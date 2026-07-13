@@ -244,6 +244,72 @@
       "notes": "vertex body-id resolution; retargeted to native bodyid map"
     },
     {
+      "id": "flexcomp_boxid",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::BoxID",
+      "line_span": "996-1027",
+      "content_hash": "a2cc73f46a5aed49e6111c09dedf8d1c34d710d7556cb92c4bc1ae7c0e9a4914",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__BoxID.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-13",
+      "notes": "BoxID (box surface point id from coords); verbatim in FcompGeom"
+    },
+    {
+      "id": "flexcomp_boxproject",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::BoxProject",
+      "line_span": "1032-1068",
+      "content_hash": "77de277d24f3de65dc12480cb65dc58963f3b1bc50d60ae2a181bd6eac61856f",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__BoxProject.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-13",
+      "notes": "BoxProject (box-to-shape projection); verbatim in FcompGeom"
+    },
+    {
+      "id": "flexcomp_make",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::Make",
+      "line_span": "148-846",
+      "content_hash": "7c086fb6c605ad627262cac2466539d35fb1ccca12bea8e7fa15d645c97e2f9a",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__Make.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-13",
+      "notes": "flexcomp expansion driver (young=0, non-interpolated grid/box/square family); ExpandFlexcompInto synthesizes per-vertex slider bodies + a <flex> spec, algorithm verbatim, plumbing retargeted to ProtoSpec IR"
+    },
+    {
+      "id": "flexcomp_makebox",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::MakeBox",
+      "line_span": "1110-1303",
+      "content_hash": "c3d7157420bb20e4d2871aeabb699017f9d19fe46bd032564125305cd1115758",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__MakeBox.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-13",
+      "notes": "MakeBox (3D box/cylinder/ellipsoid surface, open shell dim=2); verbatim in FcompGeom"
+    },
+    {
+      "id": "flexcomp_makegrid",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::MakeGrid",
+      "line_span": "861-991",
+      "content_hash": "6bc62e9153158e9201eee43896ddc5ad62892a92f5da935efb0447f2bee3c07f",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__MakeGrid.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-13",
+      "notes": "MakeGrid point/element generator (1D/2D/3D grid + circle); verbatim in FcompGeom"
+    },
+    {
+      "id": "flexcomp_makesquare",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::MakeSquare",
+      "line_span": "1073-1099",
+      "content_hash": "dd09bd4ab48b31ffbb5ef7b3ed10f2559d8803a07379c01311725ad7abe8a873",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__MakeSquare.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-13",
+      "notes": "MakeSquare (2D square/disc via MakeGrid + radial projection); verbatim in FcompGeom"
+    },
+    {
       "id": "frame_compile",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCFrame::Compile",

@@ -20,6 +20,7 @@
 
 #include <mujoco/mujoco.h>
 
+#include "build.h"
 #include "compile.h"
 #include "make_model.h"
 #include "mjcf.h"
@@ -899,6 +900,190 @@ static void TestNc4Fluid() {
       "</body></worldbody></mujoco>");
 }
 
+// NC5 Wave 2: flexcomp expansion. flexcomp stays gated in native_supported.h
+// (so Auto/corpus still falls back), so the fixture forces the native build by
+// calling BuildNativeModel directly (bypassing the CDR-2 gate) and diffs it
+// against the XML oracle, which re-runs upstream mjCFlexcomp::Make.
+static void CheckFlexcompBitIdentical(const char* label, const char* xml) {
+  auto model = ParseOrDie(xml);
+  if (!model) { CHECK(false); return; }
+  CompileOptions native;
+  native.path = CompilePath::NativePath;
+  std::vector<bridge::Diagnostic> diags;
+  mjModel* nat = compile::BuildNativeModel(*model, native, diags);
+  Compiled xmlc = Compile(*model, [] {
+    CompileOptions o;
+    o.path = CompilePath::XmlPath;
+    return o;
+  }());
+  CHECK(nat != nullptr);
+  CHECK(xmlc.ok() && xmlc.model);
+  if (!nat || !xmlc.model) {
+    if (!nat)
+      for (const auto& d : diags)
+        std::printf("  flexcomp native diag [%s]: %s\n", label, d.message.c_str());
+    if (nat) mj_deleteModel(nat);
+    return;
+  }
+  ps::harness::Tol tol;
+  std::string err;
+  ps::harness::DiffReport rep =
+      ps::harness::DiffModels(xmlc.model.get(), nat, tol, 6, err);
+  if (!err.empty() || rep.Differs()) {
+    std::printf("FAIL flexcomp bit-identity [%s]: %s\n", label,
+                rep.FirstDivergence().c_str());
+    for (const auto& f : rep.fields)
+      for (const auto& e : f.examples)
+        std::printf("    %s[%lld] xml=%.9g nat=%.9g\n", f.field.c_str(),
+                    (long long)e.index, e.a, e.b);
+    ++g_failed;
+  }
+  ++g_checks;
+  mj_deleteModel(nat);
+}
+
+// NC5 Wave 2a: procedural flexcomp (grid/box/square family, young=0, dof=full,
+// no pins). Each free point becomes a body with three orthogonal sliders; the
+// synthesized <flex> is compiled through the wave-1 flex path.
+static void TestNc5FlexcompGrid() {
+  // 2D grid (3x3, count[2]=1): 9 bodies, 8 triangles.
+  CheckFlexcompBitIdentical(
+      "flexcomp_grid2d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // 1D rope grid (5 points along x).
+  CheckFlexcompBitIdentical(
+      "flexcomp_grid1d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='rope' type='grid' dim='1' count='5 1 1' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // 3D grid (2x2x2): tets + forced flatskin.
+  CheckFlexcompBitIdentical(
+      "flexcomp_grid3d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='jelly' type='grid' dim='3' count='2 2 2' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // circle (1D ring).
+  CheckFlexcompBitIdentical(
+      "flexcomp_circle",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='ring' type='circle' dim='1' count='6 1 1' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // square (2D shell via MakeSquare).
+  CheckFlexcompBitIdentical(
+      "flexcomp_square",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='sq' type='square' count='3 3 1' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // disc (2D radial projection + triangle flip).
+  CheckFlexcompBitIdentical(
+      "flexcomp_disc",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='disc' type='disc' count='4 4 1' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // box (3D closed surface): tets + forced flatskin + center point.
+  CheckFlexcompBitIdentical(
+      "flexcomp_box3d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='cube' type='box' dim='3' count='2 2 2' spacing='0.1 0.1 0.1'/>"
+      "</body></worldbody></mujoco>");
+  // pose offset (flexcomp pos/quat transform the generated points).
+  CheckFlexcompBitIdentical(
+      "flexcomp_grid2d_pose",
+      "<mujoco><worldbody><body name='p' pos='0 0 1'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1' "
+      "pos='0.5 0 0' euler='0 0 45'/>"
+      "</body></worldbody></mujoco>");
+  // explicit mass/inertiabox override.
+  CheckFlexcompBitIdentical(
+      "flexcomp_grid2d_mass",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1' "
+      "mass='2.5' inertiabox='0.01'/>"
+      "</body></worldbody></mujoco>");
+  // contact override child.
+  CheckFlexcompBitIdentical(
+      "flexcomp_grid2d_contact",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1'>"
+      "<contact condim='1' internal='true' selfcollide='none' activelayers='2'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+}
+
+// NC5 Wave 2b: flexcomp pins (id/range/grid/gridrange), rigid, and radius/group.
+// A pinned point keeps no body (it lives on the parent) and the flex saves its
+// vertex offsets (not centered).
+static void TestNc5FlexcompPins() {
+  // pin by id: corner points of a 3x3 grid stay on the parent.
+  CheckFlexcompBitIdentical(
+      "flexcomp_pin_id",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1'>"
+      "<pin id='0 8'/></flexcomp></body></worldbody></mujoco>");
+  // pin by range.
+  CheckFlexcompBitIdentical(
+      "flexcomp_pin_range",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='rope' type='grid' dim='1' count='5 1 1' spacing='0.1 0.1 0.1'>"
+      "<pin range='0 1'/></flexcomp></body></worldbody></mujoco>");
+  // pin by grid coordinate (2D).
+  CheckFlexcompBitIdentical(
+      "flexcomp_pin_grid",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1'>"
+      "<pin grid='0 0  2 2'/></flexcomp></body></worldbody></mujoco>");
+  // pin by grid range (2D): a full edge of the grid.
+  CheckFlexcompBitIdentical(
+      "flexcomp_pin_gridrange",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='4 4 1' spacing='0.1 0.1 0.1'>"
+      "<pin gridrange='0 0 0 3'/></flexcomp></body></worldbody></mujoco>");
+  // rigid: every point stays on the parent (all pinned).
+  CheckFlexcompBitIdentical(
+      "flexcomp_rigid",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1' "
+      "rigid='true'/></body></worldbody></mujoco>");
+  // radius + group plumbing.
+  CheckFlexcompBitIdentical(
+      "flexcomp_radius_group",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1' "
+      "radius='0.02' group='2'/></body></worldbody></mujoco>");
+}
+
+// NC5 Wave 2c: flexcomp edge equality. <edge equality="true"> synthesizes an
+// mjEQ_FLEX constraint referencing the flex, and sets flex_edgeequality.
+static void TestNc5FlexcompEquality() {
+  // 2D grid with an edge equality constraint.
+  CheckFlexcompBitIdentical(
+      "flexcomp_edge_equality",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1'>"
+      "<edge equality='true'/></flexcomp></body></worldbody></mujoco>");
+  // 1D rope with edge equality + stiffness/damping override.
+  CheckFlexcompBitIdentical(
+      "flexcomp_edge_equality_1d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='rope' type='grid' dim='1' count='5 1 1' spacing='0.1 0.1 0.1'>"
+      "<edge equality='true' stiffness='500' damping='2'/></flexcomp>"
+      "</body></worldbody></mujoco>");
+  // edge equality with custom solref/solimp.
+  CheckFlexcompBitIdentical(
+      "flexcomp_edge_equality_sol",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='fc' type='grid' dim='2' count='3 3 1' spacing='0.1 0.1 0.1'>"
+      "<edge equality='true' solref='0.01 1' solimp='0.95 0.99 0.001 0.5 2'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+  // 3D grid with edge equality.
+  CheckFlexcompBitIdentical(
+      "flexcomp_edge_equality_3d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='jelly' type='grid' dim='3' count='2 2 2' spacing='0.1 0.1 0.1'>"
+      "<edge equality='true'/></flexcomp></body></worldbody></mujoco>");
+}
+
 // NC5 Wave 1: direct <flex> (young=0, non-interpolated edge-only). Bit-identical
 // across dim 1/2/3, rigid/centered/offset vertices, contact/edge overrides, and
 // texcoord; gated sub-features route the whole model to the XML fallback.
@@ -1030,6 +1215,9 @@ int main() {
   TestNc4Replicate();
   TestNc4Fluid();
   TestNc5Flex();
+  TestNc5FlexcompGrid();
+  TestNc5FlexcompPins();
+  TestNc5FlexcompEquality();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

@@ -218,6 +218,7 @@ class SubFeatureScanner {
                          std::is_same_v<E, Adhesion>)
         CheckActuator(e);
       else if constexpr (std::is_same_v<E, Flex>) CheckFlex(e);
+      else if constexpr (std::is_same_v<E, Flexcomp>) CheckFlexcomp(e);
       else if constexpr (std::is_same_v<E, EqualityFlex>) CheckEqualityFlex(e);
       else if constexpr (std::is_same_v<E, SensorContact>) CheckSensorContact(e);
       else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
@@ -342,6 +343,31 @@ class SubFeatureScanner {
   // EqualityFlex shares the "flex" tag with the Flex element (admitted), but the
   // native equality path does not compile flex equalities yet.
   void CheckEqualityFlex(const EqualityFlex& e) { Note("equality.flex", e.loc); }
+  // The native flexcomp path (NC5 Wave 2) expands only the procedural grid/box/
+  // square family at dof=full, young=0, non-interpolated, with edge/none
+  // equality. Interpolated dof, mesh/gmsh/direct types, young>0 or elastic2d
+  // elasticity, and vert/strain edge equalities route to the XML fallback.
+  void CheckFlexcomp(const Flexcomp& fc) {
+    const FlexcompType type = fc.type ? *fc.type : FlexcompType::grid;
+    const FlexDof dof = fc.dof ? *fc.dof : FlexDof::full;
+    if (dof != FlexDof::full) Note("flexcomp.interpolated", fc.loc);
+    if (type == FlexcompType::mesh || type == FlexcompType::gmsh ||
+        type == FlexcompType::direct)
+      Note("flexcomp.mesh", fc.loc);
+    if (!fc.flexElasticitys.empty() && fc.flexElasticitys.front()) {
+      const FlexElasticity& e = *fc.flexElasticitys.front();
+      if (e.young && *e.young > 0) Note("flexcomp.elasticity", fc.loc);
+      if (e.elastic2d && *e.elastic2d != Elastic2D::none)
+        Note("flexcomp.elastic2d", fc.loc);
+    }
+    if (!fc.flexcompEdges.empty() && fc.flexcompEdges.front()) {
+      const FlexcompEdge& fe = *fc.flexcompEdges.front();
+      if (fe.equality && (*fe.equality == FlexEquality::vert ||
+                          *fe.equality == FlexEquality::strain))
+        Note("flexcomp.equality_kind", fc.loc);
+    }
+    if (!fc.plugin.empty()) Note("flexcomp.plugin", fc.loc);
+  }
   // The contact sensor shares the "contact" tag with the <contact> section
   // (admitted for pairs/excludes), so it slips past the family gate; its
   // variable dim + intprm bitmask are out of NC2 scope. Force the fallback.

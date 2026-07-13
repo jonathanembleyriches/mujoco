@@ -91,6 +91,15 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "edge" || feature_key == "elasticity") {
     return true;
   }
+  // NC5 Wave 2 flexcomp: the procedural grid/box/square family (young=0,
+  // non-interpolated, dof=full) expands natively into per-vertex slider bodies
+  // and a synthesized <flex> (+ optional edge equality). The "pin" tag is the
+  // <pin> child (flexcomp-only). Interpolated dof, mesh/gmsh/direct types,
+  // young>0 / elastic2d elasticity, and vert/strain equalities route to the XML
+  // fallback via the finer scan (flexcomp.* keys in native.cc).
+  if (feature_key == "flexcomp" || feature_key == "pin") {
+    return true;
+  }
   // NC3 assets: the <asset> container and materials. A material referencing a
   // texture (legacy attr or <layer>) is rejected by the finer scan
   // (material.texture) until textures land; geoms/sites/tendons referencing a

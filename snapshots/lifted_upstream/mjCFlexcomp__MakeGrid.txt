@@ -1,0 +1,131 @@
+bool mjCFlexcomp::MakeGrid(char* error, int error_sz) {
+  int dim = def.Flex().spec.dim;
+  bool needtex = texcoord.empty() && mjs_getString(def.spec.flex->material)[0];
+
+  // 1D
+  if (dim == 1) {
+    for (int ix=0; ix < count[0]; ix++) {
+      if (type == mjFCOMPTYPE_CIRCLE) {
+        if (ix >= count[0]-1) {
+          continue;
+        }
+
+        // add point
+        double theta = 2*mjPI/(count[0]-1);
+        double radius = spacing[0]/std::sin(theta/2)/2;
+        point.push_back(radius*std::cos(theta*ix));
+        point.push_back(radius*std::sin(theta*ix));
+        point.push_back(0);
+
+        // add element
+        element.push_back(ix);
+        element.push_back(ix == count[0]-2 ? 0 : ix+1);
+      } else {
+        // add point
+        point.push_back(spacing[0]*(ix - 0.5*(count[0]-1)));
+        point.push_back(0);
+        point.push_back(0);
+
+        // add element
+        if (ix < count[0]-1) {
+          element.push_back(ix);
+          element.push_back(ix+1);
+        }
+      }
+    }
+  }
+
+  // 2D
+  else if (dim == 2) {
+    for (int ix=0; ix < count[0]; ix++) {
+      for (int iy=0; iy < count[1]; iy++) {
+        int quad2tri[2][3] = {{0, 1, 2}, {0, 2, 3}};
+
+        // add point
+        double pos[2] = {spacing[0]*(ix - 0.5*(count[0]-1)),
+                         spacing[1]*(iy - 0.5*(count[1]-1))};
+        point.push_back(pos[0]);
+        point.push_back(pos[1]);
+        point.push_back(0);
+
+        // add texture coordinates, if not specified explicitly
+        if (needtex) {
+          texcoord.push_back(ix/(double)std::max(count[0]-1, 1));
+          texcoord.push_back(iy/(double)std::max(count[1]-1, 1));
+        }
+
+        // flip triangles if radial projection is requested
+        if (((pos[0] < -mjEPS && pos[1] > -mjEPS) ||
+             (pos[0] > -mjEPS && pos[1] < -mjEPS)) &&
+            type == mjFCOMPTYPE_DISC) {
+          quad2tri[0][2] = 3;
+          quad2tri[1][0] = 1;
+        }
+
+        // add elements
+        if (ix < count[0]-1 && iy < count[1]-1) {
+          int vert[4] = {
+            count[2]*count[1]*(ix+0) + count[2]*(iy+0),
+            count[2]*count[1]*(ix+1) + count[2]*(iy+0),
+            count[2]*count[1]*(ix+1) + count[2]*(iy+1),
+            count[2]*count[1]*(ix+0) + count[2]*(iy+1),
+          };
+          for (int s =0; s < 2; s++) {
+            for (int v=0; v < 3; v++) {
+              element.push_back(vert[quad2tri[s][v]]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3D
+  else {
+    int cube2tets[6][4] = {{0, 3, 1, 7}, {0, 1, 4, 7},
+                           {1, 3, 2, 7}, {1, 2, 6, 7},
+                           {1, 5, 4, 7}, {1, 6, 5, 7}};
+    for (int ix=0; ix < count[0]; ix++) {
+      for (int iy=0; iy < count[1]; iy++) {
+        for (int iz=0; iz < count[2]; iz++) {
+          // add point
+          point.push_back(spacing[0]*(ix - 0.5*(count[0]-1)));
+          point.push_back(spacing[1]*(iy - 0.5*(count[1]-1)));
+          point.push_back(spacing[2]*(iz - 0.5*(count[2]-1)));
+
+          // add texture coordinates, if not specified explicitly
+          if (needtex) {
+            texcoord.push_back(ix/(float)std::max(count[0]-1, 1));
+            texcoord.push_back(iy/(float)std::max(count[1]-1, 1));
+          }
+
+          // add elements
+          if (ix < count[0]-1 && iy < count[1]-1 && iz < count[2]-1) {
+            int vert[8] = {
+              count[2]*count[1]*(ix+0) + count[2]*(iy+0) + iz+0,
+              count[2]*count[1]*(ix+1) + count[2]*(iy+0) + iz+0,
+              count[2]*count[1]*(ix+1) + count[2]*(iy+1) + iz+0,
+              count[2]*count[1]*(ix+0) + count[2]*(iy+1) + iz+0,
+              count[2]*count[1]*(ix+0) + count[2]*(iy+0) + iz+1,
+              count[2]*count[1]*(ix+1) + count[2]*(iy+0) + iz+1,
+              count[2]*count[1]*(ix+1) + count[2]*(iy+1) + iz+1,
+              count[2]*count[1]*(ix+0) + count[2]*(iy+1) + iz+1,
+            };
+            for (int s=0; s < 6; s++) {
+              for (int v=0; v < 4; v++) {
+                element.push_back(vert[cube2tets[s][v]]);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // check elements
+  if (element.empty()) {
+    return comperr(error, "No elements were created in grid", error_sz);
+  }
+
+  return true;
+}

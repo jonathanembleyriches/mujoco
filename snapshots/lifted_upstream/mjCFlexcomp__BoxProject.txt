@@ -1,0 +1,37 @@
+void mjCFlexcomp::BoxProject(double* pos, int ix, int iy, int iz) {
+  // init point
+  pos[0] = 2.0*ix/(count[0]-1) - 1;
+  pos[1] = 2.0*iy/(count[1]-1) - 1;
+  pos[2] = 2.0*iz/(count[2]-1) - 1;
+
+  // determine sizes
+  double size[3] = {
+    0.5*spacing[0]*(count[0]-1),
+    0.5*spacing[1]*(count[1]-1),
+    0.5*spacing[2]*(count[2]-1)
+  };
+
+  // box
+  if (type == mjFCOMPTYPE_BOX) {
+    pos[0] *= size[0];
+    pos[1] *= size[1];
+    pos[2] *= size[2];
+  }
+
+  // cylinder
+  else if (type == mjFCOMPTYPE_CYLINDER) {
+    double L0 = std::max(std::abs(pos[0]), std::abs(pos[1]));
+    mjuu_normvec(pos, 2);
+    pos[0] *= size[0]*L0;
+    pos[1] *= size[1]*L0;
+    pos[2] *= size[2];
+  }
+
+  // ellipsoid
+  else if (type == mjFCOMPTYPE_ELLIPSOID) {
+    mjuu_normvec(pos, 3);
+    pos[0] *= size[0];
+    pos[1] *= size[1];
+    pos[2] *= size[2];
+  }
+}

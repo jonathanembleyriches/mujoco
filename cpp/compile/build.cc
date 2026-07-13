@@ -12,7 +12,9 @@
 // (ids: geom_set_inertia, geom_compute_aabb, geom_get_rbound,
 // inertia_from_geom, joint_compile, checklimited, bvh_makebvh, body_compile,
 // compute_sparse_sizes, set_sizes, copy_tree, copy_names, finalize_simple,
-// hash_string); their sources are user_objects.cc / user_model.cc /
+// hash_string; flexcomp expansion: flexcomp_make, flexcomp_makegrid,
+// flexcomp_makesquare, flexcomp_makebox, flexcomp_boxproject, flexcomp_boxid);
+// their sources are user_objects.cc / user_model.cc / user_flexcomp.cc /
 // engine_name.c. Per the reuse ledger these are class-C passes: the algorithm,
 // constants, and iteration order are upstream; the data plumbing is retargeted
 // to ProtoSpec compiled structs and the mjModel arrays.
@@ -1433,9 +1435,576 @@ BodyChildAny CloneBodyChild(const BodyChildAny& c) {
   return BodyChildAny{};
 }
 
+// --------------------------------------------------------------------------- //
+// Flexcomp expansion (NC5 Wave 2). Reproduces mjCFlexcomp::Make for the         //
+// procedural grid/box/square family at young=0, non-interpolated: generates the //
+// point/element geometry (MakeGrid/MakeSquare/MakeBox), applies pins, then       //
+// synthesizes one Body (explicit inertia + orthogonal sliders) per free point   //
+// plus a single <flex> spec routed to the wave-1 flex compile. Lifted from       //
+// user_flexcomp.cc (Make :148, MakeGrid :861, MakeSquare :1073, MakeBox :1110,   //
+// GridID/BoxID/BoxProject); the numeric generators are verbatim (class-C).       //
+// --------------------------------------------------------------------------- //
+// Collect point for flexcomp expansion: synthesized flexes and their equalities,
+// owned for the compile's lifetime and routed to the flex / equality compiles.
+struct FlexcompSink {
+  std::vector<std::unique_ptr<Flex>> flexes;
+  std::vector<std::unique_ptr<EqualityFlex>> equalities;
+};
+
+struct FcompGeom {
+  FlexcompType type = FlexcompType::grid;
+  int count[3] = {10, 10, 10};
+  double spacing[3] = {0.02, 0.02, 0.02};
+  int dim = 2;
+  bool needtex = false;
+  std::vector<double> point;
+  std::vector<int> element;
+  std::vector<float> texcoord;
+
+  int GridID(int ix, int iy) const { return ix * count[1] + iy; }
+  int GridID(int ix, int iy, int iz) const {
+    return ix * count[1] * count[2] + iy * count[2] + iz;
+  }
+
+  // point id from box coordinates and side (user_flexcomp.cc:996)
+  int BoxID(int ix, int iy, int iz) const {
+    if (iz == 0) {
+      return ix * count[1] + iy + 1;
+    } else if (iz == count[2] - 1) {
+      return count[0] * count[1] + ix * count[1] + iy + 1;
+    } else if (iy == 0) {
+      return 2 * count[0] * count[1] + ix * (count[2] - 2) + iz - 1 + 1;
+    } else if (iy == count[1] - 1) {
+      return 2 * count[0] * count[1] + count[0] * (count[2] - 2) +
+             ix * (count[2] - 2) + iz - 1 + 1;
+    } else if (ix == 0) {
+      return 2 * count[0] * count[1] + 2 * count[0] * (count[2] - 2) +
+             (iy - 1) * (count[2] - 2) + iz - 1 + 1;
+    } else {
+      return 2 * count[0] * count[1] + 2 * count[0] * (count[2] - 2) +
+             (count[1] - 2) * (count[2] - 2) + (iy - 1) * (count[2] - 2) + iz - 1 +
+             1;
+    }
+  }
+
+  // project from box to other shape (user_flexcomp.cc:1032)
+  void BoxProject(double* pos, int ix, int iy, int iz) const {
+    pos[0] = 2.0 * ix / (count[0] - 1) - 1;
+    pos[1] = 2.0 * iy / (count[1] - 1) - 1;
+    pos[2] = 2.0 * iz / (count[2] - 1) - 1;
+    double size[3] = {0.5 * spacing[0] * (count[0] - 1),
+                      0.5 * spacing[1] * (count[1] - 1),
+                      0.5 * spacing[2] * (count[2] - 1)};
+    if (type == FlexcompType::box) {
+      pos[0] *= size[0]; pos[1] *= size[1]; pos[2] *= size[2];
+    } else if (type == FlexcompType::cylinder) {
+      double L0 = std::max(std::abs(pos[0]), std::abs(pos[1]));
+      lift::mjuu_normvec(pos, 2);
+      pos[0] *= size[0] * L0; pos[1] *= size[1] * L0; pos[2] *= size[2];
+    } else if (type == FlexcompType::ellipsoid) {
+      lift::mjuu_normvec(pos, 3);
+      pos[0] *= size[0]; pos[1] *= size[1]; pos[2] *= size[2];
+    }
+  }
+
+  // make grid (user_flexcomp.cc:861)
+  void MakeGrid() {
+    if (dim == 1) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        if (type == FlexcompType::circle) {
+          if (ix >= count[0] - 1) continue;
+          double theta = 2 * mjPI / (count[0] - 1);
+          double radius = spacing[0] / std::sin(theta / 2) / 2;
+          point.push_back(radius * std::cos(theta * ix));
+          point.push_back(radius * std::sin(theta * ix));
+          point.push_back(0);
+          element.push_back(ix);
+          element.push_back(ix == count[0] - 2 ? 0 : ix + 1);
+        } else {
+          point.push_back(spacing[0] * (ix - 0.5 * (count[0] - 1)));
+          point.push_back(0);
+          point.push_back(0);
+          if (ix < count[0] - 1) {
+            element.push_back(ix);
+            element.push_back(ix + 1);
+          }
+        }
+      }
+    } else if (dim == 2) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iy = 0; iy < count[1]; iy++) {
+          int quad2tri[2][3] = {{0, 1, 2}, {0, 2, 3}};
+          double pos[2] = {spacing[0] * (ix - 0.5 * (count[0] - 1)),
+                           spacing[1] * (iy - 0.5 * (count[1] - 1))};
+          point.push_back(pos[0]);
+          point.push_back(pos[1]);
+          point.push_back(0);
+          if (needtex) {
+            texcoord.push_back(ix / (double)std::max(count[0] - 1, 1));
+            texcoord.push_back(iy / (double)std::max(count[1] - 1, 1));
+          }
+          if (((pos[0] < -lift::mjEPS && pos[1] > -lift::mjEPS) ||
+               (pos[0] > -lift::mjEPS && pos[1] < -lift::mjEPS)) &&
+              type == FlexcompType::disc) {
+            quad2tri[0][2] = 3;
+            quad2tri[1][0] = 1;
+          }
+          if (ix < count[0] - 1 && iy < count[1] - 1) {
+            int vert[4] = {
+                count[2] * count[1] * (ix + 0) + count[2] * (iy + 0),
+                count[2] * count[1] * (ix + 1) + count[2] * (iy + 0),
+                count[2] * count[1] * (ix + 1) + count[2] * (iy + 1),
+                count[2] * count[1] * (ix + 0) + count[2] * (iy + 1),
+            };
+            for (int s = 0; s < 2; s++)
+              for (int v = 0; v < 3; v++)
+                element.push_back(vert[quad2tri[s][v]]);
+          }
+        }
+      }
+    } else {
+      int cube2tets[6][4] = {{0, 3, 1, 7}, {0, 1, 4, 7}, {1, 3, 2, 7},
+                             {1, 2, 6, 7}, {1, 5, 4, 7}, {1, 6, 5, 7}};
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iy = 0; iy < count[1]; iy++) {
+          for (int iz = 0; iz < count[2]; iz++) {
+            point.push_back(spacing[0] * (ix - 0.5 * (count[0] - 1)));
+            point.push_back(spacing[1] * (iy - 0.5 * (count[1] - 1)));
+            point.push_back(spacing[2] * (iz - 0.5 * (count[2] - 1)));
+            if (needtex) {
+              texcoord.push_back(ix / (float)std::max(count[0] - 1, 1));
+              texcoord.push_back(iy / (float)std::max(count[1] - 1, 1));
+            }
+            if (ix < count[0] - 1 && iy < count[1] - 1 && iz < count[2] - 1) {
+              int vert[8] = {
+                  count[2] * count[1] * (ix + 0) + count[2] * (iy + 0) + iz + 0,
+                  count[2] * count[1] * (ix + 1) + count[2] * (iy + 0) + iz + 0,
+                  count[2] * count[1] * (ix + 1) + count[2] * (iy + 1) + iz + 0,
+                  count[2] * count[1] * (ix + 0) + count[2] * (iy + 1) + iz + 0,
+                  count[2] * count[1] * (ix + 0) + count[2] * (iy + 0) + iz + 1,
+                  count[2] * count[1] * (ix + 1) + count[2] * (iy + 0) + iz + 1,
+                  count[2] * count[1] * (ix + 1) + count[2] * (iy + 1) + iz + 1,
+                  count[2] * count[1] * (ix + 0) + count[2] * (iy + 1) + iz + 1,
+              };
+              for (int s = 0; s < 6; s++)
+                for (int v = 0; v < 4; v++)
+                  element.push_back(vert[cube2tets[s][v]]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // make 2d square or disc (user_flexcomp.cc:1073)
+  void MakeSquare() {
+    dim = 2;
+    MakeGrid();
+    if (type == FlexcompType::disc) {
+      double size[2] = {0.5 * spacing[0] * (count[0] - 1),
+                        0.5 * spacing[1] * (count[1] - 1)};
+      for (int i = 0; i < (int)point.size() / 3; i++) {
+        double* pos = point.data() + i * 3;
+        double L0 = std::max(std::abs(pos[0]), std::abs(pos[1]));
+        lift::mjuu_normvec(pos, 2);
+        pos[0] *= size[0] * L0;
+        pos[1] *= size[1] * L0;
+      }
+    }
+  }
+
+  // make 3d box, ellipsoid or cylinder (user_flexcomp.cc:1110, open=true)
+  void MakeBox() {
+    const bool open = true;
+    double pos[3];
+    if (dim == 3) {
+      point.push_back(0);
+      point.push_back(0);
+      point.push_back(0);
+    }
+    if (needtex) {
+      texcoord.push_back(0);
+      texcoord.push_back(0);
+    }
+    int n = 0;
+    std::vector<int> idx(count[0] * count[1] * count[2]);
+    auto mat2lin = [&](int ix, int iy, int iz) {
+      return ix * count[1] * count[2] + iy * count[2] + iz;
+    };
+    // iz=0/max
+    for (int iz = 0; iz < count[2]; iz += count[2] - 1) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iy = 0; iy < count[1]; iy++) {
+          if (open && dim == 2 && iz != 0) continue;
+          BoxProject(pos, ix, iy, iz);
+          point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(pos[2]);
+          idx[mat2lin(ix, iy, iz)] = n++;
+          if (needtex) {
+            texcoord.push_back(ix / (float)std::max(count[0] - 1, 1));
+            texcoord.push_back(iy / (float)std::max(count[1] - 1, 1));
+          }
+        }
+      }
+    }
+    // iy=0/max
+    for (int iy = 0; iy < count[1]; iy += count[1] - 1) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iz = 0; iz < count[2]; iz++) {
+          if (iz > 0 && ((open && dim == 2) || (iz < count[2] - 1))) {
+            BoxProject(pos, ix, iy, iz);
+            point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(pos[2]);
+            idx[mat2lin(ix, iy, iz)] = n++;
+            if (needtex) {
+              texcoord.push_back(ix / (float)std::max(count[0] - 1, 1));
+              texcoord.push_back(iz / (float)std::max(count[2] - 1, 1));
+            }
+          }
+        }
+      }
+    }
+    // ix=0/max
+    for (int ix = 0; ix < count[0]; ix += count[0] - 1) {
+      for (int iy = 0; iy < count[1]; iy++) {
+        for (int iz = 0; iz < count[2]; iz++) {
+          if (iz > 0 && ((open && dim == 2) || (iz < count[2] - 1)) && iy > 0 &&
+              iy < count[1] - 1) {
+            BoxProject(pos, ix, iy, iz);
+            point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(pos[2]);
+            idx[mat2lin(ix, iy, iz)] = n++;
+            if (needtex) {
+              texcoord.push_back(iy / (float)std::max(count[1] - 1, 1));
+              texcoord.push_back(iz / (float)std::max(count[2] - 1, 1));
+            }
+          }
+        }
+      }
+    }
+    // elements: iz=0/max
+    for (int iz = 0; iz < count[2]; iz += count[2] - 1) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iy = 0; iy < count[1]; iy++) {
+          if (open && dim == 2 && iz != 0) continue;
+          if (ix < count[0] - 1 && iy < count[1] - 1) {
+            if (dim == 3) {
+              element.push_back(0);
+              element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix + 1, iy, iz));
+              element.push_back(BoxID(ix + 1, iy + 1, iz));
+              element.push_back(0);
+              element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy + 1, iz));
+              element.push_back(BoxID(ix + 1, iy + 1, iz));
+            } else {
+              int step1 = iz == 0 ? 1 : 0;
+              int step2 = iz == 0 ? 0 : 1;
+              element.push_back(idx[mat2lin(ix, iy, iz)]);
+              element.push_back(idx[mat2lin(ix + 1, iy + step1, iz)]);
+              element.push_back(idx[mat2lin(ix + 1, iy + step2, iz)]);
+              element.push_back(idx[mat2lin(ix, iy, iz)]);
+              element.push_back(idx[mat2lin(ix + step2, iy + 1, iz)]);
+              element.push_back(idx[mat2lin(ix + step1, iy + 1, iz)]);
+            }
+          }
+        }
+      }
+    }
+    // elements: iy=0/max
+    for (int iy = 0; iy < count[1]; iy += count[1] - 1) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iz = 0; iz < count[2]; iz++) {
+          if (ix < count[0] - 1 && iz < count[2] - 1) {
+            if (dim == 3) {
+              element.push_back(0);
+              element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix + 1, iy, iz));
+              element.push_back(BoxID(ix + 1, iy, iz + 1));
+              element.push_back(0);
+              element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy, iz + 1));
+              element.push_back(BoxID(ix + 1, iy, iz + 1));
+            } else {
+              int ix0 = iy == 0 ? ix : ix + 1;
+              int dx = iy == 0 ? 1 : -1;
+              element.push_back(idx[mat2lin(ix0, iy, iz)]);
+              element.push_back(idx[mat2lin(ix0 + dx, iy, iz)]);
+              element.push_back(idx[mat2lin(ix0 + dx, iy, iz + 1)]);
+              element.push_back(idx[mat2lin(ix0, iy, iz)]);
+              element.push_back(idx[mat2lin(ix0 + dx, iy, iz + 1)]);
+              element.push_back(idx[mat2lin(ix0, iy, iz + 1)]);
+            }
+          }
+        }
+      }
+    }
+    // elements: ix=0/max
+    for (int ix = 0; ix < count[0]; ix += count[0] - 1) {
+      for (int iy = 0; iy < count[1]; iy++) {
+        for (int iz = 0; iz < count[2]; iz++) {
+          if (iy < count[1] - 1 && iz < count[2] - 1) {
+            if (dim == 3) {
+              element.push_back(0);
+              element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy + 1, iz));
+              element.push_back(BoxID(ix, iy + 1, iz + 1));
+              element.push_back(0);
+              element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy, iz + 1));
+              element.push_back(BoxID(ix, iy + 1, iz + 1));
+            } else {
+              int iy0 = ix != 0 ? iy : iy + 1;
+              int dy = ix != 0 ? 1 : -1;
+              element.push_back(idx[mat2lin(ix, iy0, iz)]);
+              element.push_back(idx[mat2lin(ix, iy0 + dy, iz)]);
+              element.push_back(idx[mat2lin(ix, iy0 + dy, iz + 1)]);
+              element.push_back(idx[mat2lin(ix, iy0, iz)]);
+              element.push_back(idx[mat2lin(ix, iy0 + dy, iz + 1)]);
+              element.push_back(idx[mat2lin(ix, iy0, iz + 1)]);
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+// Synthesize the flexcomp's bodies (appended to `out_bodies`) and its <flex>
+// spec (returned; null when the expansion is unsupported/degenerate). Mirrors
+// mjCFlexcomp::Make for the young=0, non-interpolated grid/box/square family.
+std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
+                                         const CompilerSettings& cs,
+                                         const bridge::CompileOptions& opts,
+                                         const std::string& parent_name,
+                                         std::vector<BodyChildAny>& out_bodies,
+                                         std::unique_ptr<EqualityFlex>& out_eq) {
+  (void)opts;
+  const FlexcompType type = fc.type ? *fc.type : FlexcompType::grid;
+  const FlexDof dof = fc.dof ? *fc.dof : FlexDof::full;
+  int dim = fc.dim ? *fc.dim : 2;
+  const std::string name = fc.name ? *fc.name : std::string();
+
+  // Interpolated (trilinear/quadratic), mesh/gmsh/direct, and radial/2d dof are
+  // gated out of the native flexcomp path; only the grid/box/square procedural
+  // family with per-vertex sliders reaches here.
+  if (dof != FlexDof::full) return nullptr;
+  if (type == FlexcompType::mesh || type == FlexcompType::gmsh ||
+      type == FlexcompType::direct)
+    return nullptr;
+
+  FcompGeom g;
+  g.type = type;
+  g.count[0] = g.count[1] = g.count[2] = 10;
+  if (fc.count) for (int k = 0; k < 3; ++k) g.count[k] = (*fc.count)[k];
+  g.spacing[0] = g.spacing[1] = g.spacing[2] = 0.02;
+  if (fc.spacing) for (int k = 0; k < 3; ++k) g.spacing[k] = (*fc.spacing)[k];
+  g.dim = dim;
+  const bool has_material = fc.material && !fc.material->empty();
+  g.needtex = has_material;  // no explicit flexcomp texcoord on this path
+
+  // type-specific geometry (also fixes dim for square/disc/box)
+  switch (type) {
+    case FlexcompType::grid:
+    case FlexcompType::circle:
+      g.MakeGrid();
+      break;
+    case FlexcompType::box:
+    case FlexcompType::cylinder:
+    case FlexcompType::ellipsoid:
+      g.MakeBox();
+      break;
+    case FlexcompType::square:
+    case FlexcompType::disc:
+      g.MakeSquare();
+      break;
+    default:
+      return nullptr;
+  }
+  dim = g.dim;
+  if (g.element.empty() || g.point.empty()) return nullptr;
+
+  // force flatskin for box, cylinder, and 3D grid (Make :237)
+  const bool force_flatskin =
+      type == FlexcompType::box || type == FlexcompType::cylinder ||
+      (type == FlexcompType::grid && dim == 3);
+
+  const int npnt = static_cast<int>(g.point.size()) / 3;
+
+  // pose transform to points (Make :298). scale applies only to direct types.
+  double pos[3] = {0, 0, 0}, quat[4] = {1, 0, 0, 0};
+  if (fc.pos) for (int k = 0; k < 3; ++k) pos[k] = (*fc.pos)[k];
+  ResolveQuat(fc.quat, quat);
+  for (int i = 0; i < npnt; i++) {
+    double oldp[3] = {g.point[3 * i], g.point[3 * i + 1], g.point[3 * i + 2]};
+    double newp[3];
+    lift::mjuu_trnVecPose(newp, pos, quat, oldp);
+    g.point[3 * i] = newp[0];
+    g.point[3 * i + 1] = newp[1];
+    g.point[3 * i + 2] = newp[2];
+  }
+
+  // pinned array (Make :316). rigid forces all pinned. This path admits no pins
+  // (gated), so pinned stays all-false and centered becomes true below.
+  const bool rigid_attr = fc.rigid && *fc.rigid;
+  std::vector<char> pinned(npnt, rigid_attr ? 1 : 0);
+  bool rigid = rigid_attr;
+  bool centered = false;
+  if (!rigid) {
+    auto in_grid = [&](int idv) { return idv >= 0 && idv < npnt; };
+    for (const auto& p : fc.flexcompPins) {
+      if (!p) continue;
+      if (p->id) for (int v : *p->id) { if (!in_grid(v)) return nullptr; pinned[v] = 1; }
+      if (p->range) {
+        const auto& r = *p->range;
+        for (std::size_t i = 0; i + 1 < r.size(); i += 2) {
+          if (!in_grid(r[i]) || !in_grid(r[i + 1])) return nullptr;
+          for (int k = r[i]; k <= r[i + 1]; k++) pinned[k] = 1;
+        }
+      }
+      if (p->grid) {
+        const auto& gr = *p->grid;
+        for (std::size_t i = 0; i + dim <= gr.size(); i += dim) {
+          for (int k = 0; k < dim; k++)
+            if (gr[i + k] < 0 || gr[i + k] >= g.count[k]) return nullptr;
+          if (dim == 2) pinned[g.GridID(gr[i], gr[i + 1])] = 1;
+          else if (dim == 3) pinned[g.GridID(gr[i], gr[i + 1], gr[i + 2])] = 1;
+          else return nullptr;
+        }
+      }
+      if (p->gridrange) {
+        const auto& gr = *p->gridrange;
+        const std::size_t stride = 2 * static_cast<std::size_t>(dim);
+        for (std::size_t i = 0; i + stride <= gr.size(); i += stride) {
+          for (int k = 0; k < 2 * dim; k++)
+            if (gr[i + k] < 0 || gr[i + k] >= g.count[k % dim]) return nullptr;
+          if (dim == 2) {
+            for (int ix = gr[i]; ix <= gr[i + 2]; ix++)
+              for (int iy = gr[i + 1]; iy <= gr[i + 3]; iy++)
+                pinned[g.GridID(ix, iy)] = 1;
+          } else if (dim == 3) {
+            for (int ix = gr[i]; ix <= gr[i + 3]; ix++)
+              for (int iy = gr[i + 1]; iy <= gr[i + 4]; iy++)
+                for (int iz = gr[i + 2]; iz <= gr[i + 5]; iz++)
+                  pinned[g.GridID(ix, iy, iz)] = 1;
+          } else {
+            return nullptr;
+          }
+        }
+      }
+    }
+    bool allpin = true, nopin = true;
+    for (int i = 0; i < npnt; i++) {
+      if (pinned[i]) nopin = false; else allpin = false;
+    }
+    if (allpin) rigid = true;
+    else if (nopin) centered = true;
+  }
+
+  // body mass/inertia matching specs (Make :525)
+  const double mass = fc.mass ? *fc.mass : 1.0;
+  const double inertiabox = fc.inertiabox ? *fc.inertiabox : 0.005;
+  const double bodymass = mass / npnt;
+  const double bodyinertia = bodymass * (2.0 * inertiabox * inertiabox) / 3.0;
+
+  // create bodies + vertbody list. Every non-direct point is used.
+  std::vector<std::string> vertbody;
+  vertbody.reserve(npnt);
+  for (int i = 0; i < npnt; i++) {
+    if (pinned[i]) {
+      vertbody.push_back(parent_name);
+      continue;
+    }
+    auto b = std::make_unique<Body>();
+    b->name = name + "_" + std::to_string(i);
+    b->pos = std::array<double, 3>{g.point[3 * i], g.point[3 * i + 1],
+                                   g.point[3 * i + 2]};
+    auto in = std::make_unique<Inertial>();
+    in->pos = std::array<double, 3>{0, 0, 0};
+    in->mass = bodymass;
+    in->diaginertia = std::array<double, 3>{bodyinertia, bodyinertia, bodyinertia};
+    b->inertial.push_back(std::move(in));
+    // three orthogonal sliders (dof=full, Make :583)
+    for (int j = 0; j < 3; j++) {
+      auto jnt = std::make_unique<Joint>();
+      // upstream flexcomp joints are unnamed; force an empty (present) name so
+      // the native collector does not auto-name them (the XML oracle never sees
+      // these joints, so they stay unnamed there).
+      jnt->name = std::string();
+      jnt->type = JointType::slide;
+      jnt->pos = std::array<double, 3>{0, 0, 0};
+      std::array<double, 3> ax{0, 0, 0};
+      ax[j] = 1;
+      jnt->axis = ax;
+      b->subtree.push_back(BodyChildAny{std::move(jnt)});
+    }
+    vertbody.push_back(*b->name);
+    // clear flex vertex coords for this (non-centered) point
+    g.point[3 * i] = g.point[3 * i + 1] = g.point[3 * i + 2] = 0;
+    out_bodies.push_back(BodyChildAny{std::move(b)});
+  }
+
+  // synthesize the <flex> spec
+  auto flex = std::make_unique<Flex>();
+  if (!name.empty()) flex->name = name;
+  flex->dim = dim;
+  if (fc.group) flex->group = *fc.group;
+  if (fc.radius) flex->radius = *fc.radius;
+  if (fc.material) flex->material = *fc.material;
+  if (fc.rgba) flex->rgba = *fc.rgba;
+  if (force_flatskin) flex->flatskin = true;
+  else if (fc.flatskin) flex->flatskin = *fc.flatskin;
+
+  // vertbody -> body="a b c ..."
+  std::string bodies_str;
+  for (std::size_t i = 0; i < vertbody.size(); ++i) {
+    if (i) bodies_str += ' ';
+    bodies_str += vertbody[i];
+  }
+  flex->body = bodies_str;
+  flex->element = g.element;
+  if (!g.texcoord.empty()) flex->texcoord = g.texcoord;
+
+  // vert coords are saved whenever not centered (Make :514), including the rigid
+  // case (all points on the parent). Rigid then collapses vertbody to the single
+  // parent name (Make :519).
+  if (!centered) flex->vertex = g.point;
+  if (rigid) flex->body = parent_name;
+
+  // contact / edge / elasticity children carry over from the flexcomp def
+  if (!fc.flexContacts.empty() && fc.flexContacts.front())
+    flex->flexContacts.push_back(Clone(*fc.flexContacts.front()));
+  if (!fc.flexElasticitys.empty() && fc.flexElasticitys.front())
+    flex->flexElasticitys.push_back(Clone(*fc.flexElasticitys.front()));
+  // edge stiffness/damping + equality (from <edge>) (Make :788). equality=edge
+  // synthesizes an mjEQ_FLEX constraint referencing this flex by name; a rigid
+  // flex cannot carry one (upstream hard error), so it is suppressed.
+  if (!fc.flexcompEdges.empty() && fc.flexcompEdges.front()) {
+    const FlexcompEdge& fe = *fc.flexcompEdges.front();
+    if (fe.stiffness || fe.damping) {
+      auto e = std::make_unique<FlexEdge>();
+      e->stiffness = fe.stiffness;
+      e->damping = fe.damping;
+      flex->flexEdges.push_back(std::move(e));
+    }
+    if (!rigid && fe.equality && *fe.equality == FlexEquality::true_ &&
+        !name.empty()) {
+      auto eq = std::make_unique<EqualityFlex>();
+      // upstream's flexcomp equality is unnamed; force an empty (present) name so
+      // the native name pass does not auto-name it (the XML oracle never sees it).
+      eq->name = std::string();
+      eq->flex = ps::Ref<Flex>(name);
+      eq->active = true;
+      eq->solref = fe.solref;
+      eq->solimp = fe.solimp;
+      out_eq = std::move(eq);
+    }
+  }
+  (void)cs;
+  return flex;
+}
+
 void FlattenChildren(const std::vector<BodyChildAny>& subtree,
                      const FrameXform& xf, const CompilerSettings& cs,
-                     FramedChildren& out, RepArena* arena,
+                     FramedChildren& out, RepArena* arena, FlexcompSink* sink,
+                     const std::string& parent_name,
                      const bridge::CompileOptions& opts) {
   for (const BodyChildAny& child : subtree) {
     switch (child.kind()) {
@@ -1472,7 +2041,8 @@ void FlattenChildren(const std::vector<BodyChildAny>& subtree,
         const auto& f = std::get<std::unique_ptr<Frame>>(child.node);
         if (f) {
           FrameXform sub = ResolveFrame(*f, cs, xf);
-          FlattenChildren(f->subtree, sub, cs, out, arena, opts);
+          FlattenChildren(f->subtree, sub, cs, out, arena, sink,
+                          parent_name, opts);
         }
         break;
       }
@@ -1484,12 +2054,32 @@ void FlattenChildren(const std::vector<BodyChildAny>& subtree,
               ExpandReplicateNode(*rp, cs, opts));
           std::vector<BodyChildAny>* stable = owned.get();
           arena->push_back(std::move(owned));
-          FlattenChildren(*stable, xf, cs, out, arena, opts);
+          FlattenChildren(*stable, xf, cs, out, arena, sink, parent_name,
+                          opts);
+        }
+        break;
+      }
+      case BodyChildAny::Kind::Flexcomp: {
+        // Expand natively into compile-owned bodies (inserted in place) plus a
+        // synthesized <flex> (and optional edge equality) routed to the sink,
+        // then flatten the bodies.
+        const auto& fcn = std::get<std::unique_ptr<Flexcomp>>(child.node);
+        if (fcn && arena && sink) {
+          auto owned = std::make_unique<std::vector<BodyChildAny>>();
+          std::unique_ptr<EqualityFlex> eq;
+          std::unique_ptr<Flex> synth =
+              ExpandFlexcompInto(*fcn, cs, opts, parent_name, *owned, eq);
+          if (synth) sink->flexes.push_back(std::move(synth));
+          if (eq) sink->equalities.push_back(std::move(eq));
+          std::vector<BodyChildAny>* stable = owned.get();
+          arena->push_back(std::move(owned));
+          FlattenChildren(*stable, xf, cs, out, arena, sink, parent_name,
+                          opts);
         }
         break;
       }
       default:
-        break;  // PluginRef/Composite/Flexcomp/Attach: gated out
+        break;  // PluginRef/Composite/Attach: gated out
     }
   }
 }
@@ -1528,7 +2118,9 @@ class BodyCollector {
     FramedChildren fc;
     FrameXform identity;
     for (const auto& wb : worldbodies)
-      if (wb) FlattenChildren(wb->subtree, identity, cs_, fc, &rep_arena_, opts_);
+      if (wb)
+        FlattenChildren(wb->subtree, identity, cs_, fc, &rep_arena_,
+                        &flexcomp_sink_, "world", opts_);
 
     // World's geoms (id 0, no inertia inference), sites, cameras, lights.
     const int gstart = static_cast<int>(geoms_.size());
@@ -1634,7 +2226,8 @@ class BodyCollector {
     // Flatten this body's children through nested frames, in document order.
     FramedChildren fc;
     FrameXform identity;
-    FlattenChildren(b.subtree, identity, cs_, fc, &rep_arena_, opts_);
+    FlattenChildren(b.subtree, identity, cs_, fc, &rep_arena_, &flexcomp_sink_,
+                    b.name ? *b.name : std::string(), opts_);
 
     // has_joints: any <joint>/<freejoint> (frames flattened). Determines weld.
     cb.has_joints = !fc.joints.empty();
@@ -1768,6 +2361,7 @@ class BodyCollector {
   double znear_ = 0.01;
   const AssetBinds& assets_;
   RepArena rep_arena_;  // owns replicate-expansion clones for the compile's life
+  FlexcompSink flexcomp_sink_;  // flexcomp-synthesized flexes + equalities
   std::vector<CBody> bodies_;
   std::vector<CGeom> geoms_;
   std::vector<CJoint> joints_;
@@ -1778,6 +2372,10 @@ class BodyCollector {
 
  public:
   std::vector<CJoint>& joints() { return joints_; }
+  std::vector<std::unique_ptr<Flex>>& synth_flexes() { return flexcomp_sink_.flexes; }
+  std::vector<std::unique_ptr<EqualityFlex>>& synth_equalities() {
+    return flexcomp_sink_.equalities;
+  }
 };
 
 // --------------------------------------------------------------------------- //
@@ -2434,6 +3032,7 @@ struct CEquality {
   int type = mjEQ_CONNECT;
   int objtype = 0;             // mjtObj (BODY/SITE for connect/weld)
   int obj1id = -1, obj2id = -1;
+  std::string flex_name;       // referenced flex name (flex equalities)
   bool active = true;
   double solref[2] = {0.02, 1};
   double solimp[5] = {0.9, 0.95, 0.001, 0.5, 2};
@@ -2568,6 +3167,26 @@ CEquality EqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
   }
   // missing body2 -> world (mjCEquality::ResolveReferences).
   if (ce.objtype == mjOBJ_BODY && ce.obj2id == -1) ce.obj2id = 0;
+  return ce;
+}
+
+// Compile a flex (edge) equality: mjEQ_FLEX referencing a flex by name
+// (mjCEquality::ResolveReferences flex branch). Used for flexcomp-synthesized
+// <edge equality="true"> constraints; obj2 is unused (-1).
+CEquality FlexEqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
+                              const EqualityFlex& e, const NameIdMap& flexid) {
+  CEquality ce;
+  ce.src = &e;
+  ce.serial = e.serial;
+  ce.name = e.name;
+  ce.type = mjEQ_FLEX;  // objtype stays 0: the reader sets eq_objtype only for
+                        // connect/weld (flex resolves object_type locally).
+  ce.flex_name = e.flex ? e.flex->name : std::string();
+  auto it = flexid.find(ce.flex_name);
+  ce.obj1id = it == flexid.end() ? -1 : it->second;
+  ce.obj2id = -1;
+  MergeEqualityClassChain(idx, e.dclass ? e.dclass->name : "", e.active,
+                          e.solref, e.solimp, ce);
   return ce;
 }
 
@@ -5430,7 +6049,23 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (int i = 0; i < static_cast<int>(tendons.size()); ++i)
     if (tendons[i].name) tendonid_of[*tendons[i].name] = i;
 
-  // Equality constraints (S8): document order across all <equality> sections.
+  // Flex name -> id map, in the order flexes are compiled below (authored flexes
+  // across <deformable> sections, then flexcomp-synthesized flexes in collect
+  // order). Built before equalities so flex-equality refs resolve by name.
+  std::unordered_map<std::string, int> flexid_of;
+  {
+    int fid = 0;
+    for (const auto& df : m.deformables) {
+      if (!df) continue;
+      for (const auto& fl : df->flexs)
+        if (fl) { if (fl->name) flexid_of[*fl->name] = fid; ++fid; }
+    }
+    for (const auto& fl : collector.synth_flexes())
+      if (fl) { if (fl->name) flexid_of[*fl->name] = fid; ++fid; }
+  }
+
+  // Equality constraints (S8): document order across all <equality> sections,
+  // then flexcomp-synthesized flex (edge) equalities in collect order.
   std::vector<CEquality> equalities;
   for (const auto& eq : m.equalitys) {
     if (!eq) continue;
@@ -5438,6 +6073,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
       equalities.push_back(EqualityCompile(default_idx, any, bodyid_of,
                                            siteid_of, jointid_of, tendonid_of));
   }
+  for (const auto& eq : collector.synth_equalities())
+    if (eq) equalities.push_back(FlexEqualityCompile(default_idx, *eq, flexid_of));
 
   // Actuators (S8): document order across all <actuator> sections. Transmission
   // targets resolve against joint/tendon/body id maps built above.
@@ -5569,9 +6206,25 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
       flexes.push_back(std::move(cf));
     }
   }
-  // flex_edgeequality (user_model.cc:3532-3549) stays 0 here: flex/flexvert/
-  // flexstrain equalities keep the unsupported "flex" tag and route the whole
-  // model to the XML fallback, so no admitted model references a flex by equality.
+  // Flexcomp-synthesized flexes (NC5 Wave 2): appended after authored flexes, in
+  // collect (document) order. Compiled through the same wave-1 flex path.
+  for (const auto& fl : collector.synth_flexes()) {
+    if (!fl) continue;
+    CFlex cf;
+    if (!FlexCompile(*fl, cbs, bodyid_of, matid_of, cf, diags)) return nullptr;
+    flexes.push_back(std::move(cf));
+  }
+  // flex_edgeequality (user_model.cc:3532-3549): a flex referenced by a flex
+  // equality records the constraint kind (edge=1, vert=2, strain=3). Scanned
+  // over the compiled equalities by flex name, matching upstream's first-hit.
+  for (CFlex& cf : flexes) {
+    for (const CEquality& ce : equalities) {
+      if (ce.flex_name != cf.name) continue;
+      if (ce.type == mjEQ_FLEX) { cf.edgeequality = 1; break; }
+      if (ce.type == mjEQ_FLEXVERT) { cf.edgeequality = 2; break; }
+      if (ce.type == mjEQ_FLEXSTRAIN) { cf.edgeequality = 3; break; }
+    }
+  }
 
   // S9 sizes: nq/nv from joints.
   int nq = 0, nv = 0;
