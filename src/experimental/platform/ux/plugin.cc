@@ -28,6 +28,9 @@ using ViewportPlugin = mujoco::platform::ViewportPlugin;
 using ViewportGuiPlugin = mujoco::platform::ViewportGuiPlugin;
 using OverlayPlugin = mujoco::platform::OverlayPlugin;
 using ModelSourcePlugin = mujoco::platform::ModelSourcePlugin;
+using MainMenuPlugin = mujoco::platform::MainMenuPlugin;
+using ToolbarPlugin = mujoco::platform::ToolbarPlugin;
+using EditorShellPlugin = mujoco::platform::EditorShellPlugin;
 
 namespace mujoco::platform {
 
@@ -83,3 +86,6 @@ MUJOCO_SPECIALIZE_PLUGIN(ViewportPlugin, "viewport plugin");
 MUJOCO_SPECIALIZE_PLUGIN(ViewportGuiPlugin, "viewport gui plugin");
 MUJOCO_SPECIALIZE_PLUGIN(OverlayPlugin, "overlay plugin");
 MUJOCO_SPECIALIZE_PLUGIN(ModelSourcePlugin, "model source plugin");
+MUJOCO_SPECIALIZE_PLUGIN(MainMenuPlugin, "main menu plugin");
+MUJOCO_SPECIALIZE_PLUGIN(ToolbarPlugin, "toolbar plugin");
+MUJOCO_SPECIALIZE_PLUGIN(EditorShellPlugin, "editor shell plugin");

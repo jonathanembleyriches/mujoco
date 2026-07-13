@@ -259,9 +259,50 @@ void DrawDropMenu(ViewportEditor* ve) {
   }
 }
 
+// World position of the element bound to `serial`, from the compiled data.
+bool WorldPosOfSerial(const mjModel* m, const mjData* d,
+                      const bridge::Binding& binding, std::uint64_t serial,
+                      double out[3]) {
+  for (const bridge::Binding::Entry& e : binding.entries()) {
+    if (e.serial != serial || e.id < 0) continue;
+    const double* src = nullptr;
+    switch (e.etype) {
+      case mj::ElementType::Body: src = d->xpos + 3 * e.id; break;
+      case mj::ElementType::Geom: src = d->geom_xpos + 3 * e.id; break;
+      case mj::ElementType::Site: src = d->site_xpos + 3 * e.id; break;
+      case mj::ElementType::Camera: src = d->cam_xpos + 3 * e.id; break;
+      case mj::ElementType::Joint:
+      case mj::ElementType::FreeJoint:
+        if (e.id < m->njnt) src = d->xanchor + 3 * e.id;
+        break;
+      default: break;
+    }
+    if (src) {
+      for (int k = 0; k < 3; ++k) out[k] = src[k];
+      return true;
+    }
+  }
+  return false;
+}
+
+// F / Hierarchy-double-click focus: recentre the camera lookat on the requested
+// element (punt #4). The camera is host-owned but passed mutably in the context.
+void ServiceFocus(EditorContext& ctx, const ViewportGuiPlugin::Context& vc) {
+  if (ctx.focus_request_serial == 0 || !vc.camera || !vc.model || !vc.data)
+    return;
+  const std::uint64_t serial = ctx.focus_request_serial;
+  ctx.focus_request_serial = 0;
+  if (ctx.compiled.model.get() != vc.model) return;
+  double p[3];
+  if (WorldPosOfSerial(vc.model, vc.data, ctx.compiled.binding, serial, p)) {
+    for (int k = 0; k < 3; ++k) vc.camera->lookat[k] = p[k];
+  }
+}
+
 void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   ViewportEditor* ve = static_cast<ViewportEditor*>(self->data);
   ve->gizmo.Draw(*ve->ctx, vc);
+  ServiceFocus(*ve->ctx, vc);
   DrawDropMenu(ve);
 }
 
@@ -440,7 +481,14 @@ void OnOverlay(OverlayPlugin* self, const mjModel* m, const mjData* d,
   }
 }
 
-void SetTool(EditorContext& c, GizmoTool t) { c.gizmo.tool = t; }
+// The QWER/F editor keys only act while the viewport (the passthrough central
+// node), not a panel, is hovered -- so they don't shadow Studio's camera-vis
+// toggles when the user is working in a panel (punt #4 key-collision etiquette).
+bool ViewportFocused() { return !ImGui::GetIO().WantCaptureMouse; }
+
+void SetTool(EditorContext& c, GizmoTool t) {
+  if (ViewportFocused()) c.gizmo.tool = t;
+}
 
 void RegisterKey(const char* name, int chord,
                  KeyHandlerPlugin::OnKeyPressedFn fn, ViewportEditor* ve) {
@@ -495,6 +543,12 @@ void RegisterViewportEditor(EditorContext& ctx) {
               [](KeyHandlerPlugin* s) {
                 SetTool(*static_cast<ViewportEditor*>(s->data)->ctx,
                         GizmoTool::Scale);
+              }, ve);
+  RegisterKey("Frame Selection", ImGuiKey_F,
+              [](KeyHandlerPlugin* s) {
+                EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
+                if (ViewportFocused() && c.selected_serial != 0)
+                  c.focus_request_serial = c.selected_serial;
               }, ve);
   RegisterKey("Delete", ImGuiKey_Delete,
               [](KeyHandlerPlugin* s) {

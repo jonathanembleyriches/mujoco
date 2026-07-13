@@ -90,6 +90,7 @@ add_library(protospec_editor STATIC
   editor/joint_overlay.cc
   editor/panels.cc
   editor/protospec_editor.cc
+  editor/shell.cc
   editor/transform_math.cc
   editor/undo.cc
   editor/viewport_plugin.cc

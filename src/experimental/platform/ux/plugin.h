@@ -154,15 +154,48 @@ struct ViewportPlugin final {
   void* data = nullptr;
 };
 
+// Plugin contributing menus to the main menu bar. Invoked inside the host's
+// BeginMainMenuBar()/EndMainMenuBar() pair, so the callback may open top-level
+// menus (e.g. an external editor's File / Edit menus). When any such plugin is
+// registered the host suppresses its own stock File menu.
+struct MainMenuPlugin final {
+  using DrawFn = void (*)(MainMenuPlugin* self);
+  const char* name = "";
+  DrawFn draw = nullptr;
+  void* data = nullptr;
+};
+
+// Plugin contributing controls to the top toolbar (e.g. an editor's transform
+// tool buttons, snap toggle, add-menu). Invoked inside the toolbar row after the
+// host's own controls, on the same line.
+struct ToolbarPlugin final {
+  using DrawFn = void (*)(ToolbarPlugin* self);
+  const char* name = "";
+  DrawFn draw = nullptr;
+  void* data = nullptr;
+};
+
+// Bridge that lets the host's play/stop toolbar drive an external editor's mode
+// machine. The host owns physics run/pause (StepControl); this hook tells the
+// editor to enter Play (compile pending edits) or return to Edit (discard sim
+// state). `mode`: 0 == Edit/stop, 1 == Play.
+struct EditorShellPlugin final {
+  using SetModeFn = void (*)(EditorShellPlugin* self, int mode);
+  const char* name = "";
+  SetModeFn set_mode = nullptr;
+  void* data = nullptr;
+};
+
 // Plugin that draws into the active ImGui frame over the 3D viewport (e.g.
 // screen-space transform gizmos). Invoked each frame during GUI building with
 // the live camera and viewport metrics so the draw list can project against
-// the rendered scene. `edit_mode` is true while the simulation is paused.
+// the rendered scene. `edit_mode` is true while the simulation is paused. The
+// camera is mutable so a plugin can service a frame-selection ("F") request.
 struct ViewportGuiPlugin final {
   struct Context {
     const mjModel* model = nullptr;
     const mjData* data = nullptr;
-    const mjvCamera* camera = nullptr;
+    mjvCamera* camera = nullptr;
     float aspect_ratio = 1.0f;
     bool edit_mode = true;
   };

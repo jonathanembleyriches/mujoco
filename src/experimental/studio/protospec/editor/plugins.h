@@ -26,6 +26,10 @@ void RegisterEditorPanels(EditorContext& ctx);
 // (mouse + draw hooks), the selection outline, and the QWER/Del key handlers.
 void RegisterViewportEditor(EditorContext& ctx);
 
+// The editor shell (SE4): File / Edit menus in Studio's menu bar, the transform-
+// tool / snap / add toolbar controls, and the Play/Stop mode bridge.
+void RegisterEditorShell(EditorContext& ctx);
+
 // The generated Details panel, owned by the concurrent SE1b cluster
 // (details_panel.cc, namespace ps::studio::details).
 namespace details {
@@ -39,6 +43,7 @@ inline void RegisterEditorPlugins(EditorContext& ctx) {
   details::RegisterDetailsPanel(ctx);
   RegisterEditorPanels(ctx);
   RegisterViewportEditor(ctx);
+  RegisterEditorShell(ctx);
 }
 
 }  // namespace ps::studio

@@ -1524,6 +1524,24 @@ void App::HelpGui() {
   ImGui::Text("T");
 
   ImGui::Columns();
+
+  // ProtoSpec editor keys (only meaningful when the editor cluster is hosted).
+  bool has_editor = false;
+  platform::ForEachPlugin<platform::EditorShellPlugin>(
+      [&](auto*) { has_editor = true; });
+  if (has_editor) {
+    ImGui::Separator();
+    ImGui::TextDisabled("ProtoSpec editor (viewport hovered):");
+    ImGui::BulletText("Q / W / E / R   Select / Move / Rotate / Scale tool");
+    ImGui::BulletText("F               Frame selection");
+    ImGui::BulletText("Del             Delete selection (referrer-checked)");
+    ImGui::BulletText("Ctrl+D          Duplicate selection");
+    ImGui::BulletText("Ctrl+S          Save (always the editor)");
+    ImGui::BulletText("Ctrl+Z / Ctrl+Y Undo / Redo");
+    ImGui::TextDisabled(
+        "Note: Q/W/E/R shadow Studio's camera-vis toggles; the editor tools win "
+        "only while the viewport (not a panel) is hovered.");
+  }
 }
 
 void App::ToolBarGui() {
@@ -1569,6 +1587,40 @@ void App::ToolBarGui() {
       ResetPhysics();
     }
     ImGui::SetItemTooltip("%s", "Reset");
+
+    // Play / Pause / Stop mode machine. Play tells any editor to compile pending
+    // edits and enter Play; Stop discards sim state (qpos0) and returns to Edit.
+    auto set_editor_mode = [](int mode) {
+      platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
+        if (p->set_mode) p->set_mode(p, mode);
+      });
+    };
+    ImGui::SameLine(0, separator_width);
+    ImGui::BeginDisabled(!has_model());
+    if (ImGui::Button("Play", square_size)) {
+      set_editor_mode(1);
+      step_control_.SetPauseState(PauseState::kUnpaused);
+    }
+    ImGui::SetItemTooltip("%s", "Play: compile edits and run the simulation");
+    ImGui::SameLine(0, 0.5 * separator_width);
+    if (ImGui::Button("Pause", square_size)) {
+      step_control_.SetPauseState(PauseState::kNormalPaused);
+    }
+    ImGui::SetItemTooltip("%s", "Pause the simulation");
+    ImGui::SameLine(0, 0.5 * separator_width);
+    if (ImGui::Button("Stop", square_size)) {
+      set_editor_mode(0);
+      step_control_.SetPauseState(PauseState::kNormalPaused);
+      ResetPhysics();
+    }
+    ImGui::SetItemTooltip("%s", "Stop: discard sim state, return to edit (qpos0)");
+    ImGui::EndDisabled();
+
+    // Editor toolbar controls (transform tools, snap, add) on the same row.
+    ImGui::SameLine(0, separator_width);
+    platform::ForEachPlugin<platform::ToolbarPlugin>([&](auto* plugin) {
+      if (plugin->draw) plugin->draw(plugin);
+    });
 
     // Combined (Normal Pause, Viscous Pause, Play) widget and Speed selection.
     ImGui::SameLine(0, separator_width);
@@ -1679,7 +1731,16 @@ void App::StatusBarGui() {
 
 void App::MainMenuGui() {
   if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("File")) {
+    // External editors contribute their own File / Edit menus; when present they
+    // replace the stock (mjSpec-based) File menu, which is inert for them.
+    bool has_editor_menu = false;
+    platform::ForEachPlugin<platform::MainMenuPlugin>([&](auto* plugin) {
+      if (plugin->draw) {
+        plugin->draw(plugin);
+        has_editor_menu = true;
+      }
+    });
+    if (!has_editor_menu && ImGui::BeginMenu("File")) {
 #ifndef __EMSCRIPTEN__
       if (ImGui::MenuItem("Open Model File", "Ctrl+O")) {
         tmp_.file_dialog = UiTempState::FileDialog_Load;

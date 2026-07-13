@@ -13,8 +13,11 @@
 namespace ps::studio {
 
 using mujoco::platform::CompiledModel;
+using mujoco::platform::EditorShellPlugin;
+using mujoco::platform::MainMenuPlugin;
 using mujoco::platform::ModelSourcePlugin;
 using mujoco::platform::OverlayPlugin;
+using mujoco::platform::ToolbarPlugin;
 using mujoco::platform::ViewportGuiPlugin;
 using mujoco::platform::ViewportInput;
 using mujoco::platform::ViewportPlugin;
