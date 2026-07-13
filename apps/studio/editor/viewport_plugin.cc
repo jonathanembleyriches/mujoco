@@ -15,6 +15,7 @@
 
 #include <imgui.h>
 
+#include "editor/authoring_ops.h"
 #include "editor/editor_ops.h"
 #include "editor/gizmo.h"
 #include "editor/gizmo_math.h"
@@ -41,7 +42,43 @@ struct ViewportEditor {
   bool press_x_set = false;
   float press_x = 0, press_y = 0;
   bool prev_left = false;
+
+  // Right-click "Add here" drop menu: a clean right-click (press+release, little
+  // travel) captures the world point under the cursor and raises the menu.
+  bool prev_right = false;
+  bool press_r_set = false;
+  float press_rx = 0, press_ry = 0;
+  bool drop_pending = false;
+  double drop_point[3] = {0, 0, 0};
 };
+
+// The world point under a screen ray: the nearest geom hit, else the ground
+// plane (z = 0). Falls back to a point 2 m down the ray when both miss.
+void ComputeDropPoint(const ViewportInput& in, double out[3]) {
+  const ViewProj vp =
+      BuildViewProj(in.model, in.data, in.camera, in.aspect_ratio);
+  double o[3], dir[3];
+  ScreenToRay(vp, in.x, in.y, o, dir);
+  int geom = -1;
+  const mjtByte* group = in.vis_option ? in.vis_option->geomgroup : nullptr;
+  const mjtByte flg_static =
+      in.vis_option ? in.vis_option->flags[mjVIS_STATIC] : 1;
+  const mjtNum pnt[3] = {o[0], o[1], o[2]};
+  const mjtNum vec[3] = {dir[0], dir[1], dir[2]};
+  const mjtNum dist =
+      mj_ray(in.model, in.data, pnt, vec, group, flg_static, -1, &geom, nullptr);
+  if (geom >= 0 && dist >= 0) {
+    for (int k = 0; k < 3; ++k) out[k] = o[k] + dir[k] * dist;
+    return;
+  }
+  const double po[3] = {0, 0, 0}, pn[3] = {0, 0, 1};
+  double t = 0, hit[3];
+  if (RayPlaneIntersect(o, dir, po, pn, &t, hit)) {
+    for (int k = 0; k < 3; ++k) out[k] = hit[k];
+    return;
+  }
+  for (int k = 0; k < 3; ++k) out[k] = o[k] + dir[k] * 2.0;
+}
 
 // Collect the geoms a ray passes through, front to back, by re-casting past each
 // hit. Returns (geom_id, body_id) pairs.
@@ -125,12 +162,59 @@ bool OnMouse(ViewportPlugin* self, const ViewportInput& in) {
     ve->press_x_set = false;
   }
   ve->prev_left = in.left_down;
+
+  // Right-click "Add here": a clean click (not a fly-mode drag) in Edit mode.
+  const bool rpress = in.right_down && !ve->prev_right;
+  const bool rrelease = !in.right_down && ve->prev_right;
+  if (rpress) {
+    ve->press_rx = in.x;
+    ve->press_ry = in.y;
+    ve->press_r_set = true;
+  }
+  if (rrelease && ve->press_r_set) {
+    const float dx = in.x - ve->press_rx, dy = in.y - ve->press_ry;
+    if ((dx * dx + dy * dy) < (0.006f * 0.006f) &&
+        ctx.mode == EditorMode::Edit) {
+      ComputeDropPoint(in, ve->drop_point);
+      ve->drop_pending = true;
+    }
+    ve->press_r_set = false;
+  }
+  ve->prev_right = in.right_down;
   return consumed;
+}
+
+// The right-click drop-add menu: a new world-parented body+geom at the captured
+// world point (deliverable 1, viewport "drop" add).
+void DrawDropMenu(ViewportEditor* ve) {
+  EditorContext& ctx = *ve->ctx;
+  if (ve->drop_pending) {
+    ImGui::OpenPopup("ViewportAdd");
+    ve->drop_pending = false;
+  }
+  if (ImGui::BeginPopup("ViewportAdd")) {
+    ImGui::TextDisabled("Add at (%.2f, %.2f, %.2f)", ve->drop_point[0],
+                        ve->drop_point[1], ve->drop_point[2]);
+    ImGui::Separator();
+    struct Item { const char* label; mj::GeomType type; };
+    const Item items[] = {{"Sphere", mj::GeomType::sphere},
+                          {"Box", mj::GeomType::box},
+                          {"Capsule", mj::GeomType::capsule},
+                          {"Cylinder", mj::GeomType::cylinder},
+                          {"Ellipsoid", mj::GeomType::ellipsoid}};
+    for (const Item& it : items) {
+      if (ImGui::MenuItem(it.label)) {
+        AddDropBodyGeomOp(ctx, it.type, ve->drop_point);
+      }
+    }
+    ImGui::EndPopup();
+  }
 }
 
 void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   ViewportEditor* ve = static_cast<ViewportEditor*>(self->data);
   ve->gizmo.Draw(*ve->ctx, vc);
+  DrawDropMenu(ve);
 }
 
 // Selection outline: a wireframe box at the selected element's world aabb,
@@ -258,6 +342,11 @@ void RegisterViewportEditor(EditorContext& ctx) {
                 // Route through the SE1a referrer-confirm flow: the panels layer
                 // owns the modal, so request it via the shared context.
                 c.delete_request_serial = c.selected_serial;
+              }, ve);
+  RegisterKey("Duplicate", ImGuiMod_Ctrl | ImGuiKey_D,
+              [](KeyHandlerPlugin* s) {
+                EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
+                if (c.selected_serial != 0) DuplicateOp(c, c.selected_serial);
               }, ve);
 }
 

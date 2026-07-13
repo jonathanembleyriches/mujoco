@@ -119,6 +119,14 @@ static void TestBuilders() {
   CHECK(j.type.has_value() && j.type.value() == JointType::hinge);
   // ...but no other IDL default is silently stamped on (DR-1).
   CHECK(!j.damping.has_value());
+
+  // Equality builder lands in the section's ordered union list.
+  Weld& weld = sdk::AddEquality<Weld>(*m, "weld1");
+  CHECK(weld.name.has_value() && weld.name.value() == "weld1");
+  CHECK(m->equalitys.size() == 1);
+  CHECK(m->equalitys.front()->equalities.size() == 1);
+  CHECK(m->equalitys.front()->equalities[0].kind() ==
+        EqualityAny::Kind::Weld);
 }
 
 // --- writer/reader fixpoint ----------------------------------------------- //

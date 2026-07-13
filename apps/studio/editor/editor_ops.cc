@@ -50,6 +50,9 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
   if (!ctx.base_dir.empty()) {
     opts.base_dir = ctx.base_dir;
   }
+  // In-memory assets (imported meshes not yet saved to disk) resolve through the
+  // compile VFS on every recompile until Save externalizes them.
+  opts.vfs_assets = ctx.vfs_assets;
 
   bridge::Compiled compiled = bridge::Compile(*ctx.tree, opts);
   for (const bridge::Diagnostic& w : compiled.report.warnings) {

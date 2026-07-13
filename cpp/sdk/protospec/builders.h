@@ -237,7 +237,7 @@ template <class Q>
 Q& AddEquality(mj::Model& model, const std::string& name = "") {
   auto q = std::make_unique<Q>();
   if (!name.empty()) detail::SetName(*q, name);
-  return detail::PushUnion<Q>(EnsureEqualitySection(model).equalitys,
+  return detail::PushUnion<Q>(EnsureEqualitySection(model).equalities,
                               std::move(q));
 }
 

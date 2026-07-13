@@ -149,6 +149,9 @@ add_library(protospec_studio_shell STATIC
   editor/transform_math.cc
   # SE1b (generated Details panel) adds its source here:
   editor/details_panel.cc
+  # SE3 authoring: add primitives, mesh import, duplicate, reparent, new model.
+  editor/authoring_ops.cc
+  editor/asset_import.cc
 )
 target_include_directories(protospec_studio_shell PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -252,3 +255,33 @@ add_custom_command(TARGET protospec_studio_details_tests POST_BUILD
   VERBATIM)
 add_test(NAME protospec_studio_details_tests
          COMMAND protospec_studio_details_tests)
+
+# --- SE3 authoring windowless tests (own main) ----------------------------- #
+# authoring_ops / asset_import are windowless (no ImGui); they exercise the
+# add / duplicate / reparent / mesh-import / new-model ops end to end, compiling
+# after each op. transform_math is linked for the reparent keep-world-pose math.
+add_executable(protospec_studio_authoring_tests
+  test/test_authoring.cc
+  editor/authoring_ops.cc
+  editor/asset_import.cc
+  editor/editor_ops.cc
+  editor/undo.cc
+  editor/transform_math.cc
+)
+target_link_libraries(protospec_studio_authoring_tests PRIVATE
+  protospec_studio_core
+  "${MUJOCO_IMPORT_LIB}"
+)
+target_include_directories(protospec_studio_authoring_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_authoring_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_authoring_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_authoring_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_authoring_tests
+         COMMAND protospec_studio_authoring_tests)

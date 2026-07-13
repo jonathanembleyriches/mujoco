@@ -14,8 +14,9 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
-#include "compile.h"  // ps::mjcf::bridge::Compiled
+#include "compile.h"  // ps::mjcf::bridge::Compiled, ps::mjcf::bridge::VfsAsset
 #include "editor/undo.h"
 #include "types.h"    // ps::Model
 
@@ -91,6 +92,12 @@ struct EditorContext {
   std::string source_name;   // display name of the loaded model
   std::string source_path;   // last loaded/saved file path (for Save)
   std::string base_dir;      // model dir for on-disk asset resolution on recompile
+
+  // In-memory assets (mesh/texture bytes) for models with no file on disk yet:
+  // injected into every compile via CompileOptions.vfs_assets, and externalized
+  // to disk on Save (asset_import.*). Cleared once written out.
+  std::vector<ps::mjcf::bridge::VfsAsset> vfs_assets;
+
   bool model_ready = false;  // a compiled model is available for the host
   bool fresh_load = false;   // one-shot: the last adopt was a file load, not a
                             // drag recompile (host resets the free camera)

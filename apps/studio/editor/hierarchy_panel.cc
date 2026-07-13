@@ -3,23 +3,31 @@
 // only renders it and wires clicks/rename/delete through the editor ops.
 
 #include <cfloat>
+#include <cstring>
 #include <string>
 #include <utility>
+
+#include <cstdint>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
+#include "editor/authoring_ops.h"
 #include "editor/editor_ops.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
+#include "types.h"
 
 namespace ps::studio {
 
 namespace {
 
+namespace mj = ps::mjcf;
+
 struct HierUiState {
   std::string search;
+  bool keep_world_pose = true;  // reparent "keep world pose" toggle (deliverable 4)
 
   std::uint64_t rename_serial = 0;
   std::string rename_buf;
@@ -30,6 +38,41 @@ struct HierUiState {
   std::string delete_desc;
   std::vector<std::string> delete_dangling;
 };
+
+// The "Add child ▸" submenu on a body-context container (a Body, a Frame, or the
+// world -- parent_serial == 0). Enables the SE1 placeholder.
+void DrawAddChildMenu(EditorContext& ctx, std::uint64_t parent) {
+  if (!ImGui::BeginMenu("Add child")) return;
+  if (ImGui::MenuItem("Body")) AddBodyOp(ctx, parent);
+  if (ImGui::BeginMenu("Geom")) {
+    if (ImGui::MenuItem("sphere")) AddGeomOp(ctx, parent, mj::GeomType::sphere);
+    if (ImGui::MenuItem("box")) AddGeomOp(ctx, parent, mj::GeomType::box);
+    if (ImGui::MenuItem("capsule")) AddGeomOp(ctx, parent, mj::GeomType::capsule);
+    if (ImGui::MenuItem("cylinder"))
+      AddGeomOp(ctx, parent, mj::GeomType::cylinder);
+    if (ImGui::MenuItem("ellipsoid"))
+      AddGeomOp(ctx, parent, mj::GeomType::ellipsoid);
+    if (ImGui::MenuItem("plane")) AddGeomOp(ctx, parent, mj::GeomType::plane);
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("Joint")) {
+    if (ImGui::MenuItem("hinge")) AddJointOp(ctx, parent, mj::JointType::hinge);
+    if (ImGui::MenuItem("slide")) AddJointOp(ctx, parent, mj::JointType::slide);
+    if (ImGui::MenuItem("ball")) AddJointOp(ctx, parent, mj::JointType::ball);
+    if (ImGui::MenuItem("free (freejoint)"))
+      AddJointOp(ctx, parent, mj::JointType::free);
+    ImGui::EndMenu();
+  }
+  if (ImGui::MenuItem("Site")) AddSiteOp(ctx, parent);
+  if (ImGui::MenuItem("Camera")) AddCameraOp(ctx, parent);
+  if (ImGui::MenuItem("Light")) AddLightOp(ctx, parent);
+  if (ImGui::MenuItem("Frame")) AddFrameOp(ctx, parent);
+  ImGui::EndMenu();
+}
+
+bool IsContainerNode(const HierNode& n) {
+  return n.type == mj::ElementType::Body || n.type == mj::ElementType::Frame;
+}
 
 void ClearSelectionIf(EditorContext& ctx, std::uint64_t serial) {
   if (ctx.selected_serial == serial) {
@@ -87,17 +130,49 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
       st.open_delete = true;
     }
   }
-  ImGui::BeginDisabled();
-  ImGui::MenuItem("Duplicate");   // SE3
-  ImGui::MenuItem("Add child");   // SE3
-  ImGui::EndDisabled();
+  if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
+    DuplicateOp(ctx, node.serial);
+  }
+  if (IsContainerNode(node)) {
+    DrawAddChildMenu(ctx, node.serial);
+  }
+}
+
+// Drag-drop reparent: every element node is a drag source; body/frame nodes are
+// drop targets. Dropping element `src` onto container `dst` runs ReparentOp with
+// the panel's keep-world-pose toggle (cycles / invalid kinds are rejected there).
+void DrawReparentDragDrop(EditorContext& ctx, const HierNode& node,
+                          const HierUiState& st) {
+  if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+    const std::uint64_t s = node.serial;
+    ImGui::SetDragDropPayload("PS_ELEMENT", &s, sizeof(s));
+    ImGui::TextUnformatted(node.label.c_str());
+    ImGui::EndDragDropSource();
+  }
+  if (IsContainerNode(node) && ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("PS_ELEMENT")) {
+      std::uint64_t src = 0;
+      std::memcpy(&src, pl->Data, sizeof(src));
+      if (src != 0 && src != node.serial) {
+        ReparentOp(ctx, src, node.serial, st.keep_world_pose);
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
 }
 
 void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
   if (node.is_section) {
-    if (ImGui::TreeNodeEx(node.label.c_str(),
-                          ImGuiTreeNodeFlags_DefaultOpen |
-                              ImGuiTreeNodeFlags_SpanAvailWidth)) {
+    const bool open = ImGui::TreeNodeEx(node.label.c_str(),
+                                        ImGuiTreeNodeFlags_DefaultOpen |
+                                            ImGuiTreeNodeFlags_SpanAvailWidth);
+    // The Body Tree header adds world-parented (top-level) elements.
+    if (node.tag == std::string("Body Tree") &&
+        ImGui::BeginPopupContextItem("##bodytree_add")) {
+      DrawAddChildMenu(ctx, 0);
+      ImGui::EndPopup();
+    }
+    if (open) {
       for (const HierNode& c : node.children) {
         DrawNode(ctx, c, st);
       }
@@ -129,6 +204,8 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     label += "  [macro]";
   }
   const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+
+  DrawReparentDragDrop(ctx, node, st);
 
   if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
     SelectBySerial(ctx, node.serial);
@@ -189,6 +266,7 @@ void HierarchyUpdate(GuiPlugin* self) {
 
   ImGui::SetNextItemWidth(-FLT_MIN);
   ImGui::InputTextWithHint("##search", "filter by name...", &st.search);
+  ImGui::Checkbox("Keep world pose on reparent", &st.keep_world_pose);
   ImGui::Separator();
 
   const HierNode model = BuildHierarchyModel(*c->tree);
