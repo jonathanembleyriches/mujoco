@@ -132,9 +132,9 @@ class App {
     bool stats = false;
     bool profiler = false;
     bool picture_in_picture = false;
-    bool options_panel = true;
-    bool inspector_panel = true;
-    bool spec_panels = true;
+    bool options_panel = false;
+    bool inspector_panel = false;
+    bool spec_panels = false;
     bool full_screen = false;
     bool style_editor = false;
     bool imgui_demo = false;

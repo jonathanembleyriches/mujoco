@@ -237,9 +237,9 @@ ImVec4 ConfigureDockingLayout() {
   const float scale = ImGui::GetWindowDpiScale();
   const float font_scale = ImGui::GetIO().FontGlobalScale;
 
-  const float kOptionsRelWidth = 0.22f;
-  const float kInspectorRelWidth = 0.22f;
-  const float kStatsRelHeight = 0.3f;
+  const float kHierarchyRelWidth = 0.20f;
+  const float kDetailsRelWidth = 0.24f;
+  const float kBottomRelHeight = 0.26f;
   const float kToolsBarHeight = 36.f * scale * font_scale;
   const float kStatusBarHeight = 32.f * scale * font_scale;
 
@@ -249,7 +249,13 @@ ImVec4 ConfigureDockingLayout() {
       viewport->WorkSize.x,
       viewport->WorkSize.y - kToolsBarHeight - kStatusBarHeight};
 
-  ImGuiID root = ImGui::GetID("Root");
+  // A Unity/Unreal-style curated default: Hierarchy left, Viewport centre (the
+  // passthrough central node), Details right, Assets + Diagnostics as tabs along
+  // the bottom. Studio's own Options / Inspector / Explorer / Editor / Stats /
+  // Profiler panels are docked into the same nodes (so they land somewhere sane
+  // when restored via the View menu) but are hidden by default. The dockspace id
+  // is versioned so a fresh curated layout supersedes a stale saved one.
+  ImGuiID root = ImGui::GetID("RootV2");
   const bool first_time = (ImGui::DockBuilderGetNode(root) == nullptr);
 
   if (first_time) {
@@ -257,40 +263,36 @@ ImVec4 ConfigureDockingLayout() {
     ImGui::DockBuilderAddNode(root, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(root, dockspace_size);
 
-    // Slice up the main dock space.
     ImGuiID main = root;
 
-    ImGuiID options = 0;
-    ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, kOptionsRelWidth, &options,
+    ImGuiID hierarchy = 0;
+    ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, kHierarchyRelWidth,
+                                &hierarchy, &main);
+
+    ImGuiID details = 0;
+    ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, kDetailsRelWidth, &details,
                                 &main);
 
-    ImGuiID inspector = 0;
-    ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, kInspectorRelWidth,
-                                &inspector, &main);
+    ImGuiID bottom = 0;
+    ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, kBottomRelHeight, &bottom,
+                                &main);
 
-    ImGuiID stats = 0;
-    ImGui::DockBuilderSplitNode(options, ImGuiDir_Down, kStatsRelHeight, &stats,
-                                &options);
-
-    ImGuiID properties = 0;
-    ImGui::DockBuilderSplitNode(inspector, ImGuiDir_Down, kStatsRelHeight,
-                                &properties, &inspector);
-
-    ImGuiID profiler = 0;
-    ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.42f, &profiler, &main);
-
+    // Centre (main) is the passthrough viewport.
     ImGui::DockBuilderDockWindow("Dockspace", main);
-    ImGui::DockBuilderDockWindow("Options", options);
-    ImGui::DockBuilderDockWindow("Explorer", inspector);
-    ImGui::DockBuilderDockWindow("Editor", inspector);
-    ImGui::DockBuilderDockWindow("Inspector", inspector);
-    ImGui::DockBuilderDockWindow("Hierarchy", inspector);
-    ImGui::DockBuilderDockWindow("Properties", properties);
-    ImGui::DockBuilderDockWindow("Details", properties);
-    ImGui::DockBuilderDockWindow("Assets", properties);
-    ImGui::DockBuilderDockWindow("Stats", stats);
-    ImGui::DockBuilderDockWindow("Diagnostics", stats);
-    ImGui::DockBuilderDockWindow("Profiler", profiler);
+    // Left: Hierarchy (Options hides behind it when toggled on).
+    ImGui::DockBuilderDockWindow("Hierarchy", hierarchy);
+    ImGui::DockBuilderDockWindow("Options", hierarchy);
+    // Right: Details, with Studio's spec/data panels tabbed behind it.
+    ImGui::DockBuilderDockWindow("Details", details);
+    ImGui::DockBuilderDockWindow("Inspector", details);
+    ImGui::DockBuilderDockWindow("Explorer", details);
+    ImGui::DockBuilderDockWindow("Editor", details);
+    ImGui::DockBuilderDockWindow("Properties", details);
+    // Bottom: Assets + Diagnostics tabs (Stats / Profiler join them when shown).
+    ImGui::DockBuilderDockWindow("Assets", bottom);
+    ImGui::DockBuilderDockWindow("Diagnostics", bottom);
+    ImGui::DockBuilderDockWindow("Stats", bottom);
+    ImGui::DockBuilderDockWindow("Profiler", bottom);
     ImGui::DockBuilderFinish(root);
   }
 
@@ -360,8 +362,8 @@ ImVec4 ConfigureDockingLayout() {
     return ImVec4(central->Pos.x, central->Pos.y,
                   central->Size.x, central->Size.y);
   }
-  const int settings_width = dockspace_size.x * kOptionsRelWidth;
-  const int inspector_width = dockspace_size.x * kInspectorRelWidth;
+  const int settings_width = dockspace_size.x * kHierarchyRelWidth;
+  const int inspector_width = dockspace_size.x * kDetailsRelWidth;
   const float workspace_x = dockspace_pos.x + settings_width;
   const float workspace_y = dockspace_pos.y;
   const float workspace_w = dockspace_size.x - settings_width - inspector_width;
