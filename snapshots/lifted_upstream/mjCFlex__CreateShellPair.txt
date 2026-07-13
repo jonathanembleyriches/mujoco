@@ -1,0 +1,199 @@
+void mjCFlex::CreateShellPair(void) {
+  std::vector<std::vector<int> > fragspec(nelem*(dim+1));   // [sorted frag vertices, elem, original frag vertices]
+  std::vector<std::vector<int> > connectspec;               // [elem1, elem2, common sorted frag vertices]
+  std::vector<bool> border(nelem, false);              // is element on the border
+  std::vector<bool> borderfrag(nelem*(dim+1), false);  // is fragment on the border
+
+  // make fragspec
+  for (int e=0; e < nelem; e++) {
+    int n = e*(dim+1);
+
+    // element vertices in original (unsorted) order
+    std::vector<int> el;
+    el.assign(elem_.begin()+n, elem_.begin()+n+dim+1);
+
+    // line: 2 vertex fragments
+    if (dim == 1) {
+      fragspec[n].push_back(el[0]);
+      fragspec[n].push_back(e);
+      fragspec[n].push_back(el[0]);
+
+      fragspec[n+1].push_back(el[1]);
+      fragspec[n+1].push_back(e);
+      fragspec[n+1].push_back(el[1]);
+    }
+
+    // triangle: 3 edge fragments
+    else if (dim == 2) {
+      fragspec[n].push_back(el[0]);
+      fragspec[n].push_back(el[1]);
+      fragspec[n].push_back(e);
+      fragspec[n].push_back(el[0]);
+      fragspec[n].push_back(el[1]);
+
+      fragspec[n+2].push_back(el[1]);
+      fragspec[n+2].push_back(el[2]);
+      fragspec[n+2].push_back(e);
+      fragspec[n+2].push_back(el[1]);
+      fragspec[n+2].push_back(el[2]);
+
+      fragspec[n+1].push_back(el[2]);
+      fragspec[n+1].push_back(el[0]);
+      fragspec[n+1].push_back(e);
+      fragspec[n+1].push_back(el[2]);
+      fragspec[n+1].push_back(el[0]);
+    }
+
+    // tetrahedron: 4 face fragments
+    else {
+      fragspec[n].push_back(el[0]);
+      fragspec[n].push_back(el[1]);
+      fragspec[n].push_back(el[2]);
+      fragspec[n].push_back(e);
+      fragspec[n].push_back(el[0]);
+      fragspec[n].push_back(el[1]);
+      fragspec[n].push_back(el[2]);
+
+      fragspec[n+2].push_back(el[0]);
+      fragspec[n+2].push_back(el[2]);
+      fragspec[n+2].push_back(el[3]);
+      fragspec[n+2].push_back(e);
+      fragspec[n+2].push_back(el[0]);
+      fragspec[n+2].push_back(el[2]);
+      fragspec[n+2].push_back(el[3]);
+
+      fragspec[n+1].push_back(el[0]);
+      fragspec[n+1].push_back(el[3]);
+      fragspec[n+1].push_back(el[1]);
+      fragspec[n+1].push_back(e);
+      fragspec[n+1].push_back(el[0]);
+      fragspec[n+1].push_back(el[3]);
+      fragspec[n+1].push_back(el[1]);
+
+      fragspec[n+3].push_back(el[1]);
+      fragspec[n+3].push_back(el[3]);
+      fragspec[n+3].push_back(el[2]);
+      fragspec[n+3].push_back(e);
+      fragspec[n+3].push_back(el[1]);
+      fragspec[n+3].push_back(el[3]);
+      fragspec[n+3].push_back(el[2]);
+    }
+  }
+
+  // sort first segment of each fragspec
+  if (dim > 1) {
+    for (int n=0; n < nelem*(dim+1); n++) {
+      std::sort(fragspec[n].begin(), fragspec[n].begin()+dim);
+    }
+  }
+
+  // sort fragspec
+  std::sort(fragspec.begin(), fragspec.end());
+
+  // make border and connectspec, record borderfrag
+  int cnt = 1;
+  for (int n=1; n < nelem*(dim+1); n++) {
+    // extract frag vertices, without elem
+    std::vector<int> previous = {fragspec[n-1].begin(), fragspec[n-1].begin()+dim};
+    std::vector<int> current = {fragspec[n].begin(), fragspec[n].begin()+dim};
+
+    // same sequential fragments
+    if (previous == current) {
+      // found pair of elements connected by common fragment
+      std::vector<int> connect;
+      connect.insert(connect.end(), fragspec[n-1][dim]);
+      connect.insert(connect.end(), fragspec[n][dim]);
+      connect.insert(connect.end(), fragspec[n].begin(), fragspec[n].begin()+dim);
+      connectspec.push_back(connect);
+
+      // count same sequential fragments
+      cnt++;
+    }
+
+    // different sequential fragments
+    else {
+      // found border fragment
+      if (cnt == 1) {
+        border[fragspec[n-1][dim]] = true;
+        borderfrag[n-1] = true;
+      }
+
+      // reset count
+      cnt = 1;
+    }
+  }
+
+  // last fragment is border
+  if (cnt == 1) {
+    int n = nelem*(dim+1);
+    border[fragspec[n-1][dim]] = true;
+    borderfrag[n-1] = true;
+  }
+
+  // create shell
+  for (unsigned i=0; i < borderfrag.size(); i++) {
+    if (borderfrag[i]) {
+      // add fragment vertices, in original order
+      shell.insert(shell.end(), fragspec[i].begin()+dim+1, fragspec[i].end());
+    }
+  }
+
+  // compute elemlayer (distance from border) via value iteration in 3D
+  if (dim < 3) {
+    elemlayer = std::vector<int> (nelem, 0);
+  }
+  else {
+    elemlayer = std::vector<int> (nelem, nelem+1);   // init with greater than max value
+    for (int e=0; e < nelem; e++) {
+      if (border[e]) {
+        elemlayer[e] = 0;                       // set border elements to 0
+      }
+    }
+
+    bool change = true;
+    while (change) {                            // repeat while changes are happening
+      change = false;
+
+      // process edges of element connectivity graph
+      for (const auto& connect : connectspec) {
+        int e1 = connect[0];             // get element pair for this edge
+        int e2 = connect[1];
+        if (elemlayer[e1] > elemlayer[e2]+1) {
+          elemlayer[e1] = elemlayer[e2]+1;      // better value found for e1: update
+          change = true;
+        } else if (elemlayer[e2] > elemlayer[e1]+1) {
+          elemlayer[e2] = elemlayer[e1]+1;      // better value found for e2: update
+          change = true;
+        }
+      }
+    }
+  }
+
+  // create evpairs in 1D and 2D
+  if (dim < 3) {
+    // process connected element pairs containing a border element
+    for (const auto& connect : connectspec) {
+      if (border[connect[0]] || border[connect[1]]) {
+        // extract common fragment
+        std::vector<int> frag = {connect.begin()+2, connect.end()};
+
+        // process both elements
+        for (int ei=0; ei < 2; ei++) {
+          const int* edata = elem_.data() + connect[ei]*(dim+1);
+
+          // find element vertex that is not in the common fragment
+          for (int i=0; i <= dim; i++) {
+            if (frag.end() == std::find(frag.begin(), frag.end(), edata[i])) {
+              // add ev pair, involving the other element in connectspec
+              evpair.push_back(connect[1-ei]);
+              evpair.push_back(edata[i]);
+
+              // one such vertex exists
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+}

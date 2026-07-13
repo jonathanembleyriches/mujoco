@@ -217,6 +217,8 @@ class SubFeatureScanner {
                          std::is_same_v<E, Cylinder> ||
                          std::is_same_v<E, Adhesion>)
         CheckActuator(e);
+      else if constexpr (std::is_same_v<E, Flex>) CheckFlex(e);
+      else if constexpr (std::is_same_v<E, EqualityFlex>) CheckEqualityFlex(e);
       else if constexpr (std::is_same_v<E, SensorContact>) CheckSensorContact(e);
       else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
       else if constexpr (std::is_same_v<E, Size>) CheckSize(e);
@@ -318,6 +320,28 @@ class SubFeatureScanner {
         Note("actuator.dyntype", a.loc);
     }
   }
+  // The native flex path (NC5 Wave 1) compiles only the young=0, non-interpolated
+  // edge-only geometry. Node/dof interpolation, young>0 linear elasticity, and
+  // elastic2d bending route to the XML fallback; a dim>1 edge stiffness is an
+  // upstream hard error (both paths), gated here to keep the native path off it.
+  void CheckFlex(const Flex& f) {
+    if (f.node || f.dof) Note("flex.interpolated", f.loc);
+    const int dim = f.dim ? *f.dim : 2;
+    if (!f.flexElasticitys.empty() && f.flexElasticitys.front()) {
+      const FlexElasticity& e = *f.flexElasticitys.front();
+      if (e.young && *e.young > 0) Note("flex.elasticity", f.loc);
+      if (e.elastic2d && *e.elastic2d != Elastic2D::none)
+        Note("flex.elastic2d", f.loc);
+    }
+    if (!f.flexEdges.empty() && f.flexEdges.front()) {
+      const FlexEdge& e = *f.flexEdges.front();
+      if (e.stiffness && *e.stiffness > 0 && dim > 1)
+        Note("flex.edgestiffness", f.loc);
+    }
+  }
+  // EqualityFlex shares the "flex" tag with the Flex element (admitted), but the
+  // native equality path does not compile flex equalities yet.
+  void CheckEqualityFlex(const EqualityFlex& e) { Note("equality.flex", e.loc); }
   // The contact sensor shares the "contact" tag with the <contact> section
   // (admitted for pairs/excludes), so it slips past the family gate; its
   // variable dim + intprm bitmask are out of NC2 scope. Force the fallback.

@@ -82,6 +82,15 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "weld") {
     return true;
   }
+  // NC5 flex: the <deformable> container and direct <flex> elements (young=0,
+  // non-interpolated edge-only path). The "flex" key is shared by the Flex
+  // element and the EqualityFlex spelling; EqualityFlex, node/dof interpolation,
+  // young>0 elasticity, and elastic2d bending route to the XML fallback via the
+  // finer scan (native.cc). flexcomp / flexvert / flexstrain stay unlisted.
+  if (feature_key == "deformable" || feature_key == "flex" ||
+      feature_key == "edge" || feature_key == "elasticity") {
+    return true;
+  }
   // NC3 assets: the <asset> container and materials. A material referencing a
   // texture (legacy attr or <layer>) is rejected by the finer scan
   // (material.texture) until textures land; geoms/sites/tendons referencing a

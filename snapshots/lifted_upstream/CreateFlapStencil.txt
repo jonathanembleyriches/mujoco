@@ -1,0 +1,50 @@
+static void CreateFlapStencil(std::vector<StencilFlap>& flaps,
+                              const std::vector<int>& simplex,
+                              const std::vector<int>& edgeidx) {
+  // populate stencil
+  int ne = 0;
+  int nt = simplex.size() / kNumVerts;
+  std::vector<Stencil2D> elements(nt);
+  for (int t = 0; t < nt; t++) {
+    for (int v = 0; v < kNumVerts; v++) {
+      elements[t].vertices[v] = simplex[kNumVerts * t + v];
+    }
+  }
+
+  // map from edge vertices to their index in `edges` vector
+  std::unordered_map<std::pair<int, int>, int, PairHash> edge_indices;
+
+  // loop over all triangles
+  for (int t = 0; t < nt; t++) {
+    int* v = elements[t].vertices;
+
+    // compute edges to vertices map for fast computations
+    for (int e = 0; e < kNumEdges; e++) {
+      auto pair = std::pair(std::min(v[edge[e][0]], v[edge[e][1]]),
+                            std::max(v[edge[e][0]], v[edge[e][1]]));
+
+      // if edge is already present in the vector only store its index
+      auto [it, inserted] = edge_indices.insert({pair, ne});
+
+      if (inserted) {
+        StencilFlap flap;
+        flap.vertices[0] = v[edge[e][0]];
+        flap.vertices[1] = v[edge[e][1]];
+        flap.vertices[2] = v[(edge[e][1] + 1) % 3];
+        flap.vertices[3] = -1;
+        flaps.push_back(flap);
+        elements[t].edges[e] = ne++;
+      } else {
+        elements[t].edges[e] = it->second;
+        flaps[it->second].vertices[3] = v[(edge[e][1] + 1) % 3];
+      }
+
+      // double check that the edge indices are consistent
+      if (!edgeidx.empty()) {
+        if (elements[t].edges[e] != edgeidx[kNumEdges * t + e]) {
+          mju_error("edge indices do not match in CreateFlapStencil");
+        }
+      }
+    }
+  }
+}

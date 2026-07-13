@@ -1,0 +1,26 @@
+void mjCFlex::ResolveReferences(const mjCModel* m) {
+  interpolated = !nodebody_.empty();
+  vertbodyid.clear();
+  nodebodyid.clear();
+  for (const auto& vertbody : vertbody_) {
+    mjCBody* pbody = static_cast<mjCBody*>(m->FindObject(mjOBJ_BODY, vertbody));
+    if (pbody) {
+      vertbodyid.push_back(pbody->id);
+      if (pbody->joints.size() != 3 && dim == 2 &&
+          (elastic2d == 1 || elastic2d == 3) && !interpolated) {
+        // TODO(quaglino): add support for pins
+        throw mjCError(this, "pins are not supported for bending");
+      }
+    } else {
+      throw mjCError(this, "unknown body '%s' in flex", vertbody.c_str());
+    }
+  }
+  for (const auto& nodebody : nodebody_) {
+    mjCBase* pbody = m->FindObject(mjOBJ_BODY, nodebody);
+    if (pbody) {
+      nodebodyid.push_back(pbody->id);
+    } else {
+      throw mjCError(this, "unknown body '%s' in flex", nodebody.c_str());
+    }
+  }
+}

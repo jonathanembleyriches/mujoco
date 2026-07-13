@@ -34,6 +34,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <mujoco/mujoco.h>
@@ -130,6 +132,8 @@ struct CBody {
   int weldid = 0;                  // self if it has joints, else parent's weldid
   double pos[3] = {0, 0, 0};       // frame relative to parent
   double quat[4] = {1, 0, 0, 0};
+  double xpos0[3] = {0, 0, 0};     // global body pose at qpos0 (no joint xform)
+  double xquat0[4] = {1, 0, 0, 0}; // mjCBody::Compile (user_objects.cc:2844-2849)
   double ipos[3] = {0, 0, 0};      // inertial frame relative to body
   double iquat[4] = {1, 0, 0, 0};
   double mass = 0;
@@ -1738,6 +1742,16 @@ class BodyCollector {
     if (body_xf.present)
       lift::mjuu_frameaccumChild(body_xf.pos, body_xf.quat, cb.pos, cb.quat);
 
+    // Global rest pose (no joint xform in qpos0), accumulated through the parent
+    // (mjCBody::Compile, user_objects.cc:2844-2849). Parent id < id (preorder),
+    // so bodies_[parentid] is final; consumed by flex vertex placement.
+    {
+      const CBody& p = bodies_[cb.parentid];
+      lift::mjuu_rotVecQuat(cb.xpos0, cb.pos, p.xquat0);
+      lift::mjuu_addtovec(cb.xpos0, p.xpos0, 3);
+      lift::mjuu_mulquat(cb.xquat0, p.xquat0, cb.quat);
+    }
+
     // BVH over this body's geoms (mjCBody::ComputeBVH).
     BuildBVH(cb);
 
@@ -2203,9 +2217,9 @@ int NameList(const std::vector<std::string>& list, int adr, int* name_adr,
 // tables and map segments are trivially correct.
 struct NameLists {
   std::string modelname;
-  std::vector<std::string> body, jnt, geom, site, cam, light, mesh, skin, hfield,
-      tex, mat, pair, exclude, eq, tendon, actuator, sensor, numeric, text, tuple,
-      key;
+  std::vector<std::string> body, jnt, geom, site, cam, light, flex, mesh, skin,
+      hfield, tex, mat, pair, exclude, eq, tendon, actuator, sensor, numeric,
+      text, tuple, key;
 
   int TotalNames() const {
     int n = static_cast<int>(modelname.size()) + 1;
@@ -2213,7 +2227,7 @@ struct NameLists {
       for (const auto& s : v) n += static_cast<int>(s.size()) + 1;
     };
     add(body); add(jnt); add(geom); add(site); add(cam); add(light);
-    add(mesh); add(skin); add(hfield); add(tex); add(mat);
+    add(flex); add(mesh); add(skin); add(hfield); add(tex); add(mat);
     add(pair); add(exclude); add(eq); add(tendon); add(actuator); add(sensor);
     add(numeric); add(text); add(tuple);
     add(key);
@@ -2240,6 +2254,7 @@ void FillNames(mjModel* m, const NameLists& nl) {
   pass(nl.site, m->name_siteadr);
   pass(nl.cam, m->name_camadr);
   pass(nl.light, m->name_lightadr);
+  pass(nl.flex, m->name_flexadr);
   pass(nl.mesh, m->name_meshadr);
   pass(nl.skin, m->name_skinadr);
   pass(nl.hfield, m->name_hfieldadr);
@@ -4548,6 +4563,682 @@ void FillMeshPaths(mjModel* m, const std::vector<CMesh>& meshes) {
   for (int i = 0; i < m->ntex; ++i) m->tex_pathadr[i] = -1;
 }
 
+// --------------------------------------------------------------------------- //
+// Flex (mjCFlex, NC5 Wave 1: direct <flex> with young=0, non-interpolated).    //
+// Lifted from src/user/user_mesh.cc: mjCFlex::Compile (:4630), ResolveReferences //
+// (:4275), CreateShellPair (:5460), CreateFlapStencil (:3605), CreateBVH (:5410) //
+// and the simplex tables (:3385 / user_objects.h:1050). The young>0 elasticity  //
+// kernels, node interpolation, and gmsh/mesh loaders are gated to the XML        //
+// fallback (native.cc); only geometry/topology of the edge-only path is here.   //
+// Sizing (nflex*/nJfe/nJfv, user_model.cc:2182-2241) and fill (CopyObjects       //
+// :3432-3654) are retargeted below. BVH reuses the shared lifted BVH class.      //
+// --------------------------------------------------------------------------- //
+
+// Adjacent-triangle stencil (user_objects.h:963). Populated by the flap stencil
+// even at young=0 for its edge-consistency assertion; edgeflap output is unused
+// when elastic2d==0 (gated otherwise).
+struct StencilFlap {
+  int vertices[4];
+};
+
+// Simplex connectivity (user_mesh.cc:3385): local edges per element by dim-1.
+constexpr int kFlexEledge[3][6][2] = {
+    {{0, 1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}},
+    {{1, 2}, {2, 0}, {0, 1}, {-1, -1}, {-1, -1}, {-1, -1}},
+    {{0, 1}, {1, 2}, {2, 0}, {2, 3}, {0, 3}, {1, 3}}};
+
+// Edges per element indexed by dim (user_objects.h:1050).
+constexpr int kFlexNumEdges[3] = {1, 3, 6};
+
+// Local triangle edge order used by CreateFlapStencil (user_mesh.cc:3602).
+constexpr int kFlapEdge[3][2] = {{1, 2}, {2, 0}, {0, 1}};
+
+// std::pair hash (user_mesh.cc:2893 PairHash).
+struct FlexPairHash {
+  template <class T1, class T2>
+  std::size_t operator()(const std::pair<T1, T2>& p) const {
+    return std::hash<T1>()(p.first) ^ std::hash<T2>()(p.second);
+  }
+};
+
+// Per-flex compiled state (side table). Field set mirrors mjCFlex_ plus the
+// resolved mjsFlex scalars needed by the fill; young/poisson/elastic2d are read
+// but the young>0 / bending paths never reach here (gated).
+struct CFlex {
+  std::string name;
+  int dim = 2;
+  double radius = 0.005;
+  int group = 0;
+  int matid = -1;
+  std::string material_name;
+  float rgba[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+  bool flatskin = false;
+  // contact (FlexContact / mjs_defaultFlex)
+  int contype = 1, conaffinity = 1, condim = 3, priority = 0;
+  double friction[3] = {1, 0.005, 0.0001};
+  double solmix = 1;
+  double solref[2] = {0.02, 1};
+  double solimp[5] = {0.9, 0.95, 0.001, 0.5, 2};
+  double margin = 0, gap = 0;
+  bool internal = false;
+  int selfcollide = mjFLEXSELF_AUTO;
+  int activelayers = 1;
+  bool passive = false;
+  // edge (FlexEdge)
+  double edgestiffness = 0, edgedamping = 0;
+  // elasticity (FlexElasticity); young==0 on this path
+  double damping = 0, young = 0, poisson = 0, thickness = -1;
+  int elastic2d = 0;
+  int order = 0;            // spec.order (0 without dof) -> flex_interp
+  int cellcount[3] = {1, 1, 1};
+  // topology
+  int nvert = 0, nnode = 0, nedge = 0, nelem = 0;
+  bool rigid = false, centered = false, interpolated = false;
+  std::vector<int> vertbodyid;
+  std::vector<std::pair<int, int>> edge;
+  std::vector<int> edgeidx;
+  std::vector<int> shell, elemlayer, evpair;
+  std::vector<int> elem;                 // reordered for dim==3
+  std::vector<double> vert;              // authored offsets (empty if centered)
+  std::vector<float> texcoord;
+  std::vector<int> elemtexcoord;
+  std::vector<double> vertxpos;
+  std::vector<double> vert0;
+  std::vector<StencilFlap> flaps;
+  double size[3] = {0, 0, 0};
+  int edgeequality = 0;                  // resolved at fill from equalities
+  // BVH (dynamic; laid out after body+mesh static nodes)
+  std::vector<double> bvh;
+  std::vector<int> bvh_child, bvh_level, bvh_nodeid;
+  int bvhadr = -1;
+  bool HasTexcoord() const { return !texcoord.empty(); }
+  int nbvh() const { return static_cast<int>(bvh_child.size() / 2); }
+};
+
+// Split a whitespace-separated attribute string into tokens (the flex `body`
+// attribute is a name list; the reader stores it verbatim).
+std::vector<std::string> SplitWhitespace(const std::string& s) {
+  std::vector<std::string> out;
+  std::istringstream is(s);
+  std::string tok;
+  while (is >> tok) out.push_back(tok);
+  return out;
+}
+
+// CreateFlapStencil (user_mesh.cc:3605): builds triangle flap adjacency and
+// asserts the edge indexing matches the one computed in Compile. Returns false
+// (with a diagnostic) on mismatch -- the only observable effect at young=0.
+bool FlexCreateFlapStencil(std::vector<StencilFlap>& flaps,
+                           const std::vector<int>& simplex,
+                           const std::vector<int>& edgeidx,
+                           std::vector<bridge::Diagnostic>& diags) {
+  int ne = 0;
+  const int nt = static_cast<int>(simplex.size()) / 3;
+  std::vector<std::array<int, 3>> elem_verts(nt);
+  for (int t = 0; t < nt; t++)
+    for (int v = 0; v < 3; v++) elem_verts[t][v] = simplex[3 * t + v];
+
+  std::unordered_map<std::pair<int, int>, int, FlexPairHash> edge_indices;
+  for (int t = 0; t < nt; t++) {
+    const int* v = elem_verts[t].data();
+    for (int e = 0; e < 3; e++) {
+      auto pair = std::pair(std::min(v[kFlapEdge[e][0]], v[kFlapEdge[e][1]]),
+                            std::max(v[kFlapEdge[e][0]], v[kFlapEdge[e][1]]));
+      auto [it, inserted] = edge_indices.insert({pair, ne});
+      int edge_id;
+      if (inserted) {
+        StencilFlap flap;
+        flap.vertices[0] = v[kFlapEdge[e][0]];
+        flap.vertices[1] = v[kFlapEdge[e][1]];
+        flap.vertices[2] = v[(kFlapEdge[e][1] + 1) % 3];
+        flap.vertices[3] = -1;
+        flaps.push_back(flap);
+        edge_id = ne++;
+      } else {
+        edge_id = it->second;
+        flaps[it->second].vertices[3] = v[(kFlapEdge[e][1] + 1) % 3];
+      }
+      if (!edgeidx.empty() && edge_id != edgeidx[3 * t + e]) {
+        diags.push_back({bridge::Diagnostic::Severity::Error, "flex",
+                         "edge indices do not match in CreateFlapStencil", {}});
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// CreateShellPair (user_mesh.cc:5460): border fragments (shell), element layer
+// distance-from-border (3D value iteration), and element-vertex collision pairs.
+void FlexCreateShellPair(CFlex& f) {
+  const int dim = f.dim;
+  const int nelem = f.nelem;
+  std::vector<std::vector<int>> fragspec(nelem * (dim + 1));
+  std::vector<std::vector<int>> connectspec;
+  std::vector<bool> border(nelem, false);
+  std::vector<bool> borderfrag(nelem * (dim + 1), false);
+
+  for (int e = 0; e < nelem; e++) {
+    int n = e * (dim + 1);
+    std::vector<int> el(f.elem.begin() + n, f.elem.begin() + n + dim + 1);
+    if (dim == 1) {
+      fragspec[n] = {el[0], e, el[0]};
+      fragspec[n + 1] = {el[1], e, el[1]};
+    } else if (dim == 2) {
+      fragspec[n] = {el[0], el[1], e, el[0], el[1]};
+      fragspec[n + 2] = {el[1], el[2], e, el[1], el[2]};
+      fragspec[n + 1] = {el[2], el[0], e, el[2], el[0]};
+    } else {
+      fragspec[n] = {el[0], el[1], el[2], e, el[0], el[1], el[2]};
+      fragspec[n + 2] = {el[0], el[2], el[3], e, el[0], el[2], el[3]};
+      fragspec[n + 1] = {el[0], el[3], el[1], e, el[0], el[3], el[1]};
+      fragspec[n + 3] = {el[1], el[3], el[2], e, el[1], el[3], el[2]};
+    }
+  }
+
+  if (dim > 1)
+    for (int n = 0; n < nelem * (dim + 1); n++)
+      std::sort(fragspec[n].begin(), fragspec[n].begin() + dim);
+  std::sort(fragspec.begin(), fragspec.end());
+
+  int cnt = 1;
+  for (int n = 1; n < nelem * (dim + 1); n++) {
+    std::vector<int> previous(fragspec[n - 1].begin(), fragspec[n - 1].begin() + dim);
+    std::vector<int> current(fragspec[n].begin(), fragspec[n].begin() + dim);
+    if (previous == current) {
+      std::vector<int> connect;
+      connect.push_back(fragspec[n - 1][dim]);
+      connect.push_back(fragspec[n][dim]);
+      connect.insert(connect.end(), fragspec[n].begin(), fragspec[n].begin() + dim);
+      connectspec.push_back(connect);
+      cnt++;
+    } else {
+      if (cnt == 1) {
+        border[fragspec[n - 1][dim]] = true;
+        borderfrag[n - 1] = true;
+      }
+      cnt = 1;
+    }
+  }
+  if (cnt == 1) {
+    int n = nelem * (dim + 1);
+    border[fragspec[n - 1][dim]] = true;
+    borderfrag[n - 1] = true;
+  }
+
+  for (unsigned i = 0; i < borderfrag.size(); i++)
+    if (borderfrag[i])
+      f.shell.insert(f.shell.end(), fragspec[i].begin() + dim + 1, fragspec[i].end());
+
+  if (dim < 3) {
+    f.elemlayer.assign(nelem, 0);
+  } else {
+    f.elemlayer.assign(nelem, nelem + 1);
+    for (int e = 0; e < nelem; e++)
+      if (border[e]) f.elemlayer[e] = 0;
+    bool change = true;
+    while (change) {
+      change = false;
+      for (const auto& connect : connectspec) {
+        int e1 = connect[0], e2 = connect[1];
+        if (f.elemlayer[e1] > f.elemlayer[e2] + 1) {
+          f.elemlayer[e1] = f.elemlayer[e2] + 1;
+          change = true;
+        } else if (f.elemlayer[e2] > f.elemlayer[e1] + 1) {
+          f.elemlayer[e2] = f.elemlayer[e1] + 1;
+          change = true;
+        }
+      }
+    }
+  }
+
+  if (dim < 3) {
+    for (const auto& connect : connectspec) {
+      if (border[connect[0]] || border[connect[1]]) {
+        std::vector<int> frag(connect.begin() + 2, connect.end());
+        for (int ei = 0; ei < 2; ei++) {
+          const int* edata = f.elem.data() + connect[ei] * (dim + 1);
+          for (int i = 0; i <= dim; i++) {
+            if (std::find(frag.begin(), frag.end(), edata[i]) == frag.end()) {
+              f.evpair.push_back(connect[1 - ei]);
+              f.evpair.push_back(edata[i]);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// mjCFlex::Compile (young=0, non-interpolated). Fills `out`; returns false with
+// a diagnostic on a compile error (the differential harness pairs these with the
+// XML reader's own mjCError so parity holds). `bodyid_of`/`matid_of` are the
+// native name->id maps; `cbs` supplies body xpos0/xquat0.
+bool FlexCompile(const Flex& fl, const std::vector<CBody>& cbs,
+                 const std::unordered_map<std::string, int>& bodyid_of,
+                 const std::unordered_map<std::string, int>& matid_of,
+                 CFlex& out, std::vector<bridge::Diagnostic>& diags) {
+  auto err = [&](const char* msg) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "flex", msg, fl.loc});
+    return false;
+  };
+
+  // Flex is not auto-named on the XML path (bridge AutoNameableFamily), so an
+  // unnamed flex keeps an empty name -- exactly like leg B.
+  out.name = fl.name ? *fl.name : std::string();
+  out.dim = fl.dim ? *fl.dim : 2;
+  out.radius = fl.radius ? *fl.radius : 0.005;
+  out.group = fl.group ? *fl.group : 0;
+  out.flatskin = fl.flatskin && *fl.flatskin;
+  if (fl.rgba) for (int k = 0; k < 4; ++k) out.rgba[k] = (*fl.rgba)[k];
+  out.material_name = fl.material ? *fl.material : std::string();
+  if (fl.cellcount)
+    for (int k = 0; k < 3; ++k) out.cellcount[k] = (*fl.cellcount)[k];
+
+  // contact / edge / elasticity children (single, optional).
+  if (!fl.flexContacts.empty() && fl.flexContacts.front()) {
+    const FlexContact& c = *fl.flexContacts.front();
+    if (c.contype) out.contype = *c.contype;
+    if (c.conaffinity) out.conaffinity = *c.conaffinity;
+    if (c.condim) out.condim = *c.condim;
+    if (c.priority) out.priority = *c.priority;
+    if (c.friction)
+      for (std::size_t k = 0; k < c.friction->size() && k < 3; ++k)
+        out.friction[k] = (*c.friction)[k];
+    if (c.solmix) out.solmix = *c.solmix;
+    if (c.solref)
+      for (std::size_t k = 0; k < c.solref->size() && k < 2; ++k)
+        out.solref[k] = (*c.solref)[k];
+    if (c.solimp)
+      for (std::size_t k = 0; k < c.solimp->size() && k < 5; ++k)
+        out.solimp[k] = (*c.solimp)[k];
+    if (c.margin) out.margin = *c.margin;
+    if (c.gap) out.gap = *c.gap;
+    if (c.internal) out.internal = *c.internal;
+    if (c.selfcollide) out.selfcollide = static_cast<int>(*c.selfcollide);
+    if (c.activelayers) out.activelayers = *c.activelayers;
+    if (c.passive) out.passive = *c.passive;
+  }
+  if (!fl.flexEdges.empty() && fl.flexEdges.front()) {
+    const FlexEdge& e = *fl.flexEdges.front();
+    if (e.stiffness) out.edgestiffness = *e.stiffness;
+    if (e.damping) out.edgedamping = *e.damping;
+  }
+  if (!fl.flexElasticitys.empty() && fl.flexElasticitys.front()) {
+    const FlexElasticity& e = *fl.flexElasticitys.front();
+    if (e.young) out.young = *e.young;
+    if (e.poisson) out.poisson = *e.poisson;
+    if (e.damping) out.damping = *e.damping;
+    out.thickness = e.thickness ? *e.thickness : -1;
+    if (e.elastic2d) out.elastic2d = static_cast<int>(*e.elastic2d);
+  }
+
+  const int dim = out.dim;
+  std::vector<std::string> vertbody =
+      SplitWhitespace(fl.body ? *fl.body : std::string());
+  if (fl.vertex) out.vert = *fl.vertex;
+  if (fl.element) out.elem = *fl.element;
+  if (fl.texcoord) out.texcoord = *fl.texcoord;
+  if (fl.elemtexcoord) out.elemtexcoord = *fl.elemtexcoord;
+
+  // checks (user_mesh.cc:4634-4672)
+  if (dim < 1 || dim > 3) return err("dim must be 1, 2 or 3");
+  if (out.elem.empty()) return err("elem is empty");
+  if (out.elem.size() % (dim + 1)) return err("elem size must be multiple of (dim+1)");
+  if (vertbody.empty()) return err("vertbody and nodebody are both empty");
+  if (out.vert.size() % 3) return err("vert size must be a multiple of 3");
+  if (out.edgestiffness > 0 && dim > 1)
+    return err("edge stiffness only available for dim=1");
+  out.nelem = static_cast<int>(out.elem.size()) / (dim + 1);
+
+  // nvert, rigid (user_mesh.cc:4674-4689)
+  if (out.vert.empty()) {
+    out.centered = true;
+    out.nvert = static_cast<int>(vertbody.size());
+  } else {
+    out.nvert = static_cast<int>(out.vert.size()) / 3;
+    if (vertbody.size() == 1)
+      out.rigid = true;
+    else if (static_cast<int>(vertbody.size()) != out.nvert)
+      return err("vertbody size must be 1 or nvert");
+  }
+  if (out.nvert < dim + 1) return err("not enough vertices");
+
+  // elem vertex-id range (user_mesh.cc:4714-4719)
+  for (int v : out.elem)
+    if (v < 0 || v >= out.nvert) return err("elem vertex id out of range");
+
+  // texcoord check (user_mesh.cc:4721-4730)
+  if (!out.texcoord.empty() &&
+      static_cast<int>(out.texcoord.size()) != 2 * out.nvert &&
+      out.elemtexcoord.empty())
+    return err("two texture coordinates per vertex expected");
+  if (out.elemtexcoord.empty() && !out.texcoord.empty()) {
+    out.elemtexcoord.assign((dim + 1) * out.nelem, 0);
+    std::memcpy(out.elemtexcoord.data(), out.elem.data(),
+                (dim + 1) * out.nelem * sizeof(int));
+  }
+
+  // material (user_mesh.cc:4732-4738)
+  if (!out.material_name.empty()) {
+    auto it = matid_of.find(out.material_name);
+    if (it == matid_of.end()) return err("unknown material in flex");
+    out.matid = it->second;
+  }
+
+  // resolve vertex body ids (ResolveReferences, user_mesh.cc:4275)
+  for (const std::string& nm : vertbody) {
+    auto it = bodyid_of.find(nm);
+    if (it == bodyid_of.end()) return err("unknown body in flex");
+    out.vertbodyid.push_back(it->second);
+  }
+
+  // repeated-vertex-in-element check (user_mesh.cc:4744-4756)
+  for (int e = 0; e < out.nelem; e++) {
+    std::vector<int> el(out.elem.begin() + e * (dim + 1),
+                        out.elem.begin() + (e + 1) * (dim + 1));
+    std::sort(el.begin(), el.end());
+    for (int k = 0; k < dim; k++)
+      if (el[k] == el[k + 1]) return err("repeated vertex in element");
+  }
+
+  // finalize rigid / centered (user_mesh.cc:4758-4778)
+  if (!out.rigid) {
+    out.rigid = true;
+    for (std::size_t i = 1; i < out.vertbodyid.size(); i++)
+      if (out.vertbodyid[i] != out.vertbodyid[0]) { out.rigid = false; break; }
+  }
+  if (!out.centered) {
+    out.centered = true;
+    for (double v : out.vert)
+      if (v != 0) { out.centered = false; break; }
+  }
+
+  // global vertex positions (user_mesh.cc:4790-4809)
+  out.vertxpos.assign(3 * out.nvert, 0);
+  for (int i = 0; i < out.nvert; i++) {
+    int b = out.rigid ? out.vertbodyid[0] : out.vertbodyid[i];
+    lift::mjuu_copyvec(out.vertxpos.data() + 3 * i, cbs[b].xpos0, 3);
+    if (!out.centered) {
+      double offset[3];
+      lift::mjuu_rotVecQuat(offset, out.vert.data() + 3 * i, cbs[b].xquat0);
+      lift::mjuu_addtovec(out.vertxpos.data() + 3 * i, offset, 3);
+    }
+  }
+
+  // tetrahedron reorientation (user_mesh.cc:4832-4853)
+  if (dim == 3) {
+    for (int e = 0; e < out.nelem; e++) {
+      const int* edata = out.elem.data() + e * (dim + 1);
+      double* v0 = out.vertxpos.data() + 3 * edata[0];
+      double* v1 = out.vertxpos.data() + 3 * edata[1];
+      double* v2 = out.vertxpos.data() + 3 * edata[2];
+      double* v3 = out.vertxpos.data() + 3 * edata[3];
+      double v01[3] = {v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]};
+      double v02[3] = {v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]};
+      double v03[3] = {v3[0] - v0[0], v3[1] - v0[1], v3[2] - v0[2]};
+      double nrm[3];
+      lift::mjuu_crossvec(nrm, v01, v02);
+      if (lift::mjuu_dot3(nrm, v03) > 0)
+        std::swap(out.elem[e * (dim + 1) + 1], out.elem[e * (dim + 1) + 2]);
+    }
+  }
+
+  // edges (user_mesh.cc:4855-4882)
+  const int nedge_per = kFlexNumEdges[dim - 1];
+  out.edgeidx.assign(out.elem.size() * nedge_per / (dim + 1), 0);
+  std::unordered_map<std::pair<int, int>, int, FlexPairHash> edge_indices;
+  int nedge = 0;
+  for (unsigned f = 0; f < out.elem.size() / (dim + 1); f++) {
+    int* v = out.elem.data() + f * (dim + 1);
+    for (int e = 0; e < nedge_per; e++) {
+      auto pair = std::pair(
+          std::min(v[kFlexEledge[dim - 1][e][0]], v[kFlexEledge[dim - 1][e][1]]),
+          std::max(v[kFlexEledge[dim - 1][e][0]], v[kFlexEledge[dim - 1][e][1]]));
+      auto [it, inserted] = edge_indices.insert({pair, nedge});
+      if (inserted) {
+        out.edge.push_back(pair);
+        out.edgeidx[f * nedge_per + e] = nedge++;
+      } else {
+        out.edgeidx[f * nedge_per + e] = it->second;
+      }
+    }
+  }
+  out.nedge = static_cast<int>(out.edge.size());
+
+  // flap stencil (dim==2): throw-on-mismatch only at young=0 (user_mesh.cc:4885)
+  if (dim == 2 &&
+      !FlexCreateFlapStencil(out.flaps, out.elem, out.edgeidx, diags))
+    return false;
+
+  // young>0 elasticity is gated (native.cc); nothing here.
+
+  // shells + element-vertex pairs + elemlayer (user_mesh.cc:4942)
+  FlexCreateShellPair(out);
+
+  // BVH over active element AABBs (user_mesh.cc:5410 CreateBVH). vertxpos is
+  // global, so the BVH frame is identity; dim==3 inactive layers are skipped.
+  BVH tree;
+  double zero[3] = {0, 0, 0}, ident[4] = {1, 0, 0, 0};
+  tree.Set(zero, ident);
+  std::vector<double> elemaabb(6 * out.nelem);
+  for (int e = 0; e < out.nelem; e++) {
+    const int* edata = out.elem.data() + e * (dim + 1);
+    if (dim == 3 && out.elemlayer[e] >= out.activelayers) continue;
+    double xmin[3], xmax[3];
+    lift::mjuu_copyvec(xmin, out.vertxpos.data() + 3 * edata[0], 3);
+    lift::mjuu_copyvec(xmax, out.vertxpos.data() + 3 * edata[0], 3);
+    for (int i = 1; i <= dim; i++)
+      for (int j = 0; j < 3; j++) {
+        xmin[j] = std::min(xmin[j], out.vertxpos[3 * edata[i] + j]);
+        xmax[j] = std::max(xmax[j], out.vertxpos[3 * edata[i] + j]);
+      }
+    double* ab = elemaabb.data() + 6 * e;
+    ab[0] = 0.5 * (xmax[0] + xmin[0]);
+    ab[1] = 0.5 * (xmax[1] + xmin[1]);
+    ab[2] = 0.5 * (xmax[2] + xmin[2]);
+    ab[3] = 0.5 * (xmax[0] - xmin[0]) + out.radius;
+    ab[4] = 0.5 * (xmax[1] - xmin[1]) + out.radius;
+    ab[5] = 0.5 * (xmax[2] - xmin[2]) + out.radius;
+    tree.Add(BVHLeaf{e, 1, 1, ab, nullptr, ab});
+  }
+  tree.Create();
+  out.bvh = tree.bvh();
+  out.bvh_child = tree.child();
+  out.bvh_level = tree.level();
+  out.bvh_nodeid = tree.nodeid();
+
+  // bounding-box vertex coordinates (user_mesh.cc:5168-5183, non-interpolated)
+  out.vert0.assign(3 * out.nvert, 0);
+  if (out.nbvh() > 0) {
+    const double* bvh = out.bvh.data();
+    out.size[0] = bvh[3] - out.radius;
+    out.size[1] = bvh[4] - out.radius;
+    out.size[2] = bvh[5] - out.radius;
+    for (int j = 0; j < out.nvert; j++)
+      for (int k = 0; k < 3; k++)
+        out.vert0[3 * j + k] =
+            out.size[k] > mjMINVAL
+                ? (out.vertxpos[3 * j + k] - bvh[k]) / (2 * out.size[k]) + 0.5
+                : 0.5;
+  }
+  return true;
+}
+
+// SetSizes flex edge-Jacobian nnz (user_model.cc:2198-2241): nJfe walks the body
+// dof trees spanned by each edge's two vertex bodies; nJfv the trees spanned by a
+// vertex and its edge-neighbours. Skipped for rigid/interpolated flexes.
+void FlexJacobianCounts(const CFlex& f, const std::vector<CBody>& cbs,
+                        int& nJfe, int& nJfv) {
+  if (f.interpolated || f.rigid) return;
+  for (const auto& e : f.edge) {
+    int b1 = f.vertbodyid[e.first], b2 = f.vertbodyid[e.second];
+    std::unordered_set<int> bodies_in_jac;
+    while (b1 >= 0 || b2 >= 0) {
+      if (b1 >= 0) { bodies_in_jac.insert(b1); b1 = b1 == 0 ? -1 : cbs[b1].parentid; }
+      if (b2 >= 0) { bodies_in_jac.insert(b2); b2 = b2 == 0 ? -1 : cbs[b2].parentid; }
+    }
+    for (int b : bodies_in_jac) nJfe += cbs[b].dofnum;
+  }
+  std::vector<std::vector<int>> adj(f.nvert);
+  for (const auto& e : f.edge) {
+    adj[e.first].push_back(e.second);
+    adj[e.second].push_back(e.first);
+  }
+  for (int j = 0; j < f.nvert; j++) {
+    std::unordered_set<int> vert_bodies;
+    vert_bodies.insert(f.vertbodyid[j]);
+    for (int nb : adj[j]) vert_bodies.insert(f.vertbodyid[nb]);
+    std::unordered_set<int> bodies_in_jac;
+    for (int bid : vert_bodies) {
+      int b = bid;
+      while (b >= 0) { bodies_in_jac.insert(b); b = b == 0 ? -1 : cbs[b].parentid; }
+    }
+    for (int b : bodies_in_jac) nJfv += cbs[b].dofnum;
+  }
+}
+
+// CopyObjects flex fill (user_model.cc:3432-3654). `bvh_start` is the first
+// dynamic BVH slot (== nbvhstatic); flex nodes append after body+mesh nodes.
+void FillFlexes(mjModel* m, const std::vector<CFlex>& flexes,
+                const std::vector<CBody>& cbs, int bvh_start) {
+  int vert_adr = 0, node_adr = 0, edge_adr = 0, elem_adr = 0, elemdata_adr = 0,
+      elemedge_adr = 0, shelldata_adr = 0, evpair_adr = 0, texcoord_adr = 0;
+  int bvh_adr = bvh_start;
+  for (int i = 0; i < static_cast<int>(flexes.size()); ++i) {
+    const CFlex& f = flexes[i];
+    const int dim = f.dim;
+    m->flex_contype[i] = f.contype;
+    m->flex_conaffinity[i] = f.conaffinity;
+    m->flex_condim[i] = f.condim;
+    m->flex_matid[i] = f.matid;
+    m->flex_group[i] = f.group;
+    m->flex_priority[i] = f.priority;
+    m->flex_solmix[i] = f.solmix;
+    lift::mjuu_copyvec(m->flex_solref + mjNREF * i, f.solref, mjNREF);
+    lift::mjuu_copyvec(m->flex_solimp + mjNIMP * i, f.solimp, mjNIMP);
+    m->flex_radius[i] = f.radius;
+    lift::mjuu_copyvec(m->flex_size + 3 * i, f.size, 3);
+    lift::mjuu_copyvec(m->flex_friction + 3 * i, f.friction, 3);
+    m->flex_margin[i] = f.margin;
+    m->flex_gap[i] = f.gap;
+    for (int k = 0; k < 4; ++k) m->flex_rgba[4 * i + k] = f.rgba[k];
+
+    // elasticity (empty on this path)
+    m->flex_stiffnessadr[i] = -1;
+    m->flex_bendingadr[i] = -1;
+    m->flex_damping[i] = f.damping;
+
+    m->flex_dim[i] = dim;
+    m->flex_vertadr[i] = vert_adr;
+    m->flex_vertnum[i] = f.nvert;
+    m->flex_nodeadr[i] = node_adr;
+    m->flex_nodenum[i] = f.nnode;
+    m->flex_edgeadr[i] = edge_adr;
+    m->flex_edgenum[i] = f.nedge;
+    m->flex_elemadr[i] = elem_adr;
+    m->flex_elemdataadr[i] = elemdata_adr;
+    m->flex_elemedgeadr[i] = elemedge_adr;
+    m->flex_shellnum[i] = static_cast<int>(f.shell.size()) / dim;
+    m->flex_shelldataadr[i] = m->flex_shellnum[i] ? shelldata_adr : -1;
+    if (f.evpair.empty()) {
+      m->flex_evpairadr[i] = -1;
+      m->flex_evpairnum[i] = 0;
+    } else {
+      m->flex_evpairadr[i] = evpair_adr;
+      m->flex_evpairnum[i] = static_cast<int>(f.evpair.size()) / 2;
+      std::memcpy(m->flex_evpair + 2 * evpair_adr, f.evpair.data(),
+                  f.evpair.size() * sizeof(int));
+    }
+    if (f.texcoord.empty()) {
+      m->flex_texcoordadr[i] = -1;
+      std::memcpy(m->flex_elemtexcoord + elemdata_adr, f.elem.data(),
+                  f.elem.size() * sizeof(int));
+    } else {
+      m->flex_texcoordadr[i] = texcoord_adr;
+      std::memcpy(m->flex_texcoord + 2 * texcoord_adr, f.texcoord.data(),
+                  f.texcoord.size() * sizeof(float));
+      std::memcpy(m->flex_elemtexcoord + elemdata_adr, f.elemtexcoord.data(),
+                  f.elemtexcoord.size() * sizeof(int));
+    }
+    m->flex_elemnum[i] = f.nelem;
+    std::memcpy(m->flex_elem + elemdata_adr, f.elem.data(),
+                f.elem.size() * sizeof(int));
+    std::memcpy(m->flex_elemedge + elemedge_adr, f.edgeidx.data(),
+                f.edgeidx.size() * sizeof(int));
+    std::memcpy(m->flex_elemlayer + elem_adr, f.elemlayer.data(),
+                f.nelem * sizeof(int));
+    if (m->flex_shellnum[i])
+      std::memcpy(m->flex_shell + shelldata_adr, f.shell.data(),
+                  f.shell.size() * sizeof(int));
+    m->flex_edgestiffness[i] = f.edgestiffness;
+    m->flex_edgedamping[i] = f.edgedamping;
+    m->flex_rigid[i] = f.rigid;
+    m->flex_centered[i] = f.centered;
+    m->flex_internal[i] = f.internal;
+    m->flex_flatskin[i] = f.flatskin;
+    m->flex_selfcollide[i] = f.selfcollide;
+    m->flex_activelayers[i] = f.activelayers;
+    m->flex_passive[i] = f.passive;
+    m->flex_bvhnum[i] = f.nbvh();
+    m->flex_bvhadr[i] = f.nbvh() ? bvh_adr : -1;
+    m->flex_edgeequality[i] = f.edgeequality;
+
+    // dynamic BVH nodes (aabb computed at runtime; only child/depth/nodeid here)
+    for (int k = 0; k < f.nbvh(); ++k) {
+      m->bvh_child[2 * (bvh_adr + k)] = f.bvh_child[2 * k];
+      m->bvh_child[2 * (bvh_adr + k) + 1] = f.bvh_child[2 * k + 1];
+      m->bvh_depth[bvh_adr + k] = f.bvh_level[k];
+      m->bvh_nodeid[bvh_adr + k] = f.bvh_nodeid[k];
+    }
+
+    if (f.centered && !f.interpolated)
+      lift::mjuu_zerovec(m->flex_vert + 3 * vert_adr, 3 * f.nvert);
+    else
+      lift::mjuu_copyvec(m->flex_vert + 3 * vert_adr, f.vert.data(), 3 * f.nvert);
+
+    lift::mjuu_copyvec(m->flex_vert0 + 3 * vert_adr, f.vert0.data(), 3 * f.nvert);
+
+    if (f.rigid)
+      for (int k = 0; k < f.nvert; k++)
+        m->flex_vertbodyid[vert_adr + k] = f.vertbodyid[0];
+    else
+      std::memcpy(m->flex_vertbodyid + vert_adr, f.vertbodyid.data(),
+                  f.nvert * sizeof(int));
+
+    m->flex_interp[i] = f.elastic2d ? -f.order : f.order;
+    m->flex_cellnum[3 * i + 0] = f.cellcount[0];
+    m->flex_cellnum[3 * i + 1] = f.cellcount[1];
+    m->flex_cellnum[3 * i + 2] = f.cellcount[2];
+
+    for (int k = 0; k < f.nedge; k++) {
+      m->flex_edge[2 * (edge_adr + k)] = f.edge[k].first;
+      m->flex_edge[2 * (edge_adr + k) + 1] = f.edge[k].second;
+      m->flex_edgeflap[2 * (edge_adr + k) + 0] = -1;
+      m->flex_edgeflap[2 * (edge_adr + k) + 1] = -1;
+      if (f.rigid) {
+        m->flexedge_rigid[edge_adr + k] = 1;
+      } else {
+        int b1 = f.vertbodyid[f.edge[k].first];
+        int b2 = f.vertbodyid[f.edge[k].second];
+        m->flexedge_rigid[edge_adr + k] = (cbs[b1].weldid == cbs[b2].weldid);
+      }
+    }
+
+    vert_adr += f.nvert;
+    node_adr += f.nnode;
+    edge_adr += f.nedge;
+    elem_adr += f.nelem;
+    elemdata_adr += (dim + 1) * f.nelem;
+    elemedge_adr += kFlexNumEdges[dim - 1] * f.nelem;
+    shelldata_adr += static_cast<int>(f.shell.size());
+    evpair_adr += static_cast<int>(f.evpair.size()) / 2;
+    texcoord_adr += static_cast<int>(f.texcoord.size()) / 2;
+    bvh_adr += f.nbvh();
+  }
+}
+
 }  // namespace
 
 // Parse a <size memory> attribute string exactly as mjXReader::Size does
@@ -4866,6 +5557,22 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (CSite& cs2 : sites) cs2.matid = resolve_mat(cs2.material_name);
   for (CTendon& t : tendons) t.matid = resolve_mat(t.material_name);
 
+  // Flexes (NC5): document order across every <deformable> section. Compiled
+  // after bodies (needs xpos0/xquat0/weldid) and materials (matid).
+  std::vector<CFlex> flexes;
+  for (const auto& df : m.deformables) {
+    if (!df) continue;
+    for (const auto& fl : df->flexs) {
+      if (!fl) continue;
+      CFlex cf;
+      if (!FlexCompile(*fl, cbs, bodyid_of, matid_of, cf, diags)) return nullptr;
+      flexes.push_back(std::move(cf));
+    }
+  }
+  // flex_edgeequality (user_model.cc:3532-3549) stays 0 here: flex/flexvert/
+  // flexstrain equalities keep the unsupported "flex" tag and route the whole
+  // model to the XML fallback, so no admitted model references a flex by equality.
+
   // S9 sizes: nq/nv from joints.
   int nq = 0, nv = 0;
   for (const CJoint& cj : joints) { nq += cj.nq(); nv += cj.nv(); }
@@ -4927,6 +5634,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CSite& cs2 : sites) nl.site.push_back(EffectiveName(*cs2.src, opts));
   for (const CCamera& cc : cameras) nl.cam.push_back(EffectiveName(*cc.src, opts));
   for (const CLight& cl : lights) nl.light.push_back(EffectiveName(*cl.src, opts));
+  // Flex is not auto-named (bridge AutoNameableFamily); authored name only.
+  for (const CFlex& cf : flexes) nl.flex.push_back(cf.name);
   // Assets (texture/material/mesh/hfield/skin) are NOT auto-named on the XML
   // path (bridge AutoNameableFamily), so leg C uses the authored name only --
   // an unnamed asset keeps an empty name, exactly like leg B.
@@ -4969,6 +5678,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   int nbvh_mesh = 0;
   for (const CMesh& cm : meshes) nbvh_mesh += cm.nbvh();
   int nbvhstatic = nbvh_body + nbvh_mesh;
+  // Flex BVH nodes are dynamic (aabb recomputed each step); they follow every
+  // static (body+mesh) node in the shared bvh_* arrays (user_model.cc:2176).
+  int nbvhdynamic = 0;
+  for (const CFlex& f : flexes) nbvhdynamic += f.nbvh();
 
   // S9 Sizes.
   mjModel sizes;
@@ -5049,8 +5762,39 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CTuple& t : tuples) ntupledata += static_cast<int>(t.entries.size());
   sizes.ntupledata = ntupledata;
   sizes.nkey = static_cast<int>(keys.size());
-  sizes.nbvh = nbvhstatic;
+  sizes.nbvh = nbvhstatic + nbvhdynamic;
   sizes.nbvhstatic = nbvhstatic;
+  sizes.nbvhdynamic = nbvhdynamic;
+  // Flex census (SetSizes user_model.cc:2181-2242).
+  sizes.nflex = static_cast<int>(flexes.size());
+  int nflexnode = 0, nflexvert = 0, nflexedge = 0, nflexelem = 0,
+      nflexelemdata = 0, nflexelemedge = 0, nflexshelldata = 0, nflexevpair = 0,
+      nflextexcoord = 0, nJfe = 0, nJfv = 0;
+  for (const CFlex& f : flexes) {
+    nflexnode += f.nnode;
+    nflexvert += f.nvert;
+    nflexedge += f.nedge;
+    nflexelem += f.nelem;
+    nflexelemdata += f.nelem * (f.dim + 1);
+    nflexelemedge += f.nelem * kFlexNumEdges[f.dim - 1];
+    nflexshelldata += static_cast<int>(f.shell.size());
+    nflexevpair += static_cast<int>(f.evpair.size()) / 2;
+    nflextexcoord += f.HasTexcoord() ? static_cast<int>(f.texcoord.size()) / 2 : 0;
+    FlexJacobianCounts(f, cbs, nJfe, nJfv);
+  }
+  sizes.nflexnode = nflexnode;
+  sizes.nflexvert = nflexvert;
+  sizes.nflexedge = nflexedge;
+  sizes.nflexelem = nflexelem;
+  sizes.nflexelemdata = nflexelemdata;
+  sizes.nflexelemedge = nflexelemedge;
+  sizes.nflexshelldata = nflexshelldata;
+  sizes.nflexevpair = nflexevpair;
+  sizes.nflextexcoord = nflextexcoord;
+  sizes.nflexstiffness = 0;   // young==0 on this path
+  sizes.nflexbending = 0;
+  sizes.nJfe = nJfe;
+  sizes.nJfv = nJfv;
   sizes.nq = nq;
   sizes.nv = nv;
   sizes.ntree = dt.ntree;
@@ -5110,6 +5854,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   FillHfields(out, hfields);
   FillMeshes(out, meshes, nbvh_body);
   FillMeshPaths(out, meshes);
+  FillFlexes(out, flexes, cbs, nbvhstatic);
   FillTree(out, cbs, geoms, joints, dt);
   for (int i = 0; i < static_cast<int>(cbs.size()); ++i)
     out->body_mocapid[i] = mocapid[i];

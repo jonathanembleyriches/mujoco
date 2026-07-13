@@ -899,6 +899,118 @@ static void TestNc4Fluid() {
       "</body></worldbody></mujoco>");
 }
 
+// NC5 Wave 1: direct <flex> (young=0, non-interpolated edge-only). Bit-identical
+// across dim 1/2/3, rigid/centered/offset vertices, contact/edge overrides, and
+// texcoord; gated sub-features route the whole model to the XML fallback.
+static void TestNc5Flex() {
+  // dim=2 triangle, centered, three free bodies.
+  CheckBitIdentical(
+      "flex_tri2d",
+      "<mujoco><worldbody>"
+      "<body name='b0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='b1' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='b2' pos='0 1 0'><freejoint/><geom size='0.05'/></body>"
+      "</worldbody><deformable>"
+      "<flex name='tri' dim='2' body='b0 b1 b2' element='0 1 2'/>"
+      "</deformable></mujoco>");
+  // dim=1 rope (two line elements sharing a vertex).
+  CheckBitIdentical(
+      "flex_line1d",
+      "<mujoco><worldbody>"
+      "<body name='a'><freejoint/><geom size='0.05'/></body>"
+      "<body name='b' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='c' pos='2 0 0'><freejoint/><geom size='0.05'/></body>"
+      "</worldbody><deformable>"
+      "<flex name='rope' dim='1' body='a b c' element='0 1 1 2'/>"
+      "</deformable></mujoco>");
+  // dim=3 single tetrahedron.
+  CheckBitIdentical(
+      "flex_tet3d",
+      "<mujoco><worldbody>"
+      "<body name='b0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='b1' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='b2' pos='0 1 0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='b3' pos='0 0 1'><freejoint/><geom size='0.05'/></body>"
+      "</worldbody><deformable>"
+      "<flex name='jelly' dim='3' body='b0 b1 b2 b3' element='0 1 2 3'/>"
+      "</deformable></mujoco>");
+  // rigid: single body carrying every vertex (vertex offsets, non-centered).
+  CheckBitIdentical(
+      "flex_rigid",
+      "<mujoco><worldbody>"
+      "<body name='only' pos='0 0 1'><freejoint/><geom size='0.05'/></body>"
+      "</worldbody><deformable>"
+      "<flex name='patch' dim='2' body='only' radius='0.01' "
+      "vertex='0 0 0  1 0 0  0 1 0' element='0 1 2'/>"
+      "</deformable></mujoco>");
+  // non-centered multi-body with a hinge dof (weld-based edge rigidity) plus
+  // contact/edge child overrides.
+  CheckBitIdentical(
+      "flex_offset_overrides",
+      "<mujoco><worldbody>"
+      "<body name='p0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='p1' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+      "<body name='p2' pos='0 1 0'><joint type='hinge' axis='0 0 1'/>"
+      "<geom size='0.05'/></body>"
+      "</worldbody><deformable>"
+      "<flex name='m' dim='2' body='p0 p1 p2' radius='0.02' "
+      "vertex='0.1 0 0  0.1 0 0  -0.1 0 0' element='0 1 2'>"
+      "<contact condim='1' internal='true' selfcollide='none' activelayers='2'/>"
+      "<edge damping='0.1'/></flex>"
+      "</deformable></mujoco>");
+  // quad = two triangles sharing an edge, with per-vertex texcoord.
+  CheckBitIdentical(
+      "flex_quad_texcoord",
+      "<mujoco><worldbody>"
+      "<body name='v0' pos='0 0 1'><freejoint/><geom size='0.05'/></body>"
+      "<body name='v1' pos='1 0 1'><freejoint/><geom size='0.05'/></body>"
+      "<body name='v2' pos='1 1 1'><freejoint/><geom size='0.05'/></body>"
+      "<body name='v3' pos='0 1 1'><freejoint/><geom size='0.05'/></body>"
+      "</worldbody><deformable>"
+      "<flex name='cloth' dim='2' body='v0 v1 v2 v3' element='0 1 2 0 2 3' "
+      "texcoord='0 0 1 0 1 1 0 1'/>"
+      "</deformable></mujoco>");
+
+  // Gated sub-features: each routes the whole model to the XML fallback.
+  auto gated = [](const char* label, const char* key, const char* xml) {
+    auto model = ParseOrDie(xml);
+    if (!model) { CHECK(false); return; }
+    auto reasons = compile::CollectUnsupportedFeatures(*model);
+    bool saw = false;
+    for (const auto& r : reasons)
+      if (r.feature == key) saw = true;
+    if (!saw) std::printf("FAIL flex gate [%s]: missing %s\n", label, key);
+    CHECK(saw);
+  };
+  gated("young", "flex.elasticity",
+        "<mujoco><worldbody>"
+        "<body name='b0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b1' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b2' pos='0 1 0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b3' pos='0 0 1'><freejoint/><geom size='0.05'/></body>"
+        "</worldbody><deformable>"
+        "<flex name='j' dim='3' body='b0 b1 b2 b3' element='0 1 2 3'>"
+        "<elasticity young='1000' poisson='0.3'/></flex></deformable></mujoco>");
+  gated("equality_flex", "equality.flex",
+        "<mujoco><worldbody>"
+        "<body name='b0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b1' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b2' pos='0 1 0'><freejoint/><geom size='0.05'/></body>"
+        "</worldbody><deformable>"
+        "<flex name='tri' dim='2' body='b0 b1 b2' element='0 1 2'/>"
+        "</deformable><equality><flex flex='tri'/></equality></mujoco>");
+  gated("interpolated", "flex.interpolated",
+        "<mujoco><worldbody>"
+        "<body name='b0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b1' pos='1 0 0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b2' pos='0 1 0'><freejoint/><geom size='0.05'/></body>"
+        "<body name='b3' pos='0 0 1'><freejoint/><geom size='0.05'/></body>"
+        "</worldbody><deformable>"
+        "<flex name='j' dim='3' dof='trilinear' cellcount='1 1 1' "
+        "node='b0' body='b0 b1 b2 b3' element='0 1 2 3'/>"
+        "</deformable></mujoco>");
+}
+
 int main() {
   TestNativePurity();
   TestGateUnsupported();
@@ -917,6 +1029,7 @@ int main() {
   TestNc4Custom();
   TestNc4Replicate();
   TestNc4Fluid();
+  TestNc5Flex();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

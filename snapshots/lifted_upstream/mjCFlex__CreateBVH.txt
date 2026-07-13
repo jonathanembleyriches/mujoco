@@ -1,0 +1,46 @@
+void mjCFlex::CreateBVH() {
+  int nbvh = 0;
+
+  // allocate element bounding boxes
+  elemaabb_.resize(6*nelem);
+  tree.AllocateBoundingVolumes(nelem);
+
+  // construct element bounding boxes, add to hierarchy
+  for (int e=0; e < nelem; e++) {
+    const int* edata = elem_.data() + e*(dim+1);
+
+    // skip inactive in 3D
+    if (dim == 3 && elemlayer[e] >= activelayers) {
+      continue;
+    }
+
+    // compute min and max along each global axis
+    double xmin[3], xmax[3];
+    mjuu_copyvec(xmin, vertxpos.data() + 3*edata[0], 3);
+    mjuu_copyvec(xmax, vertxpos.data() + 3*edata[0], 3);
+    for (int i=1; i <= dim; i++) {
+      for (int j=0; j < 3; j++) {
+        xmin[j] = std::min(xmin[j], vertxpos[3*edata[i]+j]);
+        xmax[j] = std::max(xmax[j], vertxpos[3*edata[i]+j]);
+      }
+    }
+
+    // compute aabb (center, size)
+    elemaabb_[6*e+0] = 0.5*(xmax[0]+xmin[0]);
+    elemaabb_[6*e+1] = 0.5*(xmax[1]+xmin[1]);
+    elemaabb_[6*e+2] = 0.5*(xmax[2]+xmin[2]);
+    elemaabb_[6*e+3] = 0.5*(xmax[0]-xmin[0]) + radius;
+    elemaabb_[6*e+4] = 0.5*(xmax[1]-xmin[1]) + radius;
+    elemaabb_[6*e+5] = 0.5*(xmax[2]-xmin[2]) + radius;
+
+    // add bounding volume for this element
+    // contype and conaffinity are set to nonzero to force bvh generation
+    const double* aabb = elemaabb_.data() + 6*e;
+    tree.AddBoundingVolume(e, 1, 1, aabb, nullptr, aabb);
+    nbvh++;
+  }
+
+  // create hierarchy
+  tree.RemoveInactiveVolumes(nbvh);
+  tree.CreateBVH();
+}

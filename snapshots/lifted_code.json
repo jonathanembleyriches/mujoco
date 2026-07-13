@@ -189,6 +189,61 @@
       "notes": "dof_simplenum + nC validation"
     },
     {
+      "id": "flex_compile",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCFlex::Compile",
+      "line_span": "4630-5191",
+      "content_hash": "6a5c39edd86877638b0510451b710f44388a1395a05d3d8291972469571fe6db",
+      "snapshot": "snapshots/lifted_upstream/mjCFlex__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "FlexCompile driver (young=0, non-interpolated edge-only path); plumbing retargeted to ProtoSpec + CompileContext, algorithm verbatim"
+    },
+    {
+      "id": "flex_create_bvh",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCFlex::CreateBVH",
+      "line_span": "5410-5455",
+      "content_hash": "d7d69c2853c3f0e413e910902a3aa4e22e62340e9fa92e5760efc13b8c3bf76e",
+      "snapshot": "snapshots/lifted_upstream/mjCFlex__CreateBVH.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "element AABBs + active-layer skip; BVH build delegated to the shared lifted BVH class"
+    },
+    {
+      "id": "flex_create_flap_stencil",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "CreateFlapStencil",
+      "line_span": "3605-3654",
+      "content_hash": "42c46dfdbc984e963dbffb819e9863054d08ac000fead5977816f9c0e1af8748",
+      "snapshot": "snapshots/lifted_upstream/CreateFlapStencil.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "triangle flap adjacency + edge-consistency assertion (dim==2); verbatim"
+    },
+    {
+      "id": "flex_create_shell_pair",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCFlex::CreateShellPair",
+      "line_span": "5460-5658",
+      "content_hash": "ae3fef588313e28646cf7bae7ee3bca21de22ccb1c094d202b5d7c6d3cf82020",
+      "snapshot": "snapshots/lifted_upstream/mjCFlex__CreateShellPair.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "border shell fragments, elemlayer value iteration, element-vertex pairs; verbatim over plain arrays"
+    },
+    {
+      "id": "flex_resolve_references",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCFlex::ResolveReferences",
+      "line_span": "4275-4300",
+      "content_hash": "57a59481d73ab78cfc6d2d9bcaa6a33c556e4f3814f123048147a0f96125db75",
+      "snapshot": "snapshots/lifted_upstream/mjCFlex__ResolveReferences.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "vertex body-id resolution; retargeted to native bodyid map"
+    },
+    {
       "id": "frame_compile",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCFrame::Compile",
