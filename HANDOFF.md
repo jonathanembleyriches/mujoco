@@ -30,29 +30,55 @@ uv run python tools/lift_registry.py check
    a different agent than the code it tests; commit per green wave; push to the fork
    (`git push fork master:protospec master:main`).
 
-## Tracks
+## PAUSED 2026-07-13 (resume point)
+
+Both repos clean and pushed. protospec @ efd5b7a5 (fork branches `protospec` + `main`);
+mujoco-studio checkout at C:\Users\jonat\Documents\mujoco-studio, branch `studio` @ 5dba7038
+(fork). Studio exe: `C:\tmp\studio_spike\build_ps\bin\mujoco_studio.exe --model_file=...`
+(build dir pinned to worktree C:\tmp\ps_snapshot_b @ a1ab7eb4 — REPOINT to a fresh snapshot
+after resuming native-compiler work, since the editor doesn't need it but consistency does).
+The two ADOPTION GATES (owner): Gate 1 = native compiler 100% parity; Gate 2 = editor
+certification signed. Nothing touches UnrealRoboticsLab until both pass.
 
 | Track | State | Queue lives in |
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
-| Native compiler | NC0-NC4 done, ratchet 201/387 | `docs/plan.md` STATUS + NC5/NC6/NC7 queue below |
-| Studio editor | SE0-SE3 done, handed to owner | `docs/plan_studio_editor.md` STATUS |
-| Canonicalization | audit in flight | `docs/plan_canonicalization.md` (inventory + wave) |
-| Studio real-UI migration | spike in flight | `docs/studio_ui_migration.md` |
+| Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
+| Native compiler | NC0-NC5-wave-2 done, **ratchet 214/387** | queue below |
+| Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
+| Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
-## Native compiler remaining queue (unchanged priorities)
+## Native compiler remaining queue (Gate 1)
 
-1. **NC5 flex/flexcomp** — reconnaissance complete with upstream line ranges (49-file ceiling;
-   waves: flex-direct foundation → grid/box edge-only (~15 files) → linear elasticity → mesh/
-   direct → gmsh parser → interpolated FE). See the NC5 wave plan preserved in git history
-   (commit message trail) and `docs/plan_native_compiler.md`.
-2. Un-gate `default.duplicate_class` (SDK multi-block fix landed).
-3. **NC6** — attach/`<model>` native expansion (clone-arena pattern), PNG file textures
+1. **NC5 wave 3 (elasticity, young>0)**: lift ComputeStiffness<Stencil2D/3D> + ComputeBending
+   (user_objects.h/user_mesh.cc); un-gate flexcomp.elasticity(+elastic2d); staged: fixtures
+   then corpus flip. Targets: hollow_vs_solid, jelly, plate, press, pancake, floppy, poncho,
+   poncho_edgeequality (+trampoline/softbox/basket per sweep). An agent was launched with the
+   full brief and stopped pre-work at the pause — relaunch with the same brief (in the session
+   transcript; reconstructable from this note + wave-2 commit efd5b7a5 patterns).
+2. **NC5 wave 4 (mesh/direct flexcomp)**: lift MakeMesh (user_flexcomp.cc:1325-1453) reusing
+   cpp/compile/lifted/mesh_pipeline; targets bunny*, gripper, rigid_flex, flex_line_obj.
+3. **NC5 wave 5 (gmsh)**: LoadGMSH41/LoadGMSH22 parser (~12 files).
+4. **NC5 wave 6 (interpolated FE)**: trilinear/quadratic stack (user_mesh.cc:3826-4500).
+5. **NC6** — attach/`<model>` native expansion (clone-arena pattern), PNG file textures
    (lodepng wired), file hfields, skins, mesh-fit.
-4. **NC7 long tail** — muscle (`mj_setLengthRange` is public/post-build), dcmotor, site/
-   refsite/slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,
-   alignfree, per-body sleep, partial-size-default eager-copy semantic, `Expand()`.
-5. **Plugins** — register first-party plugin libs in the harness to unlock the 28 skips.
+6. **NC7 long tail** — muscle (`mj_setLengthRange` public/post-build), dcmotor, site/refsite/
+   slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,
+   alignfree, per-body sleep, partial-size-default eager-copy, `Expand()`, flexcomp
+   document-order interleaving (known limitation note in wave-2 report).
+7. **Plugins** — register first-party plugin libs in the harness to unlock the 28 skips.
+
+## Editor remaining queue (Gate 2)
+
+1. OWNER: walk the 27-step manual script (docs/editor_certification.md §2) against the studio
+   build; report pass/fail; sign the certification statement at the tested commit.
+2. Small feature queued from G8 re-scope: diagnostics rows carry SourceLoc/serial ->
+   click-to-select navigation.
+3. Owner-waivable: G5 layout persistence (manual step M27 covers it).
+4. Known punts if wanted later: OS file dialogs for editor Save As, multi-select ops,
+   keyframe timeline, perturb-in-Play firewall polish.
+5. Editor source of truth: protospec repo apps/studio == mujoco-studio protospec/ (7 identical
+   batteries; keep them in lockstep — sync direction protospec -> mujoco-studio).
 
 ## Upstream MuJoCo bugs (owner files these personally — do not fix here)
 
