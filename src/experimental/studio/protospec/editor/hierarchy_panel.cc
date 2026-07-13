@@ -56,8 +56,19 @@ void DrawAddChildMenu(EditorContext& ctx, std::uint64_t parent) {
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Joint")) {
-    if (ImGui::MenuItem("hinge")) AddJointOp(ctx, parent, mj::JointType::hinge);
-    if (ImGui::MenuItem("slide")) AddJointOp(ctx, parent, mj::JointType::slide);
+    static const double kX[3] = {1, 0, 0}, kY[3] = {0, 1, 0}, kZ[3] = {0, 0, 1};
+    if (ImGui::BeginMenu("hinge")) {
+      if (ImGui::MenuItem("axis X")) AddJointAxisOp(ctx, parent, mj::JointType::hinge, kX);
+      if (ImGui::MenuItem("axis Y")) AddJointAxisOp(ctx, parent, mj::JointType::hinge, kY);
+      if (ImGui::MenuItem("axis Z")) AddJointAxisOp(ctx, parent, mj::JointType::hinge, kZ);
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("slide")) {
+      if (ImGui::MenuItem("axis X")) AddJointAxisOp(ctx, parent, mj::JointType::slide, kX);
+      if (ImGui::MenuItem("axis Y")) AddJointAxisOp(ctx, parent, mj::JointType::slide, kY);
+      if (ImGui::MenuItem("axis Z")) AddJointAxisOp(ctx, parent, mj::JointType::slide, kZ);
+      ImGui::EndMenu();
+    }
     if (ImGui::MenuItem("ball")) AddJointOp(ctx, parent, mj::JointType::ball);
     if (ImGui::MenuItem("free (freejoint)"))
       AddJointOp(ctx, parent, mj::JointType::free);
@@ -135,6 +146,19 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
   }
   if (IsContainerNode(node)) {
     DrawAddChildMenu(ctx, node.serial);
+  }
+  // Quick-rig: wire an actuator to a selected joint (surfaces AddActuatorOp).
+  if (node.type == mj::ElementType::Joint ||
+      node.type == mj::ElementType::FreeJoint) {
+    if (ImGui::BeginMenu("Add actuator for joint")) {
+      if (ImGui::MenuItem("motor"))
+        AddActuatorOp(ctx, ActuatorSpelling::Motor, node.serial);
+      if (ImGui::MenuItem("position"))
+        AddActuatorOp(ctx, ActuatorSpelling::Position, node.serial);
+      if (ImGui::MenuItem("velocity"))
+        AddActuatorOp(ctx, ActuatorSpelling::Velocity, node.serial);
+      ImGui::EndMenu();
+    }
   }
 }
 

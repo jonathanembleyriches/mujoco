@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <mujoco/mujoco.h>
@@ -19,6 +20,7 @@
 #include "editor/editor_ops.h"
 #include "editor/gizmo.h"
 #include "editor/gizmo_math.h"
+#include "editor/joint_overlay.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
@@ -103,8 +105,54 @@ std::vector<std::pair<int, int>> PickAlongRay(const mjModel* m, const mjData* d,
   return hits;
 }
 
+// Joint overlays are pickable (deliverable 3b): a click near a drawn joint's
+// axis segment or anchor selects that joint (its serial), taking priority over
+// the geom underneath. Only the currently-drawn joints are candidates.
+bool TryPickJoint(ViewportEditor& ve, const ViewportInput& in) {
+  EditorContext& ctx = *ve.ctx;
+  std::vector<JointVis> joints = CollectJointVis(
+      in.model, in.data, ctx.compiled.binding, ctx.selected_serial,
+      ctx.show_all_joints);
+  if (joints.empty()) return false;
+  const ViewProj vp =
+      BuildViewProj(in.model, in.data, in.camera, in.aspect_ratio);
+  double len = 0.12 * in.model->stat.extent;
+  if (!(len > 1e-4)) len = 0.15;
+  const double tol = 0.018;  // normalized-screen pick radius
+  double best = tol * tol;
+  std::uint64_t best_serial = 0;
+  for (const JointVis& jv : joints) {
+    if (jv.serial == 0) continue;
+    // Sample the axis segment (hinge/slide) or just the anchor (ball/free).
+    const int nsamp =
+        (jv.type == mjJNT_HINGE || jv.type == mjJNT_SLIDE) ? 9 : 1;
+    const double lo = (jv.type == mjJNT_HINGE) ? -1.0 : 0.0;
+    for (int i = 0; i < nsamp; ++i) {
+      const double t = nsamp > 1 ? lo + (1.0 - lo) * i / (nsamp - 1) : 0.0;
+      double p[3];
+      for (int k = 0; k < 3; ++k) p[k] = jv.anchor[k] + jv.axis[k] * len * t;
+      ScreenPt sp = WorldToScreen(vp, p);
+      if (!sp.visible) continue;
+      const double dx = sp.x - in.x, dy = sp.y - in.y;
+      const double d2 = dx * dx + dy * dy;
+      if (d2 < best) {
+        best = d2;
+        best_serial = jv.serial;
+      }
+    }
+  }
+  if (best_serial != 0) {
+    SelectBySerial(ctx, best_serial);
+    ctx.Log("pick -> joint serial " + std::to_string(best_serial));
+    ve.cycle_index = 0;
+    return true;
+  }
+  return false;
+}
+
 void HandlePick(ViewportEditor& ve, const ViewportInput& in) {
   EditorContext& ctx = *ve.ctx;
+  if (TryPickJoint(ve, in)) return;
   const ViewProj vp =
       BuildViewProj(in.model, in.data, in.camera, in.aspect_ratio);
   double o[3], dir[3];
@@ -237,11 +285,124 @@ void AppendBoxWire(mjvScene* s, const mjtNum center[3], const mjtNum half[3],
   }
 }
 
+// --- Joint rigging overlay (deliverable 3a) ------------------------------- //
+// Distinct colour per joint type; the selected joint is drawn in highlight.
+constexpr float kColHinge[4] = {0.20f, 0.90f, 0.35f, 1.0f};
+constexpr float kColSlide[4] = {0.25f, 0.70f, 1.00f, 1.0f};
+constexpr float kColBall[4] = {0.95f, 0.35f, 0.90f, 1.0f};
+constexpr float kColFree[4] = {1.00f, 0.60f, 0.15f, 1.0f};
+constexpr float kColSel[4] = {1.00f, 0.92f, 0.15f, 1.0f};
+
+void AddConnector(mjvScene* s, int type, double width, const double a[3],
+                  const double b[3], const float rgba[4]) {
+  if (s->ngeom >= s->maxgeom) return;
+  mjvGeom* g = &s->geoms[s->ngeom];
+  mjv_initGeom(g, type, nullptr, nullptr, nullptr, rgba);
+  const mjtNum from[3] = {a[0], a[1], a[2]};
+  const mjtNum to[3] = {b[0], b[1], b[2]};
+  mjv_connector(g, type, width, from, to);
+  s->ngeom++;
+}
+
+void AddSphere(mjvScene* s, const double c[3], double r, const float rgba[4]) {
+  if (s->ngeom >= s->maxgeom) return;
+  mjvGeom* g = &s->geoms[s->ngeom];
+  const mjtNum size[3] = {r, r, r};
+  const mjtNum pos[3] = {c[0], c[1], c[2]};
+  mjv_initGeom(g, mjGEOM_SPHERE, size, pos, nullptr, rgba);
+  s->ngeom++;
+}
+
+// Two orthonormal vectors spanning the plane normal to unit `n`.
+void PlaneBasis(const double n[3], double u[3], double v[3]) {
+  double seed[3] = {1, 0, 0};
+  if (std::fabs(n[0]) > 0.9) { seed[0] = 0; seed[1] = 1; }
+  u[0] = seed[1] * n[2] - seed[2] * n[1];
+  u[1] = seed[2] * n[0] - seed[0] * n[2];
+  u[2] = seed[0] * n[1] - seed[1] * n[0];
+  double un = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+  if (un < 1e-9) un = 1;
+  for (int k = 0; k < 3; ++k) u[k] /= un;
+  v[0] = n[1] * u[2] - n[2] * u[1];
+  v[1] = n[2] * u[0] - n[0] * u[2];
+  v[2] = n[0] * u[1] - n[1] * u[0];
+}
+
+void DrawJoint(mjvScene* s, const JointVis& jv, double len) {
+  const float* col = jv.selected ? kColSel
+                     : jv.type == mjJNT_HINGE ? kColHinge
+                     : jv.type == mjJNT_SLIDE ? kColSlide
+                     : jv.type == mjJNT_BALL  ? kColBall
+                                              : kColFree;
+  const double w = (jv.selected ? 0.010 : 0.006) * (len / 0.15);
+  if (jv.type == mjJNT_HINGE || jv.type == mjJNT_SLIDE) {
+    // Axis arrow through the anchor (both directions for a hinge pivot).
+    double tip[3], tail[3];
+    for (int k = 0; k < 3; ++k) {
+      tip[k] = jv.anchor[k] + jv.axis[k] * len;
+      tail[k] = jv.anchor[k] - jv.axis[k] * len * (jv.type == mjJNT_HINGE ? 1 : 0);
+    }
+    AddConnector(s, mjGEOM_ARROW, w, tail, tip, col);
+    AddSphere(s, jv.anchor, w * 1.6, col);
+    if (jv.has_range) {
+      if (jv.type == mjJNT_HINGE) {
+        double u[3], v[3];
+        PlaneBasis(jv.axis, u, v);
+        const double r = len * 0.75;
+        const int seg = 24;
+        double prev[3];
+        for (int i = 0; i <= seg; ++i) {
+          const double a = jv.range[0] + (jv.range[1] - jv.range[0]) * i / seg;
+          double p[3];
+          for (int k = 0; k < 3; ++k)
+            p[k] = jv.anchor[k] + r * (std::cos(a) * u[k] + std::sin(a) * v[k]);
+          if (i > 0) AddConnector(s, mjGEOM_LINE, 2.0, prev, p, col);
+          for (int k = 0; k < 3; ++k) prev[k] = p[k];
+        }
+      } else {  // slide: the travel extent along the axis.
+        double a[3], b[3];
+        for (int k = 0; k < 3; ++k) {
+          a[k] = jv.anchor[k] + jv.axis[k] * jv.range[0];
+          b[k] = jv.anchor[k] + jv.axis[k] * jv.range[1];
+        }
+        AddConnector(s, mjGEOM_LINE, 3.0, a, b, col);
+      }
+    }
+  } else if (jv.type == mjJNT_BALL) {
+    AddSphere(s, jv.anchor, len * 0.35, col);
+  } else {  // free: a frame triad at the anchor.
+    const float rc[4] = {0.95f, 0.3f, 0.3f, 1.0f};
+    const float gc[4] = {0.3f, 0.9f, 0.3f, 1.0f};
+    const float bc[4] = {0.4f, 0.55f, 1.0f, 1.0f};
+    const float* tri[3] = {jv.selected ? kColSel : rc,
+                           jv.selected ? kColSel : gc,
+                           jv.selected ? kColSel : bc};
+    for (int ax = 0; ax < 3; ++ax) {
+      double e[3] = {0, 0, 0};
+      e[ax] = 1;
+      double tip[3];
+      for (int k = 0; k < 3; ++k) tip[k] = jv.anchor[k] + e[k] * len * 0.9;
+      AddConnector(s, mjGEOM_ARROW, w, jv.anchor, tip, tri[ax]);
+    }
+  }
+}
+
+void DrawJointOverlays(EditorContext* ctx, const mjModel* m, const mjData* d,
+                       mjvScene* s) {
+  std::vector<JointVis> joints = CollectJointVis(
+      m, d, ctx->compiled.binding, ctx->selected_serial, ctx->show_all_joints);
+  if (joints.empty()) return;
+  double len = 0.12 * m->stat.extent;
+  if (!(len > 1e-4)) len = 0.15;
+  for (const JointVis& jv : joints) DrawJoint(s, jv, len);
+}
+
 void OnOverlay(OverlayPlugin* self, const mjModel* m, const mjData* d,
                mjvScene* s) {
   EditorContext* ctx = static_cast<EditorContext*>(self->data);
-  if (!ctx->tree || ctx->selected_serial == 0 || ctx->compiled.model.get() != m)
-    return;
+  if (!ctx->tree || ctx->compiled.model.get() != m) return;
+  DrawJointOverlays(ctx, m, d, s);
+  if (ctx->selected_serial == 0) return;
   const bridge::Binding& b = ctx->compiled.binding;
   const float rgba[4] = {1.0f, 0.85f, 0.1f, 1.0f};
 

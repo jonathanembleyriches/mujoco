@@ -21,6 +21,7 @@
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
 #include "editor/gizmo_math.h"
+#include "editor/joint_overlay.h"
 #include "editor/transform_math.h"
 #include "mjcf.h"
 #include "protospec/traversal.h"
@@ -133,6 +134,31 @@ template <class T>
 static std::uint64_t SerialOf(mj::Model& m, const char* name) {
   const T* e = ps::sdk::Find<T>(m, name);
   return e ? e->serial : 0;
+}
+
+// The compiled joint id for a serial, via the Binding.
+static int JointIdOf(const Scene& s, std::uint64_t serial) {
+  for (const bridge::Binding::Entry& e : s.compiled.binding.entries()) {
+    if (e.serial == serial && e.id >= 0 &&
+        (e.etype == mj::ElementType::Joint ||
+         e.etype == mj::ElementType::FreeJoint)) {
+      return e.id;
+    }
+  }
+  return -1;
+}
+// Compiled global joint anchor (mjData xanchor) and axis (xaxis).
+static bool JointAnchorWorld(const Scene& s, std::uint64_t serial, double o[3]) {
+  const int id = JointIdOf(s, serial);
+  if (id < 0) return false;
+  for (int i = 0; i < 3; ++i) o[i] = s.data->xanchor[3 * id + i];
+  return true;
+}
+static bool JointAxisWorld(const Scene& s, std::uint64_t serial, double o[3]) {
+  const int id = JointIdOf(s, serial);
+  if (id < 0) return false;
+  for (int i = 0; i < 3; ++i) o[i] = s.data->xaxis[3 * id + i];
+  return true;
 }
 
 // ------------------------------------------------------------------------- //
@@ -412,6 +438,198 @@ static void TestRotateGeom() {
   if (dot < 0)
     for (int i = 0; i < 4; ++i) expected[i] = -expected[i];
   for (int i = 0; i < 4; ++i) CHECK_NEAR(qafter[i], expected[i]);
+}
+
+// ------------------------------------------------------------------------- //
+// Joint rigging (SE4): translate the anchor + reorient the axis, hand-computed.
+// ------------------------------------------------------------------------- //
+
+// Move a hinge joint's anchor on a body rotated +90 about z. The compiled global
+// anchor must move by exactly the world delta; the authored pos by the parent-
+// frame delta conj(P).q * world_delta.
+static void TestJointTranslateAnchor() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="1 2 0.5" euler="0 0 90">
+        <joint name="j" type="hinge" pos="0.1 0 0" axis="0 0 1"/>
+        <geom name="g" type="box" size="0.1 0.1 0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  const std::uint64_t j = SerialOf<mj::Joint>(*s.tree, "j");
+  CHECK(j != 0);
+  double before[3];
+  CHECK(JointAnchorWorld(s, j, before));
+  CHECK_NEAR(before[0], 1.0);   // (1,2,0.5) + R_z90*(0.1,0,0) = (1, 2.1, 0.5)
+  CHECK_NEAR(before[1], 2.1);
+  CHECK_NEAR(before[2], 0.5);
+
+  JointDragFrame f =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, j);
+  CHECK(f.valid && f.has_axis);
+  const double wd[3] = {0.5, 0, 0};  // +x in world
+  ApplyJointTranslate(*s.tree, j, f, wd);
+
+  // Authored pos = (0.1,0,0) + R_z(-90)*(0.5,0,0) = (0.1, -0.5, 0).
+  const mj::Joint* jp = ps::sdk::Find<mj::Joint>(*s.tree, "j");
+  CHECK_NEAR((*jp->pos)[0], 0.1);
+  CHECK_NEAR((*jp->pos)[1], -0.5);
+  CHECK_NEAR((*jp->pos)[2], 0.0);
+
+  CHECK(s.Recompile());
+  double after[3];
+  CHECK(JointAnchorWorld(s, j, after));
+  CHECK_NEAR(after[0], before[0] + 0.5);
+  CHECK_NEAR(after[1], before[1]);
+  CHECK_NEAR(after[2], before[2]);
+}
+
+// Reorient a hinge axis by +90 about world x on a body rotated +90 about z. The
+// authored axis becomes (-1,0,0) in the body frame; the compiled global axis
+// becomes (0,-1,0).
+static void TestJointReorientAxis() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="0 0 0" euler="0 0 90">
+        <joint name="j" type="hinge" pos="0 0 0" axis="0 0 1"/>
+        <geom name="g" type="box" size="0.1 0.1 0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  const std::uint64_t j = SerialOf<mj::Joint>(*s.tree, "j");
+  double axis_before[3];
+  CHECK(JointAxisWorld(s, j, axis_before));
+  CHECK_NEAR(axis_before[2], 1.0);  // world axis starts +z
+
+  JointDragFrame f =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, j);
+  const double world_x[3] = {1, 0, 0};
+  ApplyJointAxisRotate(*s.tree, j, f, world_x, mjPI / 2, /*snap=*/false);
+
+  const mj::Joint* jp = ps::sdk::Find<mj::Joint>(*s.tree, "j");
+  CHECK_NEAR((*jp->axis)[0], -1.0);
+  CHECK_NEAR((*jp->axis)[1], 0.0);
+  CHECK_NEAR((*jp->axis)[2], 0.0);
+
+  CHECK(s.Recompile());
+  double axis_after[3];
+  CHECK(JointAxisWorld(s, j, axis_after));
+  CHECK_NEAR(axis_after[0], 0.0);
+  CHECK_NEAR(axis_after[1], -1.0);
+  CHECK_NEAR(axis_after[2], 0.0);
+}
+
+// Axis snapping: an 80-degree tilt about world x lands the body-frame axis near
+// -y; with snapping on it resolves exactly to the cardinal (0,-1,0).
+static void TestJointAxisSnap() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b">
+        <joint name="j" type="hinge" pos="0 0 0" axis="0 0 1"/>
+        <geom name="g" type="box" size="0.1 0.1 0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  const std::uint64_t j = SerialOf<mj::Joint>(*s.tree, "j");
+  JointDragFrame f =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, j);
+  const double world_x[3] = {1, 0, 0};
+  ApplyJointAxisRotate(*s.tree, j, f, world_x, 80.0 * mjPI / 180.0,
+                       /*snap=*/true);
+  const mj::Joint* jp = ps::sdk::Find<mj::Joint>(*s.tree, "j");
+  CHECK_NEAR((*jp->axis)[0], 0.0);
+  CHECK_NEAR((*jp->axis)[1], -1.0);
+  CHECK_NEAR((*jp->axis)[2], 0.0);
+}
+
+// A ball joint has an anchor but no reorientable axis; a free joint has neither.
+static void TestJointBallFreeNoAxis() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="bb" pos="0 0 1">
+        <joint name="ball" type="ball" pos="0.2 0 0"/>
+        <geom name="gb" type="sphere" size="0.1"/>
+      </body>
+      <body name="fb" pos="1 0 1">
+        <freejoint name="fj"/>
+        <geom name="gf" type="sphere" size="0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  const std::uint64_t ball = SerialOf<mj::Joint>(*s.tree, "ball");
+  const std::uint64_t fj = SerialOf<mj::FreeJoint>(*s.tree, "fj");
+  CHECK(IsJointSerial(*s.tree, ball));
+  CHECK(IsJointSerial(*s.tree, fj));
+
+  JointDragFrame bf =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, ball);
+  CHECK(bf.valid && !bf.has_axis);
+  // Ball anchor still translates.
+  const double wd[3] = {0.3, 0, 0};
+  ApplyJointTranslate(*s.tree, ball, bf, wd);
+  const mj::Joint* bp = ps::sdk::Find<mj::Joint>(*s.tree, "ball");
+  CHECK_NEAR((*bp->pos)[0], 0.5);
+  // Axis reorient is a no-op for a ball.
+  const double wx[3] = {1, 0, 0};
+  ApplyJointAxisRotate(*s.tree, ball, bf, wx, mjPI / 2, false);
+  CHECK(!bp->axis.has_value());
+
+  JointDragFrame ff =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, fj);
+  CHECK(ff.valid && !ff.has_axis);  // free joint: frame triad only
+}
+
+// Joint visualization collect: selecting a body yields its joints only; the
+// selected joint is flagged; show_all yields joints across every body.
+static void TestCollectJointVis() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b1" pos="0 0 1">
+        <joint name="h1" type="hinge" axis="0 1 0" range="-30 30" limited="true"/>
+        <geom name="g1" type="box" size="0.1 0.1 0.1"/>
+        <body name="b2" pos="0.3 0 0">
+          <joint name="s2" type="slide" axis="1 0 0"/>
+          <geom name="g2" type="sphere" size="0.1"/>
+        </body>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  const std::uint64_t b1 = SerialOf<mj::Body>(*s.tree, "b1");
+  const std::uint64_t h1 = SerialOf<mj::Joint>(*s.tree, "h1");
+  const std::uint64_t s2 = SerialOf<mj::Joint>(*s.tree, "s2");
+
+  // Selecting body b1 shows only b1's joint (h1), not b2's.
+  auto v1 = CollectJointVis(s.m(), s.data, s.compiled.binding, b1, false);
+  CHECK(v1.size() == 1);
+  CHECK(v1[0].serial == h1);
+  CHECK(v1[0].type == mjJNT_HINGE);
+  CHECK(v1[0].has_range);
+  CHECK(!v1[0].selected);  // body is selected, not the joint -> not highlighted
+
+  // Selecting the joint h1 flags it as selected.
+  auto v2 = CollectJointVis(s.m(), s.data, s.compiled.binding, h1, false);
+  CHECK(v2.size() == 1 && v2[0].serial == h1 && v2[0].selected);
+
+  // show_all lists both joints regardless of selection.
+  auto v3 = CollectJointVis(s.m(), s.data, s.compiled.binding, 0, true);
+  CHECK(v3.size() == 2);
+  bool saw_slide = false;
+  for (const auto& jv : v3) if (jv.serial == s2) saw_slide = true;
+  CHECK(saw_slide);
+
+  // Nothing selected + show_all off -> empty.
+  auto v4 = CollectJointVis(s.m(), s.data, s.compiled.binding, 0, false);
+  CHECK(v4.empty());
 }
 
 // Local-vs-world: a local-frame translate along the element's own axis moves the
@@ -733,6 +951,11 @@ int main() {
   TestTranslateGeomInFrame();
   TestMeshFrameCancellation();
   TestRotateGeom();
+  TestJointTranslateAnchor();
+  TestJointReorientAxis();
+  TestJointAxisSnap();
+  TestJointBallFreeNoAxis();
+  TestCollectJointVis();
   TestLocalVsWorldTranslate();
   TestClassInheritedPoseMaterialize();
   TestScaleMapping();

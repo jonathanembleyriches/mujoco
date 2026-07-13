@@ -271,6 +271,20 @@ std::uint64_t AddJointOp(EditorContext& ctx, std::uint64_t parent_serial,
   });
 }
 
+std::uint64_t AddJointAxisOp(EditorContext& ctx, std::uint64_t parent_serial,
+                             mj::JointType type, const double axis[3]) {
+  const std::array<double, 3> ax{axis[0], axis[1], axis[2]};
+  return DoAdd(ctx, "Add joint", [&](mj::Model& tree) -> std::uint64_t {
+    Container c = FindContainer(tree, parent_serial);
+    if (!c.valid()) return 0;
+    const std::string n = UniqueNameFor(tree, mj::ElementType::Joint, "joint");
+    mj::Joint& j =
+        c.body ? sdk::AddJoint(*c.body, type, n) : sdk::AddJoint(*c.frame, type, n);
+    j.axis = ax;
+    return j.serial;
+  });
+}
+
 std::uint64_t AddSiteOp(EditorContext& ctx, std::uint64_t parent_serial) {
   return DoAdd(ctx, "Add site", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);

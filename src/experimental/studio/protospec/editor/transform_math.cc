@@ -703,4 +703,131 @@ void ApplyScale(mj::Model& tree, std::uint64_t serial, const ScaleBase& base,
   }
 }
 
+// ========================================================================== //
+// Joint rigging (SE4). Deliberately kept in its own block so a later upstream
+// transform_math sync merges cleanly: none of the generic FindSpatial /
+// BuildDragFrame / Translate / Rotate / Scale code above is touched. Joints
+// carry `pos` (the hinge/slide anchor, in the body frame) and, for hinge/slide,
+// an `axis` unit vector; both are edited by the same delta rule (DR-S6).
+// ========================================================================== //
+
+// The Joint element with `serial`, or nullptr (also nullptr for a FreeJoint).
+static mj::Joint* FindJoint(mj::Model& tree, std::uint64_t serial) {
+  mj::Joint* out = nullptr;
+  sdkd::WalkModelAll(tree, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (std::is_same_v<E, mj::Joint>) {
+      if (!out && e.serial == serial) out = &e;
+    }
+  });
+  return out;
+}
+
+// The FreeJoint element pointer with `serial`, or nullptr.
+static const void* FindFreeJoint(mj::Model& tree, std::uint64_t serial) {
+  const void* out = nullptr;
+  sdkd::WalkModelAll(tree, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (std::is_same_v<E, mj::FreeJoint>) {
+      if (!out && e.serial == serial) out = &e;
+    }
+  });
+  return out;
+}
+
+bool IsJointSerial(mj::Model& tree, std::uint64_t serial) {
+  if (serial == 0) return false;
+  return FindJoint(tree, serial) != nullptr || FindFreeJoint(tree, serial);
+}
+
+JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
+                                   const mj::bridge::Binding& binding,
+                                   mj::Model& tree, std::uint64_t serial) {
+  (void)model;
+  JointDragFrame f;
+  if (!data || serial == 0) return f;
+  const OrientContext oc = ReadOrientContext(tree);
+  sdk::ParentMap pm(tree);
+
+  const void* elem = nullptr;
+  if (mj::Joint* j = FindJoint(tree, serial)) {
+    elem = j;
+    f.type = j->type ? *j->type : mj::JointType::hinge;
+    std::array<double, 3> pos{0, 0, 0};
+    std::array<double, 3> axis{0, 0, 1};
+    std::unique_ptr<mj::Joint> eff = sdk::Effective(tree, *j, true);
+    if (eff->pos) pos = *eff->pos;
+    if (eff->axis) axis = *eff->axis;
+    for (int i = 0; i < 3; ++i) {
+      f.pos[i] = pos[i];
+      f.axis[i] = axis[i];
+    }
+    Norm(f.axis, 3);
+    f.has_axis =
+        (f.type == mj::JointType::hinge || f.type == mj::JointType::slide);
+  } else if (const void* fj = FindFreeJoint(tree, serial)) {
+    elem = fj;
+    f.type = mj::JointType::free;
+    f.has_axis = false;  // free = 6 DOF at the body origin, no anchor/axis edit
+  } else {
+    return f;
+  }
+
+  f.valid = true;
+  f.parent = ComputeParentPose(data, binding, pm, oc, elem);
+  double rp[3];
+  QuatRotate(f.parent.quat, f.pos, rp);
+  for (int i = 0; i < 3; ++i) f.world_anchor[i] = f.parent.pos[i] + rp[i];
+  QuatRotate(f.parent.quat, f.axis, f.world_axis);
+  Norm(f.world_axis, 3);
+  return f;
+}
+
+void ApplyJointTranslate(mj::Model& tree, std::uint64_t serial,
+                         const JointDragFrame& f, const double world_delta[3]) {
+  mj::Joint* j = FindJoint(tree, serial);
+  if (!j) return;  // FreeJoint has no anchor to move.
+  // Parent-frame delta: inv(P).quat * world_delta, added to the authored anchor.
+  double pq[4];
+  QuatConj(f.parent.quat, pq);
+  double dl[3];
+  QuatRotate(pq, world_delta, dl);
+  j->pos = std::array<double, 3>{f.pos[0] + dl[0], f.pos[1] + dl[1],
+                                 f.pos[2] + dl[2]};
+}
+
+void ApplyJointAxisRotate(mj::Model& tree, std::uint64_t serial,
+                          const JointDragFrame& f, const double world_axis[3],
+                          double angle, bool snap_axis) {
+  mj::Joint* j = FindJoint(tree, serial);
+  if (!j || !f.has_axis) return;
+  // Grab-time axis in world, rotated by the world delta, brought back to the
+  // parent frame: a_new = conj(P).quat * qD * P.quat * a_grab.
+  double qd[4];
+  QuatFromAxisAngle(world_axis, angle, qd);
+  double w[3];
+  QuatRotate(f.parent.quat, f.axis, w);
+  double wr[3];
+  QuatRotate(qd, w, wr);
+  double pq[4];
+  QuatConj(f.parent.quat, pq);
+  double la[3];
+  QuatRotate(pq, wr, la);
+  Norm(la, 3);
+  if (snap_axis) {
+    int best = 0;
+    double bestv = std::fabs(la[0]);
+    for (int i = 1; i < 3; ++i) {
+      if (std::fabs(la[i]) > bestv) {
+        bestv = std::fabs(la[i]);
+        best = i;
+      }
+    }
+    const double s = la[best] >= 0 ? 1.0 : -1.0;
+    la[0] = la[1] = la[2] = 0;
+    la[best] = s;
+  }
+  j->axis = std::array<double, 3>{la[0], la[1], la[2]};
+}
+
 }  // namespace ps::studio

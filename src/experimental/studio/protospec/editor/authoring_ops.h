@@ -47,6 +47,11 @@ std::uint64_t AddGeomOp(EditorContext& ctx, std::uint64_t parent_serial,
 // JointType::free adds a <freejoint>; the other three add a typed <joint>.
 std::uint64_t AddJointOp(EditorContext& ctx, std::uint64_t parent_serial,
                          mj::JointType type);
+// Quick-rig add: a hinge/slide joint with `axis` (a body-frame unit vector)
+// baked in, so the context-menu presets ("hinge X/Y/Z", "slide X/Y/Z") land a
+// ready-to-use joint. One undo entry; the new joint is selected.
+std::uint64_t AddJointAxisOp(EditorContext& ctx, std::uint64_t parent_serial,
+                             mj::JointType type, const double axis[3]);
 std::uint64_t AddSiteOp(EditorContext& ctx, std::uint64_t parent_serial);
 std::uint64_t AddCameraOp(EditorContext& ctx, std::uint64_t parent_serial);
 std::uint64_t AddLightOp(EditorContext& ctx, std::uint64_t parent_serial);

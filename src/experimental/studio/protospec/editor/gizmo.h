@@ -67,6 +67,13 @@ class GizmoController {
   DragFrame frame_;        // captured at grab (translate/rotate)
   ScaleBase scale_base_;   // captured at grab (scale)
 
+  // Joint rigging (SE4): when the selection is a joint, W translates its anchor
+  // and E reorients its axis, applied through the separable joint functions in
+  // transform_math. joint_frame_ is the grab-time joint state; frame_ carries a
+  // synthetic display frame (anchor + world axes) so HitTest/Draw are reused.
+  bool joint_mode_ = false;
+  JointDragFrame joint_frame_;
+
   // Grab-time references for stable, drift-free cumulative deltas.
   double grab_axis_t_ = 0;       // param along the drag axis at grab
   double grab_hit_[3] = {0, 0, 0};   // world plane-hit at grab
