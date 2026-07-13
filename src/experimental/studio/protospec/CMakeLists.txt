@@ -163,6 +163,49 @@ protospec_add_test(protospec_studio_authoring_tests
   editor/undo.cc
   editor/transform_math.cc
 )
+protospec_add_test(protospec_studio_host_tests
+  test/test_host.cc
+  editor/authoring_ops.cc
+  editor/asset_import.cc
+  editor/editor_ops.cc
+  editor/undo.cc
+  editor/transform_math.cc
+)
+
+# --- Host-UI tests (headless ImGui, no window) ------------------------------- #
+# G2 key-routing gate + G3 pick / gizmo priority run the real plugin vtables over
+# a headless ImGui context. They compile the viewport/gizmo sources directly and
+# supply their own minimal plugin registry, so they need dear_imgui but not the
+# SDL/Filament platform library.
+add_executable(protospec_studio_hostui_tests
+  test/test_hostui.cc
+  editor/viewport_plugin.cc
+  editor/gizmo.cc
+  editor/gizmo_math.cc
+  editor/transform_math.cc
+  editor/joint_overlay.cc
+  editor/editor_ops.cc
+  editor/authoring_ops.cc
+  editor/asset_import.cc
+  editor/undo.cc
+)
+target_include_directories(protospec_studio_hostui_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${PROJECT_SOURCE_DIR}/src
+  ${dear_imgui_SOURCE_DIR}/misc/cpp
+)
+target_link_libraries(protospec_studio_hostui_tests PRIVATE
+  protospec_core
+  dear_imgui
+)
+set_target_properties(protospec_studio_hostui_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+if(MSVC)
+  target_compile_options(protospec_studio_hostui_tests PRIVATE /bigobj)
+endif()
+add_test(NAME protospec_studio_hostui_tests COMMAND protospec_studio_hostui_tests)
 
 set_target_properties(protospec_core protospec_editor PROPERTIES
   CXX_STANDARD 20
