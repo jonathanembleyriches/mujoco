@@ -723,6 +723,105 @@
       "notes": "64-byte alignment padding; verbatim"
     },
     {
+      "id": "studio_interaction_cc",
+      "upstream_rel_path": "src/experimental/platform/ux/interaction.cc",
+      "symbol": "*",
+      "line_span": "1-603",
+      "content_hash": "493c4dafaf33d8c7203217a3edca752a57aa03edc14c0794fc51623a98252ace",
+      "snapshot": "snapshots/lifted_upstream/interaction.cc",
+      "local_path": "apps/studio/platform/ux/interaction.cc",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
+    },
+    {
+      "id": "studio_interaction_h",
+      "upstream_rel_path": "src/experimental/platform/ux/interaction.h",
+      "symbol": "*",
+      "line_span": "1-85",
+      "content_hash": "f27589016eb57384783d5838ea5b39cc984f05f5a835d0dc9ac523fa3d2e6a55",
+      "snapshot": "snapshots/lifted_upstream/interaction.h",
+      "local_path": "apps/studio/platform/ux/interaction.h",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
+    },
+    {
+      "id": "studio_plugin_h",
+      "upstream_rel_path": "src/experimental/platform/ux/plugin.h",
+      "symbol": "*",
+      "line_span": "1-127",
+      "content_hash": "6dbff186d4fb9108f53c81e3265a6759b789b013ee281fe9173fad2e7943a9df",
+      "snapshot": "snapshots/lifted_upstream/plugin.h",
+      "local_path": "apps/studio/platform/ux/plugin.h",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
+    },
+    {
+      "id": "studio_renderer_cc",
+      "upstream_rel_path": "src/experimental/platform/hal/renderer.cc",
+      "symbol": "*",
+      "line_span": "1-374",
+      "content_hash": "2cf2eed2c3b04537ac4329ef79a3d547663f8808ad44e70bcd94dec89569a9d8",
+      "snapshot": "snapshots/lifted_upstream/renderer.cc",
+      "local_path": "apps/studio/platform/hal/renderer.cc",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
+    },
+    {
+      "id": "studio_renderer_h",
+      "upstream_rel_path": "src/experimental/platform/hal/renderer.h",
+      "symbol": "*",
+      "line_span": "1-131",
+      "content_hash": "740a42bf368bcab4eb1572d6b53b86fb2d77684b9deb3ccd89b75c52ac3b86b2",
+      "snapshot": "snapshots/lifted_upstream/renderer.h",
+      "local_path": "apps/studio/platform/hal/renderer.h",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
+    },
+    {
+      "id": "studio_step_control_cc",
+      "upstream_rel_path": "src/experimental/platform/sim/step_control.cc",
+      "symbol": "*",
+      "line_span": "1-253",
+      "content_hash": "d3da46c3c4d7243127f1b2413b7c144f6b949e4c615bb007cf788fe2d777f5ce",
+      "snapshot": "snapshots/lifted_upstream/step_control.cc",
+      "local_path": "apps/studio/platform/sim/step_control.cc",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
+    },
+    {
+      "id": "studio_step_control_h",
+      "upstream_rel_path": "src/experimental/platform/sim/step_control.h",
+      "symbol": "*",
+      "line_span": "1-128",
+      "content_hash": "f54b2cac2f695a42e15af291841fddb8faa74e32e856181f129edb2b74f07abe",
+      "snapshot": "snapshots/lifted_upstream/step_control.h",
+      "local_path": "apps/studio/platform/sim/step_control.h",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
+    },
+    {
+      "id": "studio_window_cc",
+      "upstream_rel_path": "src/experimental/platform/hal/window.cc",
+      "symbol": "*",
+      "line_span": "1-280",
+      "content_hash": "5c08ef6f134bb2dad3ed401008c1fc6b5c0648a8968b639888a39cdd2c26a427",
+      "snapshot": "snapshots/lifted_upstream/window.cc",
+      "local_path": "apps/studio/platform/hal/window.cc",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
+    },
+    {
+      "id": "studio_window_h",
+      "upstream_rel_path": "src/experimental/platform/hal/window.h",
+      "symbol": "*",
+      "line_span": "1-111",
+      "content_hash": "68a4d843fe4d8f0314408e593e96657ce899e7db98d6c47fa22ce461f0f36393",
+      "snapshot": "snapshots/lifted_upstream/window.h",
+      "local_path": "apps/studio/platform/hal/window.h",
+      "lifted": "2026-07-13",
+      "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
+    },
+    {
       "id": "texture_builtin2d",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCTexture::Builtin2D",

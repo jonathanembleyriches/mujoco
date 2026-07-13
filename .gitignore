@@ -5,4 +5,5 @@ __pycache__/
 dist/
 *.egg-info/
 cpp/**/build/
+apps/**/build/
 MUJOCO_LOG.TXT
