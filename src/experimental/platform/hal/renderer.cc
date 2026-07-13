@@ -153,6 +153,12 @@ void Renderer::Render(const mjModel* model, mjData* data,
 
   mjv_updateScene(model, data, vis_option, perturb, camera, mjCAT_ALL, &scene_);
 
+  ForEachPlugin<OverlayPlugin>([&](OverlayPlugin* plugin) {
+    if (plugin->add_overlay) {
+      plugin->add_overlay(plugin, model, data, &scene_);
+    }
+  });
+
   const bool render_to_texture = !pixels.empty();
   if (render_to_texture) {
     // mjr_readPixels reads to a RGB buffer (i.e. 3 bytes per pixel).

@@ -391,7 +391,23 @@ void App::ProcessPendingLoads() {
     if (load_data.empty()) {
       InitEmptyModel();
     } else {
-      LoadModelFromFile(load_data);
+      // Model source plugins (e.g. external editors) take priority for the
+      // formats they handle; the stock loader handles everything else.
+      bool submitted = false;
+      if (load_data.ends_with(".xml")) {
+        platform::ForEachPlugin<platform::ModelSourcePlugin>([&](auto* plugin) {
+          if (plugin->submit_load) {
+            plugin->submit_load(plugin, load_data.c_str());
+            submitted = true;
+          }
+        });
+      }
+      if (submitted) {
+        model_source_fresh_ = true;
+        model_path_ = load_data;
+      } else {
+        LoadModelFromFile(load_data);
+      }
     }
   }
 
@@ -427,6 +443,40 @@ void App::ProcessPendingLoads() {
       }
     }
   });
+
+  // Adopt a freshly compiled model from any model source plugin.
+  platform::ForEachPlugin<platform::ModelSourcePlugin>([&](auto* plugin) {
+    if (plugin->poll_compiled) {
+      platform::CompiledModel compiled;
+      if (plugin->poll_compiled(plugin, &compiled) && compiled.model) {
+        AdoptCompiledModel(compiled.model);
+      }
+    }
+  });
+}
+
+void App::AdoptCompiledModel(mjModel* model) {
+  model_holder_ = platform::ModelHolder::FromModel(model);
+  if (!model_holder_->ok()) {
+    SetLoadError(std::string(model_holder_->error()));
+    return;
+  }
+
+  // Reframe the camera only on a genuine file load, not on the recompiles an
+  // editor publishes while the user drags a gizmo.
+  const bool fresh = model_source_fresh_;
+  model_source_fresh_ = false;
+  preserve_camera_on_load_ = !fresh;
+  mjv_defaultPerturb(&perturb_);
+  OnModelLoaded(model_path_, kModelFromBuffer);
+
+  if (fresh) {
+    // Adopted models start paused, ready for editing.
+    step_control_.SetPauseState(PauseState::kNormalPaused);
+    UpdateFilePaths(model_path_);
+    window_->SetTitle(app_title_ + " : " +
+                      std::string(model->names ? model->names : "model"));
+  }
 }
 
 void App::HandleWindowEvents() {
@@ -463,8 +513,39 @@ void App::HandleMouseEvents() {
     perturb_.active = 0;
   }
 
+  // Dispatch viewport mouse events to plugins first (e.g. transform gizmos
+  // grab the mouse before the camera does). A plugin returning true suppresses
+  // the default camera/perturb handling for this frame.
+  platform::ViewportInput input;
+  input.model = model();
+  input.data = data();
+  input.camera = &camera_;
+  input.vis_option = &vis_options_;
+  input.x = mouse_x;
+  input.y = mouse_y;
+  input.dx = mouse_dx;
+  input.dy = mouse_dy;
+  input.scroll = mouse_scroll;
+  input.aspect_ratio = window_->GetAspectRatio();
+  input.left_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+  input.right_down = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+  input.middle_down = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+  input.left_double = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+  input.right_double = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right);
+  input.ctrl = io.KeyCtrl;
+  input.shift = io.KeyShift;
+  input.alt = io.KeyAlt;
+  bool consumed = false;
+  platform::ForEachPlugin<platform::ViewportPlugin>([&](auto* plugin) {
+    if (plugin->on_mouse && plugin->on_mouse(plugin, input)) {
+      consumed = true;
+    }
+  });
+
   // Handle perturbation mouse actions.
-  if (is_mouse_dragging && io.KeyCtrl) {
+  if (consumed) {
+    // A viewport plugin owns the mouse this frame.
+  } else if (is_mouse_dragging && io.KeyCtrl) {
     if (perturb_.select > 0) {
       mjtMouse action = mjMOUSE_NONE;
       if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -569,6 +650,20 @@ void App::HandleMouseEvents() {
 void App::HandleKeyboardEvents() {
   using platform::ImGui_IsChordJustPressed;
   if (ImGui::GetIO().WantCaptureKeyboard) {
+    return;
+  }
+
+  // Plugin key handlers run first so registered tools can shadow built-in
+  // shortcuts (e.g. an editor's undo/save bindings).
+  bool handled = false;
+  platform::ForEachPlugin<platform::KeyHandlerPlugin>([&](auto* plugin) {
+    if (plugin->key_chord && plugin->on_key_pressed &&
+        ImGui_IsChordJustPressed(plugin->key_chord)) {
+      plugin->on_key_pressed(plugin);
+      handled = true;
+    }
+  });
+  if (handled) {
     return;
   }
 
@@ -783,14 +878,6 @@ void App::HandleKeyboardEvents() {
     } else {
       tmp_.cam_speed = 0.001f;
     }
-  } else {
-    platform::ForEachPlugin<platform::KeyHandlerPlugin>([&](auto* plugin) {
-      if (plugin->key_chord && plugin->on_key_pressed) {
-        if (ImGui_IsChordJustPressed(plugin->key_chord)) {
-          plugin->on_key_pressed(plugin);
-        }
-      }
-    });
   }
 }
 
@@ -891,15 +978,17 @@ void App::BuildGui() {
   }
 
   if (tmp_.inspector_panel) {
-    if (ImGui::Begin("Explorer", &tmp_.inspector_panel)) {
-      SpecExplorerGui();
-    }
-    ImGui::End();
+    if (tmp_.spec_panels) {
+      if (ImGui::Begin("Explorer", &tmp_.inspector_panel)) {
+        SpecExplorerGui();
+      }
+      ImGui::End();
 
-    if (ImGui::Begin("Editor", &tmp_.inspector_panel)) {
-      SpecEditorGui();
+      if (ImGui::Begin("Editor", &tmp_.inspector_panel)) {
+        SpecEditorGui();
+      }
+      ImGui::End();
     }
-    ImGui::End();
 
     if (ImGui::Begin("Inspector", &tmp_.inspector_panel)) {
       DataInspectorGui();
@@ -1010,8 +1099,27 @@ void App::BuildGui() {
     }
   });
 
+  // Viewport overlays drawn into the ImGui frame over the scene (e.g.
+  // transform gizmos). Edit mode corresponds to a paused simulation.
+  platform::ViewportGuiPlugin::Context viewport_ctx;
+  viewport_ctx.model = has_model() ? model() : nullptr;
+  viewport_ctx.data = has_data() ? data() : nullptr;
+  viewport_ctx.camera = &camera_;
+  viewport_ctx.aspect_ratio = window_->GetAspectRatio();
+  viewport_ctx.edit_mode =
+      step_control_.GetPauseState() == PauseState::kNormalPaused;
+  platform::ForEachPlugin<platform::ViewportGuiPlugin>([&](auto* plugin) {
+    if (plugin->draw) {
+      plugin->draw(plugin, viewport_ctx);
+    }
+  });
+
   ImGuiIO& io = ImGui::GetIO();
   if (tmp_.first_frame) {
+    // An external model source bypasses the mjSpec pipeline, leaving the spec
+    // editing panels inert; hide them by default.
+    platform::ForEachPlugin<platform::ModelSourcePlugin>(
+        [&](auto*) { tmp_.spec_panels = false; });
     LoadSettings();
     tmp_.first_frame = false;
   }
@@ -1659,6 +1767,10 @@ void App::MainMenuGui() {
               tmp_.inspector_panel ? "Hide Inspector" : "Show Inspector",
               "Shift+Tab")) {
         tmp_.inspector_panel = !tmp_.inspector_panel;
+      }
+      if (ImGui::MenuItem(tmp_.spec_panels ? "Hide Spec Editor"
+                                           : "Show Spec Editor")) {
+        tmp_.spec_panels = !tmp_.spec_panels;
       }
       if (ImGui::MenuItem("Full Screen", "F11")) {
         tmp_.full_screen = !tmp_.full_screen;

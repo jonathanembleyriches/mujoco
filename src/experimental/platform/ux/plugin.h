@@ -121,6 +121,112 @@ struct SpecEditorPlugin final {
   void* data = nullptr;
 };
 
+// Snapshot of viewport mouse state for a frame. Positions are normalized to
+// the viewport in [0, 1] with y measured from the top; deltas are in the same
+// units.
+struct ViewportInput {
+  const mjModel* model = nullptr;
+  const mjData* data = nullptr;
+  const mjvCamera* camera = nullptr;
+  const mjvOption* vis_option = nullptr;
+  float x = 0, y = 0;
+  float dx = 0, dy = 0;
+  float scroll = 0;
+  float aspect_ratio = 1.0f;
+  bool left_down = false, right_down = false, middle_down = false;
+  bool left_double = false, right_double = false;
+  bool ctrl = false, shift = false, alt = false;
+};
+
+// Plugin that receives viewport mouse events. Returns true if the event was
+// consumed; the app then suppresses its default camera/perturb handling for
+// that frame. Only invoked when ImGui is not capturing the mouse.
+struct ViewportPlugin final {
+  using OnMouseFn = bool (*)(ViewportPlugin* self, const ViewportInput& input);
+
+  // The name of the plugin; must be unique.
+  const char* name = "";
+
+  // Callback invoked with the viewport mouse state each frame.
+  OnMouseFn on_mouse = nullptr;
+
+  // Optional data pointer.
+  void* data = nullptr;
+};
+
+// Plugin that draws into the active ImGui frame over the 3D viewport (e.g.
+// screen-space transform gizmos). Invoked each frame during GUI building with
+// the live camera and viewport metrics so the draw list can project against
+// the rendered scene. `edit_mode` is true while the simulation is paused.
+struct ViewportGuiPlugin final {
+  struct Context {
+    const mjModel* model = nullptr;
+    const mjData* data = nullptr;
+    const mjvCamera* camera = nullptr;
+    float aspect_ratio = 1.0f;
+    bool edit_mode = true;
+  };
+  using DrawFn = void (*)(ViewportGuiPlugin* self, const Context& ctx);
+
+  // The name of the plugin; must be unique.
+  const char* name = "";
+
+  // Callback that draws the overlay for the current frame.
+  DrawFn draw = nullptr;
+
+  // Optional data pointer.
+  void* data = nullptr;
+};
+
+// Plugin that appends transient geoms (e.g. selection outlines) to the live
+// mjvScene after mjv_updateScene and before the scene is rendered.
+struct OverlayPlugin final {
+  using AddOverlayFn = void (*)(OverlayPlugin* self, const mjModel* model,
+                                const mjData* data, mjvScene* scene);
+
+  // The name of the plugin; must be unique.
+  const char* name = "";
+
+  // Callback that appends geoms to the scene.
+  AddOverlayFn add_overlay = nullptr;
+
+  // Optional data pointer.
+  void* data = nullptr;
+};
+
+// A compiled model ready for the app to adopt. The app renders and steps
+// `model` but does not own it; the producing plugin retains ownership and must
+// keep it alive until it publishes a replacement.
+struct CompiledModel {
+  mjModel* model = nullptr;
+};
+
+// Plugin that produces ready-built mjModel instances for the app to adopt,
+// bypassing the mjSpec/XML load pipeline. The app pushes requested model file
+// paths in through `submit_load` and polls `poll_compiled` each frame for a
+// freshly compiled model.
+struct ModelSourcePlugin final {
+  // The app pushes a requested model file path (deferred load slot). The
+  // plugin stashes it and compiles on a later frame.
+  using SubmitLoadFn = void (*)(ModelSourcePlugin* self, const char* path);
+
+  // Returns true and fills `out` when a new compiled model is ready. Returns
+  // false when nothing new is pending.
+  using PollFn = bool (*)(ModelSourcePlugin* self, CompiledModel* out);
+
+  // The name of the plugin; must be unique.
+  const char* name = "";
+
+  // Callback receiving requested model file paths.
+  SubmitLoadFn submit_load = nullptr;
+
+  // Callback polled each frame for a freshly compiled model.
+  PollFn poll_compiled = nullptr;
+
+  // Optional data pointer.
+  void* data = nullptr;
+};
+
 }  // namespace mujoco::platform
 
 #endif  // MUJOCO_SRC_EXPERIMENTAL_PLATFORM_UX_PLUGIN_H_

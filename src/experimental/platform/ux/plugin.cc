@@ -24,6 +24,10 @@ using GuiPlugin = mujoco::platform::GuiPlugin;
 using ModelPlugin = mujoco::platform::ModelPlugin;
 using KeyHandlerPlugin = mujoco::platform::KeyHandlerPlugin;
 using SpecEditorPlugin = mujoco::platform::SpecEditorPlugin;
+using ViewportPlugin = mujoco::platform::ViewportPlugin;
+using ViewportGuiPlugin = mujoco::platform::ViewportGuiPlugin;
+using OverlayPlugin = mujoco::platform::OverlayPlugin;
+using ModelSourcePlugin = mujoco::platform::ModelSourcePlugin;
 
 namespace mujoco::platform {
 
@@ -75,3 +79,7 @@ MUJOCO_SPECIALIZE_PLUGIN(GuiPlugin, "gui plugin");
 MUJOCO_SPECIALIZE_PLUGIN(ModelPlugin, "model plugin");
 MUJOCO_SPECIALIZE_PLUGIN(KeyHandlerPlugin, "key handler plugin");
 MUJOCO_SPECIALIZE_PLUGIN(SpecEditorPlugin, "spec editor plugin");
+MUJOCO_SPECIALIZE_PLUGIN(ViewportPlugin, "viewport plugin");
+MUJOCO_SPECIALIZE_PLUGIN(ViewportGuiPlugin, "viewport gui plugin");
+MUJOCO_SPECIALIZE_PLUGIN(OverlayPlugin, "overlay plugin");
+MUJOCO_SPECIALIZE_PLUGIN(ModelSourcePlugin, "model source plugin");

@@ -134,6 +134,7 @@ class App {
     bool picture_in_picture = false;
     bool options_panel = true;
     bool inspector_panel = true;
+    bool spec_panels = true;
     bool full_screen = false;
     bool style_editor = false;
     bool imgui_demo = false;
@@ -191,6 +192,9 @@ class App {
   // then compile the spec to a model.
   void OnModelLoaded(std::string filename, ModelKind model_kind);
 
+  // Adopts an externally-owned mjModel published by a ModelSourcePlugin.
+  void AdoptCompiledModel(mjModel* model);
+
   void SwitchGraphicsMode(int width, int height, platform::GraphicsMode mode);
 
   void SetLoadError(std::string error);
@@ -244,6 +248,7 @@ class App {
   std::optional<std::string> pending_load_;
   std::function<void()> pending_op_;
   bool preserve_camera_on_load_ = false;
+  bool model_source_fresh_ = false;
   ModelKind model_kind_ = kEmptyModel;
   platform::GraphicsMode gfx_mode_ = platform::GraphicsMode::FilamentVulkan;
 
