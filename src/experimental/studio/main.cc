@@ -31,6 +31,10 @@
 #include "experimental/platform/sys_utils.h"
 #include "experimental/studio/app.h"
 
+#ifdef MUJOCO_STUDIO_PROTOSPEC
+#include "editor/plugins.h"
+#endif
+
 ABSL_FLAG(int, window_width, 1400, "Window width");
 ABSL_FLAG(int, window_height, 720, "Window height");
 ABSL_FLAG(std::string, model_file, "", "MuJoCo model file.");
@@ -130,6 +134,12 @@ int main(int argc, char** argv, char** envp) {
   mujoco::platform::GraphicsMode gfx_mode =
       mujoco::platform::GraphicsModeFromString(
           gfx, mujoco::platform::GraphicsMode::FilamentOpenGl);
+
+#ifdef MUJOCO_STUDIO_PROTOSPEC
+  // The editor plugin cluster shares one context that must outlive the loop.
+  static ps::studio::EditorContext protospec_editor_context;
+  ps::studio::RegisterEditorPlugins(protospec_editor_context);
+#endif
 
   const int width = absl::GetFlag(FLAGS_window_width);
   const int height = absl::GetFlag(FLAGS_window_height);

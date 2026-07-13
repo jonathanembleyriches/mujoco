@@ -91,9 +91,17 @@ endfunction()
 
 # Desktop Studio target.
 if(NOT EMSCRIPTEN)
+    option(MUJOCO_STUDIO_PROTOSPEC "Build Studio with the ProtoSpec editor" OFF)
+
     add_executable(mujoco_studio)
     target_sources(mujoco_studio PRIVATE main.cc)
     configure_studio_target(mujoco_studio)
+
+    if(MUJOCO_STUDIO_PROTOSPEC)
+        add_subdirectory(protospec)
+        target_link_libraries(mujoco_studio PRIVATE mujoco::protospec_editor)
+        target_compile_definitions(mujoco_studio PRIVATE MUJOCO_STUDIO_PROTOSPEC)
+    endif()
     install(
       TARGETS mujoco_studio
       RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT studio

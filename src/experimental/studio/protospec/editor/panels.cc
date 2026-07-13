@@ -1,0 +1,235 @@
+// ProtoSpec Studio: the remaining editor Gui panels + commands (ps::studio,
+// ours). Hierarchy lives in hierarchy_panel.cc and the generated Details panel in
+// details_panel.cc (SE1b); this TU keeps Assets / Diagnostics, the File menu
+// (load / save), and the Ctrl+Z / Ctrl+Y / Ctrl+S key handlers.
+
+#include <string>
+
+#include <imgui.h>
+#include <imgui_stdlib.h>
+
+#include "editor/asset_import.h"
+#include "editor/authoring_ops.h"
+#include "editor/editor_context.h"
+#include "editor/editor_ops.h"
+#include "editor/plugins.h"
+#include "platform/ux/plugin.h"
+
+namespace ps::studio {
+
+namespace mj = ps::mjcf;
+
+static EditorContext* Ctx(void* data) {
+  return static_cast<EditorContext*>(data);
+}
+
+// A shared "Import Mesh..." control: a path input (no OS dialog dependency in the
+// vendored shell) that imports the file and auto-builds a mesh geom at the origin.
+static void ImportMeshControl(EditorContext* c) {
+  static std::string mesh_path;
+  static std::string import_status;
+  ImGui::SetNextItemWidth(-1);
+  const bool enter = ImGui::InputTextWithHint(
+      "##meshpath", "path to .obj / .stl / .msh...", &mesh_path,
+      ImGuiInputTextFlags_EnterReturnsTrue);
+  ImGui::BeginDisabled(!c->model_ready || mesh_path.empty());
+  if ((ImGui::Button("Import Mesh...") || enter) && !mesh_path.empty()) {
+    MeshImportResult r = ImportMesh(*c, mesh_path, nullptr);
+    import_status = r.ok ? ("imported '" + mesh_path + "'" +
+                            (r.vfs ? " (in-memory; externalized on save)" : ""))
+                         : ("import failed: " + r.error);
+  }
+  ImGui::EndDisabled();
+  if (!import_status.empty()) ImGui::TextWrapped("%s", import_status.c_str());
+}
+
+// Assets: the model's assets + the mesh importer (deliverable 2).
+static void AssetsUpdate(GuiPlugin* self) {
+  EditorContext* c = Ctx(self->data);
+  ImGui::TextDisabled("Assets (meshes / textures / materials / hfields)");
+  ImGui::Separator();
+  if (!c->tree) {
+    ImGui::TextDisabled("No model loaded.");
+    return;
+  }
+  ImportMeshControl(c);
+}
+
+// The "+ Add" panel: model-level structural adds (deliverable 1). Target-aware --
+// an actuator/sensor wires to the current selection when it is a valid target.
+static void AddMenuUpdate(GuiPlugin* self) {
+  EditorContext* c = Ctx(self->data);
+  if (!c->tree) {
+    ImGui::TextDisabled("No model loaded.");
+    return;
+  }
+  const std::uint64_t sel = c->selected_serial;
+  ImGui::TextDisabled("Model-level elements");
+  ImGui::Separator();
+
+  if (ImGui::BeginMenu("Actuator")) {
+    struct A { const char* label; ActuatorSpelling sp; };
+    const A acts[] = {{"Motor", ActuatorSpelling::Motor},
+                      {"Position", ActuatorSpelling::Position},
+                      {"Velocity", ActuatorSpelling::Velocity},
+                      {"IntVelocity", ActuatorSpelling::IntVelocity},
+                      {"Damper", ActuatorSpelling::Damper},
+                      {"Cylinder", ActuatorSpelling::Cylinder},
+                      {"Muscle", ActuatorSpelling::Muscle},
+                      {"Adhesion", ActuatorSpelling::Adhesion},
+                      {"DcMotor", ActuatorSpelling::DcMotor},
+                      {"General", ActuatorSpelling::General}};
+    for (const A& a : acts) {
+      if (ImGui::MenuItem(a.label)) AddActuatorOp(*c, a.sp, sel);
+    }
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("Sensor")) {
+    struct S { const char* label; SensorSpelling sp; };
+    const S sens[] = {{"Jointpos", SensorSpelling::Jointpos},
+                      {"Jointvel", SensorSpelling::Jointvel},
+                      {"Framepos", SensorSpelling::Framepos},
+                      {"Framequat", SensorSpelling::Framequat},
+                      {"Gyro", SensorSpelling::Gyro},
+                      {"Accelerometer", SensorSpelling::Accelerometer},
+                      {"Velocimeter", SensorSpelling::Velocimeter},
+                      {"Force", SensorSpelling::Force},
+                      {"Torque", SensorSpelling::Torque},
+                      {"Touch", SensorSpelling::Touch}};
+    for (const S& s : sens) {
+      if (ImGui::MenuItem(s.label)) AddSensorOp(*c, s.sp, sel);
+    }
+    ImGui::EndMenu();
+  }
+  if (ImGui::MenuItem("Tendon (fixed)")) AddTendonOp(*c);
+  if (ImGui::MenuItem("Equality (weld)")) AddEqualityWeldOp(*c);
+  if (ImGui::MenuItem("Contact Pair")) AddPairOp(*c);
+  if (ImGui::MenuItem("Contact Exclude")) AddExcludeOp(*c);
+  if (ImGui::MenuItem("Keyframe")) AddKeyframeOp(*c);
+  static std::string class_name;
+  ImGui::Separator();
+  ImGui::SetNextItemWidth(120);
+  ImGui::InputTextWithHint("##class", "class name", &class_name);
+  ImGui::SameLine();
+  if (ImGui::Button("Add Default class")) {
+    AddDefaultClassOp(*c, class_name);
+    class_name.clear();
+  }
+}
+
+// Diagnostics: live Validate/Compile log + status line (§3).
+static void DiagnosticsUpdate(GuiPlugin* self) {
+  EditorContext* c = Ctx(self->data);
+  if (!c->status_line.empty()) {
+    ImGui::TextWrapped("%s", c->status_line.c_str());
+    ImGui::Separator();
+  }
+  ImGui::BeginChild("##diag_log");
+  for (const std::string& line : c->diagnostics) {
+    ImGui::TextUnformatted(line.c_str());
+  }
+  if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+    ImGui::SetScrollHereY(1.0f);
+  }
+  ImGui::EndChild();
+}
+
+// File menu: a simple path input for load / save (no vendored file dialog in
+// SE0). Lives in the main menu bar; drag-drop and the CLI arg still feed loads.
+// Save `c` to `path` and externalize any in-memory (imported) assets beside it.
+static void SaveAndExternalize(EditorContext* c, const std::string& path) {
+  if (SaveModel(*c, path)) {
+    ExternalizeVfsAssets(*c, path);
+  }
+}
+
+static void FileMenuUpdate(GuiPlugin* self) {
+  EditorContext* c = Ctx(self->data);
+  static std::string load_path;
+  static std::string save_path;
+
+  if (ImGui::Button("New")) {
+    NewModelOp(*c);
+  }
+  ImGui::SameLine();
+  ImGui::TextDisabled("empty starter scene (ground + light)");
+  ImGui::Separator();
+
+  ImGui::TextUnformatted("Import mesh (auto-builds a mesh geom):");
+  ImportMeshControl(c);
+  ImGui::Separator();
+
+  ImGui::TextUnformatted("Load model (.xml):");
+  ImGui::SetNextItemWidth(-1);
+  const bool load_enter =
+      ImGui::InputTextWithHint("##loadpath", "path to MJCF...", &load_path,
+                               ImGuiInputTextFlags_EnterReturnsTrue);
+  if ((ImGui::Button("Load") || load_enter) && !load_path.empty()) {
+    c->pending.Request(load_path);  // consumed by the ModelSource poll
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Save %s", c->dirty ? "(unsaved changes)" : "(up to date)");
+  if (save_path.empty() && !c->source_path.empty()) {
+    save_path = c->source_path;
+  }
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputTextWithHint("##savepath", "path to write...", &save_path);
+  const bool can_save = c->model_ready && !save_path.empty();
+  ImGui::BeginDisabled(!c->model_ready || c->source_path.empty());
+  if (ImGui::Button("Save")) {
+    SaveAndExternalize(c, c->source_path);
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!can_save);
+  if (ImGui::Button("Save As")) {
+    SaveAndExternalize(c, save_path);
+  }
+  ImGui::EndDisabled();
+}
+
+static void RegisterGuiPanel(const char* name, GuiPlugin::UpdateFn fn, bool active,
+                             EditorContext& ctx) {
+  GuiPlugin plugin;
+  plugin.name = name;
+  plugin.update = fn;
+  plugin.active = active;
+  plugin.data = &ctx;
+  RegisterPlugin<GuiPlugin>(plugin);
+}
+
+static void RegisterKey(const char* name, int chord,
+                        KeyHandlerPlugin::OnKeyPressedFn fn, EditorContext& ctx) {
+  KeyHandlerPlugin plugin;
+  plugin.name = name;
+  plugin.key_chord = chord;
+  plugin.on_key_pressed = fn;
+  plugin.data = &ctx;
+  RegisterPlugin<KeyHandlerPlugin>(plugin);
+}
+
+void RegisterEditorPanels(EditorContext& ctx) {
+  RegisterGuiPanel("Assets", AssetsUpdate, true, ctx);
+  RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, true, ctx);
+  RegisterGuiPanel("File", FileMenuUpdate, false, ctx);
+  RegisterGuiPanel("+ Add", AddMenuUpdate, false, ctx);
+
+  RegisterKey(
+      "Undo", ImGuiMod_Ctrl | ImGuiKey_Z,
+      [](KeyHandlerPlugin* self) { Undo(*Ctx(self->data)); }, ctx);
+  RegisterKey(
+      "Redo", ImGuiMod_Ctrl | ImGuiKey_Y,
+      [](KeyHandlerPlugin* self) { Redo(*Ctx(self->data)); }, ctx);
+  RegisterKey(
+      "Save", ImGuiMod_Ctrl | ImGuiKey_S,
+      [](KeyHandlerPlugin* self) {
+        EditorContext* c = Ctx(self->data);
+        if (c->model_ready && !c->source_path.empty()) {
+          SaveAndExternalize(c, c->source_path);
+        }
+      },
+      ctx);
+}
+
+}  // namespace ps::studio
