@@ -240,6 +240,7 @@ void RegisterEditorShell(EditorContext& ctx) {
   EditorShellPlugin shell;
   shell.name = "ProtoSpec Mode";
   shell.set_mode = OnSetMode;
+  shell.is_dirty = [](EditorShellPlugin* self) { return Ctx(self->data)->dirty; };
   shell.data = &ctx;
   RegisterPlugin<EditorShellPlugin>(shell);
 }

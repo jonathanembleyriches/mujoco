@@ -1116,6 +1116,21 @@ void App::BuildGui() {
     }
   });
 
+  // Title-bar dirty dot: re-title only when the editor's dirty state flips.
+  {
+    bool ed_dirty = false;
+    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
+      if (p->is_dirty && p->is_dirty(p)) ed_dirty = true;
+    });
+    if (ed_dirty != tmp_.last_dirty) {
+      tmp_.last_dirty = ed_dirty;
+      if (has_model() && model()->names) {
+        window_->SetTitle(app_title_ + " : " + std::string(model()->names) +
+                          (ed_dirty ? " *" : ""));
+      }
+    }
+  }
+
   ImGuiIO& io = ImGui::GetIO();
   if (tmp_.first_frame) {
     // An external model source bypasses the mjSpec pipeline, leaving the spec
@@ -1662,6 +1677,18 @@ void App::StatusBarGui() {
     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 520);
 
     ImGui::TableNextColumn();
+
+    // Dirty indicator: a dot when an editor reports unsaved authored edits.
+    bool editor_dirty = false;
+    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
+      if (p->is_dirty && p->is_dirty(p)) editor_dirty = true;
+    });
+    if (editor_dirty) {
+      ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "%s", "\xE2\x97\x8f");
+      ImGui::SameLine();
+      ImGui::Text("unsaved |");
+      ImGui::SameLine();
+    }
 
     if (!has_model()) {
       ImGui::Text("No model loaded");

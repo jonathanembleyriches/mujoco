@@ -136,6 +136,7 @@ class App {
     bool inspector_panel = false;
     bool spec_panels = false;
     bool full_screen = false;
+    bool last_dirty = false;  // last editor dirty state (title-bar dot sync)
     bool style_editor = false;
     bool imgui_demo = false;
     bool implot_demo = false;

@@ -181,8 +181,11 @@ struct ToolbarPlugin final {
 // state). `mode`: 0 == Edit/stop, 1 == Play.
 struct EditorShellPlugin final {
   using SetModeFn = void (*)(EditorShellPlugin* self, int mode);
+  using IsDirtyFn = bool (*)(EditorShellPlugin* self);
   const char* name = "";
   SetModeFn set_mode = nullptr;
+  // True when the editor has unsaved authored edits (drives the dirty indicator).
+  IsDirtyFn is_dirty = nullptr;
   void* data = nullptr;
 };
 
