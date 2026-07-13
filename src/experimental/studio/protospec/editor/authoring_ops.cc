@@ -826,9 +826,9 @@ ReparentResult ReparentOp(EditorContext& ctx, std::uint64_t elem_serial,
           if constexpr (requires { up->pos; }) {
             up->pos = std::array<double, 3>{L.pos[0], L.pos[1], L.pos[2]};
           }
-          if constexpr (requires { up->orient; }) {
-            up->orient = mj::Orientation(
-                mj::Quat{L.quat[0], L.quat[1], L.quat[2], L.quat[3]});
+          if constexpr (requires { up->quat; }) {
+            up->quat = std::array<double, 4>{L.quat[0], L.quat[1], L.quat[2],
+                                             L.quat[3]};
           }
         },
         reattached.node);

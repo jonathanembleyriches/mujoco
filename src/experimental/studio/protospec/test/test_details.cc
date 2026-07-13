@@ -82,7 +82,10 @@ static void TestWidgetMappingSpecifics() {
   CHECK(ClassifyField(*field(geom, "name")) == WidgetKind::Text);
   CHECK(ClassifyField(*field(geom, "type")) == WidgetKind::EnumCombo);
   CHECK(ClassifyField(*field(geom, "material")) == WidgetKind::RefCombo);
-  CHECK(ClassifyField(*field(geom, "orient")) == WidgetKind::Variant);
+  // Q-ORIENT: orientation is now the canonical `quat` (a fixed double[4]) ->
+  // RealRow; the surviving GeomShape (`shape`) is the Variant widget.
+  CHECK(ClassifyField(*field(geom, "quat")) == WidgetKind::RealRow);   // fixed[4]
+  CHECK(ClassifyField(*field(geom, "shape")) == WidgetKind::Variant);
   CHECK(ClassifyField(*field(geom, "size")) == WidgetKind::RealRow);   // range
   CHECK(ClassifyField(*field(geom, "rgba")) == WidgetKind::RealRow);   // fixed
   CHECK(ClassifyField(*field(geom, "user")) == WidgetKind::RealRow);   // unbounded

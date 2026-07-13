@@ -35,6 +35,7 @@ file(GLOB PROTOSPEC_GENERATED_SRC CONFIGURE_DEPENDS
 
 add_library(protospec_core STATIC
   ${PROTOSPEC_GENERATED_SRC}
+  ${PROTOSPEC_CPP}/core/resolve.cc
   ${PROTOSPEC_CPP}/io/numeric.cc
   ${PROTOSPEC_CPP}/io/include.cc
   ${PROTOSPEC_CPP}/io/defaults.cc
@@ -55,6 +56,7 @@ add_library(protospec_core STATIC
 target_include_directories(protospec_core PUBLIC
   ${PROTOSPEC_CPP}/include
   ${PROTOSPEC_CPP}/generated
+  ${PROTOSPEC_CPP}/core
   ${PROTOSPEC_CPP}/io
   ${PROTOSPEC_CPP}/validate
   ${PROTOSPEC_CPP}/bridge

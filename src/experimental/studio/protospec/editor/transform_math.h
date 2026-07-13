@@ -57,18 +57,20 @@ void QuatMul(const double p[4], const double q[4], double out[4]);
 // Right-handed rotation of `angle` (radians) about unit `axis`, as [w,x,y,z].
 void QuatFromAxisAngle(const double axis[3], double angle, double out[4]);
 
-// Compiler settings that govern how an authored Orientation resolves to a quat.
+// Compiler settings retained for API stability; orientation is now stored as a
+// canonical quaternion (Q-ORIENT canonicalization, docs/plan_canonicalization.md),
+// so the gizmo no longer resolves euler/axisangle here -- it reads the quat field
+// directly. Kept because the fromto path and callers still thread it.
 struct OrientContext {
   bool degree = true;         // <compiler angle="degree"> (MuJoCo default)
   std::string eulerseq = "xyz";
 };
 OrientContext ReadOrientContext(const mj::Model& model);
 
-// Authored Orientation variant (any of the five forms) -> unit quat [w,x,y,z].
-// An absent orientation resolves to identity. Mirrors the compiler's resolver so
-// the gizmo's notion of L_authored matches what MuJoCo compiles.
-void OrientationToQuat(const ps::opt<mj::Orientation>& orient,
-                       const OrientContext& oc, double quat[4]);
+// Canonical orientation quaternion of an element -> unit quat [w,x,y,z]. Since
+// orientation is canonicalized to `quat` at read, this is a copy + renormalize;
+// an absent orientation is the identity.
+void QuatOf(const ps::opt<std::array<double, 4>>& quat, double out[4]);
 
 // The spatial element a serial resolves to. Only Body/Geom/Site/Camera/Light/
 // Frame carry a pos/orient the gizmo can drive; anything else yields a null ptr.
