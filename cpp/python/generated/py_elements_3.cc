@@ -156,7 +156,6 @@ void RegisterElements3(pybind11::module_& m) {
     ElementBase(c);
     OptField(c, "name", &Light::name);
     OptField(c, "dclass", &Light::dclass);
-    OptField(c, "directional", &Light::directional);
     OptField(c, "type", &Light::type);
     OptField(c, "castshadow", &Light::castshadow);
     OptField(c, "active", &Light::active);
@@ -195,7 +194,6 @@ void RegisterElements3(pybind11::module_& m) {
     ElementBase(c);
     OptField(c, "name", &Material::name);
     OptField(c, "dclass", &Material::dclass);
-    OptField(c, "texture", &Material::texture);
     OptField(c, "texrepeat", &Material::texrepeat);
     OptField(c, "texuniform", &Material::texuniform);
     OptField(c, "emission", &Material::emission);
@@ -353,7 +351,6 @@ void RegisterElements3(pybind11::module_& m) {
     c.def(pyb::init<>());
     ElementBase(c);
     OptField(c, "name", &Numeric::name);
-    OptField(c, "size", &Numeric::size);
     OptField(c, "data", &Numeric::data);
     Augment(c);
   }

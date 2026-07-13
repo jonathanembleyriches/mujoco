@@ -1032,10 +1032,8 @@ CLight LightCompile(const Model& model, const Light& l,
   cl.src = &l;
   cl.bodyid = bodyid;
   if (eff->mode) cl.mode = static_cast<int>(*eff->mode);
-  // type: `directional` (legacy bool) maps to spot/directional; else `type`.
-  if (eff->directional) cl.type = *eff->directional ? mjLIGHT_DIRECTIONAL
-                                                     : mjLIGHT_SPOT;
-  else if (eff->type) cl.type = static_cast<int>(*eff->type);
+  // type is canonical (the legacy `directional` bool is folded to it at read).
+  if (eff->type) cl.type = static_cast<int>(*eff->type);
   if (eff->castshadow) cl.castshadow = *eff->castshadow;
   if (eff->active) cl.active = *eff->active;
   if (eff->pos) { cl.pos[0] = (*eff->pos)[0]; cl.pos[1] = (*eff->pos)[1];
@@ -2623,7 +2621,7 @@ struct TendonAuthored {
   ps::opt<ps::InlineVec<double, 2>> solreflimit, solreffriction;
   ps::opt<ps::InlineVec<double, 5>> solimplimit, solimpfriction;
   ps::opt<double> frictionloss;
-  ps::opt<ps::InlineVec<double, 2>> springlength;
+  ps::opt<std::array<double, 2>> springlength;
   ps::opt<double> width, margin, armature;
   ps::opt<ps::InlineVec<double, 3>> stiffness, damping;
   ps::opt<std::array<float, 4>> rgba;
@@ -2671,8 +2669,9 @@ void ResolveTendonFields(const ps::sdk::detail::DefaultIndex& idx,
   // actfrcrange (no TendonDefault field) -> authored only
   if (a.actfrcrange) { ct.actfrcrange[0] = (*a.actfrcrange)[0];
                        ct.actfrcrange[1] = (*a.actfrcrange)[1]; }
-  // springlength
-  if (a.springlength) CopyVecOpt<2>(ct.springlength, *a.springlength);
+  // springlength (canonical two-value pair)
+  if (a.springlength) { ct.springlength[0] = (*a.springlength)[0];
+                        ct.springlength[1] = (*a.springlength)[1]; }
   else for (const auto* td : chain)
     if (td->springlength) { ct.springlength[0] = (*td->springlength)[0];
                             ct.springlength[1] = (*td->springlength)[1]; break; }
@@ -3193,9 +3192,10 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
       FillActuatorCommon(*eff, ca, ap);
       double timeconst = eff->timeconst ? *eff->timeconst : ap.dynprm[0];
       double bias = eff->bias ? (*eff->bias)[0] : ap.biasprm[0];
+      // area is canonical (a `diameter` spelling is folded to pi/4 d^2 at read),
+      // so pass diameter=-1 to leave the area untouched inside SetToCylinder.
       double area = eff->area ? *eff->area : ap.gainprm[0];
-      double diameter = eff->diameter ? *eff->diameter : -1;
-      actlower::SetToCylinder(ap, timeconst, bias, area, diameter);
+      actlower::SetToCylinder(ap, timeconst, bias, area, -1);
       ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
       break;
     }
@@ -3760,18 +3760,14 @@ struct CTuple {
   std::vector<CTupleEntry> entries;
 };
 
-// mjCNumeric::Compile size resolution: authored size (zero-padded), else the
-// data length. The data prefix is copied verbatim; the reader truncates at
-// `size` when authored, so a data array longer than an authored size keeps only
-// its first `size` values (the leg-B round trip already dropped the rest).
+// Numeric data is canonical: the reader already materialized it to the authored
+// size (zero-padded/truncated, Q-NUM Wave B #8), so size == data length here and
+// the data is copied verbatim.
 CNumeric NumericCompile(const Numeric& n, const bridge::CompileOptions& opts) {
   CNumeric cn;
   cn.name = EffectiveName(n, opts);
-  const int data_len = n.data ? static_cast<int>(n.data->size()) : 0;
-  cn.size = n.size ? *n.size : data_len;
-  const int copy = std::min(data_len, cn.size);
-  cn.data.assign(copy, 0.0);
-  for (int j = 0; j < copy; ++j) cn.data[j] = (*n.data)[j];
+  cn.size = n.data ? static_cast<int>(n.data->size()) : 0;
+  if (n.data) cn.data = *n.data;
   return cn;
 }
 
@@ -4097,10 +4093,10 @@ CMaterial MaterialCompile(const Model& model, const Material& mat,
     auto it = texid_of.find(nm);
     return it == texid_of.end() ? -1 : it->second;
   };
-  // legacy `texture` attr -> role RGB; <layer> entries -> their role. ProtoSpec's
-  // TexRole enum omits the USER role (rgb=0..orm=8), so it is offset +1 from
-  // mjtTextureRole (mjTEXROLE_USER=0, RGB=1..ORM=9).
-  if (eff->texture) cm.texid[mjTEXROLE_RGB] = resolve_tex(eff->texture->name);
+  // <layer> entries -> their role (the legacy `texture` attr is folded to a
+  // <layer role="rgb"> at read). ProtoSpec's TexRole enum omits the USER role
+  // (rgb=0..orm=8), so it is offset +1 from mjtTextureRole (mjTEXROLE_USER=0,
+  // RGB=1..ORM=9).
   for (const auto& layer : eff->layers) {
     if (!layer) continue;
     const int role =

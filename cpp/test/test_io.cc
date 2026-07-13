@@ -1109,9 +1109,13 @@ static void TestCustomKeyframeExtension() {
   }
   const Custom& c = *r.model->customs.front();
   CHECK(c.numerics.size() == 2 && c.texts.size() == 1 && c.tuples.size() == 1);
-  // Numeric keeps size and data as authored; MuJoCo re-pads at compile (Q-KEY).
-  CHECK(*c.numerics[0]->size == 5 && c.numerics[0]->data->size() == 3);
-  CHECK(!c.numerics[1]->size.has_value() && c.numerics[1]->data->size() == 2);
+  // Numeric data is materialized at read (Wave B #8): the authored size zero-pads
+  // (or truncates) the data, and the `size` spelling is erased.
+  CHECK(c.numerics[0]->data.has_value() && c.numerics[0]->data->size() == 5);
+  CHECK(Near((*c.numerics[0]->data)[0], 1.0) &&
+        Near((*c.numerics[0]->data)[2], 3.0) &&
+        Near((*c.numerics[0]->data)[3], 0.0));
+  CHECK(c.numerics[1]->data.has_value() && c.numerics[1]->data->size() == 2);
   // Tuple element children: parallel objtype/objname/optional prm rows.
   const Tuple& tp = *c.tuples.front();
   CHECK(tp.tupleElements.size() == 2);
@@ -1221,6 +1225,142 @@ static void TestMacrosDeformable() {
   Fixpoint(ord);
 }
 
+// --- Wave B canonicalizations (docs/plan_canonicalization.md #4-#10) -------- //
+// Each: the reader accepts the legacy spelling and stores the canonical form;
+// the writer emits only the canonical form; hand-verified goldens.
+static void TestWaveBCanonicalization() {
+  // #1 light directional -> type. directional="true" => directional, "false" =>
+  // spot (xml_native_reader.cc:2126); the writer emits type=, never directional.
+  auto lt = Parse(R"(<mujoco><worldbody>
+    <light name="ld" directional="true"/>
+    <light name="ls" directional="false"/>
+    <light name="lp" type="point"/>
+  </worldbody></mujoco>)");
+  CHECK(lt.ok());
+  const Body* w = World(*lt.model);
+  const Light* ld = NthOf<Light>(*w, 0);
+  const Light* ls = NthOf<Light>(*w, 1);
+  const Light* lp = NthOf<Light>(*w, 2);
+  CHECK(ld && ld->type && *ld->type == LightType::directional);
+  CHECK(ls && ls->type && *ls->type == LightType::spot);
+  CHECK(lp && lp->type && *lp->type == LightType::point);
+  std::string lout = WriteMjcf(*lt.model);
+  CHECK(lout.find("directional=") == std::string::npos);
+  CHECK(lout.find("type=\"directional\"") != std::string::npos);
+  Fixpoint(lt);
+  // type + directional on one element is a read error.
+  auto lboth = Parse(R"(<mujoco><worldbody>
+    <light directional="true" type="spot"/></worldbody></mujoco>)");
+  CHECK(!lboth.ok());
+  CHECK(lboth.errors[0].message.find("type and directional") !=
+        std::string::npos);
+
+  // #5 tendon springlength: a lone value duplicates into the pair; two values
+  // are kept (xml_native_reader.cc:2372-2374). The writer emits both.
+  auto sl = Parse(R"(<mujoco><tendon>
+    <spatial name="one" springlength="0.5"><site site="a"/><site site="b"/></spatial>
+    <spatial name="two" springlength="0 0.7"><site site="a"/><site site="b"/></spatial>
+  </tendon></mujoco>)");
+  CHECK(sl.ok());
+  const Spatial* s1 = Member<Spatial>(sl.model->tendons.front()->tendons[0]);
+  const Spatial* s2 = Member<Spatial>(sl.model->tendons.front()->tendons[1]);
+  CHECK(s1 && s1->springlength && Near((*s1->springlength)[0], 0.5) &&
+        Near((*s1->springlength)[1], 0.5));
+  CHECK(s2 && s2->springlength && Near((*s2->springlength)[0], 0.0) &&
+        Near((*s2->springlength)[1], 0.7));
+  CHECK(WriteMjcf(*sl.model).find("springlength=\"0.5 0.5\"") !=
+        std::string::npos);
+  Fixpoint(sl);
+
+  // #6 cylinder diameter -> area = pi/4 d^2 (mjs_setToCylinder). diameter=0.5 =>
+  // area = pi/4 * 0.25 = 0.19634954084936207. The writer emits area, not diameter.
+  auto cyl = Parse(R"(<mujoco><actuator>
+    <cylinder name="c" joint="j" diameter="0.5"/>
+    <cylinder name="d" joint="j" area="2"/>
+  </actuator></mujoco>)");
+  CHECK(cyl.ok());
+  const Cylinder* c0 =
+      Member<Cylinder>(cyl.model->actuators.front()->actuators[0]);
+  const Cylinder* c1 =
+      Member<Cylinder>(cyl.model->actuators.front()->actuators[1]);
+  CHECK(c0 && c0->area && Near(*c0->area, 3.14159265358979323846 / 4 * 0.25));
+  CHECK(c1 && c1->area && Near(*c1->area, 2.0));
+  std::string cout = WriteMjcf(*cyl.model);
+  CHECK(cout.find("diameter=") == std::string::npos &&
+        cout.find("area=") != std::string::npos);
+  Fixpoint(cyl);
+
+  // #7 material texture attr -> canonical <layer role="rgb">; the writer emits
+  // the layer, never the texture attr.
+  auto mat = Parse(R"(<mujoco><asset>
+    <material name="m" texture="grid" specular="0.3"/>
+  </asset></mujoco>)");
+  CHECK(mat.ok());
+  const Material& m = *mat.model->assets.front()->materials.front();
+  CHECK(m.layers.size() == 1 && m.layers.front()->role &&
+        *m.layers.front()->role == TexRole::rgb &&
+        m.layers.front()->texture->name == "grid");
+  std::string mout = WriteMjcf(*mat.model);
+  CHECK(mout.find("texture=\"grid\"") != std::string::npos);  // on the layer
+  CHECK(mout.find("<layer") != std::string::npos);
+  Fixpoint(mat);
+  // texture attr + <layer> child is an error.
+  auto mmix = Parse(R"(<mujoco><asset>
+    <material name="m" texture="grid"><layer texture="t" role="normal"/></material>
+  </asset></mujoco>)");
+  CHECK(!mmix.ok());
+  CHECK(mmix.errors[0].message.find("cannot have layer") != std::string::npos);
+
+  // #8 numeric data materialized to the authored size (zero-pad / truncate); the
+  // size spelling is erased. Bounds 1..500 enforced.
+  auto num = Parse(R"(<mujoco><custom>
+    <numeric name="pad" size="5" data="1 2 3"/>
+    <numeric name="trunc" size="2" data="1 2 3"/>
+    <numeric name="reserve" size="3"/>
+    <numeric name="bare" data="7 8"/>
+  </custom></mujoco>)");
+  CHECK(num.ok());
+  const Custom& cst = *num.model->customs.front();
+  CHECK(cst.numerics[0]->data->size() == 5 &&
+        Near((*cst.numerics[0]->data)[4], 0.0));
+  CHECK(cst.numerics[1]->data->size() == 2 &&
+        Near((*cst.numerics[1]->data)[1], 2.0));
+  CHECK(cst.numerics[2]->data->size() == 3 &&
+        Near((*cst.numerics[2]->data)[0], 0.0));
+  CHECK(cst.numerics[3]->data->size() == 2);
+  CHECK(WriteMjcf(*num.model).find("size=") == std::string::npos);
+  Fixpoint(num);
+  auto nbad = Parse(R"(<mujoco><custom>
+    <numeric name="z" size="0"/></custom></mujoco>)");
+  CHECK(!nbad.ok());
+  CHECK(nbad.errors[0].message.find("between 1 and 500") != std::string::npos);
+
+  // #9 keyword-set canonicalization: camera output / rangefinder data are
+  // order-insensitive bitmasks; the reader stores them in enum-declaration order.
+  auto kw = Parse(R"(<mujoco>
+    <worldbody><camera name="c" output="segmentation rgb depth"/></worldbody>
+    <sensor><rangefinder name="rf" site="s" data="normal dist"/></sensor>
+  </mujoco>)");
+  CHECK(kw.ok());
+  const Camera* cam = NthOf<Camera>(*World(*kw.model), 0);
+  CHECK(cam && cam->output && cam->output->size() == 3 &&
+        (*cam->output)[0] == CameraOutput::rgb &&
+        (*cam->output)[1] == CameraOutput::depth &&
+        (*cam->output)[2] == CameraOutput::segmentation);
+  const Rangefinder* rf =
+      Member<Rangefinder>(kw.model->sensors.front()->sensors[0]);
+  CHECK(rf && rf->data && (*rf->data)[0] == RayData::dist &&
+        (*rf->data)[1] == RayData::normal);
+  CHECK(WriteMjcf(*kw.model).find("output=\"rgb depth segmentation\"") !=
+        std::string::npos);
+  Fixpoint(kw);
+  // contact sensor data must be authored in enum order (strict).
+  auto cbad = Parse(R"(<mujoco><sensor>
+    <contact name="ct" body1="b" data="normal force"/></sensor></mujoco>)");
+  CHECK(!cbad.ok());
+  CHECK(cbad.errors[0].message.find("must be in order") != std::string::npos);
+}
+
 int main() {
   TestFixpoint();
   TestAngle();
@@ -1253,6 +1393,7 @@ int main() {
   TestSensorNegatives();
   TestCustomKeyframeExtension();
   TestMacrosDeformable();
+  TestWaveBCanonicalization();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

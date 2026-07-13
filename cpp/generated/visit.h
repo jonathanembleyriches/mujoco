@@ -946,8 +946,7 @@ template <class V> void Visit(Cylinder& e, V&& v) {
   v.field(22, "refsite", e.refsite);
   v.field(23, "timeconst", e.timeconst);
   v.field(24, "area", e.area);
-  v.field(25, "diameter", e.diameter);
-  v.field(26, "bias", e.bias);
+  v.field(25, "bias", e.bias);
   (void)v;
 }
 
@@ -977,8 +976,7 @@ template <class V> void Visit(const Cylinder& e, V&& v) {
   v.field(22, "refsite", e.refsite);
   v.field(23, "timeconst", e.timeconst);
   v.field(24, "area", e.area);
-  v.field(25, "diameter", e.diameter);
-  v.field(26, "bias", e.bias);
+  v.field(25, "bias", e.bias);
   (void)v;
 }
 
@@ -2609,48 +2607,46 @@ template <class V> void Visit(const LengthRange& e, V&& v) {
 template <class V> void Visit(Light& e, V&& v) {
   v.field(0, "name", e.name);
   v.field(1, "dclass", e.dclass);
-  v.field(2, "directional", e.directional);
-  v.field(3, "type", e.type);
-  v.field(4, "castshadow", e.castshadow);
-  v.field(5, "active", e.active);
-  v.field(6, "pos", e.pos);
-  v.field(7, "dir", e.dir);
-  v.field(8, "bulbradius", e.bulbradius);
-  v.field(9, "intensity", e.intensity);
-  v.field(10, "range", e.range);
-  v.field(11, "attenuation", e.attenuation);
-  v.field(12, "cutoff", e.cutoff);
-  v.field(13, "exponent", e.exponent);
-  v.field(14, "ambient", e.ambient);
-  v.field(15, "diffuse", e.diffuse);
-  v.field(16, "specular", e.specular);
-  v.field(17, "mode", e.mode);
-  v.field(18, "target", e.target);
-  v.field(19, "texture", e.texture);
+  v.field(2, "type", e.type);
+  v.field(3, "castshadow", e.castshadow);
+  v.field(4, "active", e.active);
+  v.field(5, "pos", e.pos);
+  v.field(6, "dir", e.dir);
+  v.field(7, "bulbradius", e.bulbradius);
+  v.field(8, "intensity", e.intensity);
+  v.field(9, "range", e.range);
+  v.field(10, "attenuation", e.attenuation);
+  v.field(11, "cutoff", e.cutoff);
+  v.field(12, "exponent", e.exponent);
+  v.field(13, "ambient", e.ambient);
+  v.field(14, "diffuse", e.diffuse);
+  v.field(15, "specular", e.specular);
+  v.field(16, "mode", e.mode);
+  v.field(17, "target", e.target);
+  v.field(18, "texture", e.texture);
   (void)v;
 }
 
 template <class V> void Visit(const Light& e, V&& v) {
   v.field(0, "name", e.name);
   v.field(1, "dclass", e.dclass);
-  v.field(2, "directional", e.directional);
-  v.field(3, "type", e.type);
-  v.field(4, "castshadow", e.castshadow);
-  v.field(5, "active", e.active);
-  v.field(6, "pos", e.pos);
-  v.field(7, "dir", e.dir);
-  v.field(8, "bulbradius", e.bulbradius);
-  v.field(9, "intensity", e.intensity);
-  v.field(10, "range", e.range);
-  v.field(11, "attenuation", e.attenuation);
-  v.field(12, "cutoff", e.cutoff);
-  v.field(13, "exponent", e.exponent);
-  v.field(14, "ambient", e.ambient);
-  v.field(15, "diffuse", e.diffuse);
-  v.field(16, "specular", e.specular);
-  v.field(17, "mode", e.mode);
-  v.field(18, "target", e.target);
-  v.field(19, "texture", e.texture);
+  v.field(2, "type", e.type);
+  v.field(3, "castshadow", e.castshadow);
+  v.field(4, "active", e.active);
+  v.field(5, "pos", e.pos);
+  v.field(6, "dir", e.dir);
+  v.field(7, "bulbradius", e.bulbradius);
+  v.field(8, "intensity", e.intensity);
+  v.field(9, "range", e.range);
+  v.field(10, "attenuation", e.attenuation);
+  v.field(11, "cutoff", e.cutoff);
+  v.field(12, "exponent", e.exponent);
+  v.field(13, "ambient", e.ambient);
+  v.field(14, "diffuse", e.diffuse);
+  v.field(15, "specular", e.specular);
+  v.field(16, "mode", e.mode);
+  v.field(17, "target", e.target);
+  v.field(18, "texture", e.texture);
   (void)v;
 }
 
@@ -2683,16 +2679,15 @@ template <class V> void Visit(const Magnetometer& e, V&& v) {
 template <class V> void Visit(Material& e, V&& v) {
   v.field(0, "name", e.name);
   v.field(1, "dclass", e.dclass);
-  v.field(2, "texture", e.texture);
-  v.field(3, "texrepeat", e.texrepeat);
-  v.field(4, "texuniform", e.texuniform);
-  v.field(5, "emission", e.emission);
-  v.field(6, "specular", e.specular);
-  v.field(7, "shininess", e.shininess);
-  v.field(8, "reflectance", e.reflectance);
-  v.field(9, "metallic", e.metallic);
-  v.field(10, "roughness", e.roughness);
-  v.field(11, "rgba", e.rgba);
+  v.field(2, "texrepeat", e.texrepeat);
+  v.field(3, "texuniform", e.texuniform);
+  v.field(4, "emission", e.emission);
+  v.field(5, "specular", e.specular);
+  v.field(6, "shininess", e.shininess);
+  v.field(7, "reflectance", e.reflectance);
+  v.field(8, "metallic", e.metallic);
+  v.field(9, "roughness", e.roughness);
+  v.field(10, "rgba", e.rgba);
   v.child(0, "layers", e.layers);
   (void)v;
 }
@@ -2700,16 +2695,15 @@ template <class V> void Visit(Material& e, V&& v) {
 template <class V> void Visit(const Material& e, V&& v) {
   v.field(0, "name", e.name);
   v.field(1, "dclass", e.dclass);
-  v.field(2, "texture", e.texture);
-  v.field(3, "texrepeat", e.texrepeat);
-  v.field(4, "texuniform", e.texuniform);
-  v.field(5, "emission", e.emission);
-  v.field(6, "specular", e.specular);
-  v.field(7, "shininess", e.shininess);
-  v.field(8, "reflectance", e.reflectance);
-  v.field(9, "metallic", e.metallic);
-  v.field(10, "roughness", e.roughness);
-  v.field(11, "rgba", e.rgba);
+  v.field(2, "texrepeat", e.texrepeat);
+  v.field(3, "texuniform", e.texuniform);
+  v.field(4, "emission", e.emission);
+  v.field(5, "specular", e.specular);
+  v.field(6, "shininess", e.shininess);
+  v.field(7, "reflectance", e.reflectance);
+  v.field(8, "metallic", e.metallic);
+  v.field(9, "roughness", e.roughness);
+  v.field(10, "rgba", e.rgba);
   v.child(0, "layers", e.layers);
   (void)v;
 }
@@ -2986,15 +2980,13 @@ template <class V> void Visit(const Normal& e, V&& v) {
 
 template <class V> void Visit(Numeric& e, V&& v) {
   v.field(0, "name", e.name);
-  v.field(1, "size", e.size);
-  v.field(2, "data", e.data);
+  v.field(1, "data", e.data);
   (void)v;
 }
 
 template <class V> void Visit(const Numeric& e, V&& v) {
   v.field(0, "name", e.name);
-  v.field(1, "size", e.size);
-  v.field(2, "data", e.data);
+  v.field(1, "data", e.data);
   (void)v;
 }
 

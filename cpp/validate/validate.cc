@@ -609,6 +609,22 @@ void CheckSemanticLocal(Ctx& ctx, const T& e, ElementType et) {
     CheckLimitPair(ctx, loc, "tendon", "", e.limited, e.range, false);
     CheckLimitPair(ctx, loc, "tendon", "actuatorfrc", e.actuatorfrclimited,
                    e.actuatorfrcrange, false);
+  } else if constexpr (std::is_same_v<T, Camera>) {
+    // R1 (docs/plan_canonicalization.md Section 2): camera intrinsic parameters
+    // (focal/principal, in length or pixel units) require a positive sensorsize,
+    // a compile error in MuJoCo (user_objects.cc:4426-4435). Mirrored as a
+    // tier-3 lint on the authored form so the CameraIntrinsics dissolution (six
+    // plain fields, R1) keeps MuJoCo's error surface. `fovy` XOR `sensorsize` on
+    // the same element is the separate reader error (CameraIntrinsicExclusion).
+    auto nz2 = [](const auto& v) { return v && ((*v)[0] || (*v)[1]); };
+    bool has_intrinsic = nz2(e.focal) || nz2(e.focalpixel) ||
+                         nz2(e.principal) || nz2(e.principalpixel);
+    bool has_sensorsize =
+        e.sensorsize && (*e.sensorsize)[0] > 0 && (*e.sensorsize)[1] > 0;
+    if (has_intrinsic && !has_sensorsize) {
+      ctx.Emit(Tier::Semantic, Severity::Warning,
+               "camera focal/principal require a positive `sensorsize`", loc);
+    }
   } else if constexpr (std::is_same_v<T, Config>) {
     if (e.key && e.key->empty()) {
       ctx.Emit(Tier::Semantic, Severity::Warning,

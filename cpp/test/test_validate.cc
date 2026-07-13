@@ -468,6 +468,40 @@ static void TestSemanticPluginConfig() {
   CHECK(CountTier(ds, Tier::Semantic, "empty key") == 1);
 }
 
+// R1 (docs/plan_canonicalization.md Wave B): camera focal/principal intrinsics
+// require a positive sensorsize (a MuJoCo compile error, mirrored as a tier-3
+// lint on the authored form). A focal without sensorsize warns; one with a valid
+// sensorsize (frustum.xml pattern) does not.
+static void TestSemanticCameraIntrinsics() {
+  const std::string f = "cam.xml";
+  auto m = Parse(
+      "<mujoco>\n"
+      "  <worldbody>\n"
+      "    <camera name=\"bad\" focal=\"8e-3 8e-3\" resolution=\"640 480\"/>\n"
+      "  </worldbody>\n"
+      "</mujoco>\n",
+      f);
+  CHECK(m != nullptr);
+  if (!m) return;
+  auto ds = validate::Validate(*m, validate::kTierSemantic);
+  const Diagnostic* d =
+      Find(ds, Tier::Semantic, "focal/principal require a positive `sensorsize`");
+  ExpectLoc(d, f);
+
+  auto ok = Parse(
+      "<mujoco>\n"
+      "  <worldbody>\n"
+      "    <camera name=\"good\" focalpixel=\"1600 1600\" resolution=\"1920 1200\"\n"
+      "            sensorsize=\"9.6e-3 6e-3\"/>\n"
+      "  </worldbody>\n"
+      "</mujoco>\n",
+      "camok.xml");
+  CHECK(ok != nullptr);
+  if (!ok) return;
+  auto ds2 = validate::Validate(*ok, validate::kTierSemantic);
+  CHECK(CountTier(ds2, Tier::Semantic, "sensorsize") == 0);
+}
+
 // A curated model that is clean at tiers 1-2 must produce zero errors even with
 // all tiers requested (only tier-3 warnings, if any).
 static void TestCleanModelNoErrors() {
@@ -512,6 +546,7 @@ int main() {
   TestSemanticMocap();
   TestSemanticNuser();
   TestSemanticPluginConfig();
+  TestSemanticCameraIntrinsics();
 
   TestCleanModelNoErrors();
 

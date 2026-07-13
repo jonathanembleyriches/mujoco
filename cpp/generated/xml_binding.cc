@@ -414,9 +414,11 @@ constexpr AttrBinding kAttrs_Cylinder[] = {
     {"site", "Site", 21, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"refsite", "Site", 22, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"timeconst", "double", 23, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"area", "double", 24, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"diameter", "double", 25, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"bias", "double", 26, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"area", "double", 24, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, true},
+    {"bias", "double", 25, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
+};
+constexpr InputAliasBinding kInputAliases_Cylinder[] = {
+    {"diameter", "cylinderarea"},
 };
 
 constexpr AttrBinding kAttrs_Damper[] = {
@@ -612,7 +614,7 @@ constexpr AttrBinding kAttrs_Fixed[] = {
     {"solreffriction", "double", 9, FieldKind::Double, ArityKind::Range, 0, 2, false, false, false, false},
     {"solimpfriction", "double", 10, FieldKind::Double, ArityKind::Range, 0, 5, false, false, false, false},
     {"frictionloss", "double", 11, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"springlength", "double", 12, FieldKind::Double, ArityKind::Range, 0, 2, false, false, false, false},
+    {"springlength", "double", 12, FieldKind::Double, ArityKind::Fixed, 2, 2, false, false, false, true},
     {"margin", "double", 13, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"stiffness", "double", 14, FieldKind::Double, ArityKind::Range, 0, 3, false, false, false, false},
     {"damping", "double", 15, FieldKind::Double, ArityKind::Range, 0, 3, false, false, false, false},
@@ -1222,24 +1224,26 @@ constexpr AttrBinding kAttrs_LengthRange[] = {
 constexpr AttrBinding kAttrs_Light[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"class", "Default", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"directional", "bool", 2, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"type", "LightType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"castshadow", "bool", 4, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"active", "bool", 5, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"pos", "double", 6, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"dir", "double", 7, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"bulbradius", "float", 8, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"intensity", "float", 9, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"range", "float", 10, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"attenuation", "float", 11, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"cutoff", "float", 12, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"exponent", "float", 13, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"ambient", "float", 14, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"diffuse", "float", 15, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"specular", "float", 16, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"mode", "CamLightMode", 17, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"target", "Body", 18, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"texture", "Texture", 19, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"type", "LightType", 2, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, true},
+    {"castshadow", "bool", 3, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"active", "bool", 4, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"pos", "double", 5, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"dir", "double", 6, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"bulbradius", "float", 7, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"intensity", "float", 8, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"range", "float", 9, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"attenuation", "float", 10, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"cutoff", "float", 11, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"exponent", "float", 12, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"ambient", "float", 13, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"diffuse", "float", 14, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"specular", "float", 15, FieldKind::Float, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"mode", "CamLightMode", 16, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"target", "Body", 17, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"texture", "Texture", 18, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
+};
+constexpr InputAliasBinding kInputAliases_Light[] = {
+    {"directional", "lighttype"},
 };
 
 constexpr AttrBinding kAttrs_Magnetometer[] = {
@@ -1257,16 +1261,18 @@ constexpr AttrBinding kAttrs_Magnetometer[] = {
 constexpr AttrBinding kAttrs_Material[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"class", "Default", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"texture", "Texture", 2, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"texrepeat", "float", 3, FieldKind::Float, ArityKind::Fixed, 2, 2, false, false, false, false},
-    {"texuniform", "bool", 4, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"emission", "float", 5, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"specular", "float", 6, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"shininess", "float", 7, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"reflectance", "float", 8, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"metallic", "float", 9, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"roughness", "float", 10, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"rgba", "float", 11, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
+    {"texrepeat", "float", 2, FieldKind::Float, ArityKind::Fixed, 2, 2, false, false, false, false},
+    {"texuniform", "bool", 3, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"emission", "float", 4, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"specular", "float", 5, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"shininess", "float", 6, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"reflectance", "float", 7, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"metallic", "float", 8, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"roughness", "float", 9, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"rgba", "float", 10, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
+};
+constexpr InputAliasBinding kInputAliases_Material[] = {
+    {"texture", "materiallayer"},
 };
 constexpr ChildBinding kChildren_Material[] = {
     {"layers", "layer", "MaterialLayer", ElementType::MaterialLayer, false},
@@ -1406,8 +1412,10 @@ constexpr AttrBinding kAttrs_Normal[] = {
 
 constexpr AttrBinding kAttrs_Numeric[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"size", "int32", 1, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"data", "double", 2, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, false},
+    {"data", "double", 1, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, true},
+};
+constexpr InputAliasBinding kInputAliases_Numeric[] = {
+    {"size", "numericdata"},
 };
 
 constexpr AttrBinding kAttrs_Option[] = {
@@ -1672,7 +1680,7 @@ constexpr AttrBinding kAttrs_Spatial[] = {
     {"solreffriction", "double", 9, FieldKind::Double, ArityKind::Range, 0, 2, false, false, false, false},
     {"solimpfriction", "double", 10, FieldKind::Double, ArityKind::Range, 0, 5, false, false, false, false},
     {"frictionloss", "double", 11, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"springlength", "double", 12, FieldKind::Double, ArityKind::Range, 0, 2, false, false, false, false},
+    {"springlength", "double", 12, FieldKind::Double, ArityKind::Fixed, 2, 2, false, false, false, true},
     {"width", "double", 13, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"material", "Material", 14, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"margin", "double", 15, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -1763,7 +1771,7 @@ constexpr AttrBinding kAttrs_TendonDefault[] = {
     {"solreffriction", "double", 5, FieldKind::Double, ArityKind::Range, 0, 2, false, false, false, false},
     {"solimpfriction", "double", 6, FieldKind::Double, ArityKind::Range, 0, 5, false, false, false, false},
     {"frictionloss", "double", 7, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"springlength", "double", 8, FieldKind::Double, ArityKind::Fixed, 2, 2, false, false, false, false},
+    {"springlength", "double", 8, FieldKind::Double, ArityKind::Fixed, 2, 2, false, false, false, true},
     {"width", "double", 9, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"material", "Material", 10, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"margin", "double", 11, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -2104,7 +2112,7 @@ constexpr ElementBinding kBindings[] = {
     {ElementType::Connect, "connect", kAttrs_Connect, 10, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Contact, "contact", nullptr, 0, nullptr, 0, nullptr, 0, kChildren_Contact, 2},
     {ElementType::Custom, "custom", nullptr, 0, nullptr, 0, nullptr, 0, kChildren_Custom, 3},
-    {ElementType::Cylinder, "cylinder", kAttrs_Cylinder, 27, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::Cylinder, "cylinder", kAttrs_Cylinder, 26, kInputAliases_Cylinder, 1, nullptr, 0, nullptr, 0},
     {ElementType::Damper, "damper", kAttrs_Damper, 23, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::DcMotor, "dcmotor", kAttrs_DcMotor, 31, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Default, "default", kAttrs_Default, 1, nullptr, 0, nullptr, 0, kChildren_Default, 21},
@@ -2160,9 +2168,9 @@ constexpr ElementBinding kBindings[] = {
     {ElementType::Key, "key", kAttrs_Key, 8, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Keyframe, "keyframe", nullptr, 0, nullptr, 0, nullptr, 0, kChildren_Keyframe, 1},
     {ElementType::LengthRange, "lengthrange", kAttrs_LengthRange, 10, nullptr, 0, nullptr, 0, nullptr, 0},
-    {ElementType::Light, "light", kAttrs_Light, 20, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::Light, "light", kAttrs_Light, 19, kInputAliases_Light, 1, nullptr, 0, nullptr, 0},
     {ElementType::Magnetometer, "magnetometer", kAttrs_Magnetometer, 9, nullptr, 0, nullptr, 0, nullptr, 0},
-    {ElementType::Material, "material", kAttrs_Material, 12, nullptr, 0, nullptr, 0, kChildren_Material, 1},
+    {ElementType::Material, "material", kAttrs_Material, 11, kInputAliases_Material, 1, nullptr, 0, kChildren_Material, 1},
     {ElementType::MaterialLayer, "layer", kAttrs_MaterialLayer, 2, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Mesh, "mesh", kAttrs_Mesh, 17, nullptr, 0, nullptr, 0, kChildren_Mesh, 1},
     {ElementType::Model, "mujoco", kAttrs_Model, 1, nullptr, 0, nullptr, 0, kChildren_Model, 17},
@@ -2170,7 +2178,7 @@ constexpr ElementBinding kBindings[] = {
     {ElementType::Motor, "motor", kAttrs_Motor, 23, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Muscle, "muscle", kAttrs_Muscle, 31, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Normal, "normal", kAttrs_Normal, 12, nullptr, 0, nullptr, 0, nullptr, 0},
-    {ElementType::Numeric, "numeric", kAttrs_Numeric, 3, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::Numeric, "numeric", kAttrs_Numeric, 2, kInputAliases_Numeric, 1, nullptr, 0, nullptr, 0},
     {ElementType::Option, "option", kAttrs_Option, 27, nullptr, 0, nullptr, 0, kChildren_Option, 1},
     {ElementType::Pair, "pair", kAttrs_Pair, 11, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::PluginDef, "plugin", kAttrs_PluginDef, 1, nullptr, 0, nullptr, 0, kChildren_PluginDef, 1},

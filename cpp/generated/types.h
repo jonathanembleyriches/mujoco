@@ -1042,7 +1042,6 @@ struct Cylinder {
   ps::opt<ps::Ref<Site>> refsite = {};
   ps::opt<double> timeconst = {};
   ps::opt<double> area = {};
-  ps::opt<double> diameter = {};
   ps::opt<std::array<double, 3>> bias = {};
 };
 
@@ -1267,7 +1266,7 @@ struct Fixed {
   ps::opt<ps::InlineVec<double, 2>> solreffriction = {};
   ps::opt<ps::InlineVec<double, 5>> solimpfriction = {};
   ps::opt<double> frictionloss = {};
-  ps::opt<ps::InlineVec<double, 2>> springlength = {};
+  ps::opt<std::array<double, 2>> springlength = {};
   ps::opt<double> margin = {};
   ps::opt<ps::InlineVec<double, 3>> stiffness = {};
   ps::opt<ps::InlineVec<double, 3>> damping = {};
@@ -1918,7 +1917,6 @@ struct Light {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
-  ps::opt<bool> directional = {};
   ps::opt<LightType> type = {};
   ps::opt<bool> castshadow = {};
   ps::opt<bool> active = {};
@@ -1957,7 +1955,6 @@ struct Material {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
   ps::opt<ps::Ref<Default>> dclass = {};
-  ps::opt<ps::Ref<Texture>> texture = {};
   ps::opt<std::array<float, 2>> texrepeat = {};
   ps::opt<bool> texuniform = {};
   ps::opt<float> emission = {};
@@ -2116,7 +2113,6 @@ struct Numeric {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<int32_t> size = {};
   ps::opt<std::vector<double>> data = {};
 };
 
@@ -2392,7 +2388,7 @@ struct Spatial {
   ps::opt<ps::InlineVec<double, 2>> solreffriction = {};
   ps::opt<ps::InlineVec<double, 5>> solimpfriction = {};
   ps::opt<double> frictionloss = {};
-  ps::opt<ps::InlineVec<double, 2>> springlength = {};
+  ps::opt<std::array<double, 2>> springlength = {};
   ps::opt<double> width = {};
   ps::opt<ps::Ref<Material>> material = {};
   ps::opt<double> margin = {};

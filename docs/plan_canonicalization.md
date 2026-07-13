@@ -266,11 +266,50 @@ variants deleted, `draft_schema.py` curation data updated in the same commit (bo
 regeneration gates green). Downstream: `build.cc` consumes pre-resolved quats;
 `transform_math.cc` + Details simplify; fixpoint goldens updated.
 
-**Wave B — scalar/slot canonicalizations + hygiene.**
+**Wave B — scalar/slot canonicalizations + hygiene. LANDED.**
 Rows #4-#10 (light type, springlength, cylinder area, material layers, numeric data, keyword-set
-order, memory recorded) + R1 (CameraIntrinsics dissolution) + R3 (arity unify) + documentation
+order, memory recorded) + R1 (CameraIntrinsics tier-3 lint) + R3 (arity unify) + documentation
 amendments. No shared machinery; each is a local reader/writer/schema change gated by the same
 invariants.
+
+STATUS (Wave B): DONE. Per-row landing:
+- **#4 Light `directional` -> `type`** — `directional` bool dropped; `type` gains
+  `aliases="directional" resolver=lighttype`. Reader `ResolveLightType` maps directional
+  true/false -> directional/spot with the `type and directional cannot both be defined` error
+  (xml_native_reader.cc:2123-2131). Native `LightCompile` reads the canonical `type`. Writer emits
+  `type=` only.
+- **#5 Tendon `springlength` scalar -> pair (with R3)** — Spatial/Fixed unified from `double[0..2]`
+  to `double[2]` (R3); reader `ResolveSpringlength` (SpringlengthField trait over Spatial/Fixed/
+  TendonDefault) duplicates a lone value into the second slot (xml_native_reader.cc:2372-2374).
+  build.cc `TendonAuthored.springlength` retyped to `std::array<double,2>`.
+- **#6 Cylinder `diameter` -> `area`** — `diameter` dropped; `area` gains `aliases="diameter"
+  resolver=cylinderarea`. Reader folds `area = pi/4 d^2` (a non-negative diameter wins,
+  element-wins-atomic; owner-approved Section 7). Native passes diameter=-1 to the lifted
+  SetToCylinder. No corpus witness; gated by the harness.
+- **#7 Material `texture` -> `<layer role="rgb">`** — `Material.texture` field dropped; `texture=`
+  is an **element-level input alias** (emit.py `ELEMENT_INPUT_ALIASES`, the sole case where the
+  alias folds into a child list, not a field, so it cannot hang off a field annotation). Reader
+  `MaterialTextureFixup` (post-children) prepends the RGB layer and rejects mixing texture-attr with
+  authored `<layer>` (xml_native_reader.cc:1849-1852). corpus_study + schema-coverage gates teach
+  the same table.
+- **#8 Numeric `size` -> materialized data** — `size` field dropped; `data` gains `aliases="size"
+  resolver=numericdata`. Reader materializes `data` to the authored size (zero-pad/truncate), keeps
+  the 1..500 bound (xml_native_reader.cc:3200-3217). Native `NumericCompile` simplified (size ==
+  data length). The `size`-only reserve nuance is erased (owner-approved).
+- **#9 Keyword-set order** — reader sorts every enum keyword set into enum-declaration order (=
+  MapValues bitmask, order-insensitive) so camera `output` / rangefinder `data` store canonically;
+  the contact sensor keeps its strict in-order read error (xml_native_reader.cc:4517-4530), checked
+  on the raw input before the sort. No schema change. Corpus is already enum-ordered, so the
+  differential/roundtrip do not move.
+- **#10 Memory** — already canonical bytes (mjcf_reader.cc MemoryFixup); recorded, no change.
+- **R1 CameraIntrinsics tier-3 lint** — `focal/principal require a positive sensorsize` (a MuJoCo
+  compile error, user_objects.cc:4426-4435) added to cpp/validate tier 3 on the authored form
+  (the same-element `fovy+sensorsize` reader error landed in Wave A).
+
+Baselines held: pytest 1625/120, differential 359/387 identical (0 differ, 28 skips), native
+ratchet 201, corpus coverage 100% (all axes), cpp ctest 6/6, studio ctest 5/5, emit --check + lift
+registry green. Pre-existing reds unchanged: `draft_schema.py --check` (schema hand-maintained past
+the generator), test_python_bindings skips (venv/pyd version mismatch).
 
 **Exit criteria — the invariants, per wave (no wave merges until all hold):**
 1. Differential harness: **359/387 identical, 0 differ, 28 honest skips** — unchanged. The

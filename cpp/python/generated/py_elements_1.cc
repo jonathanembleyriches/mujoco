@@ -47,7 +47,6 @@ void RegisterElements1(pybind11::module_& m) {
     OptField(c, "refsite", &Cylinder::refsite);
     OptField(c, "timeconst", &Cylinder::timeconst);
     OptField(c, "area", &Cylinder::area);
-    OptField(c, "diameter", &Cylinder::diameter);
     OptField(c, "bias", &Cylinder::bias);
     Augment(c);
   }

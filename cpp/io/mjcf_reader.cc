@@ -38,6 +38,7 @@
 // Presence (DR-1): only authored attributes set fields; a missing attribute
 // leaves the opt<T> empty. Provenance (DR-9): every element records {file, line}.
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -375,6 +376,19 @@ struct PendingOrient {
   double raw[6];
 };
 
+// The canonical springlength pair of a tendon-bearing element (Q-SPRINGLENGTH,
+// docs/plan_canonicalization.md Wave B #5 / R3), or nullptr otherwise. Spatial,
+// Fixed and TendonDefault store the resting length as a two-value pair; MJCF
+// accepts one or two values and duplicates a lone value into the second slot
+// (xml_native_reader.cc:2372-2374). Resolved inline at read (no compiler
+// context), like inertia.
+using PairOpt = ps::opt<std::array<double, 2>>;
+template <class E>
+PairOpt* SpringlengthField(E&) { return nullptr; }
+inline PairOpt* SpringlengthField(Spatial& e) { return &e.springlength; }
+inline PairOpt* SpringlengthField(Fixed& e) { return &e.springlength; }
+inline PairOpt* SpringlengthField(TendonDefault& e) { return &e.springlength; }
+
 // --------------------------------------------------------------------------- //
 // Reader                                                                        //
 // --------------------------------------------------------------------------- //
@@ -433,6 +447,11 @@ class Reader {
       InertialOrientExclusion(xml);
       ResolveInertiaAttrs(xml, out);
     }
+    // Wave B canonicalizations resolved inline at read (no compiler context).
+    ResolveSpringlength(xml, out);  // #5: scalar or pair -> canonical pair
+    if constexpr (std::is_same_v<E, Light>) ResolveLightType(xml, out);
+    if constexpr (std::is_same_v<E, Cylinder>) ResolveCylinderArea(xml, out);
+    if constexpr (std::is_same_v<E, Numeric>) ResolveNumericData(xml, out);
     if constexpr (std::is_same_v<E, Camera>) CameraIntrinsicExclusion(xml);
     if constexpr (std::is_same_v<E, Size>) MemoryFixup(xml, out);
     if constexpr (std::is_same_v<E, Connect>) ConnectExclusion(xml);
@@ -451,6 +470,12 @@ class Reader {
     ClassifyChildren(xml, b, out);
     ChildVisitor<E> cv{this, xml, &b};
     Visit(out, cv);
+
+    // #7: a material's `texture=` attribute is the RGB entry of the canonical
+    // <layer> list. Folded after children are read so the mix-with-layers error
+    // (xml_native_reader.cc:1849-1852) sees the authored layers, and the injected
+    // RGB layer is prepended (first) exactly as MuJoCo slots mjTEXROLE_RGB.
+    if constexpr (std::is_same_v<E, Material>) MaterialTextureFixup(xml, out);
   }
 
   // Parse-end orientation fold (Q-ORIENT). Computes the effective compiler
@@ -642,6 +667,14 @@ class Reader {
         }
         vals.push_back(v);
       }
+      // #9 keyword-set canonicalization: a keyword set is an order-insensitive
+      // bitmask (MapValues); store it in enum-declaration order so the canonical
+      // form is deterministic. The enum's underlying value is its declaration
+      // index, which is also the MJCF map order (camout/raydata/condata) -- for
+      // the contact sensor, whose reader demands that exact order
+      // (xml_native_reader.cc:4517-4530), the strict-order check runs separately
+      // on the raw input before this normalization.
+      std::sort(vals.begin(), vals.end());
       out = std::move(vals);
       return true;
     } else {
@@ -803,6 +836,122 @@ class Reader {
       // orientation must be absent -- InertialOrientExclusion).
       out.iquat = std::array<double, 4>{q[0], q[1], q[2], q[3]};
     }
+  }
+
+  // #5 springlength: read one or two values; a lone value duplicates into the
+  // second slot, exactly as MuJoCo (xml_native_reader.cc:2372-2374). Canonical
+  // storage is the two-value pair. A no-op for elements with no springlength.
+  template <class E>
+  void ResolveSpringlength(XMLElement* xml, E& out) {
+    PairOpt* dest = SpringlengthField(out);
+    if (!dest) return;
+    if (!Has(xml, "springlength")) return;
+    double v[2]{};
+    AttrBinding ab{};
+    ab.attr = "springlength";
+    int got = ReadNumberN(xml, ab, xml->Attribute("springlength"), v, 1, 2);
+    if (got < 1) return;
+    if (got == 1) v[1] = v[0];
+    *dest = std::array<double, 2>{v[0], v[1]};
+  }
+
+  // #1 light type: `directional` (legacy bool) and `type` (enum) both fill the
+  // canonical `type`, mutually exclusive (xml_native_reader.cc:2123-2131).
+  // directional="true" -> directional, "false" -> spot.
+  void ResolveLightType(XMLElement* xml, Light& out) {
+    bool has_dir = Has(xml, "directional");
+    bool has_type = Has(xml, "type");
+    if (has_dir && has_type) {
+      Err(xml, "type and directional cannot both be defined");
+      return;
+    }
+    if (has_dir) {
+      bool d{};
+      AttrBinding ab{};
+      ab.attr = "directional";
+      if (ReadInner(xml, ElementType::Light, ab,
+                    std::string_view(xml->Attribute("directional")), d)) {
+        out.type = d ? LightType::directional : LightType::spot;
+      }
+    } else if (has_type) {
+      LightType t{};
+      if (FromMjcf(std::string_view(xml->Attribute("type")), t)) {
+        out.type = t;
+      } else {
+        Err(xml, "invalid keyword '" + std::string(xml->Attribute("type")) +
+                     "' for attribute 'type'");
+      }
+    }
+  }
+
+  // #6 cylinder area: `area` and `diameter` both fill gainprm[0]; a non-negative
+  // diameter overrides area with pi/4 d^2 (mjs_setToCylinder, user_api.cc:
+  // 1236-1248). Canonical storage is `area`. Element-wins-atomic (a class
+  // diameter beating an element area is not emulated; docs/plan_canonicalization
+  // .md Section 7, owner-approved).
+  void ResolveCylinderArea(XMLElement* xml, Cylinder& out) {
+    // mjPI verbatim (this module is MuJoCo-free) so the fold is bit-identical to
+    // mjs_setToCylinder's `mjPI / 4 * diameter*diameter`.
+    constexpr double kPi = 3.14159265358979323846;
+    double diameter = -1;
+    bool has_diam = Has(xml, "diameter");
+    if (has_diam && !ReadDoubleArr(xml, "diameter", 1, &diameter)) return;
+    if (has_diam && diameter >= 0) {
+      out.area = kPi / 4 * diameter * diameter;
+      return;
+    }
+    if (Has(xml, "area")) {
+      double area{};
+      if (ReadDoubleArr(xml, "area", 1, &area)) out.area = area;
+    }
+  }
+
+  // #8 numeric data: MuJoCo materializes the data array to the authored `size`
+  // (zero-padded / truncated), else to the data length (xml_native_reader.cc:
+  // 3200-3217). Canonical storage is that materialized array; the `size` spelling
+  // is erased. The 1..500 bound is kept.
+  void ResolveNumericData(XMLElement* xml, Numeric& out) {
+    std::vector<double> data;
+    if (const char* raw = xml->Attribute("data")) {
+      AttrBinding ab{};
+      ab.attr = "data";
+      if (!ReadVector(xml, ab, std::string_view(raw), data)) return;
+    }
+    int size = static_cast<int>(data.size());
+    if (const char* sz = xml->Attribute("size")) {
+      int parsed = 0;
+      if (num::ParseInt<int>(sz, parsed) != num::Status::Ok) {
+        Err(xml, "bad number in attribute 'size'");
+        return;
+      }
+      size = parsed;
+    }
+    if (size < 1 || size > 500) {
+      Err(xml, "custom field size must be between 1 and 500");
+      return;
+    }
+    std::vector<double> materialized(static_cast<std::size_t>(size), 0.0);
+    const int copy = std::min<int>(size, static_cast<int>(data.size()));
+    for (int i = 0; i < copy; ++i) materialized[i] = data[i];
+    out.data = std::move(materialized);
+  }
+
+  // #7 material texture attr -> canonical <layer role="rgb">. The attribute is a
+  // read-only input alias (no field); it prepends an RGB layer, and mixing it
+  // with authored <layer> children is an error (xml_native_reader.cc:1849-1852).
+  void MaterialTextureFixup(XMLElement* xml, Material& out) {
+    const char* tex = xml->Attribute("texture");
+    if (!tex) return;
+    if (!out.layers.empty()) {
+      Err(xml,
+          "a material with a texture attribute cannot have layer sub-elements");
+      return;
+    }
+    auto layer = std::make_unique<MaterialLayer>();
+    layer->loc = out.loc;
+    layer->texture = ps::Ref<Texture>{std::string(tex)};
+    layer->role = TexRole::rgb;
+    out.layers.insert(out.layers.begin(), std::move(layer));
   }
 
   void MarshalGeomShape(XMLElement* xml, ps::opt<GeomShape>& out) {
@@ -997,6 +1146,26 @@ class Reader {
         Err(xml, "'num' must be positive in sensor");
       }
     }
+    // #9: the contact sensor's `data` keywords must be authored in strict enum
+    // order (xml_native_reader.cc:4517-4530) -- unlike camera/rangefinder keyword
+    // sets (order-insensitive), the contact reader rejects any other order, so
+    // enum order is the sole legal spelling. Checked on the raw input before the
+    // reader's keyword-set canonicalization sorts it.
+    if (const char* data = xml->Attribute("data")) {
+      int prev = -1;
+      for (std::string_view tok : num::Tokens(std::string_view(data))) {
+        ContactData v{};
+        if (!FromMjcf(tok, v)) break;  // invalid keyword: reported by the field path
+        int cur = static_cast<int>(v);
+        if (cur <= prev) {
+          Err(xml,
+              "data attributes must be in order: found, force, torque, dist, "
+              "pos, normal, tangent");
+          return;
+        }
+        prev = cur;
+      }
+    }
   }
 
   // Frame sensors: a refname requires a matching reftype (:4356-4361 and peers).
@@ -1053,8 +1222,10 @@ class Reader {
   void CheckUnknownAttributes(XMLElement* xml, const ElementBinding& b) {
     std::unordered_set<std::string_view> known;
     for (std::size_t i = 0; i < b.attr_count; ++i) known.insert(b.attrs[i].attr);
-    // Read-only input aliases (euler/axisangle/xyaxes/zaxis, fullinertia) are
-    // accepted spellings canonicalized at parse end (Q-ORIENT/Q-INERTIA).
+    // Read-only input aliases are accepted spellings canonicalized on read:
+    // euler/axisangle/xyaxes/zaxis, fullinertia (Q-ORIENT/Q-INERTIA) and the
+    // Wave B scalar/slot aliases (directional->type, diameter->area, size->data,
+    // material texture->layer).
     for (std::size_t i = 0; i < b.input_alias_count; ++i)
       known.insert(b.input_aliases[i].attr);
     for (std::size_t i = 0; i < b.variant_count; ++i) {

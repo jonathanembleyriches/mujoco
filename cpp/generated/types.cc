@@ -973,7 +973,6 @@ std::unique_ptr<Cylinder> Clone(const Cylinder& src) {
   out->refsite = src.refsite;
   out->timeconst = src.timeconst;
   out->area = src.area;
-  out->diameter = src.diameter;
   out->bias = src.bias;
   return out;
 }
@@ -1004,7 +1003,6 @@ bool operator==(const Cylinder& a, const Cylinder& b) {
          a.refsite == b.refsite &&
          a.timeconst == b.timeconst &&
          a.area == b.area &&
-         a.diameter == b.diameter &&
          a.bias == b.bias;
 }
 
@@ -2694,7 +2692,6 @@ std::unique_ptr<Light> Clone(const Light& src) {
   out->loc = src.loc;
   out->name = src.name;
   out->dclass = src.dclass;
-  out->directional = src.directional;
   out->type = src.type;
   out->castshadow = src.castshadow;
   out->active = src.active;
@@ -2718,7 +2715,6 @@ std::unique_ptr<Light> Clone(const Light& src) {
 bool operator==(const Light& a, const Light& b) {
   return a.name == b.name &&
          a.dclass == b.dclass &&
-         a.directional == b.directional &&
          a.type == b.type &&
          a.castshadow == b.castshadow &&
          a.active == b.active &&
@@ -2770,7 +2766,6 @@ std::unique_ptr<Material> Clone(const Material& src) {
   out->loc = src.loc;
   out->name = src.name;
   out->dclass = src.dclass;
-  out->texture = src.texture;
   out->texrepeat = src.texrepeat;
   out->texuniform = src.texuniform;
   out->emission = src.emission;
@@ -2787,7 +2782,6 @@ std::unique_ptr<Material> Clone(const Material& src) {
 bool operator==(const Material& a, const Material& b) {
   return a.name == b.name &&
          a.dclass == b.dclass &&
-         a.texture == b.texture &&
          a.texrepeat == b.texrepeat &&
          a.texuniform == b.texuniform &&
          a.emission == b.emission &&
@@ -3081,14 +3075,12 @@ std::unique_ptr<Numeric> Clone(const Numeric& src) {
   auto out = std::make_unique<Numeric>();
   out->loc = src.loc;
   out->name = src.name;
-  out->size = src.size;
   out->data = src.data;
   return out;
 }
 
 bool operator==(const Numeric& a, const Numeric& b) {
   return a.name == b.name &&
-         a.size == b.size &&
          a.data == b.data;
 }
 

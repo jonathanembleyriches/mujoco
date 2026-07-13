@@ -71,6 +71,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from protospec_gen import parse_spec  # noqa: E402
+from protospec_gen.emit import ELEMENT_INPUT_ALIASES  # noqa: E402
 
 _DEFAULT_SCHEMA = _ROOT / "schema" / "mujoco.spec"
 _DEFAULT_OUT = _ROOT / "snapshots" / "corpus_report.json"
@@ -158,6 +159,13 @@ class _SchemaIndex:
                 members = [c["element"]]
             for m in members:
                 child_targets[self._tag_of[m]] = m
+        # Element-level input aliases (Q-TEX Wave B #7): an MJCF attribute the
+        # reader accepts and canonicalizes into a child list (Material's
+        # `texture=` -> a `<layer role="rgb">`). It has no field, so -- unlike the
+        # field-level `aliases` folded above -- it is sourced from the emitter's
+        # curated table (the same single source the binding tables use).
+        for alias, _resolver in ELEMENT_INPUT_ALIASES.get(name, ()):
+            attrs.add(alias)
         return _ElemInfo(name, self._tag_of[name], attrs, enum_attrs, enum_of,
                          enum_list_attrs, child_targets)
 

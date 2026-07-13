@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from protospec_gen import parse_spec
+from protospec_gen.emit import ELEMENT_INPUT_ALIASES
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "schema" / "mujoco.spec"
@@ -74,9 +75,14 @@ def _schema_index():
             else:
                 anns = f.get("annotations") or {}
                 attrs.add(anns.get("xml", f["name"]))
-                # Canonicalized fields (Q-ORIENT/Q-INERTIA) also accept their
-                # `aliases` MJCF spellings on input (euler/axisangle/... -> quat).
+                # Canonicalized fields (Q-ORIENT/Q-INERTIA/Wave B) also accept
+                # their `aliases` MJCF spellings on input (euler/axisangle/... ->
+                # quat; directional -> type; diameter -> area; size -> data).
                 attrs.update(anns.get("aliases", "").split())
+        # Element-level input aliases (Q-TEX Wave B #7): a `texture=` attribute
+        # the reader folds into the <layer> child list -- no field carries it.
+        for alias, _resolver in ELEMENT_INPUT_ALIASES.get(elem["name"], ()):
+            attrs.add(alias)
         return attrs
 
     def child_targets(elem):

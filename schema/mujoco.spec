@@ -729,7 +729,7 @@ element TendonDefault (xml="tendon") {
   solreffriction : double[0..2]   # solver reference: tendon friction
   solimpfriction : double[0..5]   # solver impedance: tendon friction
   frictionloss   : double   # friction loss
-  springlength   : double[2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
+  springlength   : double[2] (resolver=springlength) = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring (canonical pair; a lone value is duplicated)
   width          : double = 0.003   # width for rendering
   material       : ref<Material>   # name of material for rendering
   margin         : double   # margin value for tendon limit detection
@@ -766,8 +766,7 @@ element Custom {
 
 element Numeric {
   name : string   # element name
-  size : int32   # array size, can be bigger than data size
-  data : double[]   # initialization data
+  data : double[] (aliases="size", resolver=numericdata)   # initialization data (canonical, materialized: zero-padded/truncated to the authored size)
 }
 
 element Text {
@@ -882,7 +881,6 @@ element Texture {
 element Material {
   name        : string   # element name
   dclass      : ref<Default> (xml="class")   # default class
-  texture     : ref<Texture>
   texrepeat   : float[2] = {1, 1}   # texture repetition for 2D mapping
   texuniform  : bool   # make texture cube uniform
   emission    : float   # emission
@@ -1031,8 +1029,7 @@ element Camera {
 element Light {
   name        : string   # element name
   dclass      : ref<Default> (xml="class")   # default class
-  directional : bool
-  type        : LightType   # type of light
+  type        : LightType (aliases="directional", resolver=lighttype)   # type of light (canonical; also accepts legacy directional bool)
   castshadow  : bool = true   # does light cast shadows
   active      : bool = true   # is light active
   pos         : double[3]   # position
@@ -1350,7 +1347,7 @@ element Spatial {
   solreffriction     : double[0..2]   # solver reference: tendon friction
   solimpfriction     : double[0..5]   # solver impedance: tendon friction
   frictionloss       : double   # friction loss
-  springlength       : double[0..2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
+  springlength       : double[2] (resolver=springlength) = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring (canonical pair; a lone value is duplicated)
   width              : double = 0.003   # width for rendering
   material           : ref<Material>   # name of material for rendering
   margin             : double   # margin value for tendon limit detection
@@ -1388,7 +1385,7 @@ element Fixed {
   solreffriction     : double[0..2]   # solver reference: tendon friction
   solimpfriction     : double[0..5]   # solver impedance: tendon friction
   frictionloss       : double   # friction loss
-  springlength       : double[0..2] = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring
+  springlength       : double[2] (resolver=springlength) = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring (canonical pair; a lone value is duplicated)
   margin             : double   # margin value for tendon limit detection
   stiffness          : double[0..3]   # stiffness coefficients
   damping            : double[0..3]   # damping coefficients
@@ -1609,8 +1606,7 @@ element Cylinder {
   site          : ref<Site>
   refsite       : ref<Site>   # reference site, for site transmission
   timeconst     : double   # time constant of the activation dynamics
-  area          : double   # cylinder area (alternative to diameter)
-  diameter      : double   # cylinder diameter (alternative to area)
+  area          : double (aliases="diameter", resolver=cylinderarea)   # cylinder area (canonical; also accepts diameter, area = pi/4 d^2)
   bias          : double[3]   # cylinder bias parameters
 }
 

@@ -403,7 +403,6 @@ constexpr FieldDescriptor kFields_Cylinder[] = {
     {"refsite", "refsite", "Site", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"timeconst", "timeconst", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
     {"area", "area", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
-    {"diameter", "diameter", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
     {"bias", "bias", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false},
 };
 
@@ -600,7 +599,7 @@ constexpr FieldDescriptor kFields_Fixed[] = {
     {"solreffriction", "solreffriction", "double", FieldKind::Double, ArityKind::Range, 0, 2, true, false},
     {"solimpfriction", "solimpfriction", "double", FieldKind::Double, ArityKind::Range, 0, 5, true, false},
     {"frictionloss", "frictionloss", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
-    {"springlength", "springlength", "double", FieldKind::Double, ArityKind::Range, 0, 2, true, true},
+    {"springlength", "springlength", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, true},
     {"margin", "margin", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
     {"stiffness", "stiffness", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false},
     {"damping", "damping", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false},
@@ -1179,7 +1178,6 @@ constexpr FieldDescriptor kFields_LengthRange[] = {
 constexpr FieldDescriptor kFields_Light[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
-    {"directional", "directional", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false},
     {"type", "type", "LightType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false},
     {"castshadow", "castshadow", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, true},
     {"active", "active", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, true},
@@ -1214,7 +1212,6 @@ constexpr FieldDescriptor kFields_Magnetometer[] = {
 constexpr FieldDescriptor kFields_Material[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
-    {"texture", "texture", "Texture", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"texrepeat", "texrepeat", "float", FieldKind::Float, ArityKind::Fixed, 2, 2, true, true},
     {"texuniform", "texuniform", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false},
     {"emission", "emission", "float", FieldKind::Float, ArityKind::Scalar, 0, 0, true, false},
@@ -1363,7 +1360,6 @@ constexpr FieldDescriptor kFields_Normal[] = {
 
 constexpr FieldDescriptor kFields_Numeric[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false},
-    {"size", "size", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false},
     {"data", "data", "double", FieldKind::Double, ArityKind::Unbounded, 0, 0, true, false},
 };
 
@@ -1617,7 +1613,7 @@ constexpr FieldDescriptor kFields_Spatial[] = {
     {"solreffriction", "solreffriction", "double", FieldKind::Double, ArityKind::Range, 0, 2, true, false},
     {"solimpfriction", "solimpfriction", "double", FieldKind::Double, ArityKind::Range, 0, 5, true, false},
     {"frictionloss", "frictionloss", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
-    {"springlength", "springlength", "double", FieldKind::Double, ArityKind::Range, 0, 2, true, true},
+    {"springlength", "springlength", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, true},
     {"width", "width", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, true},
     {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false},
     {"margin", "margin", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false},
@@ -2915,8 +2911,7 @@ bool Present_Cylinder(const void* p, int fid) {
     case 22: return e.refsite.has_value();
     case 23: return e.timeconst.has_value();
     case 24: return e.area.has_value();
-    case 25: return e.diameter.has_value();
-    case 26: return e.bias.has_value();
+    case 25: return e.bias.has_value();
     default: return false;
   }
 }
@@ -2948,8 +2943,7 @@ void Clear_Cylinder(void* p, int fid) {
     case 22: e.refsite.reset(); break;
     case 23: e.timeconst.reset(); break;
     case 24: e.area.reset(); break;
-    case 25: e.diameter.reset(); break;
-    case 26: e.bias.reset(); break;
+    case 25: e.bias.reset(); break;
     default: break;
   }
 }
@@ -4822,24 +4816,23 @@ bool Present_Light(const void* p, int fid) {
   switch (fid) {
     case 0: return e.name.has_value();
     case 1: return e.dclass.has_value();
-    case 2: return e.directional.has_value();
-    case 3: return e.type.has_value();
-    case 4: return e.castshadow.has_value();
-    case 5: return e.active.has_value();
-    case 6: return e.pos.has_value();
-    case 7: return e.dir.has_value();
-    case 8: return e.bulbradius.has_value();
-    case 9: return e.intensity.has_value();
-    case 10: return e.range.has_value();
-    case 11: return e.attenuation.has_value();
-    case 12: return e.cutoff.has_value();
-    case 13: return e.exponent.has_value();
-    case 14: return e.ambient.has_value();
-    case 15: return e.diffuse.has_value();
-    case 16: return e.specular.has_value();
-    case 17: return e.mode.has_value();
-    case 18: return e.target.has_value();
-    case 19: return e.texture.has_value();
+    case 2: return e.type.has_value();
+    case 3: return e.castshadow.has_value();
+    case 4: return e.active.has_value();
+    case 5: return e.pos.has_value();
+    case 6: return e.dir.has_value();
+    case 7: return e.bulbradius.has_value();
+    case 8: return e.intensity.has_value();
+    case 9: return e.range.has_value();
+    case 10: return e.attenuation.has_value();
+    case 11: return e.cutoff.has_value();
+    case 12: return e.exponent.has_value();
+    case 13: return e.ambient.has_value();
+    case 14: return e.diffuse.has_value();
+    case 15: return e.specular.has_value();
+    case 16: return e.mode.has_value();
+    case 17: return e.target.has_value();
+    case 18: return e.texture.has_value();
     default: return false;
   }
 }
@@ -4848,24 +4841,23 @@ void Clear_Light(void* p, int fid) {
   switch (fid) {
     case 0: e.name.reset(); break;
     case 1: e.dclass.reset(); break;
-    case 2: e.directional.reset(); break;
-    case 3: e.type.reset(); break;
-    case 4: e.castshadow.reset(); break;
-    case 5: e.active.reset(); break;
-    case 6: e.pos.reset(); break;
-    case 7: e.dir.reset(); break;
-    case 8: e.bulbradius.reset(); break;
-    case 9: e.intensity.reset(); break;
-    case 10: e.range.reset(); break;
-    case 11: e.attenuation.reset(); break;
-    case 12: e.cutoff.reset(); break;
-    case 13: e.exponent.reset(); break;
-    case 14: e.ambient.reset(); break;
-    case 15: e.diffuse.reset(); break;
-    case 16: e.specular.reset(); break;
-    case 17: e.mode.reset(); break;
-    case 18: e.target.reset(); break;
-    case 19: e.texture.reset(); break;
+    case 2: e.type.reset(); break;
+    case 3: e.castshadow.reset(); break;
+    case 4: e.active.reset(); break;
+    case 5: e.pos.reset(); break;
+    case 6: e.dir.reset(); break;
+    case 7: e.bulbradius.reset(); break;
+    case 8: e.intensity.reset(); break;
+    case 9: e.range.reset(); break;
+    case 10: e.attenuation.reset(); break;
+    case 11: e.cutoff.reset(); break;
+    case 12: e.exponent.reset(); break;
+    case 13: e.ambient.reset(); break;
+    case 14: e.diffuse.reset(); break;
+    case 15: e.specular.reset(); break;
+    case 16: e.mode.reset(); break;
+    case 17: e.target.reset(); break;
+    case 18: e.texture.reset(); break;
     default: break;
   }
 }
@@ -4908,16 +4900,15 @@ bool Present_Material(const void* p, int fid) {
   switch (fid) {
     case 0: return e.name.has_value();
     case 1: return e.dclass.has_value();
-    case 2: return e.texture.has_value();
-    case 3: return e.texrepeat.has_value();
-    case 4: return e.texuniform.has_value();
-    case 5: return e.emission.has_value();
-    case 6: return e.specular.has_value();
-    case 7: return e.shininess.has_value();
-    case 8: return e.reflectance.has_value();
-    case 9: return e.metallic.has_value();
-    case 10: return e.roughness.has_value();
-    case 11: return e.rgba.has_value();
+    case 2: return e.texrepeat.has_value();
+    case 3: return e.texuniform.has_value();
+    case 4: return e.emission.has_value();
+    case 5: return e.specular.has_value();
+    case 6: return e.shininess.has_value();
+    case 7: return e.reflectance.has_value();
+    case 8: return e.metallic.has_value();
+    case 9: return e.roughness.has_value();
+    case 10: return e.rgba.has_value();
     default: return false;
   }
 }
@@ -4926,16 +4917,15 @@ void Clear_Material(void* p, int fid) {
   switch (fid) {
     case 0: e.name.reset(); break;
     case 1: e.dclass.reset(); break;
-    case 2: e.texture.reset(); break;
-    case 3: e.texrepeat.reset(); break;
-    case 4: e.texuniform.reset(); break;
-    case 5: e.emission.reset(); break;
-    case 6: e.specular.reset(); break;
-    case 7: e.shininess.reset(); break;
-    case 8: e.reflectance.reset(); break;
-    case 9: e.metallic.reset(); break;
-    case 10: e.roughness.reset(); break;
-    case 11: e.rgba.reset(); break;
+    case 2: e.texrepeat.reset(); break;
+    case 3: e.texuniform.reset(); break;
+    case 4: e.emission.reset(); break;
+    case 5: e.specular.reset(); break;
+    case 6: e.shininess.reset(); break;
+    case 7: e.reflectance.reset(); break;
+    case 8: e.metallic.reset(); break;
+    case 9: e.roughness.reset(); break;
+    case 10: e.rgba.reset(); break;
     default: break;
   }
 }
@@ -5221,8 +5211,7 @@ bool Present_Numeric(const void* p, int fid) {
   (void)e;
   switch (fid) {
     case 0: return e.name.has_value();
-    case 1: return e.size.has_value();
-    case 2: return e.data.has_value();
+    case 1: return e.data.has_value();
     default: return false;
   }
 }
@@ -5230,8 +5219,7 @@ void Clear_Numeric(void* p, int fid) {
   auto& e = *static_cast<Numeric*>(p);
   switch (fid) {
     case 0: e.name.reset(); break;
-    case 1: e.size.reset(); break;
-    case 2: e.data.reset(); break;
+    case 1: e.data.reset(); break;
     default: break;
   }
 }
@@ -6875,7 +6863,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Connect", "connect", ElementType::Connect, kFields_Connect, 10, nullptr, 0, &Present_Connect, &Clear_Connect},
     {"Contact", "contact", ElementType::Contact, nullptr, 0, kChildren_Contact, 2, &Present_Contact, &Clear_Contact},
     {"Custom", "custom", ElementType::Custom, nullptr, 0, kChildren_Custom, 3, &Present_Custom, &Clear_Custom},
-    {"Cylinder", "cylinder", ElementType::Cylinder, kFields_Cylinder, 27, nullptr, 0, &Present_Cylinder, &Clear_Cylinder},
+    {"Cylinder", "cylinder", ElementType::Cylinder, kFields_Cylinder, 26, nullptr, 0, &Present_Cylinder, &Clear_Cylinder},
     {"Damper", "damper", ElementType::Damper, kFields_Damper, 23, nullptr, 0, &Present_Damper, &Clear_Damper},
     {"DcMotor", "dcmotor", ElementType::DcMotor, kFields_DcMotor, 31, nullptr, 0, &Present_DcMotor, &Clear_DcMotor},
     {"Default", "default", ElementType::Default, kFields_Default, 1, kChildren_Default, 21, &Present_Default, &Clear_Default},
@@ -6931,9 +6919,9 @@ constexpr ElementDescriptor kElements[] = {
     {"Key", "key", ElementType::Key, kFields_Key, 8, nullptr, 0, &Present_Key, &Clear_Key},
     {"Keyframe", "keyframe", ElementType::Keyframe, nullptr, 0, kChildren_Keyframe, 1, &Present_Keyframe, &Clear_Keyframe},
     {"LengthRange", "lengthrange", ElementType::LengthRange, kFields_LengthRange, 10, nullptr, 0, &Present_LengthRange, &Clear_LengthRange},
-    {"Light", "light", ElementType::Light, kFields_Light, 20, nullptr, 0, &Present_Light, &Clear_Light},
+    {"Light", "light", ElementType::Light, kFields_Light, 19, nullptr, 0, &Present_Light, &Clear_Light},
     {"Magnetometer", "magnetometer", ElementType::Magnetometer, kFields_Magnetometer, 9, nullptr, 0, &Present_Magnetometer, &Clear_Magnetometer},
-    {"Material", "material", ElementType::Material, kFields_Material, 12, kChildren_Material, 1, &Present_Material, &Clear_Material},
+    {"Material", "material", ElementType::Material, kFields_Material, 11, kChildren_Material, 1, &Present_Material, &Clear_Material},
     {"MaterialLayer", "layer", ElementType::MaterialLayer, kFields_MaterialLayer, 2, nullptr, 0, &Present_MaterialLayer, &Clear_MaterialLayer},
     {"Mesh", "mesh", ElementType::Mesh, kFields_Mesh, 17, kChildren_Mesh, 1, &Present_Mesh, &Clear_Mesh},
     {"Model", "mujoco", ElementType::Model, kFields_Model, 1, kChildren_Model, 17, &Present_Model, &Clear_Model},
@@ -6941,7 +6929,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Motor", "motor", ElementType::Motor, kFields_Motor, 23, nullptr, 0, &Present_Motor, &Clear_Motor},
     {"Muscle", "muscle", ElementType::Muscle, kFields_Muscle, 31, nullptr, 0, &Present_Muscle, &Clear_Muscle},
     {"Normal", "normal", ElementType::Normal, kFields_Normal, 12, nullptr, 0, &Present_Normal, &Clear_Normal},
-    {"Numeric", "numeric", ElementType::Numeric, kFields_Numeric, 3, nullptr, 0, &Present_Numeric, &Clear_Numeric},
+    {"Numeric", "numeric", ElementType::Numeric, kFields_Numeric, 2, nullptr, 0, &Present_Numeric, &Clear_Numeric},
     {"Option", "option", ElementType::Option, kFields_Option, 27, kChildren_Option, 1, &Present_Option, &Clear_Option},
     {"Pair", "pair", ElementType::Pair, kFields_Pair, 11, nullptr, 0, &Present_Pair, &Clear_Pair},
     {"PluginDef", "plugin", ElementType::PluginDef, kFields_PluginDef, 1, kChildren_PluginDef, 1, &Present_PluginDef, &Clear_PluginDef},

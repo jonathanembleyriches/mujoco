@@ -101,6 +101,17 @@ _CARDINALITY_CPP = {
 # (element name, child-list name).
 _CHILD_XML_OVERRIDE = {("Model", "worldbody"): "worldbody"}
 
+# Element-level input aliases (Q-TEX, docs/plan_canonicalization.md Wave B #7):
+# an MJCF attribute accepted on input and canonicalized into a CHILD list rather
+# than a field. A material's `texture=` attribute is exactly the RGB entry of the
+# `<layer>` child list (xml_native_reader.cc:1844); the reader converts it to a
+# `<layer role="rgb">` and forbids mixing with authored layers (:1849-1852). It
+# has no field of its own (the layers child is the single canonical form), so --
+# unlike the field-level `aliases` annotation used by every scalar/slot
+# canonicalization -- it is declared here. The resolver string documents the fold;
+# the reader routes it in its Material hook. Keyed by element name.
+ELEMENT_INPUT_ALIASES = {"Material": [("texture", "materiallayer")]}
+
 
 def ident(name: str) -> str:
     """A legal C++ identifier for an IDL name (keyword-safe)."""
@@ -991,8 +1002,10 @@ def _field_aliases(f: dict) -> list[str]:
 
 def _input_aliases(elem: dict) -> list[tuple[str, str]]:
     """(alias attr, resolver) for every input-alias attribute of an element, in
-    field then alias order. These are accepted on input and canonicalized at
-    parse end; they are not stored as their own field."""
+    field-then-alias order followed by any element-level aliases. These are
+    accepted on input and canonicalized (at parse end for field-level aliases, or
+    into a child list for element-level ones); they are not stored as their own
+    field."""
     out: list[tuple[str, str]] = []
     for f in elem["fields"]:
         resolver = _field_resolver(f)
@@ -1000,6 +1013,7 @@ def _input_aliases(elem: dict) -> list[tuple[str, str]]:
             continue
         for alias in _field_aliases(f):
             out.append((alias, resolver))
+    out.extend(ELEMENT_INPUT_ALIASES.get(elem["name"], ()))
     return out
 
 
