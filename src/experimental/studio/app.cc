@@ -145,6 +145,23 @@ void App::InitEmptyModel() {
 }
 
 void App::LoadModelFromFile(const std::string& filepath) {
+  // Model source plugins (e.g. external editors) take priority for the
+  // formats they handle; the stock loader handles everything else.
+  bool submitted = false;
+  if (filepath.ends_with(".xml")) {
+    platform::ForEachPlugin<platform::ModelSourcePlugin>([&](auto* plugin) {
+      if (plugin->submit_load) {
+        plugin->submit_load(plugin, filepath.c_str());
+        submitted = true;
+      }
+    });
+  }
+  if (submitted) {
+    model_source_fresh_ = true;
+    model_path_ = filepath;
+    return;
+  }
+
   const std::string resolved_file =
       platform::ResolveFile(filepath, search_paths_);
   model_holder_ = platform::ModelHolder::FromFile(resolved_file);
@@ -391,23 +408,7 @@ void App::ProcessPendingLoads() {
     if (load_data.empty()) {
       InitEmptyModel();
     } else {
-      // Model source plugins (e.g. external editors) take priority for the
-      // formats they handle; the stock loader handles everything else.
-      bool submitted = false;
-      if (load_data.ends_with(".xml")) {
-        platform::ForEachPlugin<platform::ModelSourcePlugin>([&](auto* plugin) {
-          if (plugin->submit_load) {
-            plugin->submit_load(plugin, load_data.c_str());
-            submitted = true;
-          }
-        });
-      }
-      if (submitted) {
-        model_source_fresh_ = true;
-        model_path_ = load_data;
-      } else {
-        LoadModelFromFile(load_data);
-      }
+      LoadModelFromFile(load_data);
     }
   }
 
