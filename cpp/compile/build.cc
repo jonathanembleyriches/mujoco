@@ -13,7 +13,8 @@
 // inertia_from_geom, joint_compile, checklimited, bvh_makebvh, body_compile,
 // compute_sparse_sizes, set_sizes, copy_tree, copy_names, finalize_simple,
 // hash_string; flexcomp expansion: flexcomp_make, flexcomp_makegrid,
-// flexcomp_makesquare, flexcomp_makebox, flexcomp_boxproject, flexcomp_boxid);
+// flexcomp_makesquare, flexcomp_makebox, flexcomp_boxproject, flexcomp_boxid,
+// flexcomp_makemesh, flexcomp_loadgmsh, flexcomp_loadgmsh41, flexcomp_loadgmsh22);
 // their sources are user_objects.cc / user_model.cc / user_flexcomp.cc /
 // engine_name.c. Per the reuse ledger these are class-C passes: the algorithm,
 // constants, and iteration order are upstream; the data plumbing is retargeted
@@ -23,6 +24,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -33,6 +35,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -1446,9 +1449,18 @@ BodyChildAny CloneBodyChild(const BodyChildAny& c) {
 // --------------------------------------------------------------------------- //
 // Collect point for flexcomp expansion: synthesized flexes and their equalities,
 // owned for the compile's lifetime and routed to the flex / equality compiles.
+// A flexcomp-synthesized flex equality plus its mjtEq kind. The kind is not a
+// field of EqualityFlex (the standalone <equality><flex> element is always
+// mjEQ_FLEX); the flexcomp <edge equality="edge|vert"> synthesis records the
+// mjEQ_FLEX / mjEQ_FLEXVERT distinction here (Make :788).
+struct SynthEquality {
+  std::unique_ptr<EqualityFlex> eq;
+  int type = mjEQ_FLEX;
+};
+
 struct FlexcompSink {
   std::vector<std::unique_ptr<Flex>> flexes;
-  std::vector<std::unique_ptr<EqualityFlex>> equalities;
+  std::vector<SynthEquality> equalities;
 };
 
 struct FcompGeom {
@@ -1767,6 +1779,442 @@ struct FcompGeom {
   }
 };
 
+// Mesh file-path helpers (defined later with the mesh pipeline); forward-declared
+// so the flexcomp gmsh/mesh file arms can resolve asset paths like mesh geoms.
+std::string MeshStripPath(const std::string& f);
+std::string MeshCombine(const std::string& dir, const std::string& file);
+std::string MeshExtToContentType(const std::string& file);
+
+// --------------------------------------------------------------------------- //
+// GMSH loader (NC5 Wave 5). Lifted from user_flexcomp.cc: the .msh reader that   //
+// feeds the direct-points path. Upstream LoadGMSH/LoadGMSH41/LoadGMSH22 are      //
+// member functions writing this->point/element and def.spec.flex->dim; here they //
+// write a GmshOut (point/element/dim). Upstream `throw mjCError(NULL, msg)` is    //
+// `throw GmshError{msg}`; the algorithm, byte offsets, and validation are        //
+// verbatim (ASCII + binary, v4.1 + v2.2). Registry: gmsh_load*.                   //
+// --------------------------------------------------------------------------- //
+namespace gmsh {
+
+struct GmshOut {
+  std::vector<double> point;
+  std::vector<int> element;
+  int dim = 0;
+};
+
+struct GmshError { const char* msg; };
+
+// read data of type T from a potentially unaligned buffer pointer
+template <typename T>
+void ReadFromBuffer(T* dst, const char* src) { std::memcpy(dst, src, sizeof(T)); }
+
+void ReadStrFromBuffer(char* dest, const char* src, int maxlen) {
+  std::strncpy(dest, src, maxlen);
+}
+
+bool IsValidElementOrNodeHeader22(const std::string& line) {
+  for (char c : line)
+    if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+  return true;
+}
+
+// find string in buffer, return position or -1 if not found
+int GmshFindString(const char* buffer, int buffer_sz, const char* str) {
+  int len = (int)std::strlen(str);
+  for (int i = 0; i < buffer_sz - len; i++) {
+    bool found = true;
+    for (int k = 0; k < len; k++)
+      if (buffer[i + k] != str[k]) { found = false; break; }
+    if (found) return i;
+  }
+  return -1;
+}
+
+// load GMSH format 4.1
+void LoadGMSH41(GmshOut& o, char* buffer, int binary, int nodeend,
+                int nodebegin, int elemend, int elembegin) {
+  constexpr int kGmsh41HeaderSize = 52;
+  size_t minNodeTag, numEntityBlocks, numNodes, maxNodeTag, numNodesInBlock, tag;
+  int entityDim, entityTag, parametric;
+
+  // ascii nodes
+  if (binary == 0) {
+    std::stringstream ss(std::string(buffer + nodebegin, nodeend - nodebegin));
+    ss >> numEntityBlocks >> numNodes >> minNodeTag >> maxNodeTag;
+    ss >> entityDim >> entityTag >> parametric >> numNodesInBlock;
+    if (!ss.good()) throw GmshError{"Error reading Nodes header"};
+    if (numNodes < 0) throw GmshError{"Invalid number of nodes"};
+    if (numEntityBlocks != 1 || numNodes != numNodesInBlock)
+      throw GmshError{"All nodes must be in single block"};
+    if (maxNodeTag != numNodesInBlock)
+      throw GmshError{"Maximum number of nodes must be equal to number of nodes in a block"};
+    if (entityDim < 1 || entityDim > 3)
+      throw GmshError{"Entity must be 1D, 2D or 3D"};
+    o.dim = entityDim;
+    for (size_t i = 0; i < numNodes; i++) {
+      size_t t;
+      ss >> t;
+      if (!ss.good()) throw GmshError{"Error reading node tags"};
+      if (t != i + minNodeTag) throw GmshError{"Node tags must be sequential"};
+    }
+    if (numNodes < 0 || numNodes >= INT_MAX / 3)
+      throw GmshError{"Invalid number of nodes."};
+    o.point.reserve(3 * numNodes);
+    for (size_t i = 0; i < 3 * numNodes; i++) {
+      double x;
+      ss >> x;
+      if (!ss.good()) throw GmshError{"Error reading node coordinates"};
+      o.point.push_back(x);
+    }
+  }
+  // binary nodes
+  else {
+    if (nodeend - nodebegin < kGmsh41HeaderSize) throw GmshError{"Invalid nodes header"};
+    ReadFromBuffer(&numEntityBlocks, buffer + nodebegin);
+    ReadFromBuffer(&numNodes, buffer + nodebegin + 8);
+    ReadFromBuffer(&minNodeTag, buffer + nodebegin + 16);
+    ReadFromBuffer(&maxNodeTag, buffer + nodebegin + 24);
+    ReadFromBuffer(&entityDim, buffer + nodebegin + 32);
+    ReadFromBuffer(&entityTag, buffer + nodebegin + 36);
+    ReadFromBuffer(&parametric, buffer + nodebegin + 40);
+    ReadFromBuffer(&numNodesInBlock, buffer + nodebegin + 44);
+    if (numEntityBlocks != 1 || numNodes != numNodesInBlock)
+      throw GmshError{"All nodes must be in single block"};
+    if (numNodes < 0) throw GmshError{"Invalid number of nodes"};
+    if (entityDim < 1 || entityDim > 3) throw GmshError{"Entity must be 1D, 2D or 3D"};
+    o.dim = entityDim;
+    constexpr int numNodeComponents = 4;
+    constexpr int componentSize = 8;
+    int nodeDataSize = numNodeComponents * componentSize;
+    if (nodeend - nodebegin < kGmsh41HeaderSize + (int)numNodes * nodeDataSize)
+      throw GmshError{"Insufficient byte size of Nodes"};
+    const char* tagbuffer = buffer + nodebegin + kGmsh41HeaderSize;
+    for (size_t i = 0; i < numNodes; i++) {
+      ReadFromBuffer(&tag, tagbuffer + i * componentSize);
+      if (tag != i + minNodeTag) throw GmshError{"Node tags must be sequential"};
+    }
+    if (numNodes < 0 || numNodes >= INT_MAX / 3)
+      throw GmshError{"Invalid number of nodes."};
+    o.point.reserve(3 * numNodes);
+    const char* pointbuffer =
+        buffer + nodebegin + kGmsh41HeaderSize + componentSize * numNodes;
+    for (size_t i = 0; i < 3 * numNodes; i++) {
+      double x;
+      ReadFromBuffer(&x, pointbuffer + i * componentSize);
+      o.point.push_back(x);
+    }
+  }
+
+  size_t numElements, minElementTag, maxElementTag, numElementsInBlock;
+  int elementType;
+
+  // ascii elements
+  if (binary == 0) {
+    buffer[elemend] = 0;
+    std::stringstream ss(std::string(buffer + elembegin, elemend - elembegin));
+    ss >> numEntityBlocks >> numElements >> minElementTag >> maxElementTag;
+    ss >> entityDim >> entityTag >> elementType >> numElementsInBlock;
+    if (!ss.good()) throw GmshError{"Error reading Elements header"};
+    if (numEntityBlocks != 1 || numElements != numElementsInBlock)
+      throw GmshError{"All elements must be in single block"};
+    if (numElements < 0) throw GmshError{"Invalid number of elements"};
+    if (entityDim != o.dim) throw GmshError{"Inconsistent dimensionality in Elements"};
+    if (numElements < 0 || numElements >= INT_MAX / 4)
+      throw GmshError{"Invalid numElements."};
+    if ((entityDim == 1 && elementType != 1) ||
+        (entityDim == 2 && elementType != 2) ||
+        (entityDim == 3 && elementType != 4))
+      throw GmshError{"Element type inconsistent with dimensionality"};
+    o.element.reserve((entityDim + 1) * numElements);
+    for (size_t i = 0; i < numElements; i++) {
+      size_t t, nodeid;
+      ss >> t;
+      for (int k = 0; k <= entityDim; k++) {
+        ss >> nodeid;
+        if (!ss.good()) throw GmshError{"Error reading Elements"};
+        o.element.push_back((int)(nodeid - minNodeTag));
+      }
+    }
+  }
+  // binary elements
+  else {
+    if (elemend - elembegin < kGmsh41HeaderSize) throw GmshError{"Invalid elements header"};
+    ReadFromBuffer(&numEntityBlocks, buffer + elembegin);
+    ReadFromBuffer(&numElements, buffer + elembegin + 8);
+    ReadFromBuffer(&minElementTag, buffer + elembegin + 16);
+    ReadFromBuffer(&maxElementTag, buffer + elembegin + 24);
+    ReadFromBuffer(&entityDim, buffer + elembegin + 32);
+    ReadFromBuffer(&entityTag, buffer + elembegin + 36);
+    ReadFromBuffer(&elementType, buffer + elembegin + 40);
+    ReadFromBuffer(&numElementsInBlock, buffer + elembegin + 44);
+    if (numEntityBlocks != 1 || numElements != numElementsInBlock)
+      throw GmshError{"All elements must be in single block"};
+    if (numElements < 0) throw GmshError{"Invalid number of elements"};
+    if (entityDim != o.dim) throw GmshError{"Inconsistent dimensionality in Elements"};
+    if ((entityDim == 1 && elementType != 1) ||
+        (entityDim == 2 && elementType != 2) ||
+        (entityDim == 3 && elementType != 4))
+      throw GmshError{"Element type inconsistent with dimensionality"};
+    if (numElements < 0 || numElements >= INT_MAX / 4)
+      throw GmshError{"Invalid numElements."};
+    int numElementComponents = (entityDim + 2);
+    constexpr int componentSize = 8;
+    int elementDataSize = numElementComponents * componentSize;
+    if (elemend - elembegin < kGmsh41HeaderSize + (int)numElements * elementDataSize)
+      throw GmshError{"Insufficient byte size of Elements"};
+    o.element.reserve((entityDim + 1) * numElements);
+    const char* elembuffer = buffer + elembegin + kGmsh41HeaderSize;
+    for (size_t i = 0; i < numElements; i++) {
+      elembuffer += componentSize;
+      size_t elemid;
+      for (int k = 0; k <= entityDim; k++) {
+        ReadFromBuffer(&elemid, elembuffer);
+        int elementid = elemid - minNodeTag;
+        o.element.push_back(elementid);
+        elembuffer += componentSize;
+      }
+    }
+  }
+}
+
+// load GMSH format 2.2
+void LoadGMSH22(GmshOut& o, char* buffer, int binary, int nodeend,
+                int nodebegin, int elemend, int elembegin) {
+  size_t numNodes = 0;
+
+  // ascii nodes
+  if (binary == 0) {
+    std::stringstream ss(std::string(buffer + nodebegin, nodeend - nodebegin));
+    std::string line;
+    std::getline(ss, line);
+    if (!IsValidElementOrNodeHeader22(line)) throw GmshError{"Invalid node header"};
+    ss.seekg(-(long)(line.size() + 1), std::ios::cur);
+    size_t maxNodeTag = 0;
+    ss >> maxNodeTag;
+    if (!ss.good()) throw GmshError{"Error reading Nodes header"};
+    numNodes = maxNodeTag;
+    if (numNodes < 0 || numNodes >= INT_MAX / 3)
+      throw GmshError{"Invalid number of nodes."};
+    o.point.reserve(3 * numNodes);
+    for (size_t i = 0; i < numNodes; i++) {
+      size_t tag;
+      double x;
+      ss >> tag;
+      if (!ss.good()) throw GmshError{"Error reading node tags"};
+      for (int k = 0; k < 3; k++) {
+        ss >> x;
+        if (!ss.good()) throw GmshError{"Error reading node coordinates"};
+        o.point.push_back(x);
+      }
+    }
+  }
+  // binary nodes
+  else {
+    constexpr int nodeHeaderSizeGmshApp = 5;
+    constexpr int nodeHeaderSize = nodeHeaderSizeGmshApp - 1;
+    if (nodeend - nodebegin < nodeHeaderSize) throw GmshError{"Invalid nodes header"};
+    char maxNodeTagChar[11] = {0};
+    ReadStrFromBuffer(maxNodeTagChar, buffer + nodebegin, std::min(10, nodeend - nodebegin));
+    size_t measuredHeaderSize = strnlen(maxNodeTagChar, 10) - 1;
+    size_t maxNodeTag;
+    try {
+      maxNodeTag = std::stoi(maxNodeTagChar);
+    } catch (const std::out_of_range&) {
+      throw GmshError{"Invalid number of nodes"};
+    }
+    numNodes = maxNodeTag;
+    if (numNodes < 0) throw GmshError{"Invalid number of nodes"};
+    int nodeSize = sizeof(double);
+    int indexSize = sizeof(int);
+    int nodeDataSize = indexSize + 3 * nodeSize;
+    if (nodeend - nodebegin < nodeHeaderSize + (int)numNodes * nodeDataSize)
+      throw GmshError{"Insufficient byte size of Nodes"};
+    if (numNodes < 0 || numNodes >= INT_MAX / 3)
+      throw GmshError{"Invalid number of nodes."};
+    o.point.reserve(3 * numNodes);
+    const char* tagBuffer = buffer + nodebegin + measuredHeaderSize;
+    for (int i = 0; i < (int)numNodes; i++) {
+      int tag;
+      int offset = i * (sizeof(int) + sizeof(double) * 3);
+      ReadFromBuffer(&tag, tagBuffer + offset);
+      for (int k = 0; k < 3; k++) {
+        double x;
+        const char* nodeBuffer = tagBuffer + sizeof(int) + sizeof(double) * k;
+        ReadFromBuffer(&x, nodeBuffer + offset);
+        o.point.push_back(x);
+      }
+    }
+  }
+
+  // ascii elements
+  if (binary == 0) {
+    buffer[elemend] = 0;
+    std::stringstream ss(std::string(buffer + elembegin, elemend - elembegin));
+    std::string line;
+    std::getline(ss, line);
+    if (!IsValidElementOrNodeHeader22(line)) throw GmshError{"Invalid elements header"};
+    ss.seekg(-(long)(line.size() + 1), std::ios::cur);
+    size_t maxElementTag = 0;
+    ss >> maxElementTag;
+    if (!ss.good()) throw GmshError{"Error reading Elements header"};
+    size_t numElements = maxElementTag;
+    if (numElements < 0 || numElements >= INT_MAX / 4)
+      throw GmshError{"Invalid number of elements."};
+    int tag = 0, elementType = 0, numTags = 0;
+    ss >> tag >> elementType >> numTags;
+    if (!ss.good()) throw GmshError{"Error reading Elements"};
+    size_t entityDim = 0;
+    int numNodeTags = 0;
+    if (elementType == 2) { entityDim = 2; numNodeTags = 3; }
+    else if (elementType == 4) { entityDim = 3; numNodeTags = 4; }
+    if (numNodeTags < 1 || numNodeTags > 4) throw GmshError{"Invalid number of node tags"};
+    o.dim = entityDim;
+    o.element.reserve(numNodeTags * numElements);
+    for (size_t i = 0; i < numElements; i++) {
+      int nodeTag = 0, physicalEntityTag = 0, elementModelEntityTag = 0;
+      if (i != 0) {
+        ss >> tag >> elementType >> numTags;
+        if (!ss.good()) throw GmshError{"Error reading Elements"};
+      }
+      if (numTags > 0) {
+        ss >> physicalEntityTag >> elementModelEntityTag;
+        if (!ss.good()) throw GmshError{"Error reading Elements"};
+      }
+      for (int k = 0; k < numNodeTags; k++) {
+        ss >> nodeTag;
+        if (!ss.good()) throw GmshError{"Error reading Elements"};
+        if (nodeTag > (int)numNodes || nodeTag < 1) throw GmshError{"Invalid node tag"};
+        o.element.push_back((int)(nodeTag - 1));
+      }
+    }
+  }
+  // binary elements
+  else {
+    constexpr int elementHeaderSizeGmshApp = 4;
+    if (elemend - elembegin < elementHeaderSizeGmshApp)
+      throw GmshError{"Invalid elements header"};
+    char maxElementTagChar[11] = {0};
+    ReadStrFromBuffer(maxElementTagChar, buffer + elembegin, std::min(10, elemend - elembegin));
+    int measuredHeaderSize = strnlen(maxElementTagChar, 10) - 1;
+    int maxElementTag;
+    try {
+      maxElementTag = std::stoi(maxElementTagChar);
+    } catch (const std::out_of_range&) {
+      throw GmshError{"Invalid number of elements"};
+    }
+    int numElements = maxElementTag;
+    int tag, numTags;
+    int nodeTag;
+    int elementType;
+    if (numElements < 0) throw GmshError{"Invalid number of elements"};
+    int componentSize = sizeof(int);
+    const char* elementsBuffer = buffer + elembegin + measuredHeaderSize;
+    ReadFromBuffer(&elementType, elementsBuffer);
+    ReadFromBuffer(&numTags, elementsBuffer + componentSize * 2);
+    ReadFromBuffer(&tag, elementsBuffer + componentSize * 3);
+    int numNodeTags = 0;
+    size_t entityDim = 0;
+    if (elementType == 2) { entityDim = 2; numNodeTags = 3; }
+    else if (elementType == 4) { entityDim = 3; numNodeTags = 4; }
+    if (numNodeTags < 1 || numNodeTags > 4) throw GmshError{"Invalid number of node tags"};
+    o.dim = entityDim;
+    constexpr int numComponentsFtetwild = 5;
+    constexpr int numInfoComponents = 4;
+    constexpr int numEntityTagComponents = 2;
+    constexpr int elementHeaderSizeFtetwild = 17;
+    int numComponentsGmshApp = numInfoComponents + numEntityTagComponents + numNodeTags;
+    int elementDataSizeFtetwild = numComponentsFtetwild * componentSize;
+    int elementDataSizeGmshApp = numComponentsGmshApp * componentSize;
+    int elementsBufferSizeFtetwild =
+        elementHeaderSizeFtetwild + numElements * elementDataSizeFtetwild;
+    int elementsBufferSizeGmshApp =
+        elementHeaderSizeGmshApp + numElements * elementDataSizeGmshApp;
+    if (elemend - elembegin < elementsBufferSizeFtetwild)
+      throw GmshError{"Insufficient byte size of Elements"};
+    if (numTags > 0) {
+      if (elemend - elembegin < elementsBufferSizeGmshApp)
+        throw GmshError{"Insufficient byte size of Elements"};
+      for (int k = 0; k < numNodeTags; k++) {
+        ReadFromBuffer(&nodeTag, elementsBuffer + componentSize * (6 + k));
+        if (nodeTag > (int)numNodes || nodeTag < 1) throw GmshError{"Invalid node tag"};
+        o.element.push_back(nodeTag - 1);
+      }
+      for (int i = 1; i < numElements; i++) {
+        const char* numTagsBuffer = elementsBuffer + componentSize * 2;
+        const char* tagBuffer = elementsBuffer + componentSize * 3;
+        int offset = i * elementDataSizeGmshApp;
+        ReadFromBuffer(&numTags, numTagsBuffer + offset);
+        ReadFromBuffer(&tag, tagBuffer + offset);
+        for (int k = 0; k < numNodeTags; k++) {
+          const char* nodeTagBuffer = elementsBuffer + componentSize * (6 + k);
+          ReadFromBuffer(&nodeTag, nodeTagBuffer + offset);
+          if (nodeTag > numElements || nodeTag < 1) throw GmshError{"Invalid node tag"};
+          o.element.push_back(nodeTag - 1);
+        }
+      }
+    } else {
+      for (int k = 0; k < numNodeTags; k++) {
+        const char* nodeTagBuffer = elementsBuffer + componentSize * (4 + k);
+        ReadFromBuffer(&nodeTag, nodeTagBuffer);
+        if (nodeTag > (int)numNodes || nodeTag < 1) throw GmshError{"Invalid node tag"};
+        o.element.push_back(nodeTag - 1);
+      }
+      for (int i = 0; i < numElements - 1; i++) {
+        int offset = componentSize * (4 + 2) + i * elementDataSizeFtetwild;
+        const char* tagBuffer = elementsBuffer + componentSize * 2;
+        ReadFromBuffer(&tag, tagBuffer + offset);
+        for (int k = 0; k < numNodeTags; k++) {
+          const char* nodeTagBuffer = elementsBuffer + componentSize * (3 + k);
+          ReadFromBuffer(&nodeTag, nodeTagBuffer + offset);
+          if (nodeTag > numElements || nodeTag < 1) throw GmshError{"Invalid node tag"};
+          o.element.push_back(nodeTag - 1);
+        }
+      }
+    }
+  }
+}
+
+// load GMSH file from a mutable buffer (LoadGMSH). Returns false with `err` set
+// on any parse error (mirroring the mjCError throws upstream).
+bool LoadGMSH(GmshOut& o, char* buffer, int buffer_sz, std::string& err) {
+  try {
+    if (buffer_sz < 0) throw GmshError{"Could not read GMSH file"};
+    if (buffer_sz == 0) throw GmshError{"Empty GMSH file"};
+    if (buffer_sz < 11 || std::strncmp(buffer, "$MeshFormat", 11))
+      throw GmshError{"GMSH file must begin with $MeshFormat"};
+    double version;
+    int binary;
+    if (sscanf(buffer + 11, "%lf %d", &version, &binary) != 2)
+      throw GmshError{"Could not read GMSH file header"};
+    if (mju_round(100 * version) != 220 && mju_round(100 * version) != 410)
+      throw GmshError{"Only GMSH file format versions 4.1 and 2.2 are supported"};
+    int nodebegin = GmshFindString(buffer, buffer_sz, "$Nodes");
+    int nodeend = GmshFindString(buffer, buffer_sz, "$EndNodes");
+    int elembegin = GmshFindString(buffer, buffer_sz, "$Elements");
+    int elemend = GmshFindString(buffer, buffer_sz, "$EndElements");
+    nodebegin += (int)std::strlen("$Nodes") + 1;
+    elembegin += (int)std::strlen("$Elements") + 1;
+    if (nodebegin < 0) throw GmshError{"GMSH file missing $Nodes"};
+    if (nodeend < nodebegin) throw GmshError{"GMSH file missing $EndNodes after $Nodes"};
+    if (elembegin < 0) throw GmshError{"GMSH file missing $Elements"};
+    if (elemend < elembegin) throw GmshError{"GMSH file missing $EndElements after $Elements"};
+    if (mju_round(100 * version) == 410)
+      LoadGMSH41(o, buffer, binary, nodeend, nodebegin, elemend, elembegin);
+    else if (mju_round(100 * version) == 220)
+      LoadGMSH22(o, buffer, binary, nodeend, nodebegin, elemend, elembegin);
+    else
+      throw GmshError{"Unsupported GMSH file format version"};
+  } catch (const GmshError& e) {
+    err = e.msg;
+    return false;
+  } catch (...) {
+    err = "exception while reading GMSH file";
+    return false;
+  }
+  return true;
+}
+
+}  // namespace gmsh
+
 // Synthesize the flexcomp's bodies (appended to `out_bodies`) and its <flex>
 // spec (returned; null when the expansion is unsupported/degenerate). Mirrors
 // mjCFlexcomp::Make for the young=0, non-interpolated grid/box/square family.
@@ -1775,20 +2223,25 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
                                          const bridge::CompileOptions& opts,
                                          const std::string& parent_name,
                                          std::vector<BodyChildAny>& out_bodies,
-                                         std::unique_ptr<EqualityFlex>& out_eq) {
-  (void)opts;
+                                         std::unique_ptr<EqualityFlex>& out_eq,
+                                         int& out_eq_type) {
   const FlexcompType type = fc.type ? *fc.type : FlexcompType::grid;
   const FlexDof dof = fc.dof ? *fc.dof : FlexDof::full;
   int dim = fc.dim ? *fc.dim : 2;
   const std::string name = fc.name ? *fc.name : std::string();
 
-  // Interpolated (trilinear/quadratic) and radial/2d dof, plus mesh/gmsh file
-  // loading, are gated out of the native flexcomp path (NC5 Wave 4 admits the
-  // `direct` type, whose point/element geometry is authored inline). The
-  // procedural grid/box/square family and direct points reach here.
-  if (dof != FlexDof::full) return nullptr;
-  if (type == FlexcompType::mesh || type == FlexcompType::gmsh) return nullptr;
-  const bool is_direct = (type == FlexcompType::direct);
+  // Interpolated (trilinear/quadratic) dof is gated out (it needs the nodal FE
+  // machinery). Reduced dof -- radial (one slider per vertex) and 2d (two) -- is
+  // a per-vertex joint change only and reaches here. The `direct` type (authored
+  // inline points, NC5 Wave 4), `gmsh` (.msh file, NC5 Wave 5), and `mesh`
+  // (OBJ/STL file, NC5 Wave 5b) reach here; upstream treats DIRECT/MESH/GMSH
+  // uniformly (the "direct" family: scaling, unreferenced-point compaction).
+  if (dof == FlexDof::trilinear || dof == FlexDof::quadratic) return nullptr;
+  const bool is_direct = (type == FlexcompType::direct ||
+                          type == FlexcompType::gmsh ||
+                          type == FlexcompType::mesh);
+  // elemtexcoord (per-element-vertex texcoord ids) only the mesh path produces.
+  std::vector<int> elemtexcoord;
 
   FcompGeom g;
   g.type = type;
@@ -1822,6 +2275,111 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
       if (fc.element) g.element = *fc.element;
       if (fc.texcoord) g.texcoord = *fc.texcoord;
       break;
+    case FlexcompType::gmsh: {
+      // Load points/elements from the .msh file (MakeGMSH). The file resolves
+      // like a mesh asset (strippath + meshdir + base-dir resource open). dim is
+      // taken from the file's entity dimensionality, overriding the authored dim.
+      if (!fc.file || fc.file->empty()) return nullptr;
+      std::string file = *fc.file;
+      if (cs.strippath) file = MeshStripPath(file);
+      const std::string combined = MeshCombine(cs.meshdir, file);
+      char oerr[1024] = {0};
+      mjResource* res = mju_openResource(
+          opts.base_dir.empty() ? nullptr : opts.base_dir.c_str(),
+          combined.c_str(), nullptr, oerr, sizeof(oerr));
+      if (!res) return nullptr;
+      const void* bytes = nullptr;
+      int n = mju_readResource(res, &bytes);
+      if (n < 0) { mju_closeResource(res); return nullptr; }
+      std::vector<char> buf(static_cast<const char*>(bytes),
+                            static_cast<const char*>(bytes) + n);
+      mju_closeResource(res);
+      gmsh::GmshOut go;
+      std::string gerr;
+      if (!gmsh::LoadGMSH(go, buf.data(), static_cast<int>(buf.size()), gerr))
+        return nullptr;
+      g.point = std::move(go.point);
+      g.element = std::move(go.element);
+      g.dim = go.dim;
+      break;
+    }
+    case FlexcompType::mesh: {
+      // Load raw verts/faces from an OBJ/STL file (MakeMesh). dim is authored
+      // (>=1); legacy .msh is rejected in the flexcomp mesh path upstream.
+      if (!fc.file || fc.file->empty()) return nullptr;
+      if (dim < 1) return nullptr;  // "Flex dim must be at least 1 for mesh"
+      std::string file = *fc.file;
+      if (cs.strippath) file = MeshStripPath(file);
+      lift::MeshInput min;
+      const std::string ct = MeshExtToContentType(file);
+      if (ct == "model/obj") min.format = lift::MeshFormat::Obj;
+      else if (ct == "model/stl") min.format = lift::MeshFormat::Stl;
+      else return nullptr;  // legacy .msh / unknown extension
+      const std::string combined = MeshCombine(cs.meshdir, file);
+      char oerr[1024] = {0};
+      mjResource* res = mju_openResource(
+          opts.base_dir.empty() ? nullptr : opts.base_dir.c_str(),
+          combined.c_str(), nullptr, oerr, sizeof(oerr));
+      if (!res) return nullptr;
+      const void* bytes = nullptr;
+      int n = mju_readResource(res, &bytes);
+      if (n < 0) { mju_closeResource(res); return nullptr; }
+      min.content_type = ct;
+      min.filebytes.assign(static_cast<const char*>(bytes),
+                           static_cast<const char*>(bytes) + n);
+      mju_closeResource(res);
+      lift::MeshRawResult mr;
+      std::string merr;
+      if (!lift::LoadMeshRaw(min, mr, merr)) return nullptr;
+      if (mr.vert.empty() || mr.face.empty()) return nullptr;
+      // copy vertices (float -> double)
+      g.point.assign(mr.vert.begin(), mr.vert.end());
+      if (mr.has_texcoord()) {
+        g.texcoord = mr.texcoord;
+        elemtexcoord = mr.facetexcoord;
+      }
+      // faces or 3D tets (MakeMesh :1382-1418)
+      if (dim == 2) {
+        g.element = mr.face;
+      } else if (dim == 1) {
+        // edge pairs from degenerate triangles (i1, i2, i2)
+        g.element.clear();
+        g.element.reserve(mr.face.size() * 2 / 3);
+        for (std::size_t i = 0; i < mr.face.size(); i += 3) {
+          g.element.push_back(mr.face[i]);
+          g.element.push_back(mr.face[i + 1]);
+        }
+      } else {
+        // dim >= 3: origin (required) prepended as vertex 0, then one tetra per
+        // positive-volume surface triangle.
+        if (!fc.origin) return nullptr;
+        const auto& org = *fc.origin;
+        double origin[3] = {org[0], org[1], org[2]};
+        g.point.insert(g.point.begin() + 0, origin[0]);
+        g.point.insert(g.point.begin() + 1, origin[1]);
+        g.point.insert(g.point.begin() + 2, origin[2]);
+        std::vector<int> tetel;
+        for (std::size_t i = 0; i + 2 < mr.face.size(); i += 3) {
+          int tet[3] = {mr.face[i + 0] + 1, mr.face[i + 1] + 1, mr.face[i + 2] + 1};
+          double edge1[3], edge2[3], edge3[3];
+          for (int k = 0; k < 3; k++) {
+            edge1[k] = g.point[3 * tet[0] + k] - origin[k];
+            edge2[k] = g.point[3 * tet[1] + k] - origin[k];
+            edge3[k] = g.point[3 * tet[2] + k] - origin[k];
+          }
+          double normal[3];
+          lift::mjuu_crossvec(normal, edge1, edge2);
+          if (lift::mjuu_dot3(normal, edge3) < mjMINVAL) continue;
+          tetel.push_back(0);
+          tetel.push_back(tet[0]);
+          tetel.push_back(tet[1]);
+          tetel.push_back(tet[2]);
+        }
+        g.element = std::move(tetel);
+      }
+      g.dim = dim;
+      break;
+    }
     default:
       return nullptr;
   }
@@ -1922,6 +2480,9 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
         }
       }
     }
+    // center of a radial body is always pinned (its radial axis is degenerate);
+    // it attaches to the parent instead of getting a zero-axis slider (Make :413).
+    if (dof == FlexDof::radial && npnt > 0) pinned[0] = 1;
     bool allpin = true, nopin = true;
     for (int i = 0; i < npnt; i++) {
       if (pinned[i]) nopin = false; else allpin = false;
@@ -1989,8 +2550,10 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
     in->mass = bodymass;
     in->diaginertia = std::array<double, 3>{bodyinertia, bodyinertia, bodyinertia};
     b->inertial.push_back(std::move(in));
-    // three orthogonal sliders (dof=full, Make :583)
-    for (int j = 0; j < 3; j++) {
+    // per-vertex sliders keyed by dof (Make :571-605). radial = one slider along
+    // the (normalized) vertex direction; 2d = two axis-aligned x/y sliders; full
+    // = three orthogonal sliders. trilinear/quadratic never reach here (gated).
+    auto add_slider = [&](const std::array<double, 3>& axis) {
       auto jnt = std::make_unique<Joint>();
       // upstream flexcomp joints are unnamed; force an empty (present) name so
       // the native collector does not auto-name them (the XML oracle never sees
@@ -1998,10 +2561,22 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
       jnt->name = std::string();
       jnt->type = JointType::slide;
       jnt->pos = std::array<double, 3>{0, 0, 0};
-      std::array<double, 3> ax{0, 0, 0};
-      ax[j] = 1;
-      jnt->axis = ax;
+      jnt->axis = axis;
       b->subtree.push_back(BodyChildAny{std::move(jnt)});
+    };
+    if (dof == FlexDof::radial) {
+      double ax[3] = {g.point[3 * i], g.point[3 * i + 1], g.point[3 * i + 2]};
+      lift::mjuu_normvec(ax, 3);
+      add_slider({ax[0], ax[1], ax[2]});
+    } else if (dof == FlexDof::twod) {
+      add_slider({1, 0, 0});
+      add_slider({0, 1, 0});
+    } else {
+      for (int j = 0; j < 3; j++) {
+        std::array<double, 3> ax{0, 0, 0};
+        ax[j] = 1;
+        add_slider(ax);
+      }
     }
     vertbody.push_back(*b->name);
     // clear flex vertex coords for this (non-centered) point
@@ -2029,6 +2604,7 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
   flex->body = bodies_str;
   flex->element = g.element;
   if (!g.texcoord.empty()) flex->texcoord = g.texcoord;
+  if (!elemtexcoord.empty()) flex->elemtexcoord = elemtexcoord;
 
   // vert coords are saved whenever not centered (Make :514), including the rigid
   // case (all points on the parent). Rigid then collapses vertbody to the single
@@ -2042,8 +2618,10 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
   if (!fc.flexElasticitys.empty() && fc.flexElasticitys.front())
     flex->flexElasticitys.push_back(Clone(*fc.flexElasticitys.front()));
   // edge stiffness/damping + equality (from <edge>) (Make :788). equality=edge
-  // synthesizes an mjEQ_FLEX constraint referencing this flex by name; a rigid
-  // flex cannot carry one (upstream hard error), so it is suppressed.
+  // synthesizes one mjEQ_FLEX, equality=vert one mjEQ_FLEXVERT, each referencing
+  // this flex by name; a rigid flex cannot carry one (upstream hard error), so it
+  // is suppressed. equality=strain (one constraint per finite-element cell) needs
+  // the interpolated cellcount machinery and stays gated (flexcomp.equality_kind).
   if (!fc.flexcompEdges.empty() && fc.flexcompEdges.front()) {
     const FlexcompEdge& fe = *fc.flexcompEdges.front();
     if (fe.stiffness || fe.damping) {
@@ -2052,8 +2630,9 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
       e->damping = fe.damping;
       flex->flexEdges.push_back(std::move(e));
     }
-    if (!rigid && fe.equality && *fe.equality == FlexEquality::true_ &&
-        !name.empty()) {
+    const bool is_edge = fe.equality && *fe.equality == FlexEquality::true_;
+    const bool is_vert = fe.equality && *fe.equality == FlexEquality::vert;
+    if (!rigid && (is_edge || is_vert) && !name.empty()) {
       auto eq = std::make_unique<EqualityFlex>();
       // upstream's flexcomp equality is unnamed; force an empty (present) name so
       // the native name pass does not auto-name it (the XML oracle never sees it).
@@ -2063,6 +2642,7 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
       eq->solref = fe.solref;
       eq->solimp = fe.solimp;
       out_eq = std::move(eq);
+      out_eq_type = is_vert ? mjEQ_FLEXVERT : mjEQ_FLEX;
     }
   }
   (void)cs;
@@ -2135,10 +2715,11 @@ void FlattenChildren(const std::vector<BodyChildAny>& subtree,
         if (fcn && arena && sink) {
           auto owned = std::make_unique<std::vector<BodyChildAny>>();
           std::unique_ptr<EqualityFlex> eq;
+          int eq_type = mjEQ_FLEX;
           std::unique_ptr<Flex> synth =
-              ExpandFlexcompInto(*fcn, cs, opts, parent_name, *owned, eq);
+              ExpandFlexcompInto(*fcn, cs, opts, parent_name, *owned, eq, eq_type);
           if (synth) sink->flexes.push_back(std::move(synth));
-          if (eq) sink->equalities.push_back(std::move(eq));
+          if (eq) sink->equalities.push_back({std::move(eq), eq_type});
           std::vector<BodyChildAny>* stable = owned.get();
           arena->push_back(std::move(owned));
           FlattenChildren(*stable, xf, cs, out, arena, sink, parent_name,
@@ -2441,7 +3022,7 @@ class BodyCollector {
  public:
   std::vector<CJoint>& joints() { return joints_; }
   std::vector<std::unique_ptr<Flex>>& synth_flexes() { return flexcomp_sink_.flexes; }
-  std::vector<std::unique_ptr<EqualityFlex>>& synth_equalities() {
+  std::vector<SynthEquality>& synth_equalities() {
     return flexcomp_sink_.equalities;
   }
 };
@@ -3238,16 +3819,17 @@ CEquality EqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
   return ce;
 }
 
-// Compile a flex (edge) equality: mjEQ_FLEX referencing a flex by name
-// (mjCEquality::ResolveReferences flex branch). Used for flexcomp-synthesized
-// <edge equality="true"> constraints; obj2 is unused (-1).
+// Compile a flex equality referencing a flex by name (mjCEquality::
+// ResolveReferences flex branch). `type` is the mjtEq kind (mjEQ_FLEX for an
+// edge equality, mjEQ_FLEXVERT for a vert equality); obj2 is unused (-1).
 CEquality FlexEqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
-                              const EqualityFlex& e, const NameIdMap& flexid) {
+                              const EqualityFlex& e, const NameIdMap& flexid,
+                              int type) {
   CEquality ce;
   ce.src = &e;
   ce.serial = e.serial;
   ce.name = e.name;
-  ce.type = mjEQ_FLEX;  // objtype stays 0: the reader sets eq_objtype only for
+  ce.type = type;       // objtype stays 0: the reader sets eq_objtype only for
                         // connect/weld (flex resolves object_type locally).
   ce.flex_name = e.flex ? e.flex->name : std::string();
   auto it = flexid.find(ce.flex_name);
@@ -6487,8 +7069,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
       equalities.push_back(EqualityCompile(default_idx, any, bodyid_of,
                                            siteid_of, jointid_of, tendonid_of));
   }
-  for (const auto& eq : collector.synth_equalities())
-    if (eq) equalities.push_back(FlexEqualityCompile(default_idx, *eq, flexid_of));
+  for (const auto& se : collector.synth_equalities())
+    if (se.eq)
+      equalities.push_back(
+          FlexEqualityCompile(default_idx, *se.eq, flexid_of, se.type));
 
   // Actuators (S8): document order across all <actuator> sections. Transmission
   // targets resolve against joint/tendon/body id maps built above.

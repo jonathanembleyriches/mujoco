@@ -1447,4 +1447,36 @@ bool CompileMesh(const MeshInput& in, MeshResult& out, std::string& err) {
   return true;
 }
 
+bool LoadMeshRaw(const MeshInput& in, MeshRawResult& out, std::string& err) {
+  Mesh m;
+  // scale sign drives the MSH righthand face flip; refpos/refquat and the
+  // inertia pipeline are irrelevant to the raw load, so leave them defaulted.
+  mjuu_copyvec(m.scale, in.scale, 3);
+  m.content_type_ = in.content_type;
+
+  try {
+    switch (in.format) {
+      case MeshFormat::Obj:
+        m.LoadOBJ(in.filebytes);
+        break;
+      case MeshFormat::Stl:
+        m.LoadSTL(in.filebytes);
+        break;
+      case MeshFormat::Msh:
+      case MeshFormat::UserVertex:
+        err = "unsupported mesh format for flexcomp raw load";
+        return false;
+    }
+  } catch (const MeshError& e) {
+    err = e.msg;
+    return false;
+  }
+
+  out.vert = std::move(m.vert_);
+  out.face = std::move(m.face_);
+  out.texcoord = std::move(m.texcoord_);
+  out.facetexcoord = std::move(m.facetexcoord_);
+  return true;
+}
+
 }  // namespace ps::mjcf::compile::lifted

@@ -92,6 +92,24 @@ struct MeshResult {
 // (mirroring the mjCError throws in mjCMesh::Compile).
 bool CompileMesh(const MeshInput& in, MeshResult& out, std::string& err);
 
+// The raw parsed geometry of a mesh file: vertices/faces exactly as the loader
+// (LoadOBJ/LoadSTL) produces them, before any CoM/principal-frame transform.
+// This is what mjCFlexcomp::MakeMesh reads via mjCMesh::Vert()/Face() -- distinct
+// from CompileMesh, which bakes the mesh-GEOM inertia pipeline.
+struct MeshRawResult {
+  std::vector<float> vert;
+  std::vector<int> face;
+  std::vector<float> texcoord;
+  std::vector<int> facetexcoord;
+  bool has_texcoord() const { return !texcoord.empty(); }
+};
+
+// Load-only mesh entry (mjCMesh::LoadFromResource without Process): parse the
+// file bytes and return raw vert/face/texcoord. Only the file formats are
+// supported (Obj/Stl); Msh is rejected upstream in the flexcomp mesh path.
+// Returns false with `err` set on a parse error.
+bool LoadMeshRaw(const MeshInput& in, MeshRawResult& out, std::string& err);
+
 }  // namespace ps::mjcf::compile::lifted
 
 #endif  // PROTOSPEC_COMPILE_LIFTED_MESH_PIPELINE_H

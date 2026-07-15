@@ -1,0 +1,340 @@
+void mjCFlexcomp::LoadGMSH22(char* buffer, int binary, int nodeend,
+                             int nodebegin, int elemend, int elembegin) {
+  // number of nodes
+  size_t numNodes = 0;
+
+  // ascii nodes
+  if (binary == 0) {
+    // convert node char buffer to stringstream
+    stringstream ss(std::string(buffer + nodebegin, nodeend - nodebegin));
+    std::string line;
+
+    // checking header template
+    std::getline(ss, line);
+    if (!IsValidElementOrNodeHeader22(line)) {
+      throw mjCError(NULL, "Invalid node header");
+    }
+    ss.seekg(-(line.size()+1), std::ios::cur);
+
+    // read header
+    size_t maxNodeTag = 0;
+    ss >> maxNodeTag;
+    if (!ss.good()) {
+      throw mjCError(NULL, "Error reading Nodes header");
+    }
+    numNodes = maxNodeTag;
+
+    if (numNodes < 0 || numNodes >= INT_MAX / 3) {
+      throw mjCError(NULL, "Invalid number of nodes.");
+    }
+
+    // read points, discard tag
+    point.reserve(3*numNodes);
+    for (size_t i=0; i < numNodes; i++) {
+      size_t tag;
+      double x;
+      ss >> tag;
+      if (!ss.good()) {
+        throw mjCError(NULL, "Error reading node tags");
+      }
+      // reading nodes
+      for (int k=0; k < 3; k++) {
+        ss >> x;
+        if (!ss.good()) {
+          throw mjCError(NULL, "Error reading node coordinates");
+        }
+        point.push_back(x);
+      }
+    }
+  }
+
+  // binary nodes
+  else {
+    // header size for gmshApp
+    constexpr int nodeHeaderSizeGmshApp = 5;
+    // header size compatible with both gmshApp and Ftetwild
+    constexpr int nodeHeaderSize = nodeHeaderSizeGmshApp - 1;
+    // check header size
+    if (nodeend-nodebegin < nodeHeaderSize) {
+      throw mjCError(NULL, "Invalid nodes header");
+    }
+
+    // parse maxNodeTag and then cast it to int
+    char maxNodeTagChar[11] = {0};
+    ReadStrFromBuffer(maxNodeTagChar, buffer + nodebegin, std::min(10, nodeend - nodebegin));
+    size_t measuredHeaderSize = strnlen(maxNodeTagChar, 10) - 1;
+    size_t maxNodeTag;
+    try {
+      maxNodeTag = std::stoi(maxNodeTagChar);
+    } catch (const std::out_of_range& e) {
+      throw mjCError(NULL, "Invalid number of nodes");
+    }
+    numNodes = maxNodeTag;
+
+    // check number of nodes is a positive number
+    if (numNodes < 0) {
+      throw mjCError(NULL, "Invalid number of nodes");
+    }
+
+    // node data: node tag and 3 nodes
+    int nodeSize = sizeof(double);
+    int indexSize = sizeof(int);
+    int nodeDataSize = indexSize + 3*nodeSize;
+
+    // check section byte size
+    if (nodeend - nodebegin < nodeHeaderSize + numNodes*nodeDataSize) {
+      throw mjCError(NULL, "Insufficient byte size of Nodes");
+    }
+
+    // read point, discard tag
+    if (numNodes < 0 || numNodes >= INT_MAX / 3) {
+      throw mjCError(NULL, "Invalid number of nodes.");
+    }
+    point.reserve(3*numNodes);
+    // beginning of buffer containing node info
+    const char* tagBuffer = buffer + nodebegin + measuredHeaderSize;
+    for (int i=0; i < numNodes; i++) {
+      int tag;
+      int offset = i*(sizeof(int) + sizeof(double)*3);
+      ReadFromBuffer(&tag, tagBuffer + offset);
+      for (int k=0; k < 3; k++) {
+        double x;
+        const char* nodeBuffer = tagBuffer + sizeof(int) + sizeof(double)*k;
+        ReadFromBuffer(&x, nodeBuffer + offset);
+        point.push_back(x);
+      }
+    }
+  }
+
+
+  // ascii elements
+  if (binary == 0) {
+    // convert element char buffer to stringstream
+    buffer[elemend] = 0;
+    stringstream ss(std::string(buffer + elembegin, elemend - elembegin));
+    std::string line;
+
+    // checking header template
+    std::getline(ss, line);
+    if (!IsValidElementOrNodeHeader22(line)) {
+      throw mjCError(NULL, "Invalid elements header");
+    }
+    ss.seekg(-(line.size()+1), std::ios::cur);
+    // read header
+    size_t maxElementTag = 0;
+    ss >> maxElementTag;
+    if (!ss.good()) {
+      throw mjCError(NULL, "Error reading Elements header");
+    }
+    size_t numElements = maxElementTag;
+
+    if (numElements < 0 || numElements >= INT_MAX / 4) {
+      throw mjCError(NULL, "Invalid number of elements.");
+    }
+
+
+    // check number of elements is a positive number
+    if (numElements < 0) {
+      throw mjCError(NULL, "Invalid number of elements");
+    }
+
+    // reading first element's type
+    int tag = 0, elementType = 0, numTags = 0;
+    ss >> tag >> elementType >> numTags;
+    if (!ss.good()) {
+      throw mjCError(NULL, "Error reading Elements");
+    }
+
+    size_t entityDim = 0;
+    int numNodeTags = 0;
+    // surface
+    if (elementType == 2) {
+      entityDim = 2;
+      numNodeTags = 3;
+    }
+    // tetrahedral
+    else if (elementType == 4) {
+      entityDim = 3;
+      numNodeTags = 4;
+    }
+
+    if (numNodeTags < 1 || numNodeTags > 4) {
+      throw mjCError(NULL, "Invalid number of node tags");
+    }
+
+    // setting entityDim
+    def.spec.flex->dim = entityDim;
+
+    // read elements, discard all tags
+    element.reserve(numNodeTags*numElements);
+    for (size_t i=0; i < numElements; i++) {
+      int nodeTag = 0, physicalEntityTag = 0, elementModelEntityTag = 0;
+      if (i != 0) {
+        ss >> tag >> elementType >> numTags;
+        if (!ss.good()) {
+          throw mjCError(NULL, "Error reading Elements");
+        }
+      }
+      if (numTags > 0) {
+        ss >> physicalEntityTag >> elementModelEntityTag;
+        if (!ss.good()) {
+          throw mjCError(NULL, "Error reading Elements");
+        }
+      }
+      for (int k=0; k < numNodeTags; k++) {
+        ss >> nodeTag;
+        if (!ss.good()) {
+          throw mjCError(NULL, "Error reading Elements");
+        }
+        if (nodeTag > numNodes || nodeTag < 1) {
+          throw mjCError(NULL, "Invalid node tag");
+        }
+        element.push_back((int)(nodeTag-1));
+      }
+    }
+  }
+  // binary elements
+  else {
+    // header size for gmshApp
+    constexpr int elementHeaderSizeGmshApp = 4;
+    // header size for Ftetwild
+    constexpr int elementHeaderSizeFtetwild = 17;
+    // check header size
+    if (elemend - elembegin < elementHeaderSizeGmshApp) {
+      throw mjCError(NULL, "Invalid elements header");
+    }
+
+    // reading elements
+    char maxElementTagChar[11] = {0};
+    ReadStrFromBuffer(maxElementTagChar, buffer + elembegin, std::min(10, elemend - elembegin));
+    int measuredHeaderSize = strnlen(maxElementTagChar, 10) - 1;
+    int maxElementTag;
+    try {
+      maxElementTag = std::stoi(maxElementTagChar);
+    } catch (const std::out_of_range& e) {
+      throw mjCError(NULL, "Invalid number of elements");
+    }
+    int numElements = maxElementTag;
+    int tag, numTags;
+    int nodeTag;
+    int elementType;
+
+    // check number of elements is a positive number
+    if (numElements < 0) {
+      throw mjCError(NULL, "Invalid number of elements");
+    }
+
+    // size of single component in element data
+    int componentSize = sizeof(int);
+    // element buffer
+    const char* elementsBuffer = buffer + elembegin + measuredHeaderSize;
+    ReadFromBuffer(&elementType, elementsBuffer);
+    ReadFromBuffer(&numTags, elementsBuffer + componentSize*2);
+    ReadFromBuffer(&tag, elementsBuffer + componentSize*3);
+
+    // tetrahedral has 4 node tags and surface has 3
+    int numNodeTags = 0;
+    size_t entityDim = 0;
+    // surface
+    if (elementType == 2) {
+      entityDim = 2;
+      numNodeTags = 3;
+    }
+    // tetrahedral
+    else if (elementType == 4) {
+      entityDim = 3;
+      numNodeTags = 4;
+    }
+
+    if (numNodeTags < 1 || numNodeTags > 4) {
+      throw mjCError(NULL, "Invalid number of node tags");
+    }
+
+    def.spec.flex->dim = entityDim;
+
+    // element data(Ftetwild): tag and 4 nodeTag
+    constexpr int numComponentsFtetwild = 5;
+    // element data(gmshApp): 4 Info components, 2 entity tag and entityDim+1 nodeTags
+    constexpr int numInfoComponents = 4;
+    constexpr int numEntityTagComponents = 2;
+
+    int numComponentsGmshApp = numInfoComponents + numEntityTagComponents + numNodeTags;
+
+    // single element data size
+    int elementDataSizeFtetwild = numComponentsFtetwild*componentSize;
+    int elementDataSizeGmshApp = numComponentsGmshApp*componentSize;
+
+    // elements section buffer size
+    int elementsBufferSizeFtetwild = elementHeaderSizeFtetwild +
+                                     numElements*elementDataSizeFtetwild;
+    int elementsBufferSizeGmshApp = elementHeaderSizeGmshApp +
+                                    numElements*elementDataSizeGmshApp;
+
+    // check section byte size for ftetwild
+    if (elemend - elembegin < elementsBufferSizeFtetwild) {
+      throw mjCError(NULL, "Insufficient byte size of Elements");
+    }
+
+    // Handling elements produced by gmsh
+    if (numTags > 0) {
+      // check section byte size for gmsh
+      if (elemend - elembegin < elementsBufferSizeGmshApp) {
+        throw mjCError(NULL, "Insufficient byte size of Elements");
+      }
+
+      // read first element
+      for (int k =0; k < numNodeTags; k++) {
+        ReadFromBuffer(&nodeTag, elementsBuffer + componentSize*(6+k));
+        if (nodeTag > numNodes || nodeTag < 1) {
+          throw mjCError(NULL, "Invalid node tag");
+        }
+        element.push_back(nodeTag-1);
+      }
+
+      // read every other element
+      for (int i=1; i < numElements; i++) {
+        const char* numTagsBuffer = elementsBuffer + componentSize*2;
+        const char* tagBuffer = elementsBuffer + componentSize*3;
+        int offset = i*elementDataSizeGmshApp;
+        ReadFromBuffer(&numTags, numTagsBuffer + offset);
+        ReadFromBuffer(&tag, tagBuffer+offset);
+        for (int k =0; k < numNodeTags; k++) {
+          const char* nodeTagBuffer = elementsBuffer + componentSize*(6+k);
+          ReadFromBuffer(&nodeTag, nodeTagBuffer + offset);
+          if (nodeTag > numElements || nodeTag < 1) {
+            throw mjCError(NULL, "Invalid node tag");
+          }
+          element.push_back(nodeTag-1);
+        }
+      }
+    }
+
+    // Handling elements produced by ftetwild
+    else {
+      // read first element
+      for (int k = 0; k < numNodeTags; k++) {
+        const char* nodeTagBuffer = elementsBuffer + componentSize*(4+k);
+        ReadFromBuffer(&nodeTag, nodeTagBuffer);
+        if (nodeTag > numNodes || nodeTag < 1) {
+          throw mjCError(NULL, "Invalid node tag");
+        }
+        element.push_back(nodeTag-1);
+      }
+
+      // read every other element
+      for (int i=0; i < numElements-1; i++) {
+        int offset = componentSize*(4+2) + i*elementDataSizeFtetwild;
+        const char* tagBuffer = elementsBuffer + componentSize*2;
+        ReadFromBuffer(&tag, tagBuffer + offset);
+        for (int k=0; k < numNodeTags; k++) {
+          const char* nodeTagBuffer = elementsBuffer + componentSize*(3+k);
+          ReadFromBuffer(&nodeTag, nodeTagBuffer + offset);
+          if (nodeTag > numElements || nodeTag < 1) {
+            throw mjCError(NULL, "Invalid node tag");
+          }
+          element.push_back(nodeTag-1);
+        }
+      }
+    }
+  }
+}

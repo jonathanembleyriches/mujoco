@@ -1,0 +1,97 @@
+bool mjCFlexcomp::MakeMesh(mjCModel* model, mjsCompiler* compiler, char* error, int error_sz, const mjVFS* vfs) {
+  // strip path
+  if (!file.empty() && model->spec.strippath) {
+    file = mjuu_strippath(file);
+  }
+
+  // file is required
+  if (file.empty()) {
+    return comperr(error, "File is required", error_sz);
+  }
+
+  // check dim
+  if (def.spec.flex->dim < 1) {
+    return comperr(error, "Flex dim must be at least 1 for mesh", error_sz);
+  }
+
+  // load resource
+  std::string filename = mjuu_combinePaths(mjs_getString(compiler->meshdir), file);
+  mjResource* resource = nullptr;
+
+
+  if (mjCMesh::IsMSH(filename)) {
+    return comperr(error, "legacy MSH files are not supported in flexcomp", error_sz);
+  }
+
+  try {
+    resource = mjCBase::LoadResource(mjs_getString(model->spec.modelfiledir),
+                                     filename, vfs);
+  } catch (mjCError err) {
+    return comperr(error, err.message, error_sz);
+  }
+
+
+  // load mesh
+  mjCMesh mesh;
+  try {
+    mesh.LoadFromResource(resource, true);
+    mju_closeResource(resource);
+  } catch (mjCError err) {
+    mju_closeResource(resource);
+    return comperr(error, err.message, error_sz);
+  }
+
+  // check sizes
+  if (mesh.Vert().empty() || mesh.Face().empty()) {
+    return comperr(error, "Vertex and face data required", error_sz);
+  }
+
+  // copy vertices
+  point.assign(mesh.Vert().begin(), mesh.Vert().end());
+
+  if (mesh.HasTexcoord()) {
+    texcoord = mesh.Texcoord();
+    elemtexcoord = mesh.FaceTexcoord();
+  }
+
+  // copy faces or create 3D mesh
+  if (def.spec.flex->dim == 2) {
+    element = mesh.Face();
+  } else if (def.spec.flex->dim == 1) {
+    // extract edge pairs from degenerate triangles (i1, i2, i2)
+    const std::vector<int>& face = mesh.Face();
+    element.clear();
+    element.reserve(face.size() * 2 / 3);
+    for (size_t i = 0; i < face.size(); i += 3) {
+      element.push_back(face[i]);
+      element.push_back(face[i+1]);
+    }
+  } else {
+    point.insert(point.begin() + 0, origin[0]);
+    point.insert(point.begin() + 1, origin[1]);
+    point.insert(point.begin() + 2, origin[2]);
+    for (int i=0; i < mesh.Face().size(); i+=3) {
+      // only add tetrahedra with positive volume
+      int tet[3] = {mesh.Face()[i+0]+1,
+                    mesh.Face()[i+1]+1,
+                    mesh.Face()[i+2]+1};
+      double edge1[3], edge2[3], edge3[3];
+      for (int i=0; i < 3; i++) {
+        edge1[i] = point[3*tet[0]+i] - origin[i];
+        edge2[i] = point[3*tet[1]+i] - origin[i];
+        edge3[i] = point[3*tet[2]+i] - origin[i];
+      }
+      double normal[3];
+      mjuu_crossvec(normal, edge1, edge2);
+      if (mjuu_dot3(normal, edge3) < mjMINVAL) {
+        continue;
+      }
+      element.push_back(0);
+      element.push_back(tet[0]);
+      element.push_back(tet[1]);
+      element.push_back(tet[2]);
+    }
+  }
+
+  return true;
+}

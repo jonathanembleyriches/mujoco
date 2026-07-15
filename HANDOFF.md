@@ -44,23 +44,27 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5-wave-2 done, **ratchet 214/387** | queue below |
+| Native compiler | NC0-NC5 waves 1-5b + 6b + 6-partial done, **ratchet 239/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
 ## Native compiler remaining queue (Gate 1)
 
-1. **NC5 wave 3 (elasticity, young>0)**: lift ComputeStiffness<Stencil2D/3D> + ComputeBending
-   (user_objects.h/user_mesh.cc); un-gate flexcomp.elasticity(+elastic2d); staged: fixtures
-   then corpus flip. Targets: hollow_vs_solid, jelly, plate, press, pancake, floppy, poncho,
-   poncho_edgeequality (+trampoline/softbox/basket per sweep). An agent was launched with the
-   full brief and stopped pre-work at the pause — relaunch with the same brief (in the session
-   transcript; reconstructable from this note + wave-2 commit efd5b7a5 patterns).
-2. **NC5 wave 4 (mesh/direct flexcomp)**: lift MakeMesh (user_flexcomp.cc:1325-1453) reusing
-   cpp/compile/lifted/mesh_pipeline; targets bunny*, gripper, rigid_flex, flex_line_obj.
-3. **NC5 wave 5 (gmsh)**: LoadGMSH41/LoadGMSH22 parser (~12 files).
-4. **NC5 wave 6 (interpolated FE)**: trilinear/quadratic stack (user_mesh.cc:3826-4500).
-5. **NC6** — attach/`<model>` native expansion (clone-arena pattern), PNG file textures
+NC5 flex waves 1-4 (procedural + elasticity + direct), **wave 5 (gmsh)**, **wave 5b (mesh
+file)**, **wave 6b (vert flex equality)**, and the **reduced-dof slice of wave 6 (radial/2d)**
+are DONE and on the ratchet (239). The one remaining flex descope:
+
+1. **NC5 wave 6 — full interpolated FE (trilinear/quadratic) + strain equality** (~12 files:
+   bunny*, gripper_trilinear, sphere_trilinear, trilinear, quadratic, bunny_quadratic, strain,
+   hollow_vs_solid). This is the nodal finite-element machinery: lift ComputeLinearStiffness/2D,
+   EigendecomposeStiffness, ComputeWarpStiffness, ComputeInterpBending (user_mesh.cc:3826-4500),
+   the node-body generation in Make (:631+, ComputeUnrotatedNodePositions/MarkEmptyCells), and
+   the interpolated branch of FlexCompile (nodebody/nodexpos/per-cell stiffness assembly). The
+   `strain` flex equality (mjEQ_FLEXSTRAIN, one constraint per FE cell) is coupled to this wave —
+   it needs cellcount/cell_empty from the interpolated path (edge + vert equalities already land).
+   Gated as `flexcomp.interpolated` (trilinear/quadratic only now) and `flexcomp.equality_kind`
+   (strain only now). Descoped for size + FP-divergence risk; a self-contained NC5 wave 6.
+2. **NC6** — attach/`<model>` native expansion (clone-arena pattern), PNG file textures
    (lodepng wired), file hfields, skins, mesh-fit.
 6. **NC7 long tail** — muscle (`mj_setLengthRange` public/post-build), dcmotor, site/refsite/
    slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,

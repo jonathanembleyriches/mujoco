@@ -365,6 +365,39 @@
       "notes": "BoxProject (box-to-shape projection); verbatim in FcompGeom"
     },
     {
+      "id": "flexcomp_loadgmsh",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::LoadGMSH",
+      "line_span": "2100-2160",
+      "content_hash": "e650c83e17215ba1f226a59a6d25ededdbd23d5062541340b42978be0efdb516",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__LoadGMSH.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "GMSH dispatcher: version detect + section find (NC5 Wave 5)"
+    },
+    {
+      "id": "flexcomp_loadgmsh22",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::LoadGMSH22",
+      "line_span": "1756-2095",
+      "content_hash": "f63e03a46c2700975bdfeeeccb316bdb376e6ccec4c87ac82222bbff8895fab6",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__LoadGMSH22.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "GMSH 2.2 ascii+binary (gmshApp+Ftetwild) parser (NC5 Wave 5)"
+    },
+    {
+      "id": "flexcomp_loadgmsh41",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::LoadGMSH41",
+      "line_span": "1492-1751",
+      "content_hash": "b0c09d6c51842e1fcc11313f5cdfb97e88e574600238ac2580ac3a295dcf5166",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__LoadGMSH41.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "GMSH 4.1 ascii+binary node/element parser (NC5 Wave 5)"
+    },
+    {
       "id": "flexcomp_make",
       "upstream_rel_path": "src/user/user_flexcomp.cc",
       "symbol": "mjCFlexcomp::Make",
@@ -396,6 +429,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-13",
       "notes": "MakeGrid point/element generator (1D/2D/3D grid + circle); verbatim in FcompGeom"
+    },
+    {
+      "id": "flexcomp_makemesh",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::MakeMesh",
+      "line_span": "1325-1421",
+      "content_hash": "e38b442c5882ceab30cada3bc8d835f1e9faa0bbdfeca477301f3bc7b41cee92",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__MakeMesh.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-08",
+      "notes": "mesh-file flexcomp: raw verts/faces -> point/element (dim 1/2/3 tet) (NC5 Wave 5b)"
     },
     {
       "id": "flexcomp_makesquare",

@@ -343,22 +343,24 @@ class SubFeatureScanner {
   // EqualityFlex shares the "flex" tag with the Flex element (admitted), but the
   // native equality path does not compile flex equalities yet.
   void CheckEqualityFlex(const EqualityFlex& e) { Note("equality.flex", e.loc); }
-  // The native flexcomp path (NC5 Wave 2 geometry + Wave 3 elasticity) expands
-  // the procedural grid/box/square family at dof=full, non-interpolated, with
-  // edge/none equality, and now compiles young>0 linear elasticity (Stencil2D/3D
-  // stiffness + elastic2d bending, lifted into FlexCompile). Interpolated dof,
-  // mesh/gmsh/direct types, and vert/strain edge equalities still route to the
-  // XML fallback.
+  // The native flexcomp path expands the procedural grid/box/square family plus
+  // the direct-point family -- direct (inline points, Wave 4), gmsh (.msh file,
+  // Wave 5), and mesh (OBJ/STL file, Wave 5b) -- at dof=full, non-interpolated,
+  // with edge/vert/none equality (Wave 6b), young>0 linear elasticity (Stencil2D/
+  // 3D stiffness + elastic2d bending, Wave 3), and radial/2d reduced dof. Only
+  // interpolated dof (trilinear/quadratic) and strain equality route to fallback.
   void CheckFlexcomp(const Flexcomp& fc) {
-    const FlexcompType type = fc.type ? *fc.type : FlexcompType::grid;
     const FlexDof dof = fc.dof ? *fc.dof : FlexDof::full;
-    if (dof != FlexDof::full) Note("flexcomp.interpolated", fc.loc);
-    if (type == FlexcompType::mesh || type == FlexcompType::gmsh)
-      Note("flexcomp.mesh", fc.loc);
+    // trilinear/quadratic need the nodal FE machinery (nodes, interpolated
+    // stiffness) -- still gated. radial/2d are a per-vertex slider change only.
+    if (dof == FlexDof::trilinear || dof == FlexDof::quadratic)
+      Note("flexcomp.interpolated", fc.loc);
     if (!fc.flexcompEdges.empty() && fc.flexcompEdges.front()) {
       const FlexcompEdge& fe = *fc.flexcompEdges.front();
-      if (fe.equality && (*fe.equality == FlexEquality::vert ||
-                          *fe.equality == FlexEquality::strain))
+      // edge (mjEQ_FLEX) and vert (mjEQ_FLEXVERT) synthesize a single flex
+      // equality (native). strain (mjEQ_FLEXSTRAIN) emits one constraint per
+      // finite-element cell, needing the interpolated cellcount machinery.
+      if (fe.equality && *fe.equality == FlexEquality::strain)
         Note("flexcomp.equality_kind", fc.loc);
     }
     if (!fc.plugin.empty()) Note("flexcomp.plugin", fc.loc);

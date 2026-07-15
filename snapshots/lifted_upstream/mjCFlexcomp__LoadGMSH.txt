@@ -1,0 +1,61 @@
+void mjCFlexcomp::LoadGMSH(mjCModel* model, mjResource* resource) {
+  // get buffer from resource
+  char* buffer = 0;
+  int buffer_sz = mju_readResource(resource, (const void**) &buffer);
+
+  // check buffer
+  if (buffer_sz < 0) {
+    throw mjCError(NULL, "Could not read GMSH file");
+  } else if (buffer_sz == 0) {
+    throw mjCError(NULL, "Empty GMSH file");
+  } else if (buffer_sz < 11 || strncmp(buffer, "$MeshFormat", 11)) {
+    throw mjCError(NULL, "GMSH file must begin with $MeshFormat");
+  }
+
+  // check version, determine ascii or binary
+  double version;
+  int binary;
+  if (sscanf(buffer + 11, "%lf %d", &version, &binary) != 2) {
+    throw mjCError(NULL, "Could not read GMSH file header");
+  }
+  if (mju_round(100*version) != 220 && mju_round(100*version) != 410) {
+    throw mjCError(NULL, "Only GMSH file format versions 4.1 and 2.2 are supported");
+  }
+
+  // find section begin/end
+  int nodebegin = findstring(buffer, buffer_sz, "$Nodes");
+  int nodeend =   findstring(buffer, buffer_sz, "$EndNodes");
+  int elembegin = findstring(buffer, buffer_sz, "$Elements");
+  int elemend =   findstring(buffer, buffer_sz, "$EndElements");
+
+
+  // correct begin for string size, +1 for LF in binary (CRLF in Win ascii works)
+  nodebegin += (int)strlen("$Nodes") + 1;
+  elembegin += (int)strlen("$Elements") + 1;
+
+  // check sections
+  if (nodebegin < 0) {
+    throw mjCError(NULL, "GMSH file missing $Nodes");
+  }
+  if (nodeend < nodebegin) {
+    throw mjCError(NULL, "GMSH file missing $EndNodes after $Nodes");
+  }
+  if (elembegin < 0) {
+    throw mjCError(NULL, "GMSH file missing $Elements");
+  }
+  if (elemend < elembegin) {
+    throw mjCError(NULL, "GMSH file missing $EndElements after $Elements");
+  }
+
+  // Support for 4.1
+  if (mju_round(100*version) == 410) {
+    LoadGMSH41(buffer, binary, nodeend, nodebegin, elemend, elembegin);
+  }
+
+  // Support for 2.2
+  else if (mju_round(100*version) == 220) {
+    LoadGMSH22(buffer, binary, nodeend, nodebegin, elemend, elembegin);
+  } else {
+    throw mjCError(NULL, "Unsupported GMSH file format version");
+  }
+}
