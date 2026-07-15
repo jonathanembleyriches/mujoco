@@ -107,6 +107,57 @@ inline WidgetKind ClassifyField(const reflect::FieldDescriptor& fd) {
   return WidgetKind::Unhandled;
 }
 
+// --- Numeric widget width (display fidelity) ------------------------------- //
+// A drag widget must read and write exactly the storage type's bytes. Choosing a
+// wider host data type than the field -- an int64 drag over an int32 -- makes the
+// widget read the adjacent word as the value's high bits and display an
+// uninitialised garbage number. The width and signedness are derived from the
+// C++ storage type here (window-free and unit-tested); details_panel.cc maps this
+// enum 1:1 to the ImGui data-type constant, so the widget can never be wider than
+// the field it edits.
+enum class NumericWidget { S8, S16, S32, S64, U8, U16, U32, U64, F32, F64 };
+
+template <class X>
+constexpr NumericWidget NumericWidgetOf() {
+  static_assert(std::is_arithmetic_v<X> && !std::is_same_v<X, bool>,
+                "NumericWidgetOf is for non-bool arithmetic storage types");
+  if constexpr (std::is_floating_point_v<X>) {
+    return sizeof(X) == 4 ? NumericWidget::F32 : NumericWidget::F64;
+  } else if constexpr (std::is_signed_v<X>) {
+    return sizeof(X) == 1   ? NumericWidget::S8
+           : sizeof(X) == 2 ? NumericWidget::S16
+           : sizeof(X) == 4 ? NumericWidget::S32
+                            : NumericWidget::S64;
+  } else {
+    return sizeof(X) == 1   ? NumericWidget::U8
+           : sizeof(X) == 2 ? NumericWidget::U16
+           : sizeof(X) == 4 ? NumericWidget::U32
+                            : NumericWidget::U64;
+  }
+}
+
+// Bytes the widget reads/writes for a given host data type; must equal
+// sizeof(storage) for every numeric field.
+constexpr std::size_t NumericWidgetBytes(NumericWidget w) {
+  switch (w) {
+    case NumericWidget::S8:
+    case NumericWidget::U8:
+      return 1;
+    case NumericWidget::S16:
+    case NumericWidget::U16:
+      return 2;
+    case NumericWidget::S32:
+    case NumericWidget::U32:
+    case NumericWidget::F32:
+      return 4;
+    case NumericWidget::S64:
+    case NumericWidget::U64:
+    case NumericWidget::F64:
+      return 8;
+  }
+  return 0;
+}
+
 inline std::string_view WidgetKindName(WidgetKind w) {
   switch (w) {
     case WidgetKind::Checkbox: return "Checkbox";
@@ -232,6 +283,21 @@ inline Presence PresenceFromLayers(bool optional, bool authored, bool inherited,
   if (inherited) return Presence::Inherited;
   if (has_default) return Presence::DefaultIdl;
   return Presence::Unset;
+}
+
+// The value a presence-aware row seeds its edit temp with: the authored value if
+// set, else the class-inherited value, else the IDL default, else a zero-init of
+// the type. It never leaves the temp uninitialised, so the widget always shows a
+// value drawn from a real layer rather than stack garbage. The renderer seeds
+// every optional row through this, so what the panel displays for an unset field
+// is exactly the layered value the tests compute independently.
+template <class Inner>
+Inner SeedValue(bool authored, const ps::opt<Inner>& slot,
+                const ps::opt<Inner>* inherited, const ps::opt<Inner>* full) {
+  if (authored) return *slot;
+  if (inherited && inherited->has_value()) return **inherited;
+  if (full && full->has_value()) return **full;
+  return Inner{};
 }
 
 inline std::string_view PresenceBadge(Presence p) {

@@ -8,12 +8,15 @@
 // widget, so a schema change that introduces an unhandled shape fails loudly.
 
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "editor/details_panel.h"
 #include "keywords.h"
+#include "mjcf.h"
 #include "protospec/classes.h"
 #include "reflect.h"
 #include "types.h"
@@ -278,6 +281,194 @@ static void TestInlineVecBounds() {
   CHECK(!det::InlineVecCanShrink(0, 0));
 }
 
+// --- 6. Numeric widget width (display fidelity) ---------------------------- //
+// The drag widget for a numeric field must read and write exactly the storage
+// type's bytes. The original defect drove every integral field with a 64-bit
+// drag, so an int32 field's widget read the adjacent stack word as the value's
+// high bits and displayed a huge uninitialised number ("super big numbers").
+// The width now derives from the storage type via NumericWidgetOf; these assert
+// the mapping is width-exact for every arithmetic type the schema uses.
+static void TestNumericWidgetWidths() {
+  using det::NumericWidget;
+  using det::NumericWidgetBytes;
+  using det::NumericWidgetOf;
+  // The exact regression: an int32 must map to a 4-byte drag, never 8.
+  CHECK(NumericWidgetOf<int32_t>() == NumericWidget::S32);
+  CHECK(NumericWidgetBytes(NumericWidgetOf<int32_t>()) == 4);
+  CHECK(NumericWidgetBytes(NumericWidgetOf<int32_t>()) != 8);
+  // The mapping is width- and sign-exact across the arithmetic types.
+  CHECK(NumericWidgetBytes(NumericWidgetOf<double>()) == sizeof(double));
+  CHECK(NumericWidgetBytes(NumericWidgetOf<float>()) == sizeof(float));
+  CHECK(NumericWidgetBytes(NumericWidgetOf<std::int64_t>()) == 8);
+  CHECK(NumericWidgetBytes(NumericWidgetOf<std::uint64_t>()) == 8);
+  CHECK(NumericWidgetBytes(NumericWidgetOf<std::int16_t>()) == 2);
+  CHECK(NumericWidgetBytes(NumericWidgetOf<std::uint32_t>()) == 4);
+  CHECK(NumericWidgetOf<std::uint32_t>() == NumericWidget::U32);
+  CHECK(NumericWidgetOf<double>() == NumericWidget::F64);
+}
+
+// --- 7. Display-value fidelity sweep --------------------------------------- //
+// Walk the panel's model windowlessly and assert that every value the Details
+// panel would display is drawn from a real layer -- the authored value, the
+// class/IDL effective value, or the type's defined zero -- and never left
+// uninitialised, and that every numeric field's drag widget is exactly as wide
+// as its storage. This is the automated coverage the certification previously
+// lacked: widget-kind mapping was checked, value display fidelity was not.
+
+// Assert the drag widget for one numeric leaf type reads exactly its bytes.
+template <class X>
+static void CheckNumericWidth() {
+  if constexpr (std::is_arithmetic_v<X> && !std::is_same_v<X, bool>) {
+    CHECK(det::NumericWidgetBytes(det::NumericWidgetOf<X>()) == sizeof(X));
+  }
+}
+
+// Run the width check on whatever numeric leaf a field storage type bottoms out
+// in (scalar, std::array, InlineVec, or std::vector element).
+template <class Inner>
+static void AuditNumericWidth() {
+  if constexpr (det::is_std_array<Inner>::value) {
+    CheckNumericWidth<typename det::is_std_array<Inner>::elem>();
+  } else if constexpr (det::is_inline_vec<Inner>::value) {
+    CheckNumericWidth<typename det::is_inline_vec<Inner>::elem>();
+  } else if constexpr (det::is_std_vector<Inner>::value) {
+    CheckNumericWidth<typename det::is_std_vector<Inner>::elem>();
+  } else {
+    CheckNumericWidth<Inner>();
+  }
+}
+
+// True when a storage type bottoms out in a non-bool arithmetic leaf -- the
+// shapes whose widget can misread its width and show garbage.
+template <class Inner>
+static constexpr bool IsNumericBearing() {
+  if constexpr (det::is_std_array<Inner>::value) {
+    using X = typename det::is_std_array<Inner>::elem;
+    return std::is_arithmetic_v<X> && !std::is_same_v<X, bool>;
+  } else if constexpr (det::is_inline_vec<Inner>::value) {
+    using X = typename det::is_inline_vec<Inner>::elem;
+    return std::is_arithmetic_v<X> && !std::is_same_v<X, bool>;
+  } else if constexpr (det::is_std_vector<Inner>::value) {
+    using X = typename det::is_std_vector<Inner>::elem;
+    return std::is_arithmetic_v<X> && !std::is_same_v<X, bool>;
+  } else {
+    return std::is_arithmetic_v<Inner> && !std::is_same_v<Inner, bool>;
+  }
+}
+
+// The per-element visitor: audits every field's displayed seed and widget width.
+template <class E>
+struct DisplayAudit {
+  const E* eff_class;
+  const E* eff_full;
+  template <class T>
+  void field(int id, const char*, T& value) {
+    if constexpr (sdkd::is_opt<T>::value) {
+      using Inner = typename sdkd::is_opt<T>::inner;
+      AuditNumericWidth<Inner>();
+      if constexpr (IsNumericBearing<Inner>()) {
+        const bool authored = value.has_value();
+        const ps::opt<Inner>* clsF =
+            eff_class ? sdkd::FieldAt<E, ps::opt<Inner>>(*eff_class, id)
+                      : nullptr;
+        const ps::opt<Inner>* fullF =
+            eff_full ? sdkd::FieldAt<E, ps::opt<Inner>>(*eff_full, id) : nullptr;
+        // The exact value the row would seed its edit temp -- and display -- with.
+        const Inner seed = det::SeedValue<Inner>(authored, value, clsF, fullF);
+        // Independently: the highest-priority layer that carries a value (the
+        // full Effective folds element + class + IDL), else the defined zero.
+        const bool has_full = fullF && fullF->has_value();
+        const Inner expected = authored ? *value : (has_full ? **fullF : Inner{});
+        CHECK(seed == expected);
+        // Unset with no inherited/default value -> the widget shows the type's
+        // defined zero, never uninitialised stack garbage.
+        if (!authored && !has_full) {
+          CHECK(seed == Inner{});
+        }
+      }
+    } else {
+      AuditNumericWidth<T>();
+    }
+  }
+  template <class C>
+  void child(int, const char*, C&) {}
+  template <class C>
+  void union_child(int, const char*, C&) {}
+};
+
+template <class E>
+static void AuditElement(const mj::Model& m, E& e) {
+  std::unique_ptr<E> ec = sdk::Effective(m, e, false);
+  std::unique_ptr<E> ef = sdk::Effective(m, e, true);
+  DisplayAudit<E> a{ec.get(), ef.get()};
+  mj::Visit(e, a);
+}
+
+static std::string CorpusRoot() {
+  if (const char* env = std::getenv("PROTOSPEC_CORPUS")) return env;
+  return "C:/Users/jonat/Documents/Unreal Projects/url_proj/Plugins/"
+         "UnrealRoboticsLab/third_party/MuJoCo/src";
+}
+
+static void TestDisplayFidelityFresh() {
+  mj::Model m;  // empty: no classes, IDL defaults only
+  // Cover the group-bearing families and the numeric-array fields.
+  mj::Geom g;             AuditElement(m, g);
+  mj::Joint j;            AuditElement(m, j);
+  mj::Site s;             AuditElement(m, s);
+  mj::Camera c;           AuditElement(m, c);
+  mj::Light l;            AuditElement(m, l);
+  mj::Body b;             AuditElement(m, b);
+  mj::Mesh mesh;          AuditElement(m, mesh);
+  mj::Material mat;       AuditElement(m, mat);
+  mj::Pair p;             AuditElement(m, p);
+  mj::ActuatorGeneral a;  AuditElement(m, a);
+
+  // The reported field, checked explicitly: an unset int32 `group` seeds to 0
+  // (not garbage) and its widget is a 4-byte drag, not the old 8-byte one.
+  int gid = -1;
+  const reflect::ElementDescriptor& gd =
+      reflect::Describe(mj::ElementType::Geom);
+  const reflect::FieldDescriptor* fd = FindField(gd, "group", gid);
+  CHECK(fd != nullptr);
+  CHECK(fd->kind == reflect::FieldKind::Int32);
+  CHECK(!g.group.has_value());  // humanoid geoms rarely author group
+  std::unique_ptr<mj::Geom> ec = sdk::Effective(m, g, false);
+  std::unique_ptr<mj::Geom> ef = sdk::Effective(m, g, true);
+  const int32_t seed = det::SeedValue<int32_t>(
+      g.group.has_value(), g.group,
+      sdkd::FieldAt<mj::Geom, ps::opt<int32_t>>(*ec, gid),
+      sdkd::FieldAt<mj::Geom, ps::opt<int32_t>>(*ef, gid));
+  CHECK(seed == 0);
+  CHECK(det::NumericWidgetBytes(det::NumericWidgetOf<int32_t>()) == 4);
+}
+
+static void TestDisplayFidelityHumanoid() {
+  const std::string path =
+      (std::filesystem::path(CorpusRoot()) / "model" / "humanoid" /
+       "humanoid.xml")
+          .string();
+  if (!std::filesystem::exists(path)) {
+    std::printf("SKIP humanoid display sweep (corpus not found at %s)\n",
+                path.c_str());
+    return;
+  }
+  ps::mjcf::io::ParseResult r = ps::mjcf::io::ParseMjcfFile(path);
+  CHECK(r.model != nullptr);
+  if (!r.model) return;
+  const mj::Model& m = *r.model;
+  int elems = 0;
+  sdkd::WalkModelAll(const_cast<mj::Model&>(m), [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model> && requires { e.serial; }) {
+      ++elems;
+      AuditElement(m, e);
+    }
+  });
+  CHECK(elems > 0);
+  std::printf("  display sweep: audited %d humanoid elements\n", elems);
+}
+
 int main() {
   TestWidgetCoverage();
   TestWidgetMappingSpecifics();
@@ -287,6 +478,9 @@ int main() {
   TestRefTargetsAndCandidates();
   TestEnumLabels();
   TestInlineVecBounds();
+  TestNumericWidgetWidths();
+  TestDisplayFidelityFresh();
+  TestDisplayFidelityHumanoid();
 
   std::printf("%d checks, %d failed\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

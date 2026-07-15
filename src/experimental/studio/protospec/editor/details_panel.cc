@@ -114,6 +114,25 @@ struct Grayed {
 
 constexpr float kFieldWidth = 90.0f;
 
+// The single mapping from the window-free NumericWidget (chosen from the storage
+// type in details_panel.h) to ImGui's data-type constant. Kept here so imgui.h
+// stays out of the unit-tested header; the width invariant is proven there.
+constexpr ImGuiDataType ImGuiTypeOf(NumericWidget w) {
+  switch (w) {
+    case NumericWidget::S8:  return ImGuiDataType_S8;
+    case NumericWidget::S16: return ImGuiDataType_S16;
+    case NumericWidget::S32: return ImGuiDataType_S32;
+    case NumericWidget::S64: return ImGuiDataType_S64;
+    case NumericWidget::U8:  return ImGuiDataType_U8;
+    case NumericWidget::U16: return ImGuiDataType_U16;
+    case NumericWidget::U32: return ImGuiDataType_U32;
+    case NumericWidget::U64: return ImGuiDataType_U64;
+    case NumericWidget::F32: return ImGuiDataType_Float;
+    case NumericWidget::F64: return ImGuiDataType_Double;
+  }
+  return ImGuiDataType_S32;
+}
+
 // --- Scalar / composite value widgets -------------------------------------- //
 // DrawValue draws editing widgets bound to `work` and returns true on the frame
 // the user commits an edit. It never touches the model; the caller writes `work`
@@ -137,7 +156,7 @@ bool DrawScalarReal(EditorContext& ctx, const char* label, float& v) {
 template <class I>
 bool DrawScalarInt(EditorContext& ctx, const char* label, I& v) {
   ImGui::SetNextItemWidth(kFieldWidth);
-  ImGui::DragScalar(label, ImGuiDataType_S64, &v, 0.2f);
+  ImGui::DragScalar(label, ImGuiTypeOf(NumericWidgetOf<I>()), &v, 0.2f);
   return GestureShouldCommit(ctx);
 }
 
@@ -149,14 +168,8 @@ bool DrawNumericRow(EditorContext& ctx, X* data, std::size_t count) {
     if (i) ImGui::SameLine();
     ImGui::PushID(static_cast<int>(i));
     ImGui::SetNextItemWidth(kFieldWidth * 0.7f);
-    if constexpr (std::is_floating_point_v<X>) {
-      ImGui::DragScalar("##c",
-                        std::is_same_v<X, float> ? ImGuiDataType_Float
-                                                 : ImGuiDataType_Double,
-                        &data[i], 0.01f);
-    } else {
-      ImGui::DragScalar("##c", ImGuiDataType_S64, &data[i], 0.2f);
-    }
+    ImGui::DragScalar("##c", ImGuiTypeOf(NumericWidgetOf<X>()), &data[i],
+                      std::is_floating_point_v<X> ? 0.01f : 0.2f);
     commit = GestureShouldCommit(ctx) || commit;
     ImGui::PopID();
   }
@@ -413,8 +426,7 @@ void RowOptional(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
   // the still-pristine tree, and the field is written only on commit -- so undo
   // captures the pre-edit state and an unset field materialises exactly on edit.
   const std::string label = RowLabel(fd);
-  Inner work = authored ? *slot
-                        : (inherited ? **clsF : (has_default ? **fullF : Inner{}));
+  Inner work = SeedValue<Inner>(authored, slot, clsF, fullF);
   {
     Grayed g(!authored);
     if (DrawValue(ctx, label.c_str(), work, fd.arity_min)) {
