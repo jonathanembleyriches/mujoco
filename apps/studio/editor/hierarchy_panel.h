@@ -44,6 +44,11 @@ HierNode BuildHierarchyModel(const ps::mjcf::Model& model);
 // matched element, its whole subtree. Empty query returns the tree unchanged.
 HierNode FilterHierarchy(const HierNode& root, const std::string& query);
 
+// Number of element (non-section) nodes whose name or tag matches `query`
+// (case-insensitive substring). Zero for an empty query. Counts genuine matches,
+// not the ancestor/subtree rows FilterHierarchy keeps for context.
+int CountHierarchyMatches(const HierNode& root, const std::string& query);
+
 // Registers the Hierarchy GuiPlugin (replaces the SE0 flat-body placeholder).
 void RegisterHierarchyPanel(EditorContext& ctx);
 

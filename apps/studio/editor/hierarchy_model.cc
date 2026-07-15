@@ -253,6 +253,23 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
   return root;
 }
 
+static int CountSelfMatches(const HierNode& n, const std::string& needle_lc) {
+  int count = 0;
+  if (!n.is_section &&
+      (ContainsCI(n.name, needle_lc) || ContainsCI(n.tag, needle_lc))) {
+    ++count;
+  }
+  for (const HierNode& c : n.children) {
+    count += CountSelfMatches(c, needle_lc);
+  }
+  return count;
+}
+
+int CountHierarchyMatches(const HierNode& root, const std::string& query) {
+  if (query.empty()) return 0;
+  return CountSelfMatches(root, ToLower(query));
+}
+
 HierNode FilterHierarchy(const HierNode& root, const std::string& query) {
   if (query.empty()) {
     return root;

@@ -144,6 +144,7 @@ add_library(protospec_studio_shell STATIC
   host/app.cc
   editor/editor_ops.cc
   editor/undo.cc
+  editor/hierarchy_icons.cc
   editor/hierarchy_model.cc
   editor/hierarchy_panel.cc
   editor/protospec_editor.cc
@@ -194,6 +195,7 @@ add_executable(protospec_studio_tests
   test/test_studio.cc
   editor/editor_ops.cc
   editor/undo.cc
+  editor/hierarchy_icons.cc
   editor/hierarchy_model.cc
 )
 target_link_libraries(protospec_studio_tests PRIVATE

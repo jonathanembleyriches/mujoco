@@ -135,6 +135,12 @@ static ImVec4 SeverityColor(DiagEntry::Severity s) {
 
 static void DiagnosticsUpdate(GuiPlugin* self) {
   EditorContext* c = Ctx(self->data);
+  // The status-bar error chip focuses this panel by posting a request the panel
+  // honours from inside its own window (one-shot).
+  if (c->focus_diagnostics_request) {
+    ImGui::SetWindowFocus();
+    c->focus_diagnostics_request = false;
+  }
   if (!c->status_line.empty()) {
     ImGui::TextWrapped("%s", c->status_line.c_str());
     ImGui::SameLine();

@@ -83,6 +83,16 @@ struct DiagEntry {
   std::optional<ps::SourceLoc> loc;     // file:line origin when known
 };
 
+// The status-bar error-chip predicate: how many diagnostics are errors. A pure
+// function of the log so it is unit-tested windowless; the chip shows iff > 0.
+inline int DiagnosticErrorCount(const std::deque<DiagEntry>& diagnostics) {
+  int count = 0;
+  for (const DiagEntry& d : diagnostics) {
+    if (d.severity == DiagEntry::Severity::Error) ++count;
+  }
+  return count;
+}
+
 // A transient status note shown briefly over the viewport (gizmo hints and the
 // like). Info/Warning notes fade out shortly after they are posted; Error notes
 // stay until replaced or explicitly cleared. The visibility/opacity is a pure
@@ -224,6 +234,10 @@ struct EditorContext {
   // A delete request from the viewport (Del key). The Hierarchy panel services it
   // through the SE1a referrer-confirm flow (preview -> cascade/cancel modal).
   std::uint64_t delete_request_serial = 0;
+
+  // Set by the status-bar error chip; the Diagnostics panel consumes it to bring
+  // itself to the front (one-shot).
+  bool focus_diagnostics_request = false;
 
   // Editor state.
   UndoStack history;

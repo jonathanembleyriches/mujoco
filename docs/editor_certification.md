@@ -174,8 +174,12 @@ standalone `apps/studio` host does not carry.
 | M32 | *(studio branch)* Open the **Edit** menu with a clean, just-loaded model; make one edit and reopen it. Open **File** | Undo/Redo are **greyed** until there is history; every item lists its shortcut; Save is greyed when clean / no path | ☐ |
 | M33 | *(studio branch)* File → Open… / Save As… / Import Mesh… | The host's **native OS file dialog** opens; the matching "… path…" submenu still accepts a typed path as a fallback | ☐ |
 | M34 | Click empty space so nothing is selected | Details reads "Nothing selected." with the hint "Click an element in the viewport or Hierarchy." | ☐ |
+| M35 | Read the Hierarchy rows; type a name fragment into the filter, then click the clear-x | Every element row leads with a **FontAwesome family glyph** (body/geom/joint/site/camera/light/frame/actuator/sensor/tendon/equality/asset; sections show a folder); the selected row's text is the brightest; while filtering, a **clear-x** button and a live **"N matches"** count show; clear-x empties the filter | ☐ |
+| M36 | Select an **angled** limb geom (e.g. `upper_arm_right` on the humanoid), orbit around it | The selection outline is a **tight box oriented to the geom's own frame** (its edges run along the shape, not axis-aligned) and the selected geom carries a **subtle emissive tint**; a selected joint keeps its highlighted axis/anchor overlay | ☐ |
+| M37 | *(studio branch)* Load a model with a planted validation error (e.g. a duplicate joint name); switch the lower panel to Assets, then click the status-bar error chip | A compact **red chip** with the error **count** appears in the status bar whenever Diagnostics hold errors; clicking it **brings the Diagnostics panel to the front**; the chip clears when the diagnostics are cleared | ☐ |
+| M38 | *(studio branch)* Launch classic (`--gfx=classic --screenshot_seq=<dir>`) and press **F12** (or pass `--screenshot_after=<N> --screenshot_count=<K>`) | A PNG of the **composited UI** (menu bar + panels + viewport) is written to `<dir>` — a host-side self-capture that bypasses OS screen grab; images are non-black with the full chrome visible | ☐ |
 
-**34 steps.**
+**38 steps.**
 
 ---
 
@@ -185,7 +189,7 @@ standalone `apps/studio` host does not carry.
 
 1. All seven batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
 2. Every §1.2 gap row marked Closed (test added and green) or Waived with owner initials.
-3. All 34 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
+3. All 38 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
 4. The statement below signed.
 
 ### Known exclusions — certified does NOT cover
@@ -212,7 +216,7 @@ standalone `apps/studio` host does not carry.
 ### Certification statement
 
 > I certify that the ProtoSpec Studio model editor meets every guarantee in Section 1, that all
-> Section 1.2 gaps are closed or waived above, and that I walked all 34 steps of Section 2 on
+> Section 1.2 gaps are closed or waived above, and that I walked all 38 steps of Section 2 on
 > the build identified below with zero failures.
 >
 > protospec commit: `________________`  mujoco-studio (`studio`) commit: `________________`

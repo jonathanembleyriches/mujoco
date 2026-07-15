@@ -6,6 +6,7 @@
 //   KeyHandlerPlugin    Q/W/E/R tool select, F frame, Del delete, +/- etc.
 // A single GizmoController is shared by the mouse and draw hooks.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -308,23 +309,47 @@ void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   DrawDropMenu(ve);
 }
 
-// Selection outline: a wireframe box at the selected element's world aabb,
-// appended to the scene as mjv line geoms (§5 / deliverable 5). Modest but clear.
+// Selection outline: a wireframe box that hugs the selected element, oriented by
+// the element's world frame `R` (row-major, world<-local) so it tracks the
+// element's real orientation instead of a loose axis-aligned bound. Appended to
+// the scene as mjv line geoms (§5 / deliverable 5).
 void AppendBoxWire(mjvScene* s, const mjtNum center[3], const mjtNum half[3],
-                   const float rgba[4]) {
+                   const mjtNum R[9], const float rgba[4]) {
   const int c[8][3] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
                        {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1}};
   const int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
                             {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
   mjtNum v[8][3];
-  for (int i = 0; i < 8; ++i)
-    for (int k = 0; k < 3; ++k) v[i][k] = center[k] + c[i][k] * half[k];
+  for (int i = 0; i < 8; ++i) {
+    const mjtNum local[3] = {c[i][0] * half[0], c[i][1] * half[1],
+                             c[i][2] * half[2]};
+    mjtNum rot[3];
+    mju_mulMatVec3(rot, R, local);
+    for (int k = 0; k < 3; ++k) v[i][k] = center[k] + rot[k];
+  }
   for (int e = 0; e < 12; ++e) {
     if (s->ngeom >= s->maxgeom) break;
     mjvGeom* g = &s->geoms[s->ngeom];
     mjv_initGeom(g, mjGEOM_LINE, nullptr, nullptr, nullptr, rgba);
     mjv_connector(g, mjGEOM_LINE, 3.0, v[edges[e][0]], v[edges[e][1]]);
     s->ngeom++;
+  }
+}
+
+// A subtle emissive lift on the selected geom's own scene geom, so the body
+// glows a touch above its neighbours (paired with the outline for readability).
+// The scene is rebuilt every frame, so the tweak lives for exactly this frame.
+void TintSelectedGeom(mjvScene* s, int gid) {
+  for (int i = 0; i < s->ngeom; ++i) {
+    mjvGeom* g = &s->geoms[i];
+    if (g->objtype != mjOBJ_GEOM || g->objid != gid) continue;
+    g->emission = std::max(g->emission, 0.28f);
+    // Nudge a quarter of the way toward the highlight so the tint reads on any
+    // base colour, staying subtle enough not to hide the material.
+    const float sel[3] = {1.0f, 0.85f, 0.25f};
+    for (int k = 0; k < 3; ++k) {
+      g->rgba[k] = g->rgba[k] * 0.75f + sel[k] * 0.25f;
+    }
   }
 }
 
@@ -456,28 +481,25 @@ void OnOverlay(OverlayPlugin* self, const mjModel* m, const mjData* d,
       const mjtNum* R = d->geom_xmat + 9 * gid;
       mjtNum half[3];
       for (int k = 0; k < 3; ++k) half[k] = m->geom_aabb[6 * gid + 3 + k] + 0.005;
-      // aabb centre is in the geom frame; transform to world.
+      // aabb centre is in the geom frame; transform to world. The box is drawn
+      // in the geom's own orientation R, so it hugs the shape tightly.
       mjtNum wc[3];
       mju_mulMatVec3(wc, R, m->geom_aabb + 6 * gid);
       for (int k = 0; k < 3; ++k) wc[k] += d->geom_xpos[3 * gid + k];
-      // World AABB half-extent of the oriented local box: abs(R) * half.
-      mjtNum wch[3];
-      for (int r = 0; r < 3; ++r) {
-        wch[r] = std::fabs(R[3 * r + 0]) * half[0] +
-                 std::fabs(R[3 * r + 1]) * half[1] +
-                 std::fabs(R[3 * r + 2]) * half[2];
-      }
-      AppendBoxWire(s, wc, wch, rgba);
+      AppendBoxWire(s, wc, half, R, rgba);
+      TintSelectedGeom(s, gid);
       return;
     }
     if (e.etype == mj::ElementType::Body) {
       mjtNum half[3] = {0.06, 0.06, 0.06};
-      AppendBoxWire(s, d->xpos + 3 * e.id, half, rgba);
+      AppendBoxWire(s, d->xpos + 3 * e.id, half, d->xmat + 9 * e.id, rgba);
       return;
     }
     if (e.etype == mj::ElementType::Site) {
-      mjtNum half[3] = {0.04, 0.04, 0.04};
-      AppendBoxWire(s, d->site_xpos + 3 * e.id, half, rgba);
+      mjtNum half[3];
+      for (int k = 0; k < 3; ++k) half[k] = m->site_size[3 * e.id + k] + 0.01;
+      AppendBoxWire(s, d->site_xpos + 3 * e.id, half, d->site_xmat + 9 * e.id,
+                    rgba);
       return;
     }
   }
