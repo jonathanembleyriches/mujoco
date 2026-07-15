@@ -258,10 +258,24 @@ target_include_directories(protospec_sdk INTERFACE
 )
 target_link_libraries(protospec_sdk INTERFACE protospec)
 
-add_executable(protospec_sdk_tests test/test_sdk.cc)
-target_link_libraries(protospec_sdk_tests PRIVATE protospec_sdk protospec_io)
+# SDK save surface (protospec/save.h): the one compiled piece of the SDK. It
+# reaches to disk and pulls in the MJCF writer, so it is a small static library
+# kept separate from the header-only pure-tree SDK. Also carries the single
+# shared asset-externalization implementation the studio editor delegates to.
+add_library(protospec_sdk_io STATIC sdk/save.cc)
+target_link_libraries(protospec_sdk_io PUBLIC protospec_sdk protospec_io)
 if(MSVC)
-  target_compile_options(protospec_sdk_tests PRIVATE /W4 /permissive-)
+  target_compile_options(protospec_sdk_io PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(protospec_sdk_io PRIVATE -Wall -Wextra)
+endif()
+
+add_executable(protospec_sdk_tests test/test_sdk.cc)
+target_link_libraries(protospec_sdk_tests PRIVATE protospec_sdk protospec_sdk_io protospec_io)
+if(MSVC)
+  # /bigobj: the SDK test TU (heavily templated builders + the added save cases)
+  # exceeds the COFF section limit without it.
+  target_compile_options(protospec_sdk_tests PRIVATE /W4 /permissive- /bigobj)
 else()
   target_compile_options(protospec_sdk_tests PRIVATE -Wall -Wextra)
 endif()

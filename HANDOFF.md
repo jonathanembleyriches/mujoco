@@ -10,6 +10,53 @@ uv run python -m protospec_gen.emit --check
 uv run python tools/lift_registry.py check
 ```
 
+## SDK save surface (cpp/sdk/protospec/save.h)
+
+First-class model persistence on the SDK (previously only the studio could save):
+
+- `sdk::Save(const Model&, path)` — `WriteMjcf` -> file on disk.
+- `sdk::SaveAs(const Model&, path, std::vector<InMemoryAsset>*)` — Save plus
+  externalize in-memory assets (mesh/texture/hfield bytes) next to the target,
+  honoring `<compiler meshdir>`, then clear the list. `nullptr` == Save. The
+  model is `const` (deviates from the owner's `Model&` sketch on purpose: saving
+  never mutates the tree, matching CDR-14 / rule 3; the asset list is the only
+  mutable output).
+- Shared asset externalization lives ONCE here: `ModelAssetDir` + `WriteAssetFile`
+  (primitives) and `ExternalizeAssets` (convenience). Built as `protospec_sdk_io`
+  (STATIC, links protospec_io); the pure-tree `sdk.h` stays MuJoCo/disk-free.
+- Tests in `test/test_sdk.cc`: `TestSaveRoundtrip` (build -> Save -> ParseMjcf ->
+  deep-equal `operator==` + byte-fixpoint) and `TestSaveAsExternalizesAssets`
+  (in-memory bytes -> file under meshdir, byte-exact, list drained, reload parses
+  + mesh resolves). `protospec_sdk_tests` needs `/bigobj` now.
+- **FOLLOW-UP (editor agent, apps/studio):** point `ExternalizeVfsAssets`
+  (apps/studio/editor/asset_import.cc) at the shared impl — loop
+  `sdk::WriteAssetFile(sdk::ModelAssetDir(*ctx.tree, xml), a.name, a.bytes.data(),
+  a.bytes.size())` over `ctx.vfs_assets` (zero-copy; `bridge::VfsAsset` has the
+  same `.name`/`.bytes` shape), then keep the studio-only `vfs_assets.clear()` +
+  `base_dir` repoint. Link `protospec_sdk_io`. Not done here (studio is off-limits
+  to this track).
+
+## ASan (tools/run_asan.ps1 + .sh; `pytest -m asan`)
+
+Separate instrumented tree in `cpp/build_asan` (never touches `cpp/build`):
+`cmake -DCMAKE_CXX_FLAGS="/fsanitize=address /Zi" -DCMAKE_TRY_COMPILE_CONFIGURATION=Release`
+(the last flag keeps `/RTC1`, incompatible with ASan, out of CMake's Debug-default
+compiler probe). The clang_rt ASan runtime DLL is copied beside the test exes
+from the CMAKE_LINKER toolset dir. Run: `pwsh tools/run_asan.ps1`
+(or `PROTOSPEC_RUN_ASAN=1 pytest -m asan`). Result today: **CLEAN — 0 reports**
+across the 4 instrumented suites (676 checks) + 60 diverse corpus files under
+`ps_roundtrip`.
+
+- **Scope = MuJoCo-free only** (object model, io, core, validate, SDK+save).
+  The MuJoCo-linked suites (bridge, native/compile, ps_native_diff) **cannot** be
+  built under MSVC `/fsanitize=address`: any TU including `<mujoco/mujoco.h>`
+  pulls in vendored `mujoco/mjsan.h`, whose `ADDRESS_SANITIZER` path (a) uses
+  GCC/Clang `__attribute__`/`asm` cl.exe rejects, and (b) calls
+  `mj__markStack`/`mj__freeStack`, which exist only in a libmujoco built under
+  ASan — the vendored `mujoco.dll` is a normal build. Instrumenting them needs an
+  ASan-built MuJoCo, or the ClangCL VS toolset (parses mjsan.h; not installed on
+  this box). NOT a ProtoSpec bug and NOT in our files — routed, not fixed.
+
 ## Standing rules (owner)
 
 1. **Never integrate anything into UnrealRoboticsLab.** This repo stays standalone.

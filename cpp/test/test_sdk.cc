@@ -9,12 +9,16 @@
 // against the generated value-equality, not against a live compile.
 
 #include <cstdio>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "mjcf.h"
 #include "protospec/sdk.h"
+#include "protospec/save.h"
 #include "types.h"
 
 using namespace ps::mjcf;
@@ -553,9 +557,120 @@ static void TestAttach() {
         cloned->material->name == "p_mat");
 }
 
+// --- save: Save round-trip + SaveAs asset externalization ----------------- //
+
+namespace fs = std::filesystem;
+
+// A fresh, unique temp directory for one save test (removed at scope exit).
+struct TempDir {
+  fs::path path;
+  explicit TempDir(const char* tag) {
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec);
+    path = base / ("ps_sdk_save_" + std::string(tag) + "_" +
+                   std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+    fs::create_directories(path, ec);
+  }
+  ~TempDir() {
+    std::error_code ec;
+    fs::remove_all(path, ec);
+  }
+};
+
+// Save(model) -> ParseMjcf(file) -> deep-equal + deterministic-bytes fixpoint.
+static void TestSaveRoundtrip() {
+  auto m = BuildRobot();
+  TempDir tmp("roundtrip");
+  const fs::path out = tmp.path / "robot.xml";
+
+  CHECK(sdk::Save(*m, out));
+  CHECK(fs::exists(out));
+
+  io::ParseResult reloaded = io::ParseMjcfFile(out.string());
+  if (!reloaded.ok()) {
+    for (const auto& e : reloaded.errors)
+      std::printf("  parse: %s\n", e.Render().c_str());
+  }
+  CHECK(reloaded.ok());
+  if (reloaded.ok()) {
+    // Deep equality (generated operator==) between the built tree and the tree
+    // read back off disk, plus writer-byte determinism.
+    CHECK(*m == *reloaded.model);
+    CHECK(io::WriteMjcf(*m) == io::WriteMjcf(*reloaded.model));
+  }
+}
+
+// SaveAs with in-memory mesh bytes: the bytes land on disk under the model's
+// meshdir, the assets vector is drained, and the reloaded model resolves the
+// mesh to that on-disk file (the precondition the compiler's base_dir/meshdir
+// resolution needs -- full mjModel compile of on-disk-mesh models is exercised
+// by the bridge corpus suite and the ASan corpus pass).
+static void TestSaveAsExternalizesAssets() {
+  auto m = std::make_unique<Model>();
+  m->model = "meshbot";
+  // Author a meshdir so assets externalize into a subdirectory, exercising the
+  // ModelAssetDir resolution rather than the beside-the-xml default.
+  {
+    auto c = std::make_unique<Compiler>();
+    c->meshdir = "assets";
+    m->compilers.push_back(std::move(c));
+  }
+  const std::string basename = "cube.stl";
+  sdk::AddMesh(*m, "cube", basename);
+  Body& world = sdk::World(*m);
+  Body& b = sdk::AddBody(world, "cube_body");
+  Geom& g = sdk::AddGeom(b, GeomType::mesh, "cube_geom");
+  g.mesh = ps::Ref<Mesh>("cube");
+
+  // Representative binary asset payload (opaque to the SDK; byte-exact on disk).
+  std::vector<std::uint8_t> bytes;
+  for (int i = 0; i < 256; ++i) bytes.push_back(static_cast<std::uint8_t>(i));
+  std::vector<sdk::InMemoryAsset> assets{sdk::InMemoryAsset{basename, bytes}};
+
+  TempDir tmp("saveas");
+  const fs::path out = tmp.path / "meshbot.xml";
+  CHECK(sdk::SaveAs(*m, out, &assets));
+
+  // Assets drained once externalized.
+  CHECK(assets.empty());
+
+  // The bytes landed under <xmldir>/assets/cube.stl, byte-for-byte.
+  const fs::path asset = tmp.path / "assets" / basename;
+  CHECK(fs::exists(asset));
+  {
+    std::ifstream in(asset, std::ios::binary);
+    std::vector<std::uint8_t> on_disk((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+    CHECK(on_disk == bytes);
+  }
+
+  // ModelAssetDir agrees with where SaveAs put the file.
+  CHECK(sdk::ModelAssetDir(*m, out) == (tmp.path / "assets"));
+
+  // Reload: the model parses and the mesh resolves to the on-disk basename.
+  io::ParseResult reloaded = io::ParseMjcfFile(out.string());
+  if (!reloaded.ok()) {
+    for (const auto& e : reloaded.errors)
+      std::printf("  parse: %s\n", e.Render().c_str());
+  }
+  CHECK(reloaded.ok());
+  if (reloaded.ok()) {
+    Mesh* rm = sdk::Find<Mesh>(*reloaded.model, "cube");
+    CHECK(rm != nullptr && rm->file.has_value() && *rm->file == basename);
+    CHECK(*m == *reloaded.model);
+  }
+
+  // SaveAs with a null asset list is exactly Save (no throw, file written).
+  const fs::path out2 = tmp.path / "meshbot2.xml";
+  CHECK(sdk::SaveAs(*m, out2, nullptr));
+  CHECK(fs::exists(out2));
+}
+
 int main() {
   TestBuilders();
   TestFixpoint();
+  TestSaveRoundtrip();
+  TestSaveAsExternalizesAssets();
   TestTraversal();
   TestResolveAndReferrers();
   TestRename();

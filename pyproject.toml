@@ -14,6 +14,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "asan: AddressSanitizer pass (opt-in; needs an ASan build). Run with `pytest -m asan` and PROTOSPEC_RUN_ASAN=1; see tools/run_asan.ps1 / tools/run_asan.sh.",
+]
 
 [build-system]
 requires = ["hatchling"]
