@@ -1,0 +1,106 @@
+void mjCTexture::LoadCubeSingle(std::string filename, const mjVFS* vfs) {
+  // check gridsize
+  if (gridsize[0] < 1 || gridsize[1] < 1 || gridsize[0]*gridsize[1] > 12) {
+    throw mjCError(this, "gridsize must be non-zero and no more than 12 squares in texture");
+  }
+
+  // load PNG or custom
+  unsigned int w, h;
+  bool is_srgb;
+  std::vector<std::byte> image;
+  LoadFlip(filename, vfs, image, w, h, is_srgb);
+
+  if (colorspace == mjCOLORSPACE_AUTO) {
+    colorspace = is_srgb ? mjCOLORSPACE_SRGB : mjCOLORSPACE_LINEAR;
+  }
+
+  // check gridsize for compatibility
+  if (w/gridsize[1] != h/gridsize[0] || (w%gridsize[1]) || (h%gridsize[0])) {
+    throw mjCError(this,
+                   "PNG size must be integer multiple of gridsize in texture '%s' (id %d)",
+                   (const char*)file_.c_str(), id);
+  }
+
+  // assign size: repeated or full
+  if (gridsize[0] == 1 && gridsize[1] == 1) {
+    width = height = w;
+  } else {
+    width = w/gridsize[1];
+    if (width >= std::numeric_limits<int>::max()/6) {
+      throw mjCError(this, "Invalid width of cube texture");
+    }
+    height = 6*width;
+  }
+
+  // allocate data
+  std::int64_t size = static_cast<std::int64_t>(width)*height;
+  if (size >= std::numeric_limits<std::int64_t>::max() / 3 || size <= 0) {
+    throw mjCError(this, "Cube texture too large");
+  }
+  try {
+    data_.assign(3*size, std::byte(0));
+  } catch (const std::bad_alloc& e) {
+    throw mjCError(this,
+                   "Could not allocate memory for texture '%s' (id %d)",
+                   (const char*)file_.c_str(), id);
+  }
+
+  // copy: repeated
+  if (gridsize[0] == 1 && gridsize[1] == 1) {
+    memcpy(data_.data(), image.data(), 3*width*width);
+  }
+
+  // copy: grid
+  else {
+    // keep track of which faces were defined
+    int loaded[6] = {0, 0, 0, 0, 0, 0};
+
+    // process grid
+    for (int k=0; k < gridsize[0]*gridsize[1]; k++) {
+      // decode face symbol
+      int i = -1;
+      if (gridlayout[k] == 'R') {
+        i = 0;
+      } else if (gridlayout[k] == 'L') {
+        i = 1;
+      } else if (gridlayout[k] == 'U') {
+        i = 2;
+      } else if (gridlayout[k] == 'D') {
+        i = 3;
+      } else if (gridlayout[k] == 'F') {
+        i = 4;
+      } else if (gridlayout[k] == 'B') {
+        i = 5;
+      } else if (gridlayout[k] != '.')
+        throw mjCError(this, "gridlayout symbol is not among '.RLUDFB' in texture");
+
+      // load if specified
+      if (i >= 0) {
+        // extract sub-image
+        int rstart = width*(k/gridsize[1]);
+        int cstart = width*(k%gridsize[1]);
+        for (int j=0; j < width; j++) {
+          memcpy(data_.data()+i*3*width*width+j*3*width, image.data()+(j+rstart)*3*w+3*cstart, 3*width);
+        }
+
+        // mark as defined
+        loaded[i] = 1;
+      }
+    }
+
+    // set undefined faces to rgb1
+    for (int i=0; i < 6; i++) {
+      if (!loaded[i]) {
+        for (int k=0; k < width; k++) {
+          for (int s=0; s < width; s++) {
+            for (int j=0; j < 3; j++) {
+              data_[i*3*width*width + 3*(k*width+s) + j] = (std::byte)(255*rgb1[j]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  image.clear();
+}

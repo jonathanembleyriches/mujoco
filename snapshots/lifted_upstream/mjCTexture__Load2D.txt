@@ -1,0 +1,14 @@
+void mjCTexture::Load2D(std::string filename, const mjVFS* vfs) {
+  // load PNG or custom
+  unsigned int w, h;
+  bool is_srgb;
+
+  LoadFlip(filename, vfs, data_, w, h, is_srgb);
+
+  // assign size
+  width = w;
+  height = h;
+  if (colorspace == mjCOLORSPACE_AUTO) {
+    colorspace = is_srgb ? mjCOLORSPACE_SRGB : mjCOLORSPACE_LINEAR;
+  }
+}

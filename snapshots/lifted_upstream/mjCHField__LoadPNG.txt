@@ -1,0 +1,14 @@
+void mjCHField::LoadPNG(mjResource* resource) {
+  PNGImage image = PNGImage::Load(this, resource, LCT_GREY);
+
+  ncol = image.Width();
+  nrow = image.Height();
+
+  // copy image data over with rows reversed
+  data.reserve(nrow * ncol);
+  for (int r = 0; r < nrow; r++) {
+    for (int c = 0; c < ncol; c++) {
+      data.push_back((float) image[c + (nrow - 1 - r)*ncol]);
+    }
+  }
+}

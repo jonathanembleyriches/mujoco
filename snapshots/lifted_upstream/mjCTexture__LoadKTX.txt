@@ -1,0 +1,20 @@
+void mjCTexture::LoadKTX(mjResource* resource, std::vector<std::byte>& image,
+                         unsigned int& w, unsigned int& h, bool& is_srgb) {
+  const void* buffer = 0;
+  int buffer_sz = mju_readResource(resource, &buffer);
+
+  // still not found
+  if (buffer_sz < 0) {
+    throw mjCError(this, "could not read texture file '%s'", resource->name);
+  } else if (!buffer_sz) {
+    throw mjCError(this, "texture file is empty: '%s'", resource->name);
+  }
+
+  w = buffer_sz;
+  h = 1;
+  nchannel = 1;
+  is_srgb = false;
+
+  image.resize(buffer_sz);
+  memcpy(image.data(), buffer, buffer_sz);
+}

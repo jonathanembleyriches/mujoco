@@ -1,0 +1,117 @@
+void mjCSkin::LoadSKN(mjResource* resource) {
+  char* buffer = 0;
+  int buffer_sz = mju_readResource(resource, (const void**)&buffer);
+
+  if (buffer_sz < 0) {
+    throw mjCError(this, "could not read SKN file '%s'", resource->name);
+  } else if (!buffer_sz) {
+    throw mjCError(this, "SKN file '%s' is empty", resource->name);
+  }
+
+  // make sure header is present
+  if (buffer_sz < 16) {
+    throw mjCError(this, "missing header in SKN file '%s'", resource->name);
+  }
+
+  // get sizes from header
+  int nvert = ((int*)buffer)[0];
+  int ntexcoord = ((int*)buffer)[1];
+  int nface = ((int*)buffer)[2];
+  int nbone = ((int*)buffer)[3];
+
+  // negative sizes not allowed
+  if (nvert < 0 || ntexcoord < 0 || nface < 0 || nbone < 0) {
+    throw mjCError(this, "negative size in header of SKN file '%s'", resource->name);
+  }
+
+  // make sure we have data for vert, texcoord, face
+  if (buffer_sz < 16 + 12*nvert + 8*ntexcoord + 12*nface) {
+    throw mjCError(this, "insufficient data in SKN file '%s'", resource->name);
+  }
+
+  // data pointer and counter
+  float* pdata = (float*)(buffer+16);
+  int cnt = 0;
+
+  // copy vert
+  if (nvert) {
+    vert_.resize(3*nvert);
+    memcpy(vert_.data(), pdata+cnt, 3*nvert*sizeof(float));
+    cnt += 3*nvert;
+  }
+
+  // copy texcoord
+  if (ntexcoord) {
+    texcoord_.resize(2*ntexcoord);
+    memcpy(texcoord_.data(), pdata+cnt, 2*ntexcoord*sizeof(float));
+    cnt += 2*ntexcoord;
+  }
+
+  // copy face
+  if (nface) {
+    face_.resize(3*nface);
+    memcpy(face_.data(), pdata+cnt, 3*nface*sizeof(int));
+    cnt += 3*nface;
+  }
+
+  // allocate bone arrays
+  bodyname_.clear();
+  bindpos_.resize(3*nbone);
+  bindquat_.resize(4*nbone);
+  vertid_.resize(nbone);
+  vertweight_.resize(nbone);
+
+  // read bones
+  for (int i=0; i < nbone; i++) {
+    // check size
+    if (buffer_sz/4-4-cnt < 18) {
+      throw mjCError(this, "insufficient data in SKN file '%s', bone %d", resource->name, i);
+    }
+
+    // read name
+    char txt[40];
+    strncpy(txt, (char*)(pdata+cnt), 39);
+    txt[39] = '\0';
+    cnt += 10;
+    bodyname_.push_back(txt);
+
+    // read bindpos
+    memcpy(bindpos_.data()+3*i, pdata+cnt, 3*sizeof(float));
+    cnt += 3;
+
+    // read bind quat
+    memcpy(bindquat_.data()+4*i, pdata+cnt, 4*sizeof(float));
+    cnt += 4;
+
+    // read vertex count
+    int vcount = *(int*)(pdata+cnt);
+    cnt += 1;
+
+    // check for negative
+    if (vcount < 1) {
+      throw mjCError(this, "vertex count must be positive in SKN file '%s', bone %d",
+                     resource->name, i);
+    }
+
+    // check size
+    if (buffer_sz/4-4-cnt < 2*vcount) {
+      throw mjCError(this, "insufficient vertex data in SKN file '%s', bone %d",
+                     resource->name, i);
+    }
+
+    // read vertid
+    vertid_[i].resize(vcount);
+    memcpy(vertid_[i].data(), (int*)(pdata+cnt), vcount*sizeof(int));
+    cnt += vcount;
+
+    // read vertweight
+    vertweight_[i].resize(vcount);
+    memcpy(vertweight_[i].data(), (int*)(pdata+cnt), vcount*sizeof(int));
+    cnt += vcount;
+  }
+
+  // check final size
+  if (buffer_sz != 16+4*cnt) {
+    throw mjCError(this, "unexpected buffer size in SKN file '%s'", resource->name);
+  }
+}

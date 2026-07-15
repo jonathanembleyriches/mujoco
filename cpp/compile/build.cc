@@ -48,6 +48,7 @@
 #include "binding.h"       // bridge::ObjTypeOf / FamilyToken
 #include "classes.h"       // ps::sdk::Effective (pure effective-defaults query)
 #include "context.h"
+#include "image_pipeline.h" // lifted PNG decode
 #include "make_model.h"    // lifted::MakeModel
 #include "mesh_pipeline.h" // lifted mesh compile
 #include "mjuu_util.h"     // lifted math
@@ -91,7 +92,9 @@ struct CompilerSettings {
   InertiaFromGeom inertiafromgeom = InertiaFromGeom::auto_;
   int inertiagrouprange[2] = {0, mjNGROUP - 1};
   std::string meshdir;          // <compiler meshdir> (falls back to assetdir)
+  std::string texturedir;       // <compiler texturedir> (falls back to assetdir)
   bool strippath = false;       // <compiler strippath>
+  bool fitaabb = false;         // <compiler fitaabb> (fitgeom: aabb vs inertia box)
 };
 
 CompilerSettings ReadCompiler(const Model& m) {
@@ -110,9 +113,11 @@ CompilerSettings ReadCompiler(const Model& m) {
       s.inertiagrouprange[0] = (*c->inertiagrouprange)[0];
       s.inertiagrouprange[1] = (*c->inertiagrouprange)[1];
     }
-    if (c->assetdir) s.meshdir = *c->assetdir;
+    if (c->assetdir) { s.meshdir = *c->assetdir; s.texturedir = *c->assetdir; }
     if (c->meshdir) s.meshdir = *c->meshdir;
+    if (c->texturedir) s.texturedir = *c->texturedir;
     if (c->strippath) s.strippath = *c->strippath;
+    if (c->fitaabb) s.fitaabb = *c->fitaabb;
   }
   return s;
 }
@@ -586,7 +591,7 @@ void GeomFluidCoefs(int type, const double size[3], const double coefs[5],
 CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
                   int bodyid, bool inferinertia, const AssetBinds& assets) {
   std::unique_ptr<Geom> eff = ps::sdk::Effective(model, g);
-  (void)cs;  // orientation is pre-resolved (Q-ORIENT); no degree needed here
+  // orientation is pre-resolved (Q-ORIENT); cs is used for the fitgeom branch.
   CGeom cg;
   cg.src = &g;
   cg.bodyid = bodyid;
@@ -689,6 +694,79 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
       }
       finalize_fluid();
       return cg;
+    }
+  }
+
+  // fitgeom: a primitive geom (type != mesh/sdf) that references a mesh takes its
+  // size from the mesh's inertia box (default) or aabb (compiler fitaabb), scaled
+  // by fitscale, then accumulates the mesh frame + fit center into its own frame
+  // and proceeds as a primitive (mjCGeom::Compile mesh branch + mjCMesh::FitGeom,
+  // user_mesh.cc:944). The mesh ref is dropped, so no dataid/mesh inertia here.
+  if (cg.type != mjGEOM_MESH && cg.type != mjGEOM_SDF && eff->mesh) {
+    auto it = assets.mesh.find(eff->mesh->name);
+    if (it != assets.mesh.end()) {
+      const MeshBind& mb = it->second;
+      // geom_dataid keeps the source mesh id even after fitting (MuJoCo retains
+      // the reference for visualization; only size/frame come from the fit).
+      cg.dataid = mb.id;
+      const double fitscale = eff->fitscale ? *eff->fitscale : 1.0;
+      double center[3] = {0, 0, 0};
+      if (!cs.fitaabb) {  // inertia box
+        switch (cg.type) {
+          case mjGEOM_SPHERE:
+            cg.size[0] = (mb.boxsz[0] + mb.boxsz[1] + mb.boxsz[2]) / 3;
+            break;
+          case mjGEOM_CAPSULE:
+            cg.size[0] = (mb.boxsz[0] + mb.boxsz[1]) / 2;
+            cg.size[1] = std::max(0.0, mb.boxsz[2] - cg.size[0] / 2);
+            break;
+          case mjGEOM_CYLINDER:
+            cg.size[0] = (mb.boxsz[0] + mb.boxsz[1]) / 2;
+            cg.size[1] = mb.boxsz[2];
+            break;
+          case mjGEOM_ELLIPSOID:
+          case mjGEOM_BOX:
+            cg.size[0] = mb.boxsz[0];
+            cg.size[1] = mb.boxsz[1];
+            cg.size[2] = mb.boxsz[2];
+            break;
+          default:
+            break;
+        }
+      } else {  // aabb
+        for (int k = 0; k < 3; ++k) center[k] = (mb.aamm[k] + mb.aamm[k + 3]) / 2;
+        double sz[3] = {mb.aamm[3] - center[0], mb.aamm[4] - center[1],
+                        mb.aamm[5] - center[2]};
+        switch (cg.type) {
+          case mjGEOM_SPHERE:
+            cg.size[0] = std::max(std::max(sz[0], sz[1]), sz[2]);
+            break;
+          case mjGEOM_CAPSULE:
+          case mjGEOM_CYLINDER:
+            cg.size[0] = std::max(sz[0], sz[1]);
+            cg.size[1] = sz[2];
+            if (cg.type == mjGEOM_CAPSULE) cg.size[1] -= cg.size[0];
+            break;
+          case mjGEOM_ELLIPSOID:
+          case mjGEOM_BOX:
+            cg.size[0] = sz[0];
+            cg.size[1] = sz[1];
+            cg.size[2] = sz[2];
+            break;
+          default:
+            break;
+        }
+      }
+      cg.size[0] *= fitscale;
+      cg.size[1] *= fitscale;
+      cg.size[2] *= fitscale;
+      // rotate the fit center to the geom frame, add the mesh pos, then
+      // accumulate the mesh frame into the geom frame.
+      double meshpos[3];
+      lift::mjuu_rotVecQuat(meshpos, center, mb.quat);
+      lift::mjuu_addtovec(meshpos, mb.pos, 3);
+      lift::mjuu_frameaccum(cg.pos, cg.quat, meshpos, mb.quat);
+      // fall through to the primitive path (size fitted, mesh ref dropped).
     }
   }
 
@@ -5275,16 +5353,122 @@ void TexBuiltinCube(const CTexBuiltin& t, unsigned char* data) {
 struct CTexture {
   const Texture* src = nullptr;
   ps::opt<std::string> name;
+  std::string listname;  // name-table entry: authored name, else file stem
   int type = 1;         // mjtTexture (TextureType casts directly)
   int colorspace = 0;   // mjtColorSpace
   int width = 0, height = 0, nchannel = 3;
   std::vector<unsigned char> data;
+  std::string file;     // File() for m->paths (empty: builtin/user texture)
 };
 
-// mjCTexture::Compile builtin path (user_objects.cc:5632-5686). Returns false and
-// records a diagnostic on invalid dimensions; the gate only admits builtin
-// textures so file/cube-face branches are not reached here.
-bool TextureCompile(const Model& model, const Texture& tx, CTexture& out,
+// --------------------------------------------------------------------------- //
+// File textures (mjCTexture::Load2D/LoadCubeSingle + LoadPNG/LoadKTX/LoadCustom //
+// + FlipIfNeeded, user_objects.cc:5221-5541). PNG decode is the lifted lodepng  //
+// wrapper (lifted::DecodePNG); KTX/custom parsing and the 2D/cube composition   //
+// are retargeted plumbing over a plain byte buffer. Cube-from-separate-files    //
+// (LoadCubeSeparate) and an authored content_type stay gated to the XML         //
+// fallback (native.cc CheckTexture). Face symbol order R,L,U,D,F,B = 0..5.      //
+// --------------------------------------------------------------------------- //
+
+std::string MeshCombine(const std::string& dir, const std::string& file);
+
+// mjuu_extToContentType, image branch (user_util.cc:1033): extension -> MIME.
+std::string TexExtContentType(const std::string& file) {
+  std::size_t dot = file.find_last_of('.');
+  std::string ext = dot == std::string::npos ? "" : file.substr(dot);
+  for (char& c : ext) c = static_cast<char>(std::tolower(c));
+  if (ext == ".png") return "image/png";
+  if (ext == ".ktx") return "image/ktx";
+  return "image/vnd.mujoco.texture";  // LoadFlip's empty->custom fallback
+}
+
+// mjCTexture::FlipIfNeeded (user_objects.cc:5305-5338). In-place channel swap.
+void TexFlipIfNeeded(std::vector<unsigned char>& image, int w, int h,
+                     int nchannel, bool hflip, bool vflip) {
+  if (hflip) {
+    for (int r = 0; r < h; r++)
+      for (int c = 0; c < w / 2; c++) {
+        int c1 = w - 1 - c;
+        int val1 = nchannel * (r * w + c);
+        int val2 = nchannel * (r * w + c1);
+        for (int ch = 0; ch < nchannel; ch++)
+          std::swap(image[val1 + ch], image[val2 + ch]);
+      }
+  }
+  if (vflip) {
+    for (int r = 0; r < h / 2; r++)
+      for (int c = 0; c < w; c++) {
+        int r1 = h - 1 - r;
+        int val1 = nchannel * (r * w + c);
+        int val2 = nchannel * (r1 * w + c);
+        for (int ch = 0; ch < nchannel; ch++)
+          std::swap(image[val1 + ch], image[val2 + ch]);
+      }
+  }
+}
+
+// mjCTexture::LoadKTX (user_objects.cc:5245): raw bytes, w=size, h=1, nchannel=1.
+// mjCTexture::LoadCustom (:5267): [w:int][h:int][w*h*3 bytes].
+// mjCTexture::LoadPNG (:5221) via the lifted decoder. `nchannel` is in/out
+// (KTX forces 1). Resolves texturedir + strippath, opens the resource, dispatch
+// by content type, then FlipIfNeeded. Returns false + diagnostic on any error.
+bool TexLoadFile(const CompilerSettings& cs, const std::string& base_dir,
+                 const std::string& file, int& nchannel, bool hflip, bool vflip,
+                 std::vector<unsigned char>& image, int& w, int& h,
+                 bool& is_srgb, const ps::SourceLoc& loc,
+                 std::vector<bridge::Diagnostic>& diags) {
+  const std::string asset_type = TexExtContentType(file);
+  const std::string combined = MeshCombine(cs.texturedir, file);
+  char err[1024] = {0};
+  mjResource* res = mju_openResource(base_dir.empty() ? nullptr : base_dir.c_str(),
+                                     combined.c_str(), nullptr, err, sizeof(err));
+  if (!res) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "texture",
+                     std::string("could not open texture file '") + combined + "'",
+                     loc});
+    return false;
+  }
+  const void* bytes = nullptr;
+  int n = mju_readResource(res, &bytes);
+  auto fail = [&](const std::string& msg) {
+    mju_closeResource(res);
+    diags.push_back({bridge::Diagnostic::Severity::Error, "texture", msg, loc});
+    return false;
+  };
+  if (n < 0) return fail("could not read texture file '" + combined + "'");
+  if (n == 0) return fail("texture file is empty: '" + combined + "'");
+
+  const unsigned char* buf = static_cast<const unsigned char*>(bytes);
+  if (asset_type == "image/png") {
+    std::string derr;
+    if (!lift::DecodePNG(buf, n, nchannel, image, w, h, is_srgb, derr))
+      return fail(derr + " '" + combined + "'");
+  } else if (asset_type == "image/ktx") {
+    if (hflip || vflip) return fail("cannot flip KTX textures");
+    w = n; h = 1; nchannel = 1; is_srgb = false;
+    image.assign(buf, buf + n);
+  } else {  // custom binary
+    if (n < static_cast<int>(2 * sizeof(int)))
+      return fail("Non-PNG texture, unexpected file size in file '" + combined + "'");
+    const int* pint = reinterpret_cast<const int*>(buf);
+    w = pint[0]; h = pint[1]; is_srgb = false;
+    if (w < 1 || h < 1)
+      return fail("Non-PNG texture, non-positive dimensions in file '" + combined + "'");
+    if (n != static_cast<int>(2 * sizeof(int)) + w * h * 3)
+      return fail("Non-PNG texture, unexpected file size in file '" + combined + "'");
+    image.assign(buf + 2 * sizeof(int), buf + n);
+  }
+  mju_closeResource(res);
+  TexFlipIfNeeded(image, w, h, nchannel, hflip, vflip);
+  return true;
+}
+
+// mjCTexture::Compile (user_objects.cc:5632-5729). Builtin path lifted above;
+// the file path (single-file 2D / cube) resolves texturedir + strippath, decodes
+// (PNG/KTX/custom), flips, and resolves colorspace=AUTO from the PNG sRGB chunk.
+// Cube-from-separate-files and an authored content_type stay gated (native.cc).
+bool TextureCompile(const Model& model, const Texture& tx, const CompilerSettings& cs,
+                    const std::string& base_dir, CTexture& out,
                     std::vector<bridge::Diagnostic>& diags) {
   std::unique_ptr<Texture> eff = ps::sdk::Effective(model, tx);
   out.src = &tx;
@@ -5293,12 +5477,113 @@ bool TextureCompile(const Model& model, const Texture& tx, CTexture& out,
   out.colorspace = eff->colorspace ? static_cast<int>(*eff->colorspace) : 0;
   out.nchannel = eff->nchannel ? *eff->nchannel : 3;
 
+  const TexFile* tf =
+      eff->source ? std::get_if<TexFile>(&*eff->source) : nullptr;
+
+  // Name table entry (mjCTexture::CopyFromSpec :4947): authored name, else the
+  // file stem (strippath + stripext), independent of compiler strippath.
+  if (tx.name) {
+    out.listname = *tx.name;
+  } else if (tf && !tf->file.empty()) {
+    std::string stem = MeshStripPath(tf->file);
+    std::size_t dot = stem.find_last_of('.');
+    out.listname = dot == std::string::npos ? stem : stem.substr(0, dot);
+  }
+  const TextureBuiltin* bi =
+      eff->source ? std::get_if<TextureBuiltin>(&*eff->source) : nullptr;
+
+  // ----- single-file texture (2D or cube from one image) -----
+  if (tf && !tf->file.empty()) {
+    std::string file = tf->file;
+    if (cs.strippath) file = MeshStripPath(file);
+    out.file = file;
+    const bool hflip = eff->hflip && *eff->hflip;
+    const bool vflip = eff->vflip && *eff->vflip;
+
+    std::vector<unsigned char> img;
+    int w = 0, h = 0;
+    bool is_srgb = false;
+    if (!TexLoadFile(cs, base_dir, file, out.nchannel, hflip, vflip, img, w, h,
+                     is_srgb, tx.loc, diags))
+      return false;
+    if (out.colorspace == 0 /* AUTO */)
+      out.colorspace = is_srgb ? 2 /* SRGB */ : 1 /* LINEAR */;
+
+    if (out.type == 0 /* 2D */) {                       // Load2D
+      out.width = w;
+      out.height = h;
+      out.data = std::move(img);
+      return true;
+    }
+
+    // LoadCubeSingle: repeated or grid layout (mjCTexture::LoadCubeSingle).
+    int gs0 = 1, gs1 = 1;
+    if (eff->gridsize) { gs0 = (*eff->gridsize)[0]; gs1 = (*eff->gridsize)[1]; }
+    if (gs0 < 1 || gs1 < 1 || gs0 * gs1 > 12) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "texture",
+                       "gridsize must be non-zero and no more than 12 squares "
+                       "in texture", tx.loc});
+      return false;
+    }
+    if (w / gs1 != h / gs0 || (w % gs1) || (h % gs0)) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "texture",
+                       "PNG size must be integer multiple of gridsize in texture",
+                       tx.loc});
+      return false;
+    }
+    double rgb1[3] = {0.8, 0.8, 0.8};
+    if (eff->rgb1) for (int k = 0; k < 3; ++k) rgb1[k] = (*eff->rgb1)[k];
+    if (gs0 == 1 && gs1 == 1) {
+      out.width = out.height = w;
+      out.data.assign(static_cast<std::size_t>(3) * w * w, 0);
+      std::memcpy(out.data.data(), img.data(),
+                  static_cast<std::size_t>(3) * w * w);
+    } else {
+      const int width = w / gs1;
+      out.width = width;
+      out.height = 6 * width;
+      out.data.assign(static_cast<std::size_t>(3) * width * out.height, 0);
+      std::string layout = eff->gridlayout ? *eff->gridlayout : "";
+      int loaded[6] = {0, 0, 0, 0, 0, 0};
+      for (int k = 0; k < gs0 * gs1; k++) {
+        char sym = k < static_cast<int>(layout.size()) ? layout[k] : '.';
+        int i = -1;
+        switch (sym) {
+          case 'R': i = 0; break; case 'L': i = 1; break;
+          case 'U': i = 2; break; case 'D': i = 3; break;
+          case 'F': i = 4; break; case 'B': i = 5; break;
+          case '.': break;
+          default:
+            diags.push_back({bridge::Diagnostic::Severity::Error, "texture",
+                             "gridlayout symbol is not among '.RLUDFB' in texture",
+                             tx.loc});
+            return false;
+        }
+        if (i >= 0) {
+          int rstart = width * (k / gs1);
+          int cstart = width * (k % gs1);
+          for (int j = 0; j < width; j++)
+            std::memcpy(out.data.data() + i * 3 * width * width + j * 3 * width,
+                        img.data() + (j + rstart) * 3 * w + 3 * cstart, 3 * width);
+          loaded[i] = 1;
+        }
+      }
+      for (int i = 0; i < 6; i++)
+        if (!loaded[i])
+          for (int k = 0; k < width; k++)
+            for (int s = 0; s < width; s++)
+              for (int j = 0; j < 3; j++)
+                out.data[i * 3 * width * width + 3 * (k * width + s) + j] =
+                    static_cast<unsigned char>(255 * rgb1[j]);
+    }
+    return true;
+  }
+
+  // ----- builtin texture (gradient/checker/flat + marks) -----
   CTexBuiltin b;
   b.type = out.type;
   b.nchannel = out.nchannel;
-  if (const TextureBuiltin* bi =
-          eff->source ? std::get_if<TextureBuiltin>(&*eff->source) : nullptr)
-    b.builtin = static_cast<int>(*bi);
+  if (bi) b.builtin = static_cast<int>(*bi);
   b.mark = eff->mark ? static_cast<int>(*eff->mark) : 0;
   if (eff->rgb1) for (int k = 0; k < 3; ++k) b.rgb1[k] = (*eff->rgb1)[k];
   if (eff->rgb2) for (int k = 0; k < 3; ++k) b.rgb2[k] = (*eff->rgb2)[k];
@@ -5419,22 +5704,88 @@ void FillMaterials(mjModel* m, const std::vector<CMaterial>& mats) {
 }
 
 // --------------------------------------------------------------------------- //
-// Assets: height fields (mjCHField::Compile, user_objects.cc). The user-data    //
-// path (elevation authored inline): copy nrow*ncol floats, validate size>0,     //
-// normalize to [0,1] (subtract emin, divide by emax-emin when > mjEPS). File    //
-// (PNG/custom) hfields are a later wave (gated). geom_dataid + the hfield geom's //
-// size/aabb/rbound come from the hfield in GeomCompile (bound before the body    //
-// walk).                                                                         //
+// Assets: height fields (mjCHField::Compile, user_objects.cc:4752). Inline       //
+// elevation (user-data) OR a file (PNG grey via lifted DecodePNG, or custom      //
+// binary [nrow,ncol,f32...]) -> row flip -> normalize to [0,1] (subtract emin,   //
+// divide by emax-emin when > mjEPS). File hfields resolve via meshdir + strippath //
+// and derive a file-stem name when unnamed. geom_dataid + the hfield geom's      //
+// size/aabb/rbound bind from the hfield's authored `size` (bound before the body //
+// walk), so file loading never feeds geom sizing.                                //
 // --------------------------------------------------------------------------- //
 struct CHField {
   const Hfield* src = nullptr;
   ps::opt<std::string> name;
+  std::string listname;     // name-table entry: authored name, else file stem
+  std::string file;         // File() for m->paths (empty: user-data hfield)
   int nrow = 0, ncol = 0;
   double size[4] = {0, 0, 0, 0};
   std::vector<float> data;  // normalized elevation, row-major
 };
 
-bool HfieldCompile(const Hfield& hf, CHField& out,
+// mjCHField::LoadPNG (user_objects.cc:4735): grey PNG, ncol=w, nrow=h, rows
+// reversed. mjCHField::LoadCustom (:4691): [nrow:int][ncol:int][nrow*ncol f32].
+bool HfieldLoadFile(const CompilerSettings& cs, const std::string& base_dir,
+                    const std::string& file, int& nrow, int& ncol,
+                    std::vector<float>& data, const ps::SourceLoc& loc,
+                    std::vector<bridge::Diagnostic>& diags) {
+  std::size_t dot = file.find_last_of('.');
+  std::string ext = dot == std::string::npos ? "" : file.substr(dot);
+  for (char& c : ext) c = static_cast<char>(std::tolower(c));
+  const bool is_png = (ext == ".png");
+  const std::string combined = MeshCombine(cs.meshdir, file);
+  char err[1024] = {0};
+  mjResource* res = mju_openResource(base_dir.empty() ? nullptr : base_dir.c_str(),
+                                     combined.c_str(), nullptr, err, sizeof(err));
+  if (!res) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
+                     std::string("could not open hfield file '") + combined + "'",
+                     loc});
+    return false;
+  }
+  const void* bytes = nullptr;
+  int n = mju_readResource(res, &bytes);
+  auto fail = [&](const std::string& msg) {
+    mju_closeResource(res);
+    diags.push_back({bridge::Diagnostic::Severity::Error, "hfield", msg, loc});
+    return false;
+  };
+  if (n < 1) return fail("could not read hfield file '" + combined + "'");
+  const unsigned char* buf = static_cast<const unsigned char*>(bytes);
+
+  if (is_png) {
+    std::vector<unsigned char> img;
+    int w = 0, h = 0;
+    bool is_srgb = false;
+    std::string derr;
+    if (!lift::DecodePNG(buf, n, 1, img, w, h, is_srgb, derr))
+      return fail(derr + " '" + combined + "'");
+    ncol = w;
+    nrow = h;
+    data.clear();
+    data.reserve(static_cast<std::size_t>(nrow) * ncol);
+    for (int r = 0; r < nrow; r++)
+      for (int c = 0; c < ncol; c++)
+        data.push_back(static_cast<float>(img[c + (nrow - 1 - r) * ncol]));
+  } else {  // custom binary
+    if (n < static_cast<int>(2 * sizeof(int)))
+      return fail("hfield missing header '" + combined + "'");
+    const int* pint = reinterpret_cast<const int*>(buf);
+    nrow = pint[0];
+    ncol = pint[1];
+    if (nrow < 1 || ncol < 1)
+      return fail("non-positive hfield dimensions in file '" + combined + "'");
+    if (n != nrow * ncol * static_cast<int>(sizeof(float)) + 8)
+      return fail("unexpected file size in file '" + combined + "'");
+    data.assign(static_cast<std::size_t>(nrow) * ncol, 0);
+    std::memcpy(data.data(), pint + 2,
+                static_cast<std::size_t>(nrow) * ncol * sizeof(float));
+  }
+  mju_closeResource(res);
+  return true;
+}
+
+bool HfieldCompile(const Hfield& hf, const CompilerSettings& cs,
+                   const std::string& base_dir, CHField& out,
                    std::vector<bridge::Diagnostic>& diags) {
   out.src = &hf;
   out.name = hf.name;
@@ -5462,17 +5813,39 @@ bool HfieldCompile(const Hfield& hf, CHField& out,
     }
   }
 
-  // size parameters must be positive.
+  // size parameters must be positive (checked before file load, as upstream).
   for (int k = 0; k < 4; ++k)
     if (out.size[k] <= 0) {
       diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
                        "size parameter is not positive in hfield", hf.loc});
       return false;
     }
+
+  // file path: strip, derive name, load (PNG or custom). MuJoCo errors if a
+  // file hfield also authors nrow/ncol/data -- the gate lets only file-only
+  // hfields through, so we do not reach a mixed state here.
+  if (hf.file && !hf.file->empty()) {
+    std::string file = *hf.file;
+    if (cs.strippath) file = MeshStripPath(file);
+    out.file = file;
+    if (!HfieldLoadFile(cs, base_dir, file, out.nrow, out.ncol, out.data, hf.loc,
+                        diags))
+      return false;
+  }
+
   if (out.nrow < 1 || out.ncol < 1 || out.data.empty()) {
     diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
                      "hfield not specified", hf.loc});
     return false;
+  }
+
+  // name-table entry (mjCHField::CopyFromSpec :4650): authored name, else stem.
+  if (hf.name) {
+    out.listname = *hf.name;
+  } else if (hf.file && !hf.file->empty()) {
+    std::string stem = MeshStripPath(*hf.file);
+    std::size_t d2 = stem.find_last_of('.');
+    out.listname = d2 == std::string::npos ? stem : stem.substr(0, d2);
   }
 
   // normalize elevation to [0, 1] (mjCHField::Compile).
@@ -5496,10 +5869,298 @@ void FillHfields(mjModel* m, const std::vector<CHField>& hfields) {
     m->hfield_ncol[i] = hf.ncol;
     for (int k = 0; k < 4; ++k) m->hfield_size[4 * i + k] = hf.size[k];
     m->hfield_adr[i] = adr;
-    m->hfield_pathadr[i] = -1;  // user data: no file path
     for (int j = 0; j < hf.nrow * hf.ncol; ++j)
       m->hfield_data[adr + j] = hf.data[j];
     adr += hf.nrow * hf.ncol;
+  }
+  // hfield_pathadr is filled by FillMeshPaths (CopyPaths order).
+}
+
+// --------------------------------------------------------------------------- //
+// Assets: skins (mjCSkin::Compile, user_mesh.cc:3109 + LoadSKN :3262). Inline    //
+// geometry (vert/texcoord/face + per-bone body/bindpos/bindquat/vertid/          //
+// vertweight) OR a .skn binary (meshdir + strippath resolution). Compile         //
+// validates sizes, resolves bone body ids + material id, accumulates per-vertex  //
+// weights and normalizes them (per-bone weight / total-vertex-weight), and       //
+// normalizes bindquat. Runs after the body walk (needs body ids) and materials.  //
+// --------------------------------------------------------------------------- //
+struct CSkin {
+  const Skin* src = nullptr;
+  ps::opt<std::string> name;
+  std::string listname;     // authored name, else file stem
+  std::string file;         // File() for m->paths (empty: inline skin)
+  int matid = -1;
+  int group = 0;
+  float rgba[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+  float inflate = 0.0f;
+  std::vector<float> vert;      // 3*nvert
+  std::vector<float> texcoord;  // 2*ntexvert (empty if none)
+  std::vector<int> face;        // 3*nface
+  std::vector<int> bodyid;      // nbone
+  std::vector<float> bindpos;   // 3*nbone
+  std::vector<float> bindquat;  // 4*nbone
+  std::vector<std::vector<int>> vertid;       // per bone
+  std::vector<std::vector<float>> vertweight; // per bone
+};
+
+// mjCSkin::LoadSKN (user_mesh.cc:3262): [nvert,ntex,nface,nbone][verts][texs]
+// [faces]{ name[40], bindpos[3], bindquat[4], vcount, vertid[], vertweight[] }.
+bool SkinLoadSKN(const unsigned char* buf, int n, CSkin& out,
+                 std::vector<std::string>& bonename, const ps::SourceLoc& loc,
+                 std::vector<bridge::Diagnostic>& diags) {
+  auto fail = [&](const std::string& msg) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "skin", msg, loc});
+    return false;
+  };
+  if (n < 16) return fail("missing header in SKN file");
+  const int* hdr = reinterpret_cast<const int*>(buf);
+  int nvert = hdr[0], ntexcoord = hdr[1], nface = hdr[2], nbone = hdr[3];
+  if (nvert < 0 || ntexcoord < 0 || nface < 0 || nbone < 0)
+    return fail("negative size in header of SKN file");
+  if (n < 16 + 12 * nvert + 8 * ntexcoord + 12 * nface)
+    return fail("insufficient data in SKN file");
+  const float* pdata = reinterpret_cast<const float*>(buf + 16);
+  int cnt = 0;
+  if (nvert) {
+    out.vert.resize(3 * nvert);
+    std::memcpy(out.vert.data(), pdata + cnt, 3 * nvert * sizeof(float));
+    cnt += 3 * nvert;
+  }
+  if (ntexcoord) {
+    out.texcoord.resize(2 * ntexcoord);
+    std::memcpy(out.texcoord.data(), pdata + cnt, 2 * ntexcoord * sizeof(float));
+    cnt += 2 * ntexcoord;
+  }
+  if (nface) {
+    out.face.resize(3 * nface);
+    std::memcpy(out.face.data(), pdata + cnt, 3 * nface * sizeof(int));
+    cnt += 3 * nface;
+  }
+  out.bindpos.resize(3 * nbone);
+  out.bindquat.resize(4 * nbone);
+  out.vertid.resize(nbone);
+  out.vertweight.resize(nbone);
+  bonename.clear();
+  for (int i = 0; i < nbone; i++) {
+    if (n / 4 - 4 - cnt < 18)
+      return fail("insufficient data in SKN file, bone " + std::to_string(i));
+    char txt[40];
+    std::strncpy(txt, reinterpret_cast<const char*>(pdata + cnt), 39);
+    txt[39] = '\0';
+    cnt += 10;
+    bonename.push_back(txt);
+    std::memcpy(out.bindpos.data() + 3 * i, pdata + cnt, 3 * sizeof(float));
+    cnt += 3;
+    std::memcpy(out.bindquat.data() + 4 * i, pdata + cnt, 4 * sizeof(float));
+    cnt += 4;
+    int vcount = *reinterpret_cast<const int*>(pdata + cnt);
+    cnt += 1;
+    if (vcount < 1)
+      return fail("vertex count must be positive in SKN file, bone " +
+                  std::to_string(i));
+    if (n / 4 - 4 - cnt < 2 * vcount)
+      return fail("insufficient vertex data in SKN file, bone " +
+                  std::to_string(i));
+    out.vertid[i].resize(vcount);
+    std::memcpy(out.vertid[i].data(), pdata + cnt, vcount * sizeof(int));
+    cnt += vcount;
+    out.vertweight[i].resize(vcount);
+    std::memcpy(out.vertweight[i].data(), pdata + cnt, vcount * sizeof(float));
+    cnt += vcount;
+  }
+  if (n != 16 + 4 * cnt) return fail("unexpected buffer size in SKN file");
+  return true;
+}
+
+bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
+                 const std::string& base_dir,
+                 const std::unordered_map<std::string, int>& bodyid_of,
+                 const NameIdMap& matid_of, CSkin& out,
+                 std::vector<bridge::Diagnostic>& diags) {
+  std::unique_ptr<Skin> eff = ps::sdk::Effective(model, sk);
+  out.src = &sk;
+  out.name = sk.name;
+  if (eff->group) out.group = *eff->group;
+  if (eff->inflate) out.inflate = *eff->inflate;
+  if (eff->rgba) for (int k = 0; k < 4; ++k) out.rgba[k] = (*eff->rgba)[k];
+
+  std::vector<std::string> bonename;
+
+  // file vs inline (mjCSkin::Compile). The gate admits only one or the other.
+  if (eff->file && !eff->file->empty()) {
+    std::string file = *eff->file;
+    if (cs.strippath) file = MeshStripPath(file);
+    out.file = file;
+    std::string ext = file.size() >= 4 ? file.substr(file.size() - 4) : "";
+    for (char& c : ext) c = static_cast<char>(std::tolower(c));
+    if (ext != ".skn") {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "skin",
+                       "Unknown skin file type: " + file, sk.loc});
+      return false;
+    }
+    const std::string combined = MeshCombine(cs.meshdir, file);
+    char err[1024] = {0};
+    mjResource* res = mju_openResource(
+        base_dir.empty() ? nullptr : base_dir.c_str(), combined.c_str(), nullptr,
+        err, sizeof(err));
+    if (!res) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "skin",
+                       "could not open skin file '" + combined + "'", sk.loc});
+      return false;
+    }
+    const void* bytes = nullptr;
+    int nb = mju_readResource(res, &bytes);
+    if (nb < 0) {
+      mju_closeResource(res);
+      diags.push_back({bridge::Diagnostic::Severity::Error, "skin",
+                       "could not read SKN file '" + combined + "'", sk.loc});
+      return false;
+    }
+    bool ok = SkinLoadSKN(static_cast<const unsigned char*>(bytes), nb, out,
+                          bonename, sk.loc, diags);
+    mju_closeResource(res);
+    if (!ok) return false;
+  } else {
+    if (eff->vertex) out.vert = *eff->vertex;
+    if (eff->texcoord) out.texcoord = *eff->texcoord;
+    if (eff->face) out.face = *eff->face;
+    for (const auto& b : eff->bones) {
+      if (!b) continue;
+      bonename.push_back(b->body ? *b->body : std::string());
+      if (b->bindpos) for (int k = 0; k < 3; ++k)
+        out.bindpos.push_back(static_cast<float>((*b->bindpos)[k]));
+      if (b->bindquat) for (int k = 0; k < 4; ++k)
+        out.bindquat.push_back(static_cast<float>((*b->bindquat)[k]));
+      out.vertid.push_back(b->vertid ? *b->vertid : std::vector<int>{});
+      out.vertweight.push_back(b->vertweight ? *b->vertweight
+                                             : std::vector<float>{});
+    }
+  }
+
+  // name-table entry (mjCSkin::CopyFromSpec :3072): authored name, else stem.
+  if (sk.name) {
+    out.listname = *sk.name;
+  } else if (eff->file && !eff->file->empty()) {
+    std::string stem = MeshStripPath(*eff->file);
+    std::size_t dot = stem.find_last_of('.');
+    out.listname = dot == std::string::npos ? stem : stem.substr(0, dot);
+  }
+
+  const std::size_t nbone = bonename.size();
+  auto fail = [&](const std::string& msg) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "skin", msg, sk.loc});
+    return false;
+  };
+  if (out.vert.empty() || out.face.empty() || nbone == 0 ||
+      out.bindpos.empty() || out.bindquat.empty() || out.vertid.empty() ||
+      out.vertweight.empty())
+    return fail("Missing data in skin");
+  if (out.vert.size() % 3) return fail("Vertex data must be multiple of 3");
+  if (!out.texcoord.empty() && out.texcoord.size() != 2 * out.vert.size() / 3)
+    return fail("Vertex and texcoord data incompatible size");
+  if (out.face.size() % 3) return fail("Face data must be multiple of 3");
+  if (out.bindpos.size() != 3 * nbone) return fail("Unexpected bindpos size in skin");
+  if (out.bindquat.size() != 4 * nbone) return fail("Unexpected bindquat size in skin");
+  if (out.vertid.size() != nbone) return fail("Unexpected vertid size in skin");
+  if (out.vertweight.size() != nbone) return fail("Unexpected vertweight size in skin");
+
+  // resolve bone body ids.
+  out.bodyid.resize(nbone);
+  for (std::size_t i = 0; i < nbone; ++i) {
+    auto it = bodyid_of.find(bonename[i]);
+    if (it == bodyid_of.end())
+      return fail("unknown body '" + bonename[i] + "' in skin");
+    out.bodyid[i] = it->second;
+  }
+
+  // resolve material id.
+  if (eff->material && !eff->material->name.empty()) {
+    auto it = matid_of.find(eff->material->name);
+    if (it == matid_of.end())
+      return fail("unknown material '" + eff->material->name + "' in skin");
+    out.matid = it->second;
+  }
+
+  // accumulate per-vertex weights, check coverage, normalize.
+  const std::size_t nvert = out.vert.size() / 3;
+  std::vector<float> vw(nvert, 0.0f);
+  for (std::size_t i = 0; i < nbone; ++i) {
+    const std::size_t nbv = out.vertid[i].size();
+    if (out.vertweight[i].size() != nbv || nbv == 0)
+      return fail("vertid and vertweight must have same non-zero size in skin");
+    for (std::size_t j = 0; j < nbv; ++j) {
+      int jj = out.vertid[i][j];
+      if (jj < 0 || jj >= static_cast<int>(nvert))
+        return fail("vertid " + std::to_string(jj) + " out of range in skin");
+      vw[jj] += out.vertweight[i][j];
+    }
+  }
+  for (std::size_t i = 0; i < nvert; ++i)
+    if (vw[i] <= static_cast<float>(mjMINVAL))
+      return fail("vertex " + std::to_string(i) +
+                  " must have positive total weight in skin");
+  for (std::size_t i = 0; i < nbone; ++i)
+    for (std::size_t j = 0; j < out.vertid[i].size(); ++j)
+      out.vertweight[i][j] /= vw[out.vertid[i][j]];
+
+  // normalize bindquat.
+  for (std::size_t i = 0; i < nbone; ++i) {
+    double q[4] = {out.bindquat[4 * i], out.bindquat[4 * i + 1],
+                   out.bindquat[4 * i + 2], out.bindquat[4 * i + 3]};
+    lift::mjuu_normvec(q, 4);
+    for (int k = 0; k < 4; ++k) out.bindquat[4 * i + k] = static_cast<float>(q[k]);
+  }
+  return true;
+}
+
+void FillSkins(mjModel* m, const std::vector<CSkin>& skins) {
+  int vert_adr = 0, texcoord_adr = 0, face_adr = 0, bone_adr = 0, bonevert_adr = 0;
+  for (int i = 0; i < static_cast<int>(skins.size()); ++i) {
+    const CSkin& sk = skins[i];
+    m->skin_matid[i] = sk.matid;
+    m->skin_group[i] = sk.group;
+    for (int k = 0; k < 4; ++k) m->skin_rgba[4 * i + k] = sk.rgba[k];
+    m->skin_inflate[i] = sk.inflate;
+    m->skin_vertadr[i] = vert_adr;
+    m->skin_vertnum[i] = static_cast<int>(sk.vert.size() / 3);
+    m->skin_texcoordadr[i] = sk.texcoord.empty() ? -1 : texcoord_adr;
+    m->skin_faceadr[i] = face_adr;
+    m->skin_facenum[i] = static_cast<int>(sk.face.size() / 3);
+    m->skin_boneadr[i] = bone_adr;
+    m->skin_bonenum[i] = static_cast<int>(sk.bodyid.size());
+    if (!sk.vert.empty())
+      std::memcpy(m->skin_vert + 3 * vert_adr, sk.vert.data(),
+                  sk.vert.size() * sizeof(float));
+    if (!sk.texcoord.empty())
+      std::memcpy(m->skin_texcoord + 2 * texcoord_adr, sk.texcoord.data(),
+                  sk.texcoord.size() * sizeof(float));
+    if (!sk.face.empty())
+      std::memcpy(m->skin_face + 3 * face_adr, sk.face.data(),
+                  sk.face.size() * sizeof(int));
+    if (!sk.bindpos.empty())
+      std::memcpy(m->skin_bonebindpos + 3 * bone_adr, sk.bindpos.data(),
+                  sk.bindpos.size() * sizeof(float));
+    if (!sk.bindquat.empty())
+      std::memcpy(m->skin_bonebindquat + 4 * bone_adr, sk.bindquat.data(),
+                  sk.bindquat.size() * sizeof(float));
+    if (!sk.bodyid.empty())
+      std::memcpy(m->skin_bonebodyid + bone_adr, sk.bodyid.data(),
+                  sk.bodyid.size() * sizeof(int));
+    for (int j = 0; j < m->skin_bonenum[i]; ++j) {
+      m->skin_bonevertadr[bone_adr + j] = bonevert_adr;
+      m->skin_bonevertnum[bone_adr + j] = static_cast<int>(sk.vertid[j].size());
+      if (!sk.vertid[j].empty()) {
+        std::memcpy(m->skin_bonevertid + bonevert_adr, sk.vertid[j].data(),
+                    sk.vertid[j].size() * sizeof(int));
+        std::memcpy(m->skin_bonevertweight + bonevert_adr, sk.vertweight[j].data(),
+                    sk.vertweight[j].size() * sizeof(float));
+      }
+      bonevert_adr += m->skin_bonevertnum[bone_adr + j];
+    }
+    vert_adr += m->skin_vertnum[i];
+    texcoord_adr += static_cast<int>(sk.texcoord.size() / 2);
+    face_adr += m->skin_facenum[i];
+    bone_adr += m->skin_bonenum[i];
   }
 }
 
@@ -5811,25 +6472,32 @@ void FillMeshes(mjModel* m, const std::vector<CMesh>& meshes, int bvh_start) {
   }
 }
 
-// Asset file paths, in CopyPaths order (hfields, meshes, skins, textures). Only
-// file meshes carry a path in the native scope; the rest are -1.
-void FillMeshPaths(mjModel* m, const std::vector<CMesh>& meshes) {
+// Asset file paths, in CopyPaths order (hfields, meshes, skins, textures). File
+// meshes (mesh_pathadr) and file textures (tex_pathadr) carry a path; hfields in
+// the native scope are user-data only (-1). One shared `paths` cursor, mirroring
+// mjCModel::CopyPaths' pathlist() concatenation, so the addresses match leg B.
+void FillMeshPaths(mjModel* m, const std::vector<CHField>& hfields,
+                   const std::vector<CMesh>& meshes,
+                   const std::vector<CSkin>& skins,
+                   const std::vector<CTexture>& textures) {
   m->paths[0] = 0;
   int adr = 0;
-  for (int i = 0; i < m->nhfield; ++i) m->hfield_pathadr[i] = -1;
-  for (int i = 0; i < static_cast<int>(meshes.size()); ++i) {
-    if (meshes[i].file.empty()) {
-      m->mesh_pathadr[i] = -1;
-      continue;
-    }
-    m->mesh_pathadr[i] = adr;
-    const std::string& f = meshes[i].file;
+  auto emit = [&](const std::string& f, int* pathadr) {
+    if (f.empty()) { *pathadr = -1; return; }
+    *pathadr = adr;
     std::memcpy(m->paths + adr, f.c_str(), f.size());
     adr += static_cast<int>(f.size());
     m->paths[adr] = 0;
     adr++;
-  }
-  for (int i = 0; i < m->ntex; ++i) m->tex_pathadr[i] = -1;
+  };
+  for (int i = 0; i < static_cast<int>(hfields.size()); ++i)
+    emit(hfields[i].file, &m->hfield_pathadr[i]);
+  for (int i = 0; i < static_cast<int>(meshes.size()); ++i)
+    emit(meshes[i].file, &m->mesh_pathadr[i]);
+  for (int i = 0; i < static_cast<int>(skins.size()); ++i)
+    emit(skins[i].file, &m->skin_pathadr[i]);
+  for (int i = 0; i < static_cast<int>(textures.size()); ++i)
+    emit(textures[i].file, &m->tex_pathadr[i]);
 }
 
 // --------------------------------------------------------------------------- //
@@ -6930,17 +7598,17 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     for (const auto& hf : as->hfields) {
       if (!hf) continue;
       CHField ch;
-      if (!HfieldCompile(*hf, ch, diags)) return nullptr;
+      if (!HfieldCompile(*hf, cs, opts.base_dir, ch, diags)) return nullptr;
       hfields.push_back(std::move(ch));
     }
   }
   AssetBinds asset_binds;
   for (int i = 0; i < static_cast<int>(hfields.size()); ++i) {
-    if (!hfields[i].name) continue;
+    if (hfields[i].listname.empty()) continue;
     HfieldBind hb;
     hb.id = i;
     for (int k = 0; k < 4; ++k) hb.size[k] = hfields[i].size[k];
-    asset_binds.hfield[*hfields[i].name] = hb;
+    asset_binds.hfield[hfields[i].listname] = hb;
   }
 
   // Meshes: determine per-mesh needhull (collision / pair / convex-inertia mesh
@@ -7166,12 +7834,12 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     for (const auto& tx : as->textures) {
       if (!tx) continue;
       CTexture ct;
-      if (!TextureCompile(m, *tx, ct, diags)) return nullptr;
+      if (!TextureCompile(m, *tx, cs, opts.base_dir, ct, diags)) return nullptr;
       textures.push_back(std::move(ct));
     }
   }
   for (int i = 0; i < static_cast<int>(textures.size()); ++i)
-    if (textures[i].name) texid_of[*textures[i].name] = i;
+    if (!textures[i].listname.empty()) texid_of[textures[i].listname] = i;
 
   std::vector<CMaterial> materials;
   for (const auto& as : m.assets) {
@@ -7181,6 +7849,24 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   }
   for (int i = 0; i < static_cast<int>(materials.size()); ++i)
     if (materials[i].name) matid_of[*materials[i].name] = i;
+
+  // Skins (document order across <asset> then <deformable>; compiled after the
+  // body walk + materials for bone body-id and material-id resolution).
+  std::vector<CSkin> skins;
+  auto compile_skins = [&](const auto& list) -> bool {
+    for (const auto& sk : list) {
+      if (!sk) continue;
+      CSkin cs2;
+      if (!SkinCompile(m, *sk, cs, opts.base_dir, bodyid_of, matid_of, cs2, diags))
+        return false;
+      skins.push_back(std::move(cs2));
+    }
+    return true;
+  };
+  for (const auto& as : m.assets)
+    if (as && !compile_skins(as->skins)) return nullptr;
+  for (const auto& df : m.deformables)
+    if (df && !compile_skins(df->skins)) return nullptr;
 
   // Resolve material refs to ids (geoms/sites/tendons; CopyObjects/IndexAssets).
   auto resolve_mat = [&](const std::string& nm) -> int {
@@ -7292,9 +7978,11 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   // an unnamed asset keeps an empty name, exactly like leg B.
   for (const CMesh& cm : meshes) nl.mesh.push_back(cm.listname);
   for (const CHField& hf : hfields)
-    nl.hfield.push_back(hf.name ? *hf.name : std::string());
+    nl.hfield.push_back(hf.listname);
   for (const CTexture& ct : textures)
-    nl.tex.push_back(ct.name ? *ct.name : std::string());
+    nl.tex.push_back(ct.listname);
+  for (const CSkin& sk : skins)
+    nl.skin.push_back(sk.listname);
   for (const CMaterial& cm : materials)
     nl.mat.push_back(cm.name ? *cm.name : std::string());
   for (const CPair& cp : pairs) nl.pair.push_back(EffectiveName(*cp.src, opts));
@@ -7374,6 +8062,22 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   int nhfielddata = 0;
   for (const CHField& hf : hfields) nhfielddata += hf.nrow * hf.ncol;
   sizes.nhfielddata = nhfielddata;
+  // Skins (SetSizes user_model.cc:2257-2264).
+  sizes.nskin = static_cast<int>(skins.size());
+  int nskinvert = 0, nskintexvert = 0, nskinface = 0, nskinbone = 0,
+      nskinbonevert = 0;
+  for (const CSkin& sk : skins) {
+    nskinvert += static_cast<int>(sk.vert.size() / 3);
+    nskintexvert += static_cast<int>(sk.texcoord.size() / 2);
+    nskinface += static_cast<int>(sk.face.size() / 3);
+    nskinbone += static_cast<int>(sk.bodyid.size());
+    for (const auto& vid : sk.vertid) nskinbonevert += static_cast<int>(vid.size());
+  }
+  sizes.nskinvert = nskinvert;
+  sizes.nskintexvert = nskintexvert;
+  sizes.nskinface = nskinface;
+  sizes.nskinbone = nskinbone;
+  sizes.nskinbonevert = nskinbonevert;
   sizes.npair = static_cast<int>(pairs.size());
   sizes.nexclude = static_cast<int>(excludes.size());
   sizes.neq = static_cast<int>(equalities.size());
@@ -7467,8 +8171,14 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   // hfields/meshes/skins/textures); only file meshes contribute here. Defaults
   // to 1 when there are none (SetSizes).
   int npaths = 0;
+  for (const CHField& ch : hfields)
+    if (!ch.file.empty()) npaths += static_cast<int>(ch.file.size()) + 1;
   for (const CMesh& cm : meshes)
     if (!cm.file.empty()) npaths += static_cast<int>(cm.file.size()) + 1;
+  for (const CSkin& sk : skins)
+    if (!sk.file.empty()) npaths += static_cast<int>(sk.file.size()) + 1;
+  for (const CTexture& ct : textures)
+    if (!ct.file.empty()) npaths += static_cast<int>(ct.file.size()) + 1;
   sizes.npaths = npaths == 0 ? 1 : npaths;
 
   // S11 Allocate.
@@ -7502,11 +8212,11 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   // S11 Fill.
   FillNames(out, nl);
   FillTextures(out, textures);
-  for (int i = 0; i < out->ntex; ++i) out->tex_pathadr[i] = -1;  // builtin: no path
   FillMaterials(out, materials);
   FillHfields(out, hfields);
   FillMeshes(out, meshes, nbvh_body);
-  FillMeshPaths(out, meshes);
+  FillSkins(out, skins);
+  FillMeshPaths(out, hfields, meshes, skins, textures);
   FillFlexes(out, flexes, cbs, nbvhstatic);
   FillTree(out, cbs, geoms, joints, dt);
   for (int i = 0; i < static_cast<int>(cbs.size()); ++i)

@@ -1,0 +1,34 @@
+void mjCTexture::FlipIfNeeded(std::vector<std::byte>& image, unsigned int w,
+                              unsigned int h) {
+  // horizontal flip
+  if (hflip) {
+    for (int r = 0; r < h; r++) {
+      for (int c = 0; c < w / 2; c++) {
+        int c1 = w - 1 - c;
+        auto val1 = nchannel * (r * w + c);
+        auto val2 = nchannel * (r * w + c1);
+        for (int ch = 0; ch < nchannel; ch++) {
+          auto tmp = image[val1 + ch];
+          image[val1 + ch] = image[val2 + ch];
+          image[val2 + ch] = tmp;
+        }
+      }
+    }
+  }
+
+  // vertical flip
+  if (vflip) {
+    for (int r = 0; r < h / 2; r++) {
+      for (int c = 0; c < w; c++) {
+        int r1 = h - 1 - r;
+        auto val1 = nchannel * (r * w + c);
+        auto val2 = nchannel * (r1 * w + c);
+        for (int ch = 0; ch < nchannel; ch++) {
+          auto tmp = image[val1 + ch];
+          image[val1 + ch] = image[val2 + ch];
+          image[val2 + ch] = tmp;
+        }
+      }
+    }
+  }
+}

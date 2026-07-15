@@ -552,6 +552,42 @@
       "notes": "djb2-xor string hash for name tables; retargeted plumbing only"
     },
     {
+      "id": "hfield_loadcustom",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCHField::LoadCustom",
+      "line_span": "4691-4730",
+      "content_hash": "1bd528456b99f8c356e27285f75c1e47f078bbdc1a1f2c96c6f29242d97715d3",
+      "snapshot": "snapshots/lifted_upstream/mjCHField__LoadCustom.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "custom binary hfield [nrow,ncol,f32] (HfieldLoadFile custom arm)"
+    },
+    {
+      "id": "hfield_loadpng",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCHField::LoadPNG",
+      "line_span": "4735-4748",
+      "content_hash": "037945622b86dfe38ba697834b77ea7fbeeffbb8f21985e0736a28f217e4a18d",
+      "snapshot": "snapshots/lifted_upstream/mjCHField__LoadPNG.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "grey PNG hfield, ncol=w/nrow=h, rows reversed (HfieldLoadFile png arm)"
+    },
+    {
+      "id": "image_png_decode",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "PNGImage::Load",
+      "line_span": "81-136",
+      "content_hash": "2703e4d14c2e311c157ddda75f516eb9b614d17b3b3e925c06c71c1f4883788a",
+      "snapshot": "snapshots/lifted_upstream/PNGImage__Load.txt",
+      "local_path": [
+        "cpp/compile/lifted/image_pipeline.cc",
+        "cpp/compile/lifted/image_pipeline.h"
+      ],
+      "lifted": "2026-07-15",
+      "notes": "lodepng PNG decode wrapper; plumbing off mjCBase/mjResource/mjCError to byte buffer + std::string err"
+    },
+    {
       "id": "inertia_from_geom",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCBody::InertiaFromGeom",
@@ -674,6 +710,17 @@
       "local_path": "cpp/compile/lifted/mesh_pipeline.cc",
       "lifted": "2026-07-08",
       "notes": "area-weighted face centroid"
+    },
+    {
+      "id": "mesh_fitgeom",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::FitGeom",
+      "line_span": "944-1018",
+      "content_hash": "469ec4a1b589c8c4641a8e05ab028e893c85d558d4c0acff3ffa7d85d9ec3f23",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__FitGeom.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "primitive-fit-to-mesh: inertia-box/aabb size + fitscale (GeomCompile fit branch)"
     },
     {
       "id": "mesh_loadmsh",
@@ -987,6 +1034,28 @@
       "notes": "site pose/fromto/frame accumulation"
     },
     {
+      "id": "skin_compile",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCSkin::Compile",
+      "line_span": "3109-3257",
+      "content_hash": "84a372573f55d88074f0567957204e4947c02ffe1ecab41f34e40695b0c17656",
+      "snapshot": "snapshots/lifted_upstream/mjCSkin__Compile.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "skin size validation, weight accumulation/normalization, bindquat normalization (SkinCompile)"
+    },
+    {
+      "id": "skin_loadskn",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCSkin::LoadSKN",
+      "line_span": "3262-3378",
+      "content_hash": "2c720f54f9146a046f93db221b1957fceb986db350269b4331468d4befe0d0e6",
+      "snapshot": "snapshots/lifted_upstream/mjCSkin__LoadSKN.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": ".skn binary parser (SkinLoadSKN)"
+    },
+    {
       "id": "skip_align",
       "upstream_rel_path": "src/engine/engine_io.c",
       "symbol": "SKIP",
@@ -1130,6 +1199,17 @@
       "notes": "texture builtin generation"
     },
     {
+      "id": "texture_flipifneeded",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCTexture::FlipIfNeeded",
+      "line_span": "5305-5338",
+      "content_hash": "c267c6c5213d756b5b4f028bd97a4ecc25239a901380ce96f4e137d03da79c8b",
+      "snapshot": "snapshots/lifted_upstream/mjCTexture__FlipIfNeeded.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "hflip/vflip in-place channel swap (TexFlipIfNeeded)"
+    },
+    {
       "id": "texture_interp",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "interp",
@@ -1139,6 +1219,50 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-08",
       "notes": "texture builtin generation"
+    },
+    {
+      "id": "texture_load2d",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCTexture::Load2D",
+      "line_span": "5420-5433",
+      "content_hash": "3552d54d19794295fa2a2a5b30a4c623bd98ce46903a710efb4e2fd27bc995c6",
+      "snapshot": "snapshots/lifted_upstream/mjCTexture__Load2D.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "2D file texture: size + colorspace=AUTO resolution (TextureCompile 2D arm)"
+    },
+    {
+      "id": "texture_loadcubesingle",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCTexture::LoadCubeSingle",
+      "line_span": "5436-5541",
+      "content_hash": "dd3aba39a65297b174dab9c1ceab04fb3b0ae7b71b8452038802d37bef759faf",
+      "snapshot": "snapshots/lifted_upstream/mjCTexture__LoadCubeSingle.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "single-file cube: gridsize/gridlayout composition, undefined faces->rgb1 (TextureCompile cube arm)"
+    },
+    {
+      "id": "texture_loadcustom",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCTexture::LoadCustom",
+      "line_span": "5267-5303",
+      "content_hash": "361433be7f5e491fd2af908eac759abd0de8143a14080d0c77e8ade747717fcc",
+      "snapshot": "snapshots/lifted_upstream/mjCTexture__LoadCustom.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "custom binary [w,h,rgb] (TexLoadFile custom arm)"
+    },
+    {
+      "id": "texture_loadktx",
+      "upstream_rel_path": "src/user/user_objects.cc",
+      "symbol": "mjCTexture::LoadKTX",
+      "line_span": "5245-5264",
+      "content_hash": "cbc52b930381eb980b2ee1c8178876cf6ec6563040a8c549aef5044a132cee6f",
+      "snapshot": "snapshots/lifted_upstream/mjCTexture__LoadKTX.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "raw KTX bytes -> w=size,h=1,nchannel=1 (TexLoadFile ktx arm)"
     },
     {
       "id": "texture_randomdot",

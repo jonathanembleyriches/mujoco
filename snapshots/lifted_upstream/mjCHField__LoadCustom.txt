@@ -1,0 +1,40 @@
+void mjCHField::LoadCustom(mjResource* resource) {
+  // get file data in buffer
+  const void* buffer = 0;
+  int buffer_sz = mju_readResource(resource, &buffer);
+
+  if (buffer_sz < 1) {
+    throw mjCError(this, "could not read hfield file '%s'", resource->name);
+  } else if (!buffer_sz) {
+    throw mjCError(this, "empty hfield file '%s'", resource->name);
+  }
+
+
+  if (buffer_sz < 2*sizeof(int)) {
+    throw mjCError(this, "hfield missing header '%s'", resource->name);
+  }
+
+  // read dimensions
+  int* pint = (int*)buffer;
+  nrow = pint[0];
+  ncol = pint[1];
+
+  // check dimensions
+  if (nrow < 1 || ncol < 1) {
+    throw mjCError(this, "non-positive hfield dimensions in file '%s'", resource->name);
+  }
+
+  // check buffer size
+  if (buffer_sz != nrow*ncol*sizeof(float)+8) {
+    throw mjCError(this, "unexpected file size in file '%s'", resource->name);
+  }
+
+  // allocate
+  data.assign(nrow*ncol, 0);
+  if (data.empty()) {
+    throw mjCError(this, "could not allocate buffers in hfield");
+  }
+
+  // copy data
+  memcpy(data.data(), (void*)(pint+2), nrow*ncol*sizeof(float));
+}

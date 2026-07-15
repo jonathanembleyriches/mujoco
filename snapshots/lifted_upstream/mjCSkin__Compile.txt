@@ -1,0 +1,149 @@
+void mjCSkin::Compile(const mjVFS* vfs) {
+  CopyFromSpec();
+
+  // load file
+  if (!file_.empty()) {
+    // make sure data is not present
+    if (!spec_vert_.empty() ||
+        !spec_texcoord_.empty() ||
+        !spec_face_.empty() ||
+        !spec_bodyname_.empty() ||
+        !spec_bindpos_.empty() ||
+        !spec_bindquat_.empty() ||
+        !spec_vertid_.empty() ||
+        !spec_vertweight_.empty()) {
+      throw mjCError(this, "Both skin data and file were specified: %s", file_.c_str());
+    }
+
+    // remove path from file if necessary
+    if (model->strippath) {
+      file_ = mjuu_strippath(file_);
+    }
+
+    // load SKN
+    std::string ext = mjuu_getext(file_);
+    if (strcasecmp(ext.c_str(), ".skn")) {
+      throw mjCError(this, "Unknown skin file type: %s", file_.c_str());
+    }
+
+    mujoco::user::FilePath meshdir_;
+    meshdir_ = FilePath(mjs_getString(compiler->meshdir));
+
+    FilePath filename = meshdir_ + FilePath(file_);
+    mjSpec* owning_spec = model->FindSpec(compiler);
+    mjResource* resource = LoadResource(owning_spec->modelfiledir->c_str(), filename.Str(), vfs);
+
+    try {
+      LoadSKN(resource);
+      mju_closeResource(resource);
+    } catch(mjCError err) {
+      mju_closeResource(resource);
+      throw err;
+    }
+  }
+
+  // make sure all data is present
+  if (vert_.empty() ||
+      face_.empty() ||
+      bodyname_.empty() ||
+      bindpos_.empty() ||
+      bindquat_.empty() ||
+      vertid_.empty() ||
+      vertweight_.empty()) {
+    throw mjCError(this, "Missing data in skin");
+  }
+
+  // check mesh sizes
+  if (vert_.size()%3) {
+    throw mjCError(this, "Vertex data must be multiple of 3");
+  }
+  if (!texcoord_.empty() && texcoord_.size() != 2*vert_.size()/3) {
+    throw mjCError(this, "Vertex and texcoord data incompatible size");
+  }
+  if (face_.size()%3) {
+    throw mjCError(this, "Face data must be multiple of 3");
+  }
+
+  // check bone sizes
+  size_t nbone = bodyname_.size();
+  if (bindpos_.size() != 3*nbone) {
+    throw mjCError(this, "Unexpected bindpos size in skin");
+  }
+  if (bindquat_.size() != 4*nbone) {
+    throw mjCError(this, "Unexpected bindquat size in skin");
+  }
+  if (vertid_.size() != nbone) {
+    throw mjCError(this, "Unexpected vertid size in skin");
+  }
+  if (vertweight_.size() != nbone) {
+    throw mjCError(this, "Unexpected vertweight size in skin");
+  }
+
+  // resolve body names
+  ResolveReferences(model);
+
+  // resolve material name
+  mjCBase* pmat = model->FindObject(mjOBJ_MATERIAL, material_);
+  if (pmat) {
+    matid = pmat->id;
+  } else if (!material_.empty()) {
+    throw mjCError(this, "unknown material '%s' in skin", material_.c_str());
+  }
+
+  // set total vertex weights to 0
+  std::vector<float> vw;
+  size_t nvert = vert_.size()/3;
+  vw.resize(nvert);
+  fill(vw.begin(), vw.end(), 0.0f);
+
+  // accumulate vertex weights from all bones
+  for (int i=0; i < nbone; i++) {
+    // make sure bone has vertices and sizes match
+    size_t nbv = vertid_[i].size();
+    if (vertweight_[i].size() != nbv || nbv == 0) {
+      throw mjCError(this, "vertid and vertweight must have same non-zero size in skin");
+    }
+
+    // accumulate weights in global array
+    for (int j=0; j < nbv; j++) {
+      // get index and check range
+      int jj = vertid_[i][j];
+      if (jj < 0 || jj >= nvert) {
+        throw mjCError(this, "vertid %d out of range in skin", nullptr, jj);
+      }
+
+      // accumulate
+      vw[jj] += vertweight_[i][j];
+    }
+  }
+
+  // check coverage
+  for (int i=0; i < nvert; i++) {
+    if (vw[i] <= mjMINVAL) {
+      throw mjCError(this, "vertex %d must have positive total weight in skin", nullptr, i);
+    }
+  }
+
+  // normalize vertex weights
+  for (int i=0; i < nbone; i++) {
+    for (int j=0; j < vertid_[i].size(); j++) {
+      vertweight_[i][j] /= vw[vertid_[i][j]];
+    }
+  }
+
+  // normalize bindquat
+  for (int i=0; i < nbone; i++) {
+    double quat[4] = {
+      (double)bindquat_[4*i],
+      (double)bindquat_[4*i+1],
+      (double)bindquat_[4*i+2],
+      (double)bindquat_[4*i+3]
+    };
+    mjuu_normvec(quat, 4);
+
+    bindquat_[4*i]   = (float) quat[0];
+    bindquat_[4*i+1] = (float) quat[1];
+    bindquat_[4*i+2] = (float) quat[2];
+    bindquat_[4*i+3] = (float) quat[3];
+  }
+}

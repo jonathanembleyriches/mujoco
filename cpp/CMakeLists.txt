@@ -161,15 +161,17 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
     compile/lifted/make_model.cc
     compile/lifted/mjuu_util.cc
     compile/lifted/mesh_pipeline.cc
+    compile/lifted/image_pipeline.cc
   )
   target_include_directories(protospec_lifted
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/compile/lifted
     PRIVATE ${MUJOCO_INCLUDE_DIR}
             ${QHULL_INCLUDE_DIR}
             ${TINYOBJ_INCLUDE_DIR}
+            ${LODEPNG_INCLUDE_DIR}
   )
   target_link_libraries(protospec_lifted PRIVATE "${MUJOCO_IMPORT_LIB}"
-                        "${QHULL_LIB}" "${TINYOBJ_LIB}")
+                        "${QHULL_LIB}" "${TINYOBJ_LIB}" "${LODEPNG_LIB}")
   if(MSVC)
     target_compile_options(protospec_lifted PRIVATE /W4)
   else()

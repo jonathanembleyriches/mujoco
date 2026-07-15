@@ -1,0 +1,56 @@
+PNGImage PNGImage::Load(const mjCBase* obj, mjResource* resource,
+                        LodePNGColorType color_type) {
+  PNGImage image;
+  image.color_type_ = color_type;
+
+  // open PNG resource
+  const unsigned char* buffer;
+  int nbuffer = mju_readResource(resource, (const void**) &buffer);
+
+  if (nbuffer < 0) {
+    throw mjCError(obj, "could not read PNG file '%s'", resource->name);
+  }
+
+  if (!nbuffer) {
+    throw mjCError(obj, "empty PNG file '%s'", resource->name);
+  }
+
+  // decode PNG from buffer
+  unsigned int w, h;
+
+  lodepng::State state;
+  state.info_raw.colortype = image.color_type_;
+  state.info_raw.bitdepth = 8;
+  unsigned char* data_ptr = nullptr;
+  unsigned err = lodepng_decode(&data_ptr, &w, &h, &state, buffer, nbuffer);
+  struct free_delete {
+    void operator()(unsigned char* ptr) const { std::free(ptr); }
+  };
+  std::unique_ptr<unsigned char, free_delete> data{data_ptr};
+
+  // check for errors
+  if (err) {
+    std::stringstream ss;
+    ss << "error decoding PNG file '" << resource->name << "': " << lodepng_error_text(err);
+    throw mjCError(obj, "%s", ss.str().c_str());
+  }
+
+  if (data) {
+    size_t buffersize = lodepng_get_raw_size(w, h, &state.info_raw);
+    image.data_.insert(image.data_.end(),
+                       reinterpret_cast<std::byte*>(data.get()),
+                       reinterpret_cast<std::byte*>(&data.get()[buffersize]));
+  }
+
+  image.width_ = w;
+  image.height_ = h;
+  image.is_srgb_ = (state.info_png.srgb_defined == 1);
+
+  if (image.width_ <= 0 || image.height_ < 0) {
+    std::stringstream ss;
+    ss << "error decoding PNG file '" << resource->name << "': " << "dimensions are invalid";
+    throw mjCError(obj, "%s", ss.str().c_str());
+  }
+
+  return image;
+}

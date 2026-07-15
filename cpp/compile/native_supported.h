@@ -112,6 +112,12 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "hfield" || feature_key == "mesh") {
     return true;
   }
+  // NC6 skins: <skin> in <asset> or <deformable>, inline geometry + per-bone
+  // <bone> child, or a .skn binary file. bindpos/bindquat/vertid/vertweight
+  // packing, weight normalization, and body/material id resolution are native.
+  if (feature_key == "skin" || feature_key == "bone") {
+    return true;
+  }
   // NC2 tendons: spatial (site/geom/pulley wraps) and fixed (joint) tendons.
   // A tendon material ref or non-zero armature routes to fallback (finer scan).
   if (feature_key == "tendon" || feature_key == "spatial" ||

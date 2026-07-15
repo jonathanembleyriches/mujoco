@@ -236,22 +236,29 @@ class SubFeatureScanner {
     if (u.count == 0) u.first = loc;
     ++u.count;
   }
-  // Only builtin procedural textures (gradient/checker/flat, no cube-face files)
-  // are native. A file texture (source=TexFile), cube-separate faces, or a
-  // builtin="none" placeholder route the whole model to the XML fallback until
-  // file-texture loading lands.
+  // Native textures: builtin procedural (gradient/checker/flat) and single-file
+  // 2D/cube (PNG/KTX/custom, gridsize composition, hflip/vflip). Cube-from-
+  // separate-files (LoadCubeSeparate), an authored content_type (needs the
+  // MIME-attr parser), and a placeholder with neither builtin nor file route the
+  // whole model to the XML fallback.
   void CheckTexture(const Texture& t) {
-    const bool has_cube = t.fileright || t.fileleft || t.fileup || t.filedown ||
-                          t.filefront || t.fileback;
+    std::unique_ptr<Texture> eff = ps::sdk::Effective(m_, t);
+    const bool has_cube = eff->fileright || eff->fileleft || eff->fileup ||
+                          eff->filedown || eff->filefront || eff->fileback;
+    const TexFile* tf =
+        eff->source ? std::get_if<TexFile>(&*eff->source) : nullptr;
     const TextureBuiltin* b =
-        t.source ? std::get_if<TextureBuiltin>(&*t.source) : nullptr;
+        eff->source ? std::get_if<TextureBuiltin>(&*eff->source) : nullptr;
     const bool is_builtin = b && *b != TextureBuiltin::none;
-    if (!is_builtin || has_cube) Note("texture.file", t.loc);
+    const bool is_file = tf && !tf->file.empty();
+    if (has_cube || eff->content_type || (!is_builtin && !is_file))
+      Note("texture.file", t.loc);
   }
-  // Only user-data (inline elevation) hfields are native; a file (PNG/custom)
-  // hfield needs image loading, a later wave -> XML fallback.
+  // Native hfields: inline elevation (user-data) and single-file (PNG grey via
+  // lifted DecodePNG, or custom binary). An authored content_type (needs the
+  // MIME-attr parser) routes to the XML fallback.
   void CheckHfield(const Hfield& h) {
-    if (h.file) Note("hfield.file", h.loc);
+    if (h.content_type) Note("hfield.file", h.loc);
   }
   // A light's texture would need a compiled asset (not native yet).
   void CheckLight(const Light& l) {
@@ -416,9 +423,6 @@ class SubFeatureScanner {
     const int type = eff->type ? static_cast<int>(*eff->type)
                                : static_cast<int>(GeomType::sphere);
     if (type == static_cast<int>(GeomType::sdf)) Note("geom.sdf", g.loc);
-    if (eff->mesh && type != static_cast<int>(GeomType::mesh) &&
-        type != static_cast<int>(GeomType::sdf))
-      Note("geom.mesh_fit", g.loc);
     if (!g.plugin.empty()) Note("geom.plugin", g.loc);
   }
   // Plugin / SDF meshes need marching cubes + octree (not native). A builtin

@@ -44,7 +44,7 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5 waves 1-5b + 6b + 6-partial done, **ratchet 239/387** | queue below |
+| Native compiler | NC0-NC5 + NC6 assets (file textures/hfields, skins, mesh-fit) done, **ratchet 259/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
@@ -64,8 +64,28 @@ are DONE and on the ratchet (239). The one remaining flex descope:
    it needs cellcount/cell_empty from the interpolated path (edge + vert equalities already land).
    Gated as `flexcomp.interpolated` (trilinear/quadratic only now) and `flexcomp.equality_kind`
    (strain only now). Descoped for size + FP-divergence risk; a self-contained NC5 wave 6.
-2. **NC6** — attach/`<model>` native expansion (clone-arena pattern), PNG file textures
-   (lodepng wired), file hfields, skins, mesh-fit.
+2. **NC6 assets — DONE** (ratchet 239 -> 259). File textures (mjCTexture single-file 2D/cube:
+   PNG via lifted lodepng `DecodePNG`, KTX raw, custom binary; gridsize/gridlayout composition;
+   hflip/vflip; colorspace=AUTO from the PNG sRGB chunk; texturedir+strippath; file-stem naming;
+   `tex_pathadr`), file hfields (PNG grey row-reversed + custom binary via meshdir), skins
+   (`mjCSkin::Compile`/`LoadSKN`: inline `<bone>` + `.skn`, weight normalization, bone/material id
+   resolution, `skin_*` arrays), and mesh-fit geoms (`mjCMesh::FitGeom`: inertia-box/aabb size +
+   fitscale, `geom_dataid` retains the source mesh). Still gated: texture separate cube-faces +
+   authored content_type; light.texture; `hfield`/`skin` authored content_type.
+3. **NC6 attach/`<model>` — DESCOPED (queued, self-contained wave).** ~15 corpus files (parent,
+   parent_model, many_dependencies, humanoid100, 2humanoid100, hammock, ...). ProtoSpec stores
+   `<model file=...>` as a `ModelAsset` (file ref only, NOT a nested parsed model) and `<attach
+   model=.. body=.. prefix=..>` as an `Attach` element; the reader passes both through unexpanded,
+   so leg B relies on `mj_loadXML` to recursively parse the child file and run `mjs_attach`. The
+   native path must reimplement that whole machinery: (a) recursively invoke the ProtoSpec reader
+   on the child model file at compile time (resolve via base_dir; the child is a full MJCF doc);
+   (b) `mjs_attach` semantics — deep-clone the referenced body subtree, prefix-namespace ALL
+   element names AND every internal cross-reference (joints/sites/actuators/tendons/sensors/
+   defaults that target the attached subtree), world-attach frame handling (xml reader :3928-3960);
+   (c) child-model keyframe merge (`mjCModel` attach-keyframe path); (d) child defaults/classes
+   merge with the prefix. Descoped now for size + high FP-divergence risk in the exact
+   name/ref-prefixing (a single mismatched internal ref diverges the whole model); it is a
+   self-contained wave on the NC4 ExpandReplicate clone precedent. Gated as feature `model`.
 6. **NC7 long tail** — muscle (`mj_setLengthRange` public/post-build), dcmotor, site/refsite/
    slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,
    alignfree, per-body sleep, partial-size-default eager-copy, `Expand()`, flexcomp
