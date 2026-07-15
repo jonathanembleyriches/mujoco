@@ -18,6 +18,7 @@
 #include "compile.h"
 #include "editor/asset_import.h"
 #include "editor/authoring_ops.h"
+#include "editor/details_panel.h"
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
 #include "mjcf.h"
@@ -28,6 +29,7 @@
 
 namespace mj = ps::mjcf;
 namespace sdk = ps::sdk;
+namespace det = ps::studio::details;
 using ps::studio::EditorContext;
 
 static int g_failed = 0;
@@ -269,6 +271,107 @@ static void TestDefaultClass() {
   CHECK(sdk::Find<mj::Default>(*ctx.tree, "arm_1") != nullptr);
 }
 
+// Details-panel texture-layer editing: the one appearance surface the generic
+// field visitor cannot reach (a Material's layers are an owned child list). This
+// drives the exact pure mutators the panel's "Texture Layers" section calls, each
+// wrapped in the editor's one-undo contract, and asserts add / role / texture /
+// remove, that the layered material compiles, and that undo restores a removal.
+static void TestMaterialLayerEditing() {
+  EditorContext ctx;
+  CHECK(ps::studio::NewModelOp(ctx));
+
+  // Two 2D textures for the layers to reference.
+  ps::studio::TextureSpec ta;
+  ta.name = "texA";
+  ta.builtin = true;
+  ps::studio::TextureSpec tb;
+  tb.name = "texB";
+  tb.builtin = true;
+  CHECK(ps::studio::CreateTextureOp(ctx, ta) != 0);
+  CHECK(ps::studio::CreateTextureOp(ctx, tb) != 0);
+
+  // A material with NO texture role -> starts with zero layers.
+  ps::studio::MaterialSpec ms;
+  ms.name = "surf";
+  const std::uint64_t mser = ps::studio::CreateMaterialOp(ctx, ms);
+  CHECK(mser != 0);
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    CHECK(m != nullptr && m->layers.empty());
+  }
+
+  // Add layer 0 (texA / rgb) and layer 1 (texB / normal), each one undo step.
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    ctx.BeginEdit();
+    const std::size_t idx = det::AddMaterialLayer(*m, "texA");
+    det::SetLayerRole(*m->layers[idx], mj::TexRole::rgb);
+    ctx.CommitEdit("add texture layer");
+  }
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    ctx.BeginEdit();
+    const std::size_t idx = det::AddMaterialLayer(*m, "texB");
+    det::SetLayerRole(*m->layers[idx], mj::TexRole::normal);
+    ctx.CommitEdit("add texture layer");
+  }
+
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    CHECK(m != nullptr && m->layers.size() == 2);
+    CHECK(det::LayerTextureName(*m->layers[0]) == "texA");
+    CHECK(m->layers[0]->role && *m->layers[0]->role == mj::TexRole::rgb);
+    CHECK(det::LayerTextureName(*m->layers[1]) == "texB");
+    CHECK(m->layers[1]->role && *m->layers[1]->role == mj::TexRole::normal);
+    CHECK(det::LayerRoleIndex(*m->layers[1]) ==
+          static_cast<int>(mj::TexRole::normal));
+  }
+
+  // The multi-layer material compiles.
+  CHECK(ps::studio::RecompileTree(ctx) && ctx.compiled.ok());
+
+  // Re-point layer 0's texture, then clear it.
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    ctx.BeginEdit();
+    det::SetLayerTexture(*m->layers[0], "texB");
+    ctx.CommitEdit("edit layer texture");
+    CHECK(det::LayerTextureName(*m->layers[0]) == "texB");
+    ctx.BeginEdit();
+    det::SetLayerTexture(*m->layers[0], "");
+    ctx.CommitEdit("edit layer texture");
+    CHECK(!m->layers[0]->texture.has_value());
+  }
+
+  // Remove layer 0 -> the former "normal" layer is all that remains.
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    ctx.BeginEdit();
+    CHECK(det::RemoveMaterialLayer(*m, 0));
+    ctx.CommitEdit("remove texture layer");
+  }
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    CHECK(m != nullptr && m->layers.size() == 1);
+    CHECK(m->layers[0]->role && *m->layers[0]->role == mj::TexRole::normal);
+    CHECK(det::LayerTextureName(*m->layers[0]) == "texB");
+  }
+
+  // Undo restores the removed layer (back to two).
+  CHECK(ps::studio::Undo(ctx));
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    CHECK(m != nullptr && m->layers.size() == 2);
+  }
+
+  // An out-of-range remove is a rejected no-op.
+  {
+    mj::Material* m = FindBySerial<mj::Material>(*ctx.tree, mser);
+    CHECK(!det::RemoveMaterialLayer(*m, 99));
+    CHECK(m->layers.size() == 2);
+  }
+}
+
 int main() {
   TestMultiImportOneUndo();
   TestFolderImportGlob();
@@ -276,6 +379,7 @@ int main() {
   TestMaterialTextureFull();
   TestFileTextureSource();
   TestDefaultClass();
+  TestMaterialLayerEditing();
 
   std::printf("%d checks, %d failed\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

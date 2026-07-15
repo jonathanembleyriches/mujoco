@@ -606,7 +606,10 @@ void RenderNameRow(EditorContext& ctx, E& e) {
 // visitor (which only walks scalar/array fields) never reaches them. This is the
 // one element whose appearance authoring needs its child list edited in place:
 // per layer a texture reference + a role, with add / remove. Each change is its
-// own undo entry. SE5 "full material and texturing editing".
+// own undo entry, and every mutation routes through the windowless-tested helpers
+// in details_panel.h. Rows follow the panel's label-column layout so the layer
+// combos line up with every other field's value column. SE5 "full material and
+// texturing editing".
 inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
   if (!ImGui::CollapsingHeader("Texture Layers", ImGuiTreeNodeFlags_DefaultOpen))
     return;
@@ -614,25 +617,33 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
       RefCandidates(*ctx.tree, {mj::ElementType::Texture});
   const std::vector<std::string_view> roles = EnumLabels<mj::TexRole>();
 
+  if (mat.layers.empty()) {
+    ImGui::TextDisabled("No texture layers.");
+  }
+
   int remove_idx = -1;
   for (std::size_t i = 0; i < mat.layers.size(); ++i) {
     mj::MaterialLayer* layer = mat.layers[i].get();
     if (!layer) continue;
     ImGui::PushID(static_cast<int>(i));
 
+    const std::string row = "layer " + std::to_string(i);
+    FieldLabel(row, "one texture channel: the source texture and the role it feeds");
+    ImGui::SameLine(kLabelColumn);
+
     // Texture reference combo.
-    const std::string cur = layer->texture ? layer->texture->name : std::string();
+    const std::string cur = LayerTextureName(*layer);
     ImGui::SetNextItemWidth(kFieldWidth * 1.8f);
     if (ImGui::BeginCombo("##tex", cur.empty() ? "(none)" : cur.c_str())) {
       if (ImGui::Selectable("(none)", cur.empty())) {
         EditBegin(ctx);
-        layer->texture.reset();
+        SetLayerTexture(*layer, "");
         EditCommit(ctx, "edit layer texture");
       }
       for (const std::string& c : cands) {
         if (ImGui::Selectable(c.c_str(), c == cur)) {
           EditBegin(ctx);
-          layer->texture = ps::Ref<mj::Texture>(c);
+          SetLayerTexture(*layer, c);
           EditCommit(ctx, "edit layer texture");
         }
       }
@@ -641,7 +652,7 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
     ImGui::SameLine();
 
     // Role combo.
-    const int role_cur = layer->role ? static_cast<int>(*layer->role) : 0;
+    const int role_cur = LayerRoleIndex(*layer);
     const std::string role_prev =
         (role_cur >= 0 && role_cur < static_cast<int>(roles.size()))
             ? std::string(roles[role_cur])
@@ -652,7 +663,7 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
         if (ImGui::Selectable(std::string(roles[r]).c_str(),
                               static_cast<int>(r) == role_cur)) {
           EditBegin(ctx);
-          layer->role = static_cast<mj::TexRole>(r);
+          SetLayerRole(*layer, static_cast<mj::TexRole>(r));
           EditCommit(ctx, "edit layer role");
         }
       }
@@ -665,16 +676,13 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
 
   if (remove_idx >= 0) {
     EditBegin(ctx);
-    mat.layers.erase(mat.layers.begin() + remove_idx);
+    RemoveMaterialLayer(mat, static_cast<std::size_t>(remove_idx));
     EditCommit(ctx, "remove texture layer");
     return;  // mat.layers mutated; stop iterating it this frame
   }
   if (ImGui::SmallButton("+ Add layer")) {
     EditBegin(ctx);
-    auto layer = std::make_unique<mj::MaterialLayer>();
-    layer->role = mj::TexRole::rgb;
-    if (!cands.empty()) layer->texture = ps::Ref<mj::Texture>(cands.front());
-    mat.layers.push_back(std::move(layer));
+    AddMaterialLayer(mat, cands.empty() ? std::string_view{} : cands.front());
     EditCommit(ctx, "add texture layer");
   }
 }
