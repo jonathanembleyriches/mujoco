@@ -1782,13 +1782,13 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
   int dim = fc.dim ? *fc.dim : 2;
   const std::string name = fc.name ? *fc.name : std::string();
 
-  // Interpolated (trilinear/quadratic), mesh/gmsh/direct, and radial/2d dof are
-  // gated out of the native flexcomp path; only the grid/box/square procedural
-  // family with per-vertex sliders reaches here.
+  // Interpolated (trilinear/quadratic) and radial/2d dof, plus mesh/gmsh file
+  // loading, are gated out of the native flexcomp path (NC5 Wave 4 admits the
+  // `direct` type, whose point/element geometry is authored inline). The
+  // procedural grid/box/square family and direct points reach here.
   if (dof != FlexDof::full) return nullptr;
-  if (type == FlexcompType::mesh || type == FlexcompType::gmsh ||
-      type == FlexcompType::direct)
-    return nullptr;
+  if (type == FlexcompType::mesh || type == FlexcompType::gmsh) return nullptr;
+  const bool is_direct = (type == FlexcompType::direct);
 
   FcompGeom g;
   g.type = type;
@@ -1815,18 +1815,47 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
     case FlexcompType::disc:
       g.MakeSquare();
       break;
+    case FlexcompType::direct:
+      // Points/elements authored inline (Make :226 sets res=true; the reader
+      // parsed them into point/element/texcoord). dim stays as authored.
+      if (fc.point) g.point = *fc.point;
+      if (fc.element) g.element = *fc.element;
+      if (fc.texcoord) g.texcoord = *fc.texcoord;
+      break;
     default:
       return nullptr;
   }
   dim = g.dim;
   if (g.element.empty() || g.point.empty()) return nullptr;
+  // element sizing + vertex-id range (Make :272-287); a malformed direct spec
+  // routes the whole model to the XML fallback (leg B raises the same error).
+  if (g.point.size() % 3 ||
+      g.element.size() % static_cast<std::size_t>(dim + 1))
+    return nullptr;
+  {
+    const int np = static_cast<int>(g.point.size()) / 3;
+    for (int v : g.element)
+      if (v < 0 || v >= np) return nullptr;
+  }
+  // scaling applies only to direct types (Make :289-296), before the pose xform.
+  if (is_direct && fc.scale) {
+    const auto& s = *fc.scale;
+    if (s[0] != 1 || s[1] != 1 || s[2] != 1) {
+      const int np = static_cast<int>(g.point.size()) / 3;
+      for (int i = 0; i < np; i++) {
+        g.point[3 * i + 0] *= s[0];
+        g.point[3 * i + 1] *= s[1];
+        g.point[3 * i + 2] *= s[2];
+      }
+    }
+  }
 
   // force flatskin for box, cylinder, and 3D grid (Make :237)
   const bool force_flatskin =
       type == FlexcompType::box || type == FlexcompType::cylinder ||
       (type == FlexcompType::grid && dim == 3);
 
-  const int npnt = static_cast<int>(g.point.size()) / 3;
+  int npnt = static_cast<int>(g.point.size()) / 3;
 
   // pose transform to points (Make :298). scale applies only to direct types.
   double pos[3] = {0, 0, 0}, quat[4] = {1, 0, 0, 0};
@@ -1851,6 +1880,9 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
     auto in_grid = [&](int idv) { return idv >= 0 && idv < npnt; };
     for (const auto& p : fc.flexcompPins) {
       if (!p) continue;
+      // pin grid(range) is a grid/interpolated-only addressing (Make :253); a
+      // direct flexcomp using it is an upstream hard error -> XML fallback.
+      if (is_direct && (p->grid || p->gridrange)) return nullptr;
       if (p->id) for (int v : *p->id) { if (!in_grid(v)) return nullptr; pinned[v] = 1; }
       if (p->range) {
         const auto& r = *p->range;
@@ -1896,6 +1928,42 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
     }
     if (allpin) rigid = true;
     else if (nopin) centered = true;
+  }
+
+  // remove unreferenced points for direct types (Make :438-493): compact
+  // point/texcoord/pinned and reindex element so a point no element uses is
+  // dropped (the procedural families reference every point, so this is a no-op
+  // there and stays direct-only). npnt shrinks to the compacted count.
+  if (is_direct) {
+    std::vector<char> used(npnt, 0);
+    for (int v : g.element) used[v] = 1;
+    std::vector<int> reindex(npnt, 0);
+    bool hasunused = false;
+    for (int i = 0; i < npnt; i++)
+      if (!used[i]) {
+        hasunused = true;
+        for (int k = i + 1; k < npnt; k++) reindex[k]--;
+      }
+    if (hasunused) {
+      for (int& v : g.element) v += reindex[v];
+      int new_npnt = 0;
+      for (int i = 0; i < npnt; i++) {
+        if (!used[i]) continue;
+        g.point[3 * new_npnt + 0] = g.point[3 * i + 0];
+        g.point[3 * new_npnt + 1] = g.point[3 * i + 1];
+        g.point[3 * new_npnt + 2] = g.point[3 * i + 2];
+        if (!g.texcoord.empty()) {
+          g.texcoord[2 * new_npnt + 0] = g.texcoord[2 * i + 0];
+          g.texcoord[2 * new_npnt + 1] = g.texcoord[2 * i + 1];
+        }
+        pinned[new_npnt] = pinned[i];
+        new_npnt++;
+      }
+      g.point.resize(3 * new_npnt);
+      if (!g.texcoord.empty()) g.texcoord.resize(2 * new_npnt);
+      pinned.resize(new_npnt);
+      npnt = new_npnt;
+    }
   }
 
   // body mass/inertia matching specs (Make :525)
@@ -5183,21 +5251,22 @@ void FillMeshPaths(mjModel* m, const std::vector<CMesh>& meshes) {
 }
 
 // --------------------------------------------------------------------------- //
-// Flex (mjCFlex, NC5 Wave 1: direct <flex> with young=0, non-interpolated).    //
+// Flex (mjCFlex, NC5 Wave 1 geometry + Wave 3 elasticity, non-interpolated).    //
 // Lifted from src/user/user_mesh.cc: mjCFlex::Compile (:4630), ResolveReferences //
-// (:4275), CreateShellPair (:5460), CreateFlapStencil (:3605), CreateBVH (:5410) //
-// and the simplex tables (:3385 / user_objects.h:1050). The young>0 elasticity  //
-// kernels, node interpolation, and gmsh/mesh loaders are gated to the XML        //
-// fallback (native.cc); only geometry/topology of the edge-only path is here.   //
+// (:4275), CreateShellPair (:5460), CreateFlapStencil (:3605), CreateBVH (:5410),//
+// the simplex tables (:3385 / user_objects.h:1050), and the young>0 elasticity  //
+// kernels (:3382-3722, above). Node/dof interpolation and gmsh/mesh loaders are  //
+// still gated to the XML fallback (native.cc).                                   //
 // Sizing (nflex*/nJfe/nJfv, user_model.cc:2182-2241) and fill (CopyObjects       //
 // :3432-3654) are retargeted below. BVH reuses the shared lifted BVH class.      //
 // --------------------------------------------------------------------------- //
 
 // Adjacent-triangle stencil (user_objects.h:963). Populated by the flap stencil
-// even at young=0 for its edge-consistency assertion; edgeflap output is unused
-// when elastic2d==0 (gated otherwise).
+// even at young=0 for its edge-consistency assertion; edgeflap output feeds the
+// young>0 bending kernel (ComputeBending<StencilFlap>, NC5 Wave 3).
 struct StencilFlap {
-  int vertices[4];
+  static constexpr int kNumVerts = 4;
+  int vertices[kNumVerts];
 };
 
 // Simplex connectivity (user_mesh.cc:3385): local edges per element by dim-1.
@@ -5221,8 +5290,8 @@ struct FlexPairHash {
 };
 
 // Per-flex compiled state (side table). Field set mirrors mjCFlex_ plus the
-// resolved mjsFlex scalars needed by the fill; young/poisson/elastic2d are read
-// but the young>0 / bending paths never reach here (gated).
+// resolved mjsFlex scalars needed by the fill; young/poisson/elastic2d drive the
+// NC5 Wave 3 elasticity kernels (stiffness/bending) when young>0.
 struct CFlex {
   std::string name;
   int dim = 2;
@@ -5264,6 +5333,8 @@ struct CFlex {
   std::vector<double> vertxpos;
   std::vector<double> vert0;
   std::vector<StencilFlap> flaps;
+  std::vector<double> stiffness;         // young>0: 21*nelem (0 if young==0)
+  std::vector<double> bending;           // young>0 elastic2d bend: 17*nedge
   double size[3] = {0, 0, 0};
   int edgeequality = 0;                  // resolved at fill from equalities
   // BVH (dynamic; laid out after body+mesh static nodes)
@@ -5282,6 +5353,291 @@ std::vector<std::string> SplitWhitespace(const std::string& s) {
   std::string tok;
   while (is >> tok) out.push_back(tok);
   return out;
+}
+
+// --------------------------------------------------------------------------- //
+// Nonlinear elasticity kernels (young>0), NC5 Wave 3. Lifted verbatim from      //
+// user_mesh.cc:3382-3722 (the Stencil2D/Stencil3D vertex-edge stencils and the  //
+// ComputeVolume / MetricTensor / ComputeBasis / ComputeStiffness template       //
+// specializations, cot, the ComputeVolume triangle-area overload, and           //
+// ComputeBending); the sole edit is qualifying mjuu_* with lift::. FlexCompile  //
+// calls ComputeStiffness per element and ComputeBending per edge when young>0.  //
+// --------------------------------------------------------------------------- //
+
+// simplex vertex/edge stencils (user_mesh.cc:3392).
+struct Stencil2D {
+  static constexpr int kNumEdges = 3;
+  static constexpr int kNumVerts = 3;
+  static constexpr int kNumFaces = 2;
+  static constexpr int edge[kNumEdges][2] = {{1, 2}, {2, 0}, {0, 1}};
+  static constexpr int face[kNumVerts][2] = {{1, 2}, {2, 0}, {0, 1}};
+  static constexpr int edge2face[kNumEdges][2] = {{1, 2}, {2, 0}, {0, 1}};
+  int vertices[kNumVerts];
+  int edges[kNumEdges];
+};
+
+struct Stencil3D {
+  static constexpr int kNumEdges = 6;
+  static constexpr int kNumVerts = 4;
+  static constexpr int kNumFaces = 3;
+  static constexpr int edge[kNumEdges][2] = {{0, 1}, {1, 2}, {2, 0},
+                                             {2, 3}, {0, 3}, {1, 3}};
+  static constexpr int face[kNumVerts][3] = {{2, 1, 0}, {0, 1, 3},
+                                             {1, 2, 3}, {2, 0, 3}};
+  static constexpr int edge2face[kNumEdges][2] = {{2, 3}, {1, 3}, {2, 1},
+                                                  {1, 0}, {0, 2}, {0, 3}};
+  int vertices[kNumVerts];
+  int edges[kNumEdges];
+};
+
+template <typename T>
+inline double ComputeVolume(const double* x, const int v[T::kNumVerts]);
+
+template <>
+inline double ComputeVolume<Stencil2D>(const double* x,
+                                       const int v[Stencil2D::kNumVerts]) {
+  double normal[3];
+  const double* x0 = x + 3*v[0];
+  const double* x1 = x + 3*v[1];
+  const double* x2 = x + 3*v[2];
+  double edge1[3] = {x1[0]-x0[0], x1[1]-x0[1], x1[2]-x0[2]};
+  double edge2[3] = {x2[0]-x0[0], x2[1]-x0[1], x2[2]-x0[2]};
+  lift::mjuu_crossvec(normal, edge1, edge2);
+  return lift::mjuu_normvec(normal, 3) / 2;
+}
+
+template<>
+inline double ComputeVolume<Stencil3D>(const double* x,
+                                       const int v[Stencil3D::kNumVerts]) {
+  double normal[3];
+  const double* x0 = x + 3*v[0];
+  const double* x1 = x + 3*v[1];
+  const double* x2 = x + 3*v[2];
+  const double* x3 = x + 3*v[3];
+  double edge1[3] = {x1[0]-x0[0], x1[1]-x0[1], x1[2]-x0[2]};
+  double edge2[3] = {x2[0]-x0[0], x2[1]-x0[1], x2[2]-x0[2]};
+  double edge3[3] = {x3[0]-x0[0], x3[1]-x0[1], x3[2]-x0[2]};
+  lift::mjuu_crossvec(normal, edge1, edge2);
+  return lift::mjuu_dot3(normal, edge3) / 6;
+}
+
+// compute metric tensor of edge lengths inner product
+template <typename T>
+void inline MetricTensor(double* metric, int idx, double mu,
+                         double la, const double basis[T::kNumEdges][9]) {
+  double trE[T::kNumEdges] = {0};
+  double trEE[T::kNumEdges*T::kNumEdges] = {0};
+  double k[T::kNumEdges*T::kNumEdges];
+
+  // compute first invariant i.e. trace(strain)
+  for (int e = 0; e < T::kNumEdges; e++) {
+    for (int i = 0; i < 3; i++) {
+      trE[e] += basis[e][4*i];
+    }
+  }
+
+  // compute second invariant i.e. trace(strain^2)
+  for (int ed1 = 0; ed1 < T::kNumEdges; ed1++) {
+    for (int ed2 = 0; ed2 < T::kNumEdges; ed2++) {
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+          trEE[T::kNumEdges*ed1+ed2] += basis[ed1][3*i+j] * basis[ed2][3*j+i];
+        }
+      }
+    }
+  }
+
+  // assembly of strain metric tensor
+  for (int ed1 = 0; ed1 < T::kNumEdges; ed1++) {
+    for (int ed2 = 0; ed2 < T::kNumEdges; ed2++) {
+      k[T::kNumEdges*ed1 + ed2] = mu * trEE[T::kNumEdges * ed1 + ed2] +
+                                  la * trE[ed2] * trE[ed1];
+    }
+  }
+
+  // copy to triangular representation
+  int id = 0;
+  for (int ed1 = 0; ed1 < T::kNumEdges; ed1++) {
+    for (int ed2 = ed1; ed2 < T::kNumEdges; ed2++) {
+      metric[21*idx + id++] = k[T::kNumEdges*ed1 + ed2];
+    }
+  }
+
+  if (id != T::kNumEdges*(T::kNumEdges+1)/2) {
+    mju_error("incorrect stiffness matrix size");
+  }
+}
+
+// compute local basis
+template <typename T>
+void inline ComputeBasis(double basis[9], const double* x,
+                         const int v[T::kNumVerts],
+                         const int faceL[T::kNumFaces],
+                         const int faceR[T::kNumFaces], double volume);
+
+template <>
+void inline ComputeBasis<Stencil2D>(double basis[9], const double* x,
+                                    const int v[Stencil2D::kNumVerts],
+                                    const int faceL[Stencil2D::kNumFaces],
+                                    const int faceR[Stencil2D::kNumFaces],
+                                    double volume) {
+  double basisL[3], basisR[3];
+  double normal[3];
+
+  const double* xL0 = x + 3*v[faceL[0]];
+  const double* xL1 = x + 3*v[faceL[1]];
+  const double* xR0 = x + 3*v[faceR[0]];
+  const double* xR1 = x + 3*v[faceR[1]];
+  double edgesL[3] = {xL0[0]-xL1[0], xL0[1]-xL1[1], xL0[2]-xL1[2]};
+  double edgesR[3] = {xR1[0]-xR0[0], xR1[1]-xR0[1], xR1[2]-xR0[2]};
+
+  lift::mjuu_crossvec(normal, edgesR, edgesL);
+  lift::mjuu_normvec(normal, 3);
+  lift::mjuu_crossvec(basisL, normal, edgesL);
+  lift::mjuu_crossvec(basisR, edgesR, normal);
+
+  // we use as basis the symmetrized tensor products of the edge normals of the
+  // other two edges; this is shown in Weischedel "A discrete geometric view on
+  // shear-deformable shell models" in the remark at the end of section 4.1;
+  // equivalent to linear finite elements but in a coordinate-free formulation.
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      basis[3*i+j] = (basisL[i]*basisR[j] +
+                      basisR[i]*basisL[j]) / (8*volume*volume);
+    }
+  }
+}
+
+// compute local basis
+template <>
+void inline ComputeBasis<Stencil3D>(double basis[9], const double* x,
+                                    const int v[Stencil3D::kNumVerts],
+                                    const int faceL[Stencil3D::kNumFaces],
+                                    const int faceR[Stencil3D::kNumFaces],
+                                    double volume) {
+  const double* xL0 = x + 3*v[faceL[0]];
+  const double* xL1 = x + 3*v[faceL[1]];
+  const double* xL2 = x + 3*v[faceL[2]];
+  const double* xR0 = x + 3*v[faceR[0]];
+  const double* xR1 = x + 3*v[faceR[1]];
+  const double* xR2 = x + 3*v[faceR[2]];
+  double edgesL[6] = {xL1[0] - xL0[0], xL1[1] - xL0[1], xL1[2] - xL0[2],
+                      xL2[0] - xL0[0], xL2[1] - xL0[1], xL2[2] - xL0[2]};
+  double edgesR[6] = {xR1[0] - xR0[0], xR1[1] - xR0[1], xR1[2] - xR0[2],
+                      xR2[0] - xR0[0], xR2[1] - xR0[1], xR2[2] - xR0[2]};
+
+  double normalL[3], normalR[3];
+  lift::mjuu_crossvec(normalL, edgesL, edgesL+3);
+  lift::mjuu_crossvec(normalR, edgesR, edgesR+3);
+
+  // we use as basis the symmetrized tensor products of the area normals of the
+  // two faces not adjacent to the edge; this is the 3D equivalent to the basis
+  // proposed in Weischedel "A discrete geometric view on shear-deformable shell
+  // models" in the remark at the end of section 4.1. This is also equivalent to
+  // linear finite elements but in a coordinate-free formulation.
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      basis[3*i+j] = (normalL[i]*normalR[j] +
+                      normalR[i]*normalL[j]) / (36*2*volume*volume);
+    }
+  }
+}
+
+// compute stiffness for a single element
+template <typename T>
+void inline ComputeStiffness(std::vector<double>& stiffness,
+                             const std::vector<double>& body_pos,
+                             const int* v, int t, double E,
+                             double nu, double thickness = 4) {
+  // triangles area
+  double volume = ComputeVolume<T>(body_pos.data(), v);
+
+  // material parameters
+  double mu = E / (2*(1+nu)) * std::abs(volume) / 4 * thickness;
+  double la = E*nu / ((1+nu)*(1-2*nu)) * std::abs(volume) / 4 * thickness;
+
+  // local geometric quantities
+  double basis[T::kNumEdges][9] = {{0}};
+
+  // compute edge basis
+  for (int e = 0; e < T::kNumEdges; e++) {
+    ComputeBasis<T>(basis[e], body_pos.data(), v,
+                    T::face[T::edge2face[e][0]],
+                    T::face[T::edge2face[e][1]], volume);
+  }
+
+  // compute metric tensor
+  MetricTensor<T>(stiffness.data(), t, mu, la, basis);
+}
+
+// cotangent between two edges
+double inline cot(const double* x, int v0, int v1, int v2) {
+  double normal[3];
+  double edge1[3] = {x[3*v1]-x[3*v0], x[3*v1+1]-x[3*v0+1], x[3*v1+2]-x[3*v0+2]};
+  double edge2[3] = {x[3*v2]-x[3*v0], x[3*v2+1]-x[3*v0+1], x[3*v2+2]-x[3*v0+2]};
+
+  lift::mjuu_crossvec(normal, edge1, edge2);
+  return lift::mjuu_dot3(edge1, edge2) / sqrt(lift::mjuu_dot3(normal, normal));
+}
+
+// area of a triangle
+double inline ComputeVolume(const double* x, const int v[Stencil2D::kNumVerts]) {
+  double normal[3];
+  double edge1[3] = {x[3*v[1]]-x[3*v[0]], x[3*v[1]+1]-x[3*v[0]+1], x[3*v[1]+2]-x[3*v[0]+2]};
+  double edge2[3] = {x[3*v[2]]-x[3*v[0]], x[3*v[2]+1]-x[3*v[0]+1], x[3*v[2]+2]-x[3*v[0]+2]};
+
+  lift::mjuu_crossvec(normal, edge1, edge2);
+  return sqrt(lift::mjuu_dot3(normal, normal)) / 2;
+}
+
+// compute bending stiffness for a single edge
+template <typename T>
+void inline ComputeBending(double* bending, double* pos, const int v[4], double mu,
+                           double thickness) {
+  int vadj[3] = {v[1], v[0], v[3]};
+
+  if (v[3]== -1) {
+    // skip boundary edges
+    return;
+  }
+
+  // cotangent operator from Wardetzky at al., "Discrete Quadratic Curvature
+  // Energies", https://cims.nyu.edu/gcl/papers/wardetzky2007dqb.pdf
+
+  double a01 = cot(pos, v[0], v[1], v[2]);
+  double a02 = cot(pos, v[0], v[3], v[1]);
+  double a03 = cot(pos, v[1], v[2], v[0]);
+  double a04 = cot(pos, v[1], v[0], v[3]);
+  double c[4] = {a03 + a04, a01 + a02, -(a01 + a03), -(a02 + a04)};
+  double volume = ComputeVolume(pos, v) + ComputeVolume(pos, vadj);
+  double stiffness = 3 * mu * pow(thickness, 3) / (24 * volume);
+
+  // Garg et al., "Cubic Shells", https://cims.nyu.edu/gcl/papers/garg2007cs.pdf
+  const double* v0 = pos + 3*v[0];
+  const double* v1 = pos + 3*v[1];
+  const double* v2 = pos + 3*v[2];
+  const double* v3 = pos + 3*v[3];
+  double e0[3] = {v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]};
+  double e1[3] = {v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]};
+  double e2[3] = {v3[0] - v0[0], v3[1] - v0[1], v3[2] - v0[2]};
+  double e3[3] = {v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]};
+  double e4[3] = {v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]};
+  double t0[3] = {-(a03*e1[0] + a01*e3[0]), -(a03*e1[1] + a01*e3[1]), -(a03*e1[2] + a01*e3[2])};
+  double t1[3] = {-(a04*e2[0] + a02*e4[0]), -(a04*e2[1] + a02*e4[1]), -(a04*e2[2] + a02*e4[2])};
+  double sqr = lift::mjuu_dot3(e0, e0);
+  double cos_theta = -lift::mjuu_dot3(t0, t1) / sqr;
+
+  for (int v1 = 0; v1 < T::kNumVerts; v1++) {
+    for (int v2 = 0; v2 < T::kNumVerts; v2++) {
+      bending[4 * v1 + v2] += c[v1] * c[v2] * cos_theta * stiffness;
+    }
+  }
+
+  double n[3];
+  lift::mjuu_crossvec(n, e0, e1);
+  bending[16] = lift::mjuu_dot3(n, e2) * (a01 - a03) * (a04 - a02) * stiffness / (sqr * sqrt(sqr));
 }
 
 // CreateFlapStencil (user_mesh.cc:3605): builds triangle flap adjacency and
@@ -5631,7 +5987,41 @@ bool FlexCompile(const Flex& fl, const std::vector<CBody>& cbs,
       !FlexCreateFlapStencil(out.flaps, out.elem, out.edgeidx, diags))
     return false;
 
-  // young>0 elasticity is gated (native.cc); nothing here.
+  // elasticity (user_mesh.cc:4889-4925, non-interpolated). young>0 fills the
+  // per-element strain metric (stiffness, 21*nelem stride: 6 of 21 used in 2D,
+  // all 21 in 3D) and, for 2D bending (elastic2d 1 or 3), the per-edge bending
+  // stiffness (17*nedge). Interpolated dof is gated to the XML fallback.
+  if (out.young > 0) {
+    if (out.poisson < 0 || out.poisson >= 0.5)
+      return err("Poisson ratio must be in [0, 0.5)");
+
+    // linear elasticity
+    out.stiffness.assign(21 * out.nelem, 0);
+
+    // geometrically nonlinear elasticity
+    for (int t = 0; t < out.nelem; t++) {
+      if (dim == 2 && out.elastic2d >= 2 && out.thickness > 0) {
+        ComputeStiffness<Stencil2D>(out.stiffness, out.vertxpos,
+                                    out.elem.data() + (dim + 1) * t, t,
+                                    out.young, out.poisson, out.thickness);
+      } else if (dim == 3) {
+        ComputeStiffness<Stencil3D>(out.stiffness, out.vertxpos,
+                                    out.elem.data() + (dim + 1) * t, t,
+                                    out.young, out.poisson);
+      }
+    }
+
+    // bending stiffness (2D only)
+    if (dim == 2 && (out.elastic2d == 1 || out.elastic2d == 3)) {
+      out.bending.assign(out.nedge * 17, 0);
+      for (int e = 0; e < out.nedge; e++) {
+        ComputeBending<StencilFlap>(out.bending.data() + 17 * e,
+                                    out.vertxpos.data(), out.flaps[e].vertices,
+                                    out.young / (2 * (1 + out.poisson)),
+                                    out.thickness);
+      }
+    }
+  }
 
   // shells + element-vertex pairs + elemlayer (user_mesh.cc:4942)
   FlexCreateShellPair(out);
@@ -5724,6 +6114,7 @@ void FillFlexes(mjModel* m, const std::vector<CFlex>& flexes,
                 const std::vector<CBody>& cbs, int bvh_start) {
   int vert_adr = 0, node_adr = 0, edge_adr = 0, elem_adr = 0, elemdata_adr = 0,
       elemedge_adr = 0, shelldata_adr = 0, evpair_adr = 0, texcoord_adr = 0;
+  int stiffness_adr = 0, bending_adr = 0;
   int bvh_adr = bvh_start;
   for (int i = 0; i < static_cast<int>(flexes.size()); ++i) {
     const CFlex& f = flexes[i];
@@ -5744,9 +6135,21 @@ void FillFlexes(mjModel* m, const std::vector<CFlex>& flexes,
     m->flex_gap[i] = f.gap;
     for (int k = 0; k < 4; ++k) m->flex_rgba[4 * i + k] = f.rgba[k];
 
-    // elasticity (empty on this path)
-    m->flex_stiffnessadr[i] = -1;
-    m->flex_bendingadr[i] = -1;
+    // elasticity (young>0; empty vectors when young==0). user_model.cc:3465.
+    if (f.stiffness.empty()) {
+      m->flex_stiffnessadr[i] = -1;
+    } else {
+      m->flex_stiffnessadr[i] = stiffness_adr;
+      lift::mjuu_copyvec(m->flex_stiffness + stiffness_adr, f.stiffness.data(),
+                         static_cast<int>(f.stiffness.size()));
+    }
+    if (f.bending.empty()) {
+      m->flex_bendingadr[i] = -1;
+    } else {
+      m->flex_bendingadr[i] = bending_adr;
+      lift::mjuu_copyvec(m->flex_bending + bending_adr, f.bending.data(),
+                         static_cast<int>(f.bending.size()));
+    }
     m->flex_damping[i] = f.damping;
 
     m->flex_dim[i] = dim;
@@ -5831,11 +6234,20 @@ void FillFlexes(mjModel* m, const std::vector<CFlex>& flexes,
     m->flex_cellnum[3 * i + 1] = f.cellcount[1];
     m->flex_cellnum[3 * i + 2] = f.cellcount[2];
 
+    // edgeflap carries the two off-edge vertices of the adjacent triangles for
+    // the 2D bending kernel; only populated for elastic2d bend (user_model.cc
+    // :3618-3626), otherwise -1/-1.
+    const bool has_edgeflap = dim == 2 && (f.elastic2d == 1 || f.elastic2d == 3);
     for (int k = 0; k < f.nedge; k++) {
       m->flex_edge[2 * (edge_adr + k)] = f.edge[k].first;
       m->flex_edge[2 * (edge_adr + k) + 1] = f.edge[k].second;
-      m->flex_edgeflap[2 * (edge_adr + k) + 0] = -1;
-      m->flex_edgeflap[2 * (edge_adr + k) + 1] = -1;
+      if (has_edgeflap) {
+        m->flex_edgeflap[2 * (edge_adr + k) + 0] = f.flaps[k].vertices[2];
+        m->flex_edgeflap[2 * (edge_adr + k) + 1] = f.flaps[k].vertices[3];
+      } else {
+        m->flex_edgeflap[2 * (edge_adr + k) + 0] = -1;
+        m->flex_edgeflap[2 * (edge_adr + k) + 1] = -1;
+      }
       if (f.rigid) {
         m->flexedge_rigid[edge_adr + k] = 1;
       } else {
@@ -5854,6 +6266,8 @@ void FillFlexes(mjModel* m, const std::vector<CFlex>& flexes,
     shelldata_adr += static_cast<int>(f.shell.size());
     evpair_adr += static_cast<int>(f.evpair.size()) / 2;
     texcoord_adr += static_cast<int>(f.texcoord.size()) / 2;
+    stiffness_adr += static_cast<int>(f.stiffness.size());
+    bending_adr += static_cast<int>(f.bending.size());
     bvh_adr += f.nbvh();
   }
 }
@@ -6422,7 +6836,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   sizes.nflex = static_cast<int>(flexes.size());
   int nflexnode = 0, nflexvert = 0, nflexedge = 0, nflexelem = 0,
       nflexelemdata = 0, nflexelemedge = 0, nflexshelldata = 0, nflexevpair = 0,
-      nflextexcoord = 0, nJfe = 0, nJfv = 0;
+      nflextexcoord = 0, nflexstiffness = 0, nflexbending = 0, nJfe = 0, nJfv = 0;
   for (const CFlex& f : flexes) {
     nflexnode += f.nnode;
     nflexvert += f.nvert;
@@ -6433,6 +6847,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     nflexshelldata += static_cast<int>(f.shell.size());
     nflexevpair += static_cast<int>(f.evpair.size()) / 2;
     nflextexcoord += f.HasTexcoord() ? static_cast<int>(f.texcoord.size()) / 2 : 0;
+    nflexstiffness += static_cast<int>(f.stiffness.size());
+    nflexbending += static_cast<int>(f.bending.size());
     FlexJacobianCounts(f, cbs, nJfe, nJfv);
   }
   sizes.nflexnode = nflexnode;
@@ -6444,8 +6860,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   sizes.nflexshelldata = nflexshelldata;
   sizes.nflexevpair = nflexevpair;
   sizes.nflextexcoord = nflextexcoord;
-  sizes.nflexstiffness = 0;   // young==0 on this path
-  sizes.nflexbending = 0;
+  sizes.nflexstiffness = nflexstiffness;
+  sizes.nflexbending = nflexbending;
   sizes.nJfe = nJfe;
   sizes.nJfv = nJfv;
   sizes.nq = nq;

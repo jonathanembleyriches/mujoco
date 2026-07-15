@@ -1,0 +1,13 @@
+inline double ComputeVolume<Stencil3D>(const double* x,
+                                       const int v[Stencil3D::kNumVerts]) {
+  double normal[3];
+  const double* x0 = x + 3*v[0];
+  const double* x1 = x + 3*v[1];
+  const double* x2 = x + 3*v[2];
+  const double* x3 = x + 3*v[3];
+  double edge1[3] = {x1[0]-x0[0], x1[1]-x0[1], x1[2]-x0[2]};
+  double edge2[3] = {x2[0]-x0[0], x2[1]-x0[1], x2[2]-x0[2]};
+  double edge3[3] = {x3[0]-x0[0], x3[1]-x0[1], x3[2]-x0[2]};
+  mjuu_crossvec(normal, edge1, edge2);
+  return mjuu_dot3(normal, edge3) / 6;
+}

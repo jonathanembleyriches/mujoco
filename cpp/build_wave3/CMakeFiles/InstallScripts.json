@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/jonat/Documents/protospec/cpp/build_wave3/cmake_install.cmake",
+		"C:/Users/jonat/Documents/protospec/cpp/build_wave3/harness/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

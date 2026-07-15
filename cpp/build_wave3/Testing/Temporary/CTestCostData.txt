@@ -1,0 +1,7 @@
+protospec_tests 1 0.0469473
+protospec_io_tests 1 0.0721939
+protospec_validate_tests 1 0.0758281
+protospec_bridge_tests 1 0.0541214
+protospec_sdk_tests 1 0.0721479
+protospec_compile_tests 1 0.172555
+---

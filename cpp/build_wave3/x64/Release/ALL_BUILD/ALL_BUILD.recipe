@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\x64\Release\ZERO_CHECK</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\harness\Release\mj_model_diff.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\protospec_bridge_tests.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\protospec_compile_tests.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\protospec_io_tests.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\protospec_sdk_tests.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\protospec_tests.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\protospec_validate_tests.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\ps_compile.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\ps_native_diff.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\ps_roundtrip.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\Release\ps_validate.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\jonat\Documents\protospec\cpp\build_wave3\x64\Release\ALL_BUILD</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles />
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>

@@ -1,0 +1,99 @@
+Start testing: Jul 15 16:55 GMT Summer Time
+----------------------------------------------------------
+1/6 Testing: protospec_tests
+1/6 Test: protospec_tests
+Command: "C:/Users/jonat/Documents/protospec/cpp/build_wave3/Release/protospec_tests.exe"
+Directory: C:/Users/jonat/Documents/protospec/cpp/build_wave3
+"protospec_tests" start time: Jul 15 16:55 GMT Summer Time
+Output:
+----------------------------------------------------------
+74 checks, 0 failures
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"protospec_tests" end time: Jul 15 16:55 GMT Summer Time
+"protospec_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/6 Testing: protospec_io_tests
+2/6 Test: protospec_io_tests
+Command: "C:/Users/jonat/Documents/protospec/cpp/build_wave3/Release/protospec_io_tests.exe"
+Directory: C:/Users/jonat/Documents/protospec/cpp/build_wave3
+"protospec_io_tests" start time: Jul 15 16:55 GMT Summer Time
+Output:
+----------------------------------------------------------
+404 checks, 0 failures
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"protospec_io_tests" end time: Jul 15 16:55 GMT Summer Time
+"protospec_io_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/6 Testing: protospec_validate_tests
+3/6 Test: protospec_validate_tests
+Command: "C:/Users/jonat/Documents/protospec/cpp/build_wave3/Release/protospec_validate_tests.exe"
+Directory: C:/Users/jonat/Documents/protospec/cpp/build_wave3
+"protospec_validate_tests" start time: Jul 15 16:55 GMT Summer Time
+Output:
+----------------------------------------------------------
+62 checks, 0 failed
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"protospec_validate_tests" end time: Jul 15 16:55 GMT Summer Time
+"protospec_validate_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/6 Testing: protospec_bridge_tests
+4/6 Test: protospec_bridge_tests
+Command: "C:/Users/jonat/Documents/protospec/cpp/build_wave3/Release/protospec_bridge_tests.exe"
+Directory: C:/Users/jonat/Documents/protospec/cpp/build_wave3
+"protospec_bridge_tests" start time: Jul 15 16:55 GMT Summer Time
+Output:
+----------------------------------------------------------
+54 checks, 0 failed
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"protospec_bridge_tests" end time: Jul 15 16:55 GMT Summer Time
+"protospec_bridge_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/6 Testing: protospec_sdk_tests
+5/6 Test: protospec_sdk_tests
+Command: "C:/Users/jonat/Documents/protospec/cpp/build_wave3/Release/protospec_sdk_tests.exe"
+Directory: C:/Users/jonat/Documents/protospec/cpp/build_wave3
+"protospec_sdk_tests" start time: Jul 15 16:55 GMT Summer Time
+Output:
+----------------------------------------------------------
+121 checks, 0 failures
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"protospec_sdk_tests" end time: Jul 15 16:55 GMT Summer Time
+"protospec_sdk_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/6 Testing: protospec_compile_tests
+6/6 Test: protospec_compile_tests
+Command: "C:/Users/jonat/Documents/protospec/cpp/build_wave3/Release/protospec_compile_tests.exe"
+Directory: C:/Users/jonat/Documents/protospec/cpp/build_wave3
+"protospec_compile_tests" start time: Jul 15 16:55 GMT Summer Time
+Output:
+----------------------------------------------------------
+test_native: 309 checks, 0 failed
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"protospec_compile_tests" end time: Jul 15 16:55 GMT Summer Time
+"protospec_compile_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jul 15 16:55 GMT Summer Time

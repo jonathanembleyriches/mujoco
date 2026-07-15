@@ -1,0 +1,33 @@
+void inline ComputeBasis<Stencil3D>(double basis[9], const double* x,
+                                    const int v[Stencil3D::kNumVerts],
+                                    const int faceL[Stencil3D::kNumFaces],
+                                    const int faceR[Stencil3D::kNumFaces],
+                                    double volume) {
+  const double* xL0 = x + 3*v[faceL[0]];
+  const double* xL1 = x + 3*v[faceL[1]];
+  const double* xL2 = x + 3*v[faceL[2]];
+  const double* xR0 = x + 3*v[faceR[0]];
+  const double* xR1 = x + 3*v[faceR[1]];
+  const double* xR2 = x + 3*v[faceR[2]];
+  double edgesL[6] = {xL1[0] - xL0[0], xL1[1] - xL0[1], xL1[2] - xL0[2],
+                      xL2[0] - xL0[0], xL2[1] - xL0[1], xL2[2] - xL0[2]};
+  double edgesR[6] = {xR1[0] - xR0[0], xR1[1] - xR0[1], xR1[2] - xR0[2],
+                      xR2[0] - xR0[0], xR2[1] - xR0[1], xR2[2] - xR0[2]};
+
+  double normalL[3], normalR[3];
+  mjuu_crossvec(normalL, edgesL, edgesL+3);
+  mjuu_crossvec(normalR, edgesR, edgesR+3);
+
+  // we use as basis the symmetrized tensor products of the area normals of the
+  // two faces not adjacent to the edge; this is the 3D equivalent to the basis
+  // proposed in Weischedel "A discrete geometric view on shear-deformable shell
+  // models" in the remark at the end of section 4.1. This is also equivalent to
+  // linear finite elements but in a coordinate-free formulation.
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      basis[3*i+j] = (normalL[i]*normalR[j] +
+                      normalR[i]*normalL[j]) / (36*2*volume*volume);
+    }
+  }
+}

@@ -1084,6 +1084,110 @@ static void TestNc5FlexcompEquality() {
       "<edge equality='true'/></flexcomp></body></worldbody></mujoco>");
 }
 
+// NC5 Wave 3: flexcomp linear elasticity (young>0). Exercises the lifted
+// ComputeStiffness<Stencil2D/3D> + ComputeBending kernels via CheckFlexcomp
+// BitIdentical (force-builds through BuildNativeModel, diffing flex_stiffness /
+// flex_bending / flex_edgeflap against the XML oracle). Covers the 3D solid
+// (Stencil3D, all 21 entries), 2D stretch (Stencil2D stiffness), 2D bend (zero
+// stiffness block + per-edge bending), 2D both, and the disc/box shell families.
+static void TestNc5FlexcompElasticity() {
+  // 3D solid grid, young only (poisson defaults to 0) -> Stencil3D stiffness.
+  CheckFlexcompBitIdentical(
+      "flexcomp_young_3d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='jelly' type='grid' dim='3' count='2 2 2' spacing='0.1 0.1 0.1'>"
+      "<elasticity young='5e4'/></flexcomp></body></worldbody></mujoco>");
+  // 3D solid grid, young + poisson (Lame lambda nonzero).
+  CheckFlexcompBitIdentical(
+      "flexcomp_young_poisson_3d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='jelly' type='grid' dim='3' count='3 3 3' spacing='0.1 0.1 0.1'>"
+      "<edge damping='1'/>"
+      "<elasticity young='1e4' poisson='0.4'/></flexcomp></body></worldbody></mujoco>");
+  // 2D grid, elastic2d=stretch -> Stencil2D stiffness, no bending.
+  CheckFlexcompBitIdentical(
+      "flexcomp_stretch_2d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='sheet' type='grid' dim='2' count='4 4 1' spacing='0.1 0.1 0.1'>"
+      "<elasticity young='3e5' poisson='0' thickness='1e-2' elastic2d='stretch'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+  // 2D grid, elastic2d=bend -> zero-filled stiffness block + per-edge bending
+  // (+ populated flex_edgeflap). Edge equality present (as in plate/pancake).
+  CheckFlexcompBitIdentical(
+      "flexcomp_bend_2d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='plate' type='grid' dim='2' count='4 4 1' spacing='0.05 0.05 0.05'>"
+      "<edge equality='true' damping='0.001'/>"
+      "<elasticity poisson='0' thickness='1e-2' young='3e7' elastic2d='bend'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+  // 2D grid, elastic2d=both -> Stencil2D stiffness AND per-edge bending.
+  CheckFlexcompBitIdentical(
+      "flexcomp_both_2d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='sheet' type='grid' dim='2' count='5 5 1' spacing='0.08 0.08 0.08'>"
+      "<elasticity young='2e5' poisson='0.1' thickness='6e-3' elastic2d='both'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+  // disc shell, bend (matches pancake).
+  CheckFlexcompBitIdentical(
+      "flexcomp_disc_bend",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='disc' type='disc' dim='2' count='5 5 1' spacing='0.1 0.1 0.1'>"
+      "<edge equality='true' damping='10'/>"
+      "<elasticity poisson='0' thickness='8e-3' young='3e5' elastic2d='bend'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+  // box surface shell, dim=2, bend (matches basket).
+  CheckFlexcompBitIdentical(
+      "flexcomp_box_shell_bend",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='box' type='box' dim='2' count='3 3 3' spacing='0.1 0.1 0.1'>"
+      "<edge equality='true' damping='1'/>"
+      "<elasticity young='6e6' poisson='0.2' thickness='8e-3' elastic2d='bend'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+}
+
+// NC5 Wave 4: direct-type flexcomp (points/elements authored inline). Reuses the
+// grid family's per-vertex body synthesis + flex compile; the direct-only steps
+// are inline point/element parsing, scale, and unreferenced-point compaction.
+static void TestNc5FlexcompDirect() {
+  // 2D quad (two triangles) from explicit points.
+  CheckFlexcompBitIdentical(
+      "flexcomp_direct_quad",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='d' type='direct' dim='2' radius='0.01' "
+      "point='0 0 0  0.1 0 0  0.1 0.1 0  0 0.1 0' element='0 1 2 0 2 3'/>"
+      "</body></worldbody></mujoco>");
+  // unreferenced trailing point (index 4) -> compacted away.
+  CheckFlexcompBitIdentical(
+      "flexcomp_direct_unused",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='d' type='direct' dim='2' radius='0.01' "
+      "point='0 0 0  0.1 0 0  0.1 0.1 0  0 0.1 0  0.5 0.5 0' element='0 1 2 0 2 3'/>"
+      "</body></worldbody></mujoco>");
+  // non-unit scale applied to direct points.
+  CheckFlexcompBitIdentical(
+      "flexcomp_direct_scale",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='d' type='direct' dim='2' radius='0.01' scale='2 3 1' "
+      "point='0 0 0  0.1 0 0  0.1 0.1 0  0 0.1 0' element='0 1 2 0 2 3'/>"
+      "</body></worldbody></mujoco>");
+  // direct + young>0 bending + edge equality (poncho shape).
+  CheckFlexcompBitIdentical(
+      "flexcomp_direct_bend",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='d' type='direct' dim='2' radius='0.01' "
+      "point='0 0 0  0.1 0 0  0.1 0.1 0  0 0.1 0' element='0 1 2 0 2 3'>"
+      "<edge equality='true' damping='0.1'/>"
+      "<elasticity poisson='0' young='3e5' thickness='8e-3' elastic2d='bend'/>"
+      "</flexcomp></body></worldbody></mujoco>");
+  // 1D direct rope.
+  CheckFlexcompBitIdentical(
+      "flexcomp_direct_1d",
+      "<mujoco><worldbody><body name='p'>"
+      "<flexcomp name='r' type='direct' dim='1' radius='0.01' "
+      "point='0 0 0  0.1 0 0  0.2 0 0' element='0 1 1 2'/>"
+      "</body></worldbody></mujoco>");
+}
+
 // NC5 Wave 1: direct <flex> (young=0, non-interpolated edge-only). Bit-identical
 // across dim 1/2/3, rigid/centered/offset vertices, contact/edge overrides, and
 // texcoord; gated sub-features route the whole model to the XML fallback.
@@ -1218,6 +1322,8 @@ int main() {
   TestNc5FlexcompGrid();
   TestNc5FlexcompPins();
   TestNc5FlexcompEquality();
+  TestNc5FlexcompElasticity();
+  TestNc5FlexcompDirect();
   TestAllocatorRoundTrip();
   TestMjuuSmoke();
   std::printf("test_native: %d checks, %d failed\n", g_checks, g_failed);

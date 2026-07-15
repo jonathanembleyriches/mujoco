@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\jonat\Documents\protospec\cpp\build_wave3\CMakeFiles\220f835f18cd20584cbb0d75a744b6c2\RUN_TESTS_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{DB53217F-CD4C-3CC0-91E3-A5E93BEC34F4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

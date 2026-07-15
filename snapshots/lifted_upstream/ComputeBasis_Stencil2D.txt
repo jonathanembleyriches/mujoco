@@ -1,0 +1,32 @@
+void inline ComputeBasis<Stencil2D>(double basis[9], const double* x,
+                                    const int v[Stencil2D::kNumVerts],
+                                    const int faceL[Stencil2D::kNumFaces],
+                                    const int faceR[Stencil2D::kNumFaces],
+                                    double volume) {
+  double basisL[3], basisR[3];
+  double normal[3];
+
+  const double* xL0 = x + 3*v[faceL[0]];
+  const double* xL1 = x + 3*v[faceL[1]];
+  const double* xR0 = x + 3*v[faceR[0]];
+  const double* xR1 = x + 3*v[faceR[1]];
+  double edgesL[3] = {xL0[0]-xL1[0], xL0[1]-xL1[1], xL0[2]-xL1[2]};
+  double edgesR[3] = {xR1[0]-xR0[0], xR1[1]-xR0[1], xR1[2]-xR0[2]};
+
+  mjuu_crossvec(normal, edgesR, edgesL);
+  mjuu_normvec(normal, 3);
+  mjuu_crossvec(basisL, normal, edgesL);
+  mjuu_crossvec(basisR, edgesR, normal);
+
+  // we use as basis the symmetrized tensor products of the edge normals of the
+  // other two edges; this is shown in Weischedel "A discrete geometric view on
+  // shear-deformable shell models" in the remark at the end of section 4.1;
+  // equivalent to linear finite elements but in a coordinate-free formulation.
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      basis[3*i+j] = (basisL[i]*basisR[j] +
+                      basisR[i]*basisL[j]) / (8*volume*volume);
+    }
+  }
+}

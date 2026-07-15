@@ -233,6 +233,105 @@
       "notes": "border shell fragments, elemlayer value iteration, element-vertex pairs; verbatim over plain arrays"
     },
     {
+      "id": "flex_elasticity_basis_2d",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeBasis<Stencil2D>",
+      "line_span": "3503-3534",
+      "content_hash": "5316ec72b85983d249f3aeff121b6289a6ee296b2ac23d8fd11bddb62d2118bd",
+      "snapshot": "snapshots/lifted_upstream/ComputeBasis_Stencil2D.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: 2D edge basis (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_basis_3d",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeBasis<Stencil3D>",
+      "line_span": "3538-3570",
+      "content_hash": "c4c35040e0d0c40209f524d84571a82227789743ed1f8ce0df0c140bad8551ae",
+      "snapshot": "snapshots/lifted_upstream/ComputeBasis_Stencil3D.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: 3D face basis (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_bending",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeBending",
+      "line_span": "3678-3722",
+      "content_hash": "78e30905e3de850c2145c1c6815a13c0d8b3d10f5f21761ec7e471ba5a7dc13d",
+      "snapshot": "snapshots/lifted_upstream/ComputeBending.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: per-edge 2D bending stiffness (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_cot",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "cot",
+      "line_span": "3657-3664",
+      "content_hash": "7e61901d8aba5193a5c27c6ba8f9f30776c31d7c7df96bba9e62583b423e17a5",
+      "snapshot": "snapshots/lifted_upstream/cot.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: cotangent helper for bending (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_metric_tensor",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "MetricTensor",
+      "line_span": "3450-3493",
+      "content_hash": "93c2d164ce7a9a9a23979d2a0dd83efff424189b192d6186829a6737ff0bc12f",
+      "snapshot": "snapshots/lifted_upstream/MetricTensor.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: strain metric tensor assembly (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_stiffness",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeStiffness",
+      "line_span": "3574-3597",
+      "content_hash": "65cb5ad27e078104544ef5d0b6b2a6a584bcfad86d69fef02063d279436820c0",
+      "snapshot": "snapshots/lifted_upstream/ComputeStiffness.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: per-element linear elasticity stiffness (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_volume_2d",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeVolume<Stencil2D>",
+      "line_span": "3421-3431",
+      "content_hash": "e9acd4519fe9311ba6fbaa1245ee5f397fa777e228ea4bed52b1f69ef2af6e69",
+      "snapshot": "snapshots/lifted_upstream/ComputeVolume_Stencil2D.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: 2D triangle area (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_volume_3d",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeVolume<Stencil3D>",
+      "line_span": "3434-3446",
+      "content_hash": "8e6fe6e0b71359ee84ee006747375828b756ea1f532024face50538a67609793",
+      "snapshot": "snapshots/lifted_upstream/ComputeVolume_Stencil3D.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: 3D tetrahedron volume (Wave 3)"
+    },
+    {
+      "id": "flex_elasticity_volume_tri",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeVolume",
+      "line_span": "3667-3674",
+      "content_hash": "e557408897bf41d54c32c3eee1acf99ea0a19e27d338de1c7701eee112ad6bbe",
+      "snapshot": "snapshots/lifted_upstream/ComputeVolume_triangle.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "flex young>0: triangle-area overload for bending (Wave 3)"
+    },
+    {
       "id": "flex_resolve_references",
       "upstream_rel_path": "src/user/user_mesh.cc",
       "symbol": "mjCFlex::ResolveReferences",

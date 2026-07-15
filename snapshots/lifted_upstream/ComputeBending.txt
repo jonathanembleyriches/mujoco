@@ -1,0 +1,45 @@
+void inline ComputeBending(double* bending, double* pos, const int v[4], double mu,
+                           double thickness) {
+  int vadj[3] = {v[1], v[0], v[3]};
+
+  if (v[3]== -1) {
+    // skip boundary edges
+    return;
+  }
+
+  // cotangent operator from Wardetzky at al., "Discrete Quadratic Curvature
+  // Energies", https://cims.nyu.edu/gcl/papers/wardetzky2007dqb.pdf
+
+  double a01 = cot(pos, v[0], v[1], v[2]);
+  double a02 = cot(pos, v[0], v[3], v[1]);
+  double a03 = cot(pos, v[1], v[2], v[0]);
+  double a04 = cot(pos, v[1], v[0], v[3]);
+  double c[4] = {a03 + a04, a01 + a02, -(a01 + a03), -(a02 + a04)};
+  double volume = ComputeVolume(pos, v) + ComputeVolume(pos, vadj);
+  double stiffness = 3 * mu * pow(thickness, 3) / (24 * volume);
+
+  // Garg et al., "Cubic Shells", https://cims.nyu.edu/gcl/papers/garg2007cs.pdf
+  const double* v0 = pos + 3*v[0];
+  const double* v1 = pos + 3*v[1];
+  const double* v2 = pos + 3*v[2];
+  const double* v3 = pos + 3*v[3];
+  double e0[3] = {v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]};
+  double e1[3] = {v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]};
+  double e2[3] = {v3[0] - v0[0], v3[1] - v0[1], v3[2] - v0[2]};
+  double e3[3] = {v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]};
+  double e4[3] = {v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]};
+  double t0[3] = {-(a03*e1[0] + a01*e3[0]), -(a03*e1[1] + a01*e3[1]), -(a03*e1[2] + a01*e3[2])};
+  double t1[3] = {-(a04*e2[0] + a02*e4[0]), -(a04*e2[1] + a02*e4[1]), -(a04*e2[2] + a02*e4[2])};
+  double sqr = mjuu_dot3(e0, e0);
+  double cos_theta = -mjuu_dot3(t0, t1) / sqr;
+
+  for (int v1 = 0; v1 < T::kNumVerts; v1++) {
+    for (int v2 = 0; v2 < T::kNumVerts; v2++) {
+      bending[4 * v1 + v2] += c[v1] * c[v2] * cos_theta * stiffness;
+    }
+  }
+
+  double n[3];
+  mjuu_crossvec(n, e0, e1);
+  bending[16] = mjuu_dot3(n, e2) * (a01 - a03) * (a04 - a02) * stiffness / (sqr * sqrt(sqr));
+}

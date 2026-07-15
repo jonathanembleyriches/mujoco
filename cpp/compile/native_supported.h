@@ -91,12 +91,14 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "edge" || feature_key == "elasticity") {
     return true;
   }
-  // NC5 Wave 2 flexcomp: the procedural grid/box/square family (young=0,
-  // non-interpolated, dof=full) expands natively into per-vertex slider bodies
-  // and a synthesized <flex> (+ optional edge equality). The "pin" tag is the
-  // <pin> child (flexcomp-only). Interpolated dof, mesh/gmsh/direct types,
-  // young>0 / elastic2d elasticity, and vert/strain equalities route to the XML
-  // fallback via the finer scan (flexcomp.* keys in native.cc).
+  // NC5 Wave 2/3/4 flexcomp: the procedural grid/box/square family and the
+  // direct type (inline point/element geometry, Wave 4) expand natively (non-
+  // interpolated, dof=full) into per-vertex slider bodies and a synthesized
+  // <flex> (+ optional edge equality), and Wave 3 compiles young>0 linear
+  // elasticity (Stencil2D/3D stiffness + elastic2d bending). The "pin" tag is the
+  // <pin> child (flexcomp-only). Interpolated dof, mesh/gmsh file types, and
+  // vert/strain equalities route to the XML fallback via the finer scan
+  // (flexcomp.* keys in native.cc).
   if (feature_key == "flexcomp" || feature_key == "pin") {
     return true;
   }

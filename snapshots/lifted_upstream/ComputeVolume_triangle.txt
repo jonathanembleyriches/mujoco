@@ -1,0 +1,8 @@
+double inline ComputeVolume(const double* x, const int v[Stencil2D::kNumVerts]) {
+  double normal[3];
+  double edge1[3] = {x[3*v[1]]-x[3*v[0]], x[3*v[1]+1]-x[3*v[0]+1], x[3*v[1]+2]-x[3*v[0]+2]};
+  double edge2[3] = {x[3*v[2]]-x[3*v[0]], x[3*v[2]+1]-x[3*v[0]+1], x[3*v[2]+2]-x[3*v[0]+2]};
+
+  mjuu_crossvec(normal, edge1, edge2);
+  return sqrt(mjuu_dot3(normal, normal)) / 2;
+}
