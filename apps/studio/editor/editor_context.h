@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +69,20 @@ class PendingLoad {
 // returns to Edit.
 enum class EditorMode { Edit, Play };
 
+// A structured Diagnostics-panel entry. Beyond the rendered message it carries
+// what a producer knew when it logged: the acting element's creation `serial`
+// (so a click can SelectBySerial back to it) and/or a `loc` (so the row can show
+// file:line). Both are optional -- a plain log line (`Log(std::string)`) is an
+// Info entry with neither, so legacy call sites keep working unchanged.
+struct DiagEntry {
+  enum class Severity { Info, Warning, Error };
+
+  Severity severity = Severity::Info;
+  std::string message;
+  std::optional<std::uint64_t> serial;  // click -> SelectBySerial(*serial)
+  std::optional<ps::SourceLoc> loc;     // file:line origin when known
+};
+
 // The active transform tool (Q/W/E/R). Select shows no gizmo.
 enum class GizmoTool { Select, Translate, Rotate, Scale };
 
@@ -103,7 +118,7 @@ struct EditorContext {
                             // drag recompile (host resets the free camera)
 
   // Diagnostics panel log (validation tiers 1-2, compile report, pick events).
-  std::deque<std::string> diagnostics;
+  std::deque<DiagEntry> diagnostics;
   std::string status_line;   // compile path taken + timing + dirty state
 
   // Selection (creation serial; survives recompiles by construction, DR §5).
@@ -136,12 +151,23 @@ struct EditorContext {
                                       // not just the selected body (deliverable 3)
   std::string transient_status;       // gizmo notes (euler->quat, mesh-scale warn)
 
+  // Ring cap: the Diagnostics panel is a bounded scrollback, never a leak.
+  static constexpr std::size_t kMaxDiagnostics = 500;
+
+  // Legacy plain-string append: an Info entry with no serial / loc.
   void Log(std::string line) {
-    diagnostics.push_back(std::move(line));
-    while (diagnostics.size() > 500) {
+    Diagnose(DiagEntry{DiagEntry::Severity::Info, std::move(line), {}, {}});
+  }
+
+  // Structured append: producers wire the severity / serial / loc they know.
+  void Diagnose(DiagEntry entry) {
+    diagnostics.push_back(std::move(entry));
+    while (diagnostics.size() > kMaxDiagnostics) {
       diagnostics.pop_front();
     }
   }
+
+  void ClearDiagnostics() { diagnostics.clear(); }
 
   // --- Editor commit contract (SE1b codes against these exact signatures) --- //
   //

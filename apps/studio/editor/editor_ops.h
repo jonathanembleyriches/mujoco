@@ -6,12 +6,23 @@
 #define PS_STUDIO_EDITOR_EDITOR_OPS_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "editor/editor_context.h"
+#include "types.h"  // ps::mjcf::Model
 
 namespace ps::studio {
+
+// Resolve a validate::Diagnostic element path ("model/.../geom[shin]") to the
+// creation serial of the element it names, so a Diagnostics row can route a
+// click back to the offending element via SelectBySerial. Only the trailing
+// segment (the blamed element) is consulted; unnamed elements (rendered
+// "tag[#idx]") have no stable click target and yield std::nullopt. This is the
+// exact mapping LoadModel stamps onto every tier-1/2 validation diagnostic.
+std::optional<std::uint64_t> SerialForValidatePath(
+    const ps::mjcf::Model& tree, const std::string& path);
 
 // Loads a model through ProtoSpec (DR-S1 load path):
 //   ParseMjcf(file) -> Validate(tiers 1-2, logged) -> Compile(Auto).

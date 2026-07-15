@@ -36,6 +36,8 @@ set(QHULL_INCLUDE_DIR   "${MUJOCO_DEPS}/qhull-src/src")
 set(QHULL_LIB           "${MUJOCO_ROOT}/build/lib/Release/qhullstatic_r.lib")
 set(TINYOBJ_INCLUDE_DIR "${MUJOCO_DEPS}/tinyobjloader-src")
 set(TINYOBJ_LIB         "${MUJOCO_ROOT}/build/lib/Release/tinyobjloader.lib")
+set(LODEPNG_INCLUDE_DIR "${MUJOCO_DEPS}/lodepng-src")
+set(LODEPNG_LIB         "${MUJOCO_ROOT}/build/lib/Release/lodepng.lib")
 if(NOT EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h")
   message(FATAL_ERROR "MuJoCo headers not found under ${MUJOCO_INCLUDE_DIR}; set -DMUJOCO_ROOT=...")
 endif()
@@ -103,6 +105,7 @@ set(PROTOSPEC_SRC
   ${CPP_ROOT}/compile/lifted/make_model.cc
   ${CPP_ROOT}/compile/lifted/mjuu_util.cc
   ${CPP_ROOT}/compile/lifted/mesh_pipeline.cc
+  ${CPP_ROOT}/compile/lifted/image_pipeline.cc
   ${CPP_ROOT}/third_party/tinyxml2/tinyxml2.cpp
 )
 
@@ -122,9 +125,10 @@ target_include_directories(protospec_studio_core PUBLIC
   ${MUJOCO_INCLUDE_DIR}
   ${QHULL_INCLUDE_DIR}
   ${TINYOBJ_INCLUDE_DIR}
+  ${LODEPNG_INCLUDE_DIR}
 )
 target_link_libraries(protospec_studio_core PUBLIC
-  "${MUJOCO_IMPORT_LIB}" "${QHULL_LIB}" "${TINYOBJ_LIB}")
+  "${MUJOCO_IMPORT_LIB}" "${QHULL_LIB}" "${TINYOBJ_LIB}" "${LODEPNG_LIB}")
 if(MSVC)
   target_compile_options(protospec_studio_core PRIVATE /bigobj)
 endif()

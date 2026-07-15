@@ -143,7 +143,9 @@ bool TryPickJoint(ViewportEditor& ve, const ViewportInput& in) {
   }
   if (best_serial != 0) {
     SelectBySerial(ctx, best_serial);
-    ctx.Log("pick -> joint serial " + std::to_string(best_serial));
+    ctx.Diagnose(DiagEntry{DiagEntry::Severity::Info,
+                           "pick -> joint serial " + std::to_string(best_serial),
+                           best_serial, {}});
     ve.cycle_index = 0;
     return true;
   }

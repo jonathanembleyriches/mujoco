@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <string>
 #include <type_traits>
 
@@ -28,6 +29,55 @@ namespace bridge = ps::mjcf::bridge;
 namespace reflect = ps::mjcf::reflect;
 namespace mj = ps::mjcf;
 namespace sdk_detail = ps::sdk::detail;
+
+// See editor_ops.h. Only the trailing path segment (the offending element) is
+// consulted; unnamed elements ("tag[#idx]") return none.
+std::optional<std::uint64_t> SerialForValidatePath(const mj::Model& tree,
+                                                   const std::string& path) {
+  const std::size_t seg_start = path.find_last_of('/');
+  const std::string seg =
+      seg_start == std::string::npos ? path : path.substr(seg_start + 1);
+  const std::size_t lb = seg.find('[');
+  const std::size_t rb = seg.find(']');
+  if (lb == std::string::npos || rb == std::string::npos || rb <= lb + 1) {
+    return std::nullopt;
+  }
+  const std::string tag = seg.substr(0, lb);
+  const std::string name = seg.substr(lb + 1, rb - lb - 1);
+  if (name.empty() || name[0] == '#') {
+    return std::nullopt;  // unnamed element -> path uses an index, not a name
+  }
+
+  std::optional<std::uint64_t> found;
+  sdk_detail::WalkModelAll(tree, [&](const auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if (found) {
+      return;
+    }
+    if constexpr (requires { e.serial; }) {
+      const std::string* nm = sdk_detail::NameOf(e);
+      if (nm && *nm == name &&
+          reflect::Describe(mj::element_type_of<E>::value).xml == tag) {
+        found = e.serial;
+      }
+    }
+  });
+  return found;
+}
+
+// Fold a bridge compile Diagnostic into a Diagnostics-panel entry: severity
+// mapped, the pass tag kept inline, SourceLoc carried through when known.
+static DiagEntry FromCompileDiagnostic(const bridge::Diagnostic& d) {
+  DiagEntry e;
+  e.severity = d.severity == bridge::Diagnostic::Severity::Error
+                   ? DiagEntry::Severity::Error
+                   : DiagEntry::Severity::Warning;
+  e.message = d.pass.empty() ? d.message : ("[" + d.pass + "] " + d.message);
+  if (!d.loc.file.empty()) {
+    e.loc = d.loc;
+  }
+  return e;
+}
 
 static const char* CompilePathName(bridge::CompilePath p) {
   switch (p) {
@@ -56,12 +106,12 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
 
   bridge::Compiled compiled = bridge::Compile(*ctx.tree, opts);
   for (const bridge::Diagnostic& w : compiled.report.warnings) {
-    ctx.Log("  [compile warn] " + w.Render());
+    ctx.Diagnose(FromCompileDiagnostic(w));
   }
   if (!compiled.ok()) {
-    ctx.Log(std::string("  ") + what + " FAILED:");
+    ctx.Log(std::string(what) + " FAILED:");
     for (const bridge::Diagnostic& e : compiled.report.errors) {
-      ctx.Log("    " + e.Render());
+      ctx.Diagnose(FromCompileDiagnostic(e));
     }
     ctx.status_line = std::string(what) + " failed (last good model kept)";
     return false;
@@ -85,12 +135,16 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
 
   io::ParseResult parsed = io::ParseMjcfFile(path);
   for (const io::Diagnostic& w : parsed.warnings) {
-    ctx.Log("  [parse warn] " + w.Render());
+    DiagEntry e{DiagEntry::Severity::Warning, "[parse] " + w.message, {}, {}};
+    if (!w.loc.file.empty()) e.loc = w.loc;
+    ctx.Diagnose(std::move(e));
   }
   if (!parsed.ok()) {
-    ctx.Log("  parse FAILED:");
+    ctx.Log("parse FAILED:");
     for (const io::Diagnostic& e : parsed.errors) {
-      ctx.Log("    " + e.Render());
+      DiagEntry d{DiagEntry::Severity::Error, "[parse] " + e.message, {}, {}};
+      if (!e.loc.file.empty()) d.loc = e.loc;
+      ctx.Diagnose(std::move(d));
     }
     ctx.status_line = "parse failed";
     return false;
@@ -99,7 +153,16 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
   const std::vector<validate::Diagnostic> diags = validate::Validate(
       *parsed.model, validate::kTierStructural | validate::kTierReferential);
   for (const validate::Diagnostic& d : diags) {
-    ctx.Log("  [validate] " + d.Render());
+    DiagEntry e;
+    e.severity = d.severity == validate::Severity::Error
+                     ? DiagEntry::Severity::Error
+                     : DiagEntry::Severity::Warning;
+    e.message = "[validate] " + d.message +
+                (d.path.empty() ? std::string() : ("  (" + d.path + ")"));
+    if (!d.loc.file.empty()) e.loc = d.loc;
+    // Route the row back to the offending element where the path names one.
+    e.serial = SerialForValidatePath(*parsed.model, d.path);
+    ctx.Diagnose(std::move(e));
   }
 
   const std::filesystem::path fpath(path);
@@ -190,7 +253,8 @@ PickResolution ResolvePick(EditorContext& ctx, int geom_id, int body_id) {
     ctx.selected_serial = r.serial;
     ctx.selected_desc = r.type + " '" + r.name + "' (serial " +
                         std::to_string(r.serial) + ")";
-    ctx.Log("pick -> " + ctx.selected_desc);
+    ctx.Diagnose(DiagEntry{DiagEntry::Severity::Info, "pick -> " + ctx.selected_desc,
+                           r.serial, {}});
   } else {
     ctx.Log("pick -> no bindable element at that id");
   }
@@ -430,7 +494,11 @@ bool Undo(EditorContext& ctx) {
   ctx.dirty = true;
   ctx.RequestRecompile();
   SelectBySerial(ctx, ctx.selected_serial);
-  ctx.Log("undo: " + (label.empty() ? std::string("edit") : label));
+  ctx.Diagnose(DiagEntry{DiagEntry::Severity::Info,
+                         "undo: " + (label.empty() ? std::string("edit") : label),
+                         ctx.selected_serial ? std::optional(ctx.selected_serial)
+                                             : std::nullopt,
+                         {}});
   return true;
 }
 
@@ -443,7 +511,11 @@ bool Redo(EditorContext& ctx) {
   ctx.dirty = true;
   ctx.RequestRecompile();
   SelectBySerial(ctx, ctx.selected_serial);
-  ctx.Log("redo: " + (label.empty() ? std::string("edit") : label));
+  ctx.Diagnose(DiagEntry{DiagEntry::Severity::Info,
+                         "redo: " + (label.empty() ? std::string("edit") : label),
+                         ctx.selected_serial ? std::optional(ctx.selected_serial)
+                                             : std::nullopt,
+                         {}});
   return true;
 }
 
