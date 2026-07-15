@@ -378,13 +378,15 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
         // snaps the resulting axis to the nearest cardinal, not the angle.
         ApplyJointAxisRotate(*ctx.tree, drag_serial_, joint_frame_, n, delta,
                              g.snap);
-        ctx.transient_status =
+        ctx.status_toast.Post(
             g.snap ? "joint: axis reoriented (snapped to X/Y/Z)"
-                   : "joint: axis reoriented";
+                   : "joint: axis reoriented",
+            StatusToast::Kind::Info, ImGui::GetTime());
       } else {
         double snapped = Snap(delta, g.snap_rotate_deg * kPi / 180.0, g.snap);
         ApplyRotate(*ctx.tree, drag_serial_, frame_, n, snapped);
-        ctx.transient_status = "gizmo: rotation materialised as quat";
+        ctx.status_toast.Post("gizmo: rotation materialised as quat",
+                              StatusToast::Kind::Info, ImGui::GetTime());
       }
       break;
     }
@@ -400,7 +402,8 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       factor[grabbed_.axis] = f;
       ApplyScale(*ctx.tree, drag_serial_, scale_base_, factor);
       if (scale_base_.is_mesh)
-        ctx.transient_status = "gizmo: mesh scale affects ALL users of the mesh";
+        ctx.status_toast.Post("gizmo: mesh scale affects ALL users of the mesh",
+                              StatusToast::Kind::Warning, ImGui::GetTime());
       break;
     }
     case HandleKind::ScaleUniform: {
@@ -410,7 +413,8 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       double factor[3] = {f, f, f};
       ApplyScale(*ctx.tree, drag_serial_, scale_base_, factor);
       if (scale_base_.is_mesh)
-        ctx.transient_status = "gizmo: mesh scale affects ALL users of the mesh";
+        ctx.status_toast.Post("gizmo: mesh scale affects ALL users of the mesh",
+                              StatusToast::Kind::Warning, ImGui::GetTime());
       break;
     }
     default:
@@ -481,10 +485,59 @@ bool GizmoController::HandleMouse(EditorContext& ctx, const ViewportInput& in) {
   return false;
 }
 
+namespace {
+
+// A note pill centred near the bottom of the viewport, drawn at `alpha` opacity
+// with a severity-coloured border. Shared by the fading StatusToast and the
+// steady "tool doesn't apply here" hint.
+void DrawViewportNote(const char* msg, StatusToast::Kind kind, float alpha) {
+  if (alpha <= 0.0f) return;
+  const VpMetrics m = MainViewport();
+  const ImVec2 ts = ImGui::CalcTextSize(msg);
+  const ImVec2 pad(12.0f, 7.0f);
+  const ImVec2 mid(m.x + m.w * 0.5f, m.y + m.h - 52.0f);
+  const ImVec2 tl(mid.x - ts.x * 0.5f - pad.x, mid.y - ts.y * 0.5f - pad.y);
+  const ImVec2 br(mid.x + ts.x * 0.5f + pad.x, mid.y + ts.y * 0.5f + pad.y);
+  const ImVec4 accent = kind == StatusToast::Kind::Error
+                            ? ImVec4(0.95f, 0.45f, 0.42f, 1.0f)
+                        : kind == StatusToast::Kind::Warning
+                            ? ImVec4(0.95f, 0.78f, 0.35f, 1.0f)
+                            : ImVec4(0.65f, 0.75f, 0.95f, 1.0f);
+  ImDrawList* dl = ImGui::GetForegroundDrawList();
+  dl->AddRectFilled(
+      tl, br, ImGui::GetColorU32(ImVec4(0.09f, 0.10f, 0.12f, 0.86f * alpha)),
+      6.0f);
+  dl->AddRect(
+      tl, br,
+      ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.9f * alpha)),
+      6.0f, 0, 1.5f);
+  dl->AddText(ImVec2(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f),
+              ImGui::GetColorU32(ImVec4(0.94f, 0.94f, 0.96f, alpha)), msg);
+}
+
+// Info/Warning notes fade out; Error notes stay until replaced (see StatusToast).
+// Drawn every edit frame, independent of the gizmo, so any tool can post it.
+void DrawStatusToast(EditorContext& ctx) {
+  DrawViewportNote(ctx.status_toast.message.c_str(), ctx.status_toast.kind,
+                   ctx.status_toast.Alpha(ImGui::GetTime()));
+}
+
+}  // namespace
+
 void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context& vc) {
+  if (vc.edit_mode) DrawStatusToast(ctx);
   if (!vc.edit_mode || !ctx.tree || ctx.selected_serial == 0 || !vc.data ||
       vc.model != ctx.compiled.model.get() ||
       ctx.gizmo.tool == GizmoTool::Select) {
+    return;
+  }
+  // The Scale tool only means something for a sized element (geom / site). For a
+  // body, light, camera, etc. it would draw handles that do nothing, so hide it
+  // and say why instead of failing silently.
+  if (ctx.gizmo.tool == GizmoTool::Scale && !dragging_ &&
+      !BuildScaleBase(*ctx.tree, ctx.selected_serial).valid) {
+    DrawViewportNote("Scale applies to a geom or site — this element has no size",
+                     StatusToast::Kind::Warning, 1.0f);
     return;
   }
   if (dragging_ && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {

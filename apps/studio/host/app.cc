@@ -406,10 +406,10 @@ void App::StatusBarGui() {
               playing ? (editor_->play_paused ? "Play (paused)" : "Play (running)")
                       : "Edit",
               (editor_ && editor_->dirty) ? "  *dirty" : "");
-  if (editor_ && !editor_->transient_status.empty()) {
+  if (editor_ && editor_->status_toast.Visible(ImGui::GetTime())) {
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1), "|  %s",
-                       editor_->transient_status.c_str());
+                       editor_->status_toast.message.c_str());
   }
 }
 

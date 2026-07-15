@@ -118,6 +118,16 @@ def ident(name: str) -> str:
     return name + "_" if name in _CPP_KEYWORDS else name
 
 
+def cpp_str(text: str) -> str:
+    """A C++ string literal body (no surrounding quotes) for `text`."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Schema index                                                                 #
 # --------------------------------------------------------------------------- #
@@ -620,6 +630,7 @@ def emit_reflect_h(s: Schema) -> str:
     w("  int arity_max;")
     w("  bool optional;")
     w("  bool has_default;")
+    w("  std::string_view doc;       // one-line field description (schema comment)")
     w("};")
     w("")
     w("struct ChildDescriptor {")
@@ -698,7 +709,8 @@ def emit_reflect_cc(s: Schema) -> str:
                     f"FieldKind::{field_kind(f['type'])}, "
                     f"ArityKind::{ak}, {amin}, {amax}, "
                     f"{'true' if f['optional'] else 'false'}, "
-                    f"{'true' if 'default' in f else 'false'}}},"
+                    f"{'true' if 'default' in f else 'false'}, "
+                    f'"{cpp_str(f.get("doc", ""))}"}},'
                 )
             w("};")
         if e["children"]:

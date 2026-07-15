@@ -23,10 +23,10 @@ Every battery below runs **identically in both trees** (studio branch + protospe
 
 | Battery | Binary | Test fns |
 |---|---|---|
-| Core (load, pick, hierarchy, rename/delete, undo, save) | `test_studio` | 11 (112 checks) |
+| Core (load, pick, hierarchy, rename/delete, undo, save, **status-toast expiry**, **file-dialog request machine**) | `test_studio` | 13 (138 checks) |
 | Gizmo (delta rule, joint rig, projection, mode machine, **perf gate**) | `test_gizmo` | 20 (170 checks) |
 | Movability audit (inline fixtures + 5 corpus models) | `test_movability` | 4 + audit engine (584 checks) |
-| Details (reflection coverage, presence, refs, enums, **display fidelity**) | `test_details` | 11 (4848 checks) |
+| Details (reflection coverage, presence, refs, enums, **display fidelity**, **field-doc coverage**) | `test_details` | 12 (4853 checks) |
 | Authoring (add/duplicate/reparent/import/exit story) | `test_authoring` | 9 (114 checks) |
 | **Host** (Play/Stop discard, Save As externalize, delete-confirm, **diagnostics click-to-select**) | `test_host` | 6 (82 checks) |
 | **Host-UI** (key-routing gate, overlay/geom pick, gizmo priority) | `test_hostui` | 3 (19 checks) |
@@ -159,7 +159,23 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 | M26 | Select a joint that an actuator references; press Del | Confirm dialog lists the referrers; Cancel leaves everything intact; Del again + Confirm cascades — model still compiles, no dangling refs | ☐ |
 | M27 | Rearrange one panel, quit, relaunch | Layout restored from imgui.ini (covers G5 until automated) | ☐ |
 
-**27 steps.**
+### UX polish (perfection pass)
+
+Behaviours common to both trees unless a row is marked *(studio branch)* — those depend
+on the MuJoCo-Studio host chrome (merged FontAwesome font, menu-bar File/Edit) the
+standalone `apps/studio` host does not carry.
+
+| # | Action | Expected | P/F |
+|---|---|---|---|
+| M28 | Hover a field **label** in Details (e.g. `condim`, `solref`, `friction`) | A tooltip shows the schema's one-line description of that field; labels and value widgets line up in a single column | ☐ |
+| M29 | Select a **geom**, press R, drag; then select a **body** and press R | Geom scales; on the body the scale gizmo does **not** draw — a centred note reads "Scale applies to a geom or site…"; no silent no-op | ☐ |
+| M30 | Trigger a transient gizmo note (rotate a geom → "materialised as quat"; scale a mesh geom → mesh-scale warning) | The note appears centred near the bottom of the viewport and **fades out after a few seconds**; the mesh-scale warning is amber; nothing lingers forever | ☐ |
+| M31 | *(studio branch)* Read the toolbar; hover each transform tool and Play/Pause/Stop | Tools and transport are **icons**, not text; the active tool is highlighted; every button has a tooltip naming it with its shortcut | ☐ |
+| M32 | *(studio branch)* Open the **Edit** menu with a clean, just-loaded model; make one edit and reopen it. Open **File** | Undo/Redo are **greyed** until there is history; every item lists its shortcut; Save is greyed when clean / no path | ☐ |
+| M33 | *(studio branch)* File → Open… / Save As… / Import Mesh… | The host's **native OS file dialog** opens; the matching "… path…" submenu still accepts a typed path as a fallback | ☐ |
+| M34 | Click empty space so nothing is selected | Details reads "Nothing selected." with the hint "Click an element in the viewport or Hierarchy." | ☐ |
+
+**34 steps.**
 
 ---
 
@@ -169,7 +185,7 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 
 1. All seven batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
 2. Every §1.2 gap row marked Closed (test added and green) or Waived with owner initials.
-3. All 27 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
+3. All 34 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
 4. The statement below signed.
 
 ### Known exclusions — certified does NOT cover
@@ -180,7 +196,7 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 | Composite beyond select-only; plugin-requiring models | Deferred until the plugin wave |
 | Multi-select operations | SE4 QoL item, not landed |
 | Keyframe timeline, USD, WASM, CoACD decomposition | Deferred (plan §9) |
-| OS-native file dialogs | Open / Save As / Import use inline path fields **by design** (no dialog dependency in the editor library) |
+| OS-native file dialogs (standalone `apps/studio` host) | The MuJoCo-Studio host (studio branch) wires Open / Save As / Import to the **native OS dialog** via a `FileDialogPlugin` host hook, with the inline path field kept as a fallback. The standalone `apps/studio` host still uses the inline path fields; porting the hook there is deferred |
 | Python Studio | Separate surface (`protospec` pybind module) |
 | Filament-vs-classic visual parity | Rendering look, not editor correctness |
 | Perturb-to-tree | There is deliberately no path from Play-mode perturb to the model (DR-S2 firewall) |
@@ -196,7 +212,7 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 ### Certification statement
 
 > I certify that the ProtoSpec Studio model editor meets every guarantee in Section 1, that all
-> Section 1.2 gaps are closed or waived above, and that I walked all 27 steps of Section 2 on
+> Section 1.2 gaps are closed or waived above, and that I walked all 34 steps of Section 2 on
 > the build identified below with zero failures.
 >
 > protospec commit: `________________`  mujoco-studio (`studio`) commit: `________________`

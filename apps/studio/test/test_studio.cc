@@ -25,8 +25,10 @@
 #include "types.h"
 
 using ps::studio::EditorContext;
+using ps::studio::FileDialogState;
 using ps::studio::LoadModel;
 using ps::studio::PendingLoad;
+using ps::studio::StatusToast;
 using ps::studio::PickResolution;
 using ps::studio::ResolvePick;
 namespace mj = ps::mjcf;
@@ -71,6 +73,70 @@ static void TestPendingLoadStateMachine() {
   slot.Request("one.xml");
   slot.Request("two.xml");
   CHECK(slot.Take() == "two.xml");
+}
+
+// The transient viewport note: Info/Warning fade after the hold+fade window;
+// Error notes never fade; posting replaces the note and restarts the clock.
+static void TestStatusToastExpiry() {
+  StatusToast t;
+  CHECK(t.empty());
+  CHECK(t.Alpha(0.0) == 0.0f);  // nothing posted -> invisible
+
+  t.Post("hi", StatusToast::Kind::Info, 100.0);
+  CHECK(t.Alpha(100.0) == 1.0f);                          // fresh: opaque
+  CHECK(t.Alpha(100.0 + StatusToast::kHoldSeconds) == 1.0f);  // end of hold
+  CHECK(!t.Visible(100.0 + StatusToast::kHoldSeconds +
+                   StatusToast::kFadeSeconds));           // fully faded
+  const float mid = t.Alpha(100.0 + StatusToast::kHoldSeconds +
+                            StatusToast::kFadeSeconds * 0.5);
+  CHECK(mid > 0.0f && mid < 1.0f);                        // mid-fade
+
+  // Errors are sticky: still fully visible well past the fade window.
+  t.Post("boom", StatusToast::Kind::Error, 200.0);
+  CHECK(t.Alpha(200.0 + 100.0) == 1.0f);
+  CHECK(t.Visible(200.0 + 100.0));
+
+  // Re-posting restarts the clock and clearing hides it.
+  t.Post("again", StatusToast::Kind::Info, 300.0);
+  CHECK(t.Alpha(300.0) == 1.0f);
+  t.Clear();
+  CHECK(t.empty());
+  CHECK(!t.Visible(300.0));
+}
+
+// The native file-dialog request machine: a request is polled exactly once,
+// delivered once, and dispatched once; no phase leaks between requests.
+static void TestFileDialogState() {
+  FileDialogState s;
+  using Kind = FileDialogState::Kind;
+  CHECK(s.Poll() == Kind::None);   // nothing pending
+  CHECK(!s.HasResult());
+
+  s.Request(Kind::Open, "/models/a.xml");
+  CHECK(s.Poll() == Kind::Open);   // host sees the request
+  CHECK(s.start_hint() == "/models/a.xml");
+  CHECK(s.Poll() == Kind::None);   // in-flight: a second poll re-opens nothing
+  CHECK(!s.HasResult());
+
+  s.Deliver("/models/b.xml", true);
+  CHECK(s.HasResult());
+  const FileDialogState::Result r = s.TakeResult();
+  CHECK(r.kind == Kind::Open);
+  CHECK(r.accepted);
+  CHECK(r.path == "/models/b.xml");
+  CHECK(!s.HasResult());           // drained
+
+  // A cancelled Save delivers accepted=false and the SaveAs kind.
+  s.Request(Kind::SaveAs, "");
+  CHECK(s.Poll() == Kind::SaveAs);
+  s.Deliver("", false);
+  const FileDialogState::Result r2 = s.TakeResult();
+  CHECK(r2.kind == Kind::SaveAs);
+  CHECK(!r2.accepted);
+
+  // Deliver without an in-flight request is ignored (no phantom result).
+  s.Deliver("x", true);
+  CHECK(!s.HasResult());
 }
 
 // A bad path fails cleanly and leaves no model ready.
@@ -454,6 +520,8 @@ static void TestSaveRoundTripFixpoint() {
 
 int main() {
   TestPendingLoadStateMachine();
+  TestStatusToastExpiry();
+  TestFileDialogState();
   TestRegistryOrderAndDedup();
   TestLoadFailureIsClean();
 

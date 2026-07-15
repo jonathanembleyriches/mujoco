@@ -83,6 +83,98 @@ struct DiagEntry {
   std::optional<ps::SourceLoc> loc;     // file:line origin when known
 };
 
+// A transient status note shown briefly over the viewport (gizmo hints and the
+// like). Info/Warning notes fade out shortly after they are posted; Error notes
+// stay until replaced or explicitly cleared. The visibility/opacity is a pure
+// function of the host clock so it is unit-tested windowless.
+struct StatusToast {
+  enum class Kind { Info, Warning, Error };
+
+  std::string message;
+  Kind kind = Kind::Info;
+  double set_time = 0.0;  // host-clock seconds when posted; <0 == never posted
+
+  static constexpr double kHoldSeconds = 3.0;  // fully opaque for this long,
+  static constexpr double kFadeSeconds = 1.0;  // then fades to nothing over this.
+
+  bool empty() const { return message.empty(); }
+
+  void Post(std::string msg, Kind k, double now) {
+    message = std::move(msg);
+    kind = k;
+    set_time = now;
+  }
+  void Clear() {
+    message.clear();
+    set_time = 0.0;
+  }
+
+  // Opacity in [0, 1] at time `now`. Errors never fade; an empty note is 0.
+  float Alpha(double now) const {
+    if (message.empty()) return 0.0f;
+    if (kind == Kind::Error) return 1.0f;
+    const double age = now - set_time;
+    if (age <= kHoldSeconds) return 1.0f;
+    const double f = (age - kHoldSeconds) / kFadeSeconds;
+    return f >= 1.0 ? 0.0f : static_cast<float>(1.0 - f);
+  }
+  bool Visible(double now) const { return Alpha(now) > 0.0f; }
+};
+
+// A request for the host to open a native OS file dialog on the editor's behalf
+// (the editor library carries no windowing/dialog dependency). The menu posts a
+// request; the host polls it, opens the matching native dialog, and delivers the
+// chosen path back. A pure phase machine so it is unit-tested windowless.
+class FileDialogState {
+ public:
+  enum class Kind { None, Open, SaveAs, ImportMesh };
+
+  struct Result {
+    Kind kind = Kind::None;
+    std::string path;
+    bool accepted = false;
+  };
+
+  // The menu posts a request with a starting path/dir hint.
+  void Request(Kind kind, std::string start_hint) {
+    kind_ = kind;
+    start_ = std::move(start_hint);
+    phase_ = Phase::Requested;
+  }
+
+  // The host polls: returns the pending kind (None if nothing to open) and moves
+  // the request in-flight so a second poll the same frame will not re-open it.
+  Kind Poll() {
+    if (phase_ != Phase::Requested) return Kind::None;
+    phase_ = Phase::InFlight;
+    return kind_;
+  }
+  const std::string& start_hint() const { return start_; }
+
+  // The host delivers the dialog outcome for the in-flight request.
+  void Deliver(std::string path, bool accepted) {
+    if (phase_ != Phase::InFlight) return;
+    result_ = Result{kind_, std::move(path), accepted};
+    phase_ = Phase::Delivered;
+  }
+
+  // The editor drains at most one delivered result per frame and dispatches it.
+  bool HasResult() const { return phase_ == Phase::Delivered; }
+  Result TakeResult() {
+    phase_ = Phase::Idle;
+    Result out = std::move(result_);
+    result_ = Result{};
+    return out;
+  }
+
+ private:
+  enum class Phase { Idle, Requested, InFlight, Delivered };
+  Phase phase_ = Phase::Idle;
+  Kind kind_ = Kind::None;
+  std::string start_;
+  Result result_;
+};
+
 // The active transform tool (Q/W/E/R). Select shows no gizmo.
 enum class GizmoTool { Select, Translate, Rotate, Scale };
 
@@ -149,7 +241,8 @@ struct EditorContext {
                                       // this so Esc cancels the drag, not exit)
   bool show_all_joints = false;        // View toggle: draw joints for every body,
                                       // not just the selected body (deliverable 3)
-  std::string transient_status;       // gizmo notes (euler->quat, mesh-scale warn)
+  StatusToast status_toast;           // transient viewport note (gizmo hints, ...)
+  FileDialogState file_dialog;        // pending native-dialog request for the host
 
   // Ring cap: the Diagnostics panel is a bounded scrollback, never a leak.
   static constexpr std::size_t kMaxDiagnostics = 500;

@@ -66,6 +66,39 @@ static void TestWidgetCoverage() {
               fields_seen, reflect::ElementCount(), unhandled);
 }
 
+// --- 1b. Field doc coverage ------------------------------------------------ //
+// Every reflect::FieldDescriptor carries the schema's one-line description, which
+// the Details panel surfaces as a hover tooltip on the field label. Assert both
+// broad coverage (the great majority of fields are documented) and a few exact
+// strings so a schema/emit regression that drops the doc column is caught.
+static void TestFieldDocCoverage() {
+  int total = 0;
+  int documented = 0;
+  for (std::size_t i = 0; i < reflect::ElementCount(); ++i) {
+    const reflect::ElementDescriptor& e = reflect::ElementAt(i);
+    for (std::size_t f = 0; f < e.field_count; ++f) {
+      ++total;
+      if (!e.fields[f].doc.empty()) ++documented;
+    }
+  }
+  CHECK(total > 1000);
+  // A large fraction of schema fields carry a description; require a broad
+  // minimum so a regression that blanks the column (documented==0) fails loudly.
+  CHECK(documented > total / 3);
+
+  const reflect::ElementDescriptor& geom =
+      reflect::Describe(mj::ElementType::Geom);
+  auto doc = [&](std::string_view name) -> std::string_view {
+    for (std::size_t i = 0; i < geom.field_count; ++i)
+      if (geom.fields[i].name == name) return geom.fields[i].doc;
+    return {};
+  };
+  CHECK(doc("type") == "geom type");
+  CHECK(doc("condim") == "contact dimensionality");
+  CHECK(doc("pos") == "position offset");
+  std::printf("  field docs: %d/%d documented\n", documented, total);
+}
+
 // The specific mappings the design calls out by name.
 static void TestWidgetMappingSpecifics() {
   using det::ClassifyField;
@@ -471,6 +504,7 @@ static void TestDisplayFidelityHumanoid() {
 
 int main() {
   TestWidgetCoverage();
+  TestFieldDocCoverage();
   TestWidgetMappingSpecifics();
   TestPresenceInherited();
   TestPresenceIdlDefault();
