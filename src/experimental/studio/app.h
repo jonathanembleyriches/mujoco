@@ -226,6 +226,8 @@ class App {
   void StatusBarGui();
   void HelpGui();
   void FileDialogGui();
+  // Services native-dialog requests posted by an editor's FileDialogPlugin.
+  void ServiceEditorFileDialogs();
   void ModelOptionsGui();
   void DataInspectorGui();
   void SpecExplorerGui();

@@ -81,6 +81,9 @@ static constexpr const char* ICON_NEXT_FRAME = platform::ICON_FA_CARET_RIGHT;
 static constexpr const char* ICON_CURR_FRAME = platform::ICON_FA_FAST_FORWARD;
 static constexpr const char* ICON_UNDO_SPEC = platform::ICON_FA_UNDO;
 static constexpr const char* ICON_REDO_SPEC = platform::ICON_FA_REPEAT;
+static constexpr const char* ICON_PLAY = platform::ICON_FA_PLAY;
+static constexpr const char* ICON_PAUSE = platform::ICON_FA_PAUSE;
+static constexpr const char* ICON_STOP = platform::ICON_FA_STOP;
 
 App::App(Config config)
     : app_title_(std::move(config.title)),
@@ -1067,6 +1070,7 @@ void App::BuildGui() {
   }
 
   FileDialogGui();
+  ServiceEditorFileDialogs();
 
   if (tmp_.imgui_demo) {
     ImGui::ShowDemoWindow();
@@ -1612,18 +1616,18 @@ void App::ToolBarGui() {
     };
     ImGui::SameLine(0, separator_width);
     ImGui::BeginDisabled(!has_model());
-    if (ImGui::Button("Play", square_size)) {
+    if (ImGui::Button(ICON_PLAY, square_size)) {
       set_editor_mode(1);
       step_control_.SetPauseState(PauseState::kUnpaused);
     }
     ImGui::SetItemTooltip("%s", "Play: compile edits and run the simulation");
     ImGui::SameLine(0, 0.5 * separator_width);
-    if (ImGui::Button("Pause", square_size)) {
+    if (ImGui::Button(ICON_PAUSE, square_size)) {
       step_control_.SetPauseState(PauseState::kNormalPaused);
     }
     ImGui::SetItemTooltip("%s", "Pause the simulation");
     ImGui::SameLine(0, 0.5 * separator_width);
-    if (ImGui::Button("Stop", square_size)) {
+    if (ImGui::Button(ICON_STOP, square_size)) {
       set_editor_mode(0);
       step_control_.SetPauseState(PauseState::kNormalPaused);
       ResetPhysics();
@@ -1985,6 +1989,25 @@ void App::MainMenuGui() {
     }
     ImGui::EndMainMenuBar();
   }
+}
+
+void App::ServiceEditorFileDialogs() {
+  platform::ForEachPlugin<platform::FileDialogPlugin>(
+      [&](platform::FileDialogPlugin* p) {
+        char hint[1024] = {0};
+        const int kind = p->poll ? p->poll(p, hint, sizeof(hint)) : 0;
+        if (kind == 0) return;  // nothing pending this frame
+        const bool save = p->is_save && p->is_save(p, kind);
+        // Native dialogs are modal/synchronous on the desktop platforms; a
+        // still-pending status is treated as no-selection (the editor keeps its
+        // inline path field as the fallback for any platform without dialogs).
+        const platform::DialogResult res =
+            save ? platform::SaveFileDialog(hint) : platform::OpenFileDialog(hint);
+        const bool accepted = res.status == platform::DialogResult::kAccepted;
+        if (p->deliver) {
+          p->deliver(p, kind, accepted ? res.path.c_str() : "", accepted);
+        }
+      });
 }
 
 void App::FileDialogGui() {

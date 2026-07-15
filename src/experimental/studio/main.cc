@@ -143,11 +143,17 @@ int main(int argc, char** argv, char** envp) {
 
   const int width = absl::GetFlag(FLAGS_window_width);
   const int height = absl::GetFlag(FLAGS_window_height);
+#ifdef MUJOCO_STUDIO_PROTOSPEC
+  const std::string app_title = "ProtoSpec Studio";
+#else
+  const std::string app_title = "MuJoCo Studio";
+#endif
   mujoco::studio::App app({
     .width = width,
     .height = height,
     .ini_path = ini_path,
     .gfx_mode = gfx_mode,
+    .title = app_title,
   });
 
   // If the model file is not specified, try to load it from the first argument

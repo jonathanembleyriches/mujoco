@@ -189,6 +189,34 @@ struct EditorShellPlugin final {
   void* data = nullptr;
 };
 
+// Bridge letting an external editor request a native OS file dialog from the
+// host. The editor library carries no windowing/dialog dependency, so instead of
+// opening a dialog itself it posts a request the host services. Each frame the
+// host calls `poll`; a non-zero return is a pending request kind (editor-defined)
+// with a starting path/dir hint written into `hint`. The host opens the matching
+// native dialog (open vs save is the editor's `kind` to interpret) and returns
+// the outcome through `deliver`. `kind` values are opaque to the host; only 0
+// (== nothing pending) is reserved.
+struct FileDialogPlugin final {
+  // Returns the pending request kind (0 == none) and, when non-zero, writes a
+  // NUL-terminated starting path/dir hint into `hint` (capacity `hint_size`).
+  using PollFn = int (*)(FileDialogPlugin* self, char* hint, int hint_size);
+
+  // Delivers the dialog outcome for the just-polled request. `accepted` is false
+  // if the user cancelled; `path` is the chosen path when accepted, else empty.
+  using DeliverFn = void (*)(FileDialogPlugin* self, int kind, const char* path,
+                             bool accepted);
+
+  // True when this request kind is a Save dialog (the host picks Save vs Open).
+  using IsSaveFn = bool (*)(FileDialogPlugin* self, int kind);
+
+  const char* name = "";
+  PollFn poll = nullptr;
+  DeliverFn deliver = nullptr;
+  IsSaveFn is_save = nullptr;
+  void* data = nullptr;
+};
+
 // Plugin that draws into the active ImGui frame over the 3D viewport (e.g.
 // screen-space transform gizmos). Invoked each frame during GUI building with
 // the live camera and viewport metrics so the draw list can project against
