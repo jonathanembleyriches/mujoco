@@ -16,12 +16,14 @@
 #include "binding.h"
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
+#include "editor/hierarchy_icons.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/undo.h"
 #include "mjcf.h"
 #include "platform/ux/registry.inc.h"
 #include "protospec/refs.h"
 #include "protospec/traversal.h"
+#include "reflect.h"
 #include "types.h"
 
 using ps::studio::EditorContext;
@@ -518,12 +520,50 @@ static void TestSaveRoundTripFixpoint() {
   std::filesystem::remove(tmp, ec);
 }
 
+// Every element type maps to a non-empty family glyph (icon-mapping totality),
+// and representative kinds land in the family a user expects.
+static void TestIconMappingTotality() {
+  namespace reflect = ps::mjcf::reflect;
+  const std::size_t n = reflect::ElementCount();
+  CHECK(n > 0);
+  for (std::size_t i = 0; i < n; ++i) {
+    const mj::ElementType t = reflect::ElementAt(i).type;
+    const char* icon = ps::studio::IconForElementType(t);
+    CHECK(icon != nullptr && icon[0] != '\0');
+  }
+
+  using ps::studio::FamilyOf;
+  using ps::studio::IconFamily;
+  using ET = mj::ElementType;
+  CHECK(FamilyOf(ET::Body) == IconFamily::Body);
+  CHECK(FamilyOf(ET::Geom) == IconFamily::Geom);
+  CHECK(FamilyOf(ET::Joint) == IconFamily::Joint);
+  CHECK(FamilyOf(ET::FreeJoint) == IconFamily::Joint);
+  CHECK(FamilyOf(ET::Site) == IconFamily::Site);
+  CHECK(FamilyOf(ET::Camera) == IconFamily::Camera);
+  CHECK(FamilyOf(ET::Light) == IconFamily::Light);
+  CHECK(FamilyOf(ET::Frame) == IconFamily::Frame);
+  CHECK(FamilyOf(ET::Motor) == IconFamily::Actuator);
+  CHECK(FamilyOf(ET::Muscle) == IconFamily::Actuator);
+  CHECK(FamilyOf(ET::Gyro) == IconFamily::Sensor);
+  CHECK(FamilyOf(ET::Framepos) == IconFamily::Sensor);
+  CHECK(FamilyOf(ET::Fixed) == IconFamily::Tendon);
+  CHECK(FamilyOf(ET::Spatial) == IconFamily::Tendon);
+  CHECK(FamilyOf(ET::Weld) == IconFamily::Equality);
+  CHECK(FamilyOf(ET::Connect) == IconFamily::Equality);
+  CHECK(FamilyOf(ET::Mesh) == IconFamily::Asset);
+  CHECK(FamilyOf(ET::Texture) == IconFamily::Asset);
+  CHECK(FamilyOf(ET::Keyframe) == IconFamily::Keyframe);
+  CHECK(FamilyOf(ET::Pair) == IconFamily::Contact);
+}
+
 int main() {
   TestPendingLoadStateMachine();
   TestStatusToastExpiry();
   TestFileDialogState();
   TestRegistryOrderAndDedup();
   TestLoadFailureIsClean();
+  TestIconMappingTotality();
 
   EditorContext ctx;
   TestLoadHumanoid(ctx);

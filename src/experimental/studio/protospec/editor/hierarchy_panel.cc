@@ -14,6 +14,7 @@
 
 #include "editor/authoring_ops.h"
 #include "editor/editor_ops.h"
+#include "editor/hierarchy_icons.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
@@ -24,6 +25,11 @@ namespace ps::studio {
 namespace {
 
 namespace mj = ps::mjcf;
+
+// Row glyphs (FontAwesome, merged into the host font). Section headers get a
+// folder; the filter's clear affordance is a small times glyph.
+constexpr const char* kSectionIcon = "\xEF\x81\xBB";  // U+F07B folder
+constexpr const char* kClearIcon = "\xEF\x80\x8D";    // U+F00D times
 
 struct HierUiState {
   std::string search;
@@ -187,7 +193,9 @@ void DrawReparentDragDrop(EditorContext& ctx, const HierNode& node,
 
 void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
   if (node.is_section) {
-    const bool open = ImGui::TreeNodeEx(node.label.c_str(),
+    const std::string section_label =
+        std::string(kSectionIcon) + "  " + node.label;
+    const bool open = ImGui::TreeNodeEx(section_label.c_str(),
                                         ImGuiTreeNodeFlags_DefaultOpen |
                                             ImGuiTreeNodeFlags_SpanAvailWidth);
     // The Body Tree header adds world-parented (top-level) elements.
@@ -219,15 +227,25 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
   if (leaf) {
     flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
   }
-  if (node.serial == ctx.selected_serial) {
+  const bool selected = node.serial == ctx.selected_serial;
+  if (selected) {
     flags |= ImGuiTreeNodeFlags_Selected;
   }
 
-  std::string label = node.label;
+  // A family glyph leads every element row so kinds read at a glance; the
+  // selected row is lifted to the brightest text colour for prominence.
+  std::string label =
+      std::string(IconForElementType(node.type)) + "  " + node.label;
   if (node.is_macro) {
     label += "  [macro]";
   }
+  if (selected) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+  }
   const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+  if (selected) {
+    ImGui::PopStyleColor();
+  }
 
   DrawReparentDragDrop(ctx, node, st);
 
@@ -290,12 +308,27 @@ void HierarchyUpdate(GuiPlugin* self) {
     return;
   }
 
-  ImGui::SetNextItemWidth(-FLT_MIN);
+  const HierNode model = BuildHierarchyModel(*c->tree);
+
+  // Filter field with a clear-x affordance and a live match count.
+  const bool filtering = !st.search.empty();
+  const float btn_w = ImGui::GetFrameHeight();
+  const float spacing = ImGui::GetStyle().ItemSpacing.x;
+  ImGui::SetNextItemWidth(filtering ? -(btn_w + spacing) : -FLT_MIN);
   ImGui::InputTextWithHint("##search", "filter by name...", &st.search);
+  if (filtering) {
+    ImGui::SameLine(0, spacing);
+    if (ImGui::Button((std::string(kClearIcon) + "##clearfilter").c_str(),
+                      ImVec2(btn_w, btn_w))) {
+      st.search.clear();
+    }
+    ImGui::SetItemTooltip("%s", "Clear filter");
+    const int matches = CountHierarchyMatches(model, st.search);
+    ImGui::TextDisabled("%d match%s", matches, matches == 1 ? "" : "es");
+  }
   ImGui::Checkbox("Keep world pose on reparent", &st.keep_world_pose);
   ImGui::Separator();
 
-  const HierNode model = BuildHierarchyModel(*c->tree);
   const HierNode view = FilterHierarchy(model, st.search);
 
   ImGui::BeginChild("##hier_tree");

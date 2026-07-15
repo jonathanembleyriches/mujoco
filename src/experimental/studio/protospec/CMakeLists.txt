@@ -87,6 +87,7 @@ add_library(protospec_editor STATIC
   editor/editor_ops.cc
   editor/gizmo.cc
   editor/gizmo_math.cc
+  editor/hierarchy_icons.cc
   editor/hierarchy_model.cc
   editor/hierarchy_panel.cc
   editor/joint_overlay.cc
@@ -138,6 +139,7 @@ protospec_add_test(protospec_studio_tests
   editor/editor_ops.cc
   editor/undo.cc
   editor/hierarchy_model.cc
+  editor/hierarchy_icons.cc
 )
 protospec_add_test(protospec_studio_gizmo_tests
   test/test_gizmo.cc
