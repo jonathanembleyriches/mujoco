@@ -175,6 +175,42 @@ inline std::string_view WidgetKindName(WidgetKind w) {
   return "?";
 }
 
+// --- Colour fields --------------------------------------------------------- //
+// A handful of fields are RGB(A) colours and read far better as an ImGui colour
+// swatch/picker than as a bare numeric row. They are recognised by field name
+// (an authoring convenience -- a real color-space hint would be schema-driven),
+// and only when the storage is actually a fixed 3- or 4-wide float/double array,
+// so a same-named scalar (e.g. Material.specular) never trips the classifier.
+enum class ColorKind {
+  None,
+  Rgb3,   // ImGui::ColorEdit3
+  Rgba4,  // ImGui::ColorEdit4
+};
+
+inline ColorKind ColorKindByName(std::string_view xml) {
+  if (xml == "rgba") return ColorKind::Rgba4;
+  if (xml == "rgb" || xml == "rgb1" || xml == "rgb2" || xml == "markrgb" ||
+      xml == "ambient" || xml == "diffuse" || xml == "specular" ||
+      xml == "emission" || xml == "fog" || xml == "haze") {
+    return ColorKind::Rgb3;
+  }
+  return ColorKind::None;
+}
+
+// The classifier proper: a colour field must also be a fixed-arity real row of
+// the matching width, so the widget can bind directly to the array's floats.
+inline ColorKind ColorKindOf(const reflect::FieldDescriptor& fd) {
+  const ColorKind by_name = ColorKindByName(fd.xml);
+  if (by_name == ColorKind::None) return ColorKind::None;
+  const bool real = fd.kind == reflect::FieldKind::Float ||
+                    fd.kind == reflect::FieldKind::Double;
+  const bool fixed = fd.arity == reflect::ArityKind::Fixed;
+  if (!real || !fixed) return ColorKind::None;
+  if (by_name == ColorKind::Rgba4 && fd.arity_min == 4) return ColorKind::Rgba4;
+  if (by_name == ColorKind::Rgb3 && fd.arity_min == 3) return ColorKind::Rgb3;
+  return ColorKind::None;
+}
+
 // --- Field grouping -------------------------------------------------------- //
 // Transform-ish fields lead the panel under their own header (plan Section 4);
 // everything else follows in schema order.

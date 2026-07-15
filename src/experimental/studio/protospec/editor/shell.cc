@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -82,6 +83,12 @@ void DrawFileMenu(EditorContext* c) {
   if (ImGui::MenuItem("Import Mesh...", nullptr, false, c->model_ready)) {
     c->file_dialog.Request(FileDialogState::Kind::ImportMesh, c->base_dir);
   }
+  if (ImGui::MenuItem("Import Meshes...", nullptr, false, c->model_ready)) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportMeshes, c->base_dir);
+  }
+  if (ImGui::MenuItem("Import Folder...", nullptr, false, c->model_ready)) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportFolder, c->base_dir);
+  }
   if (ImGui::BeginMenu("Import Mesh path...", c->model_ready)) {
     static std::string path;
     static std::string status;
@@ -114,6 +121,38 @@ void DrainFileDialog(EditorContext* c) {
       MeshImportResult m = ImportMesh(*c, r.path, nullptr);
       c->status_toast.Post(
           m.ok ? "imported mesh" : ("mesh import failed: " + m.error),
+          m.ok ? StatusToast::Kind::Info : StatusToast::Kind::Error,
+          ImGui::GetTime());
+      break;
+    }
+    case FileDialogState::Kind::ImportMeshes: {
+      // The host joined the multi-selection with '\n'.
+      std::vector<std::string> paths;
+      std::size_t start = 0;
+      while (start <= r.path.size()) {
+        const std::size_t nl = r.path.find('\n', start);
+        const std::string p =
+            r.path.substr(start, nl == std::string::npos ? std::string::npos
+                                                         : nl - start);
+        if (!p.empty()) paths.push_back(p);
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+      }
+      MultiMeshImportResult m = ImportMeshes(*c, paths);
+      c->status_toast.Post(
+          m.ok ? ("imported " + std::to_string(m.imported) + " mesh(es)" +
+                  (m.skipped ? ", " + std::to_string(m.skipped) + " skipped"
+                             : ""))
+               : ("mesh import failed: " + m.error),
+          m.ok ? StatusToast::Kind::Info : StatusToast::Kind::Error,
+          ImGui::GetTime());
+      break;
+    }
+    case FileDialogState::Kind::ImportFolder: {
+      MultiMeshImportResult m = ImportMeshFolder(*c, r.path);
+      c->status_toast.Post(
+          m.ok ? ("imported " + std::to_string(m.imported) + " mesh(es) from folder")
+               : ("folder import failed: " + m.error),
           m.ok ? StatusToast::Kind::Info : StatusToast::Kind::Error,
           ImGui::GetTime());
       break;
@@ -175,11 +214,20 @@ void DrawAddDropdown(EditorContext* c) {
   if (!ImGui::BeginMenu("+ Add")) return;
   const std::uint64_t sel = c->selected_serial;
   if (ImGui::BeginMenu("Body / geom (world)")) {
+    // Batch count: N>1 drops a row of geoms in one undo entry (single-add default).
+    static int count = 1;
+    ImGui::SetNextItemWidth(90);
+    ImGui::InputInt("count", &count);
+    if (count < 1) count = 1;
+    if (count > 64) count = 64;
+    ImGui::Separator();
     if (ImGui::MenuItem("Body")) AddBodyOp(*c, 0);
-    if (ImGui::MenuItem("Sphere")) AddGeomOp(*c, 0, mj::GeomType::sphere);
-    if (ImGui::MenuItem("Box")) AddGeomOp(*c, 0, mj::GeomType::box);
-    if (ImGui::MenuItem("Capsule")) AddGeomOp(*c, 0, mj::GeomType::capsule);
-    if (ImGui::MenuItem("Cylinder")) AddGeomOp(*c, 0, mj::GeomType::cylinder);
+    if (ImGui::MenuItem("Sphere")) AddGeomsOp(*c, 0, mj::GeomType::sphere, count);
+    if (ImGui::MenuItem("Box")) AddGeomsOp(*c, 0, mj::GeomType::box, count);
+    if (ImGui::MenuItem("Capsule"))
+      AddGeomsOp(*c, 0, mj::GeomType::capsule, count);
+    if (ImGui::MenuItem("Cylinder"))
+      AddGeomsOp(*c, 0, mj::GeomType::cylinder, count);
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Actuator (for selected joint)")) {
@@ -294,6 +342,14 @@ bool FileDialogIsSave(FileDialogPlugin*, int kind) {
   return kind == static_cast<int>(FileDialogState::Kind::SaveAs);
 }
 
+bool FileDialogIsMulti(FileDialogPlugin*, int kind) {
+  return kind == static_cast<int>(FileDialogState::Kind::ImportMeshes);
+}
+
+bool FileDialogIsFolder(FileDialogPlugin*, int kind) {
+  return kind == static_cast<int>(FileDialogState::Kind::ImportFolder);
+}
+
 }  // namespace
 
 void RegisterEditorShell(EditorContext& ctx) {
@@ -308,6 +364,8 @@ void RegisterEditorShell(EditorContext& ctx) {
   fd.poll = FileDialogPoll;
   fd.deliver = FileDialogDeliver;
   fd.is_save = FileDialogIsSave;
+  fd.is_multi = FileDialogIsMulti;
+  fd.is_folder = FileDialogIsFolder;
   fd.data = &ctx;
   RegisterPlugin<FileDialogPlugin>(fd);
 

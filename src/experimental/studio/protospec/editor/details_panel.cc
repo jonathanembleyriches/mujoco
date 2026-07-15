@@ -11,7 +11,9 @@
 #include "editor/details_panel.h"
 
 #include <cmath>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <imgui.h>
@@ -386,6 +388,49 @@ bool DrawValue(EditorContext& ctx, const char* label, Inner& work,
   }
 }
 
+// --- Colour swatch/picker -------------------------------------------------- //
+// A ColorEdit widget bound to a fixed 3/4-wide float or double array. ImGui only
+// edits floats, so a double-backed field round-trips through a float scratch.
+template <class X, std::size_t N>
+bool DrawColorArray(EditorContext& ctx, const char* label, std::array<X, N>& a) {
+  static_assert(N == 3 || N == 4, "color array is rgb(3) or rgba(4)");
+  float tmp[4] = {0, 0, 0, 1};
+  for (std::size_t i = 0; i < N; ++i) tmp[i] = static_cast<float>(a[i]);
+  ImGui::SetNextItemWidth(kFieldWidth * 2.2f);
+  const ImGuiColorEditFlags flags =
+      ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf;
+  if (N == 4) {
+    ImGui::ColorEdit4(label, tmp, flags);
+  } else {
+    ImGui::ColorEdit3(label, tmp, ImGuiColorEditFlags_None);
+  }
+  const bool commit = GestureShouldCommit(ctx);
+  if (commit) {
+    for (std::size_t i = 0; i < N; ++i) a[i] = static_cast<X>(tmp[i]);
+  }
+  return commit;
+}
+
+// Draw a field's value, preferring a colour picker for recognised rgb(a) fields
+// (falls back to the generic type-driven DrawValue for everything else).
+template <class Inner>
+bool DrawFieldValue(EditorContext& ctx, const reflect::FieldDescriptor& fd,
+                    const char* label, Inner& work, int arity_min) {
+  if constexpr (is_std_array<Inner>::value) {
+    using X = typename is_std_array<Inner>::elem;
+    if constexpr (std::is_floating_point_v<X> &&
+                  (is_std_array<Inner>::size == 3 ||
+                   is_std_array<Inner>::size == 4)) {
+      const ColorKind ck = ColorKindOf(fd);
+      if ((ck == ColorKind::Rgba4 && is_std_array<Inner>::size == 4) ||
+          (ck == ColorKind::Rgb3 && is_std_array<Inner>::size == 3)) {
+        return DrawColorArray(ctx, label, work);
+      }
+    }
+  }
+  return DrawValue(ctx, label, work, arity_min);
+}
+
 // --- Field rows (presence-aware) ------------------------------------------- //
 
 std::string RowLabel(const reflect::FieldDescriptor& fd) {
@@ -444,7 +489,7 @@ void RowOptional(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
   Inner work = SeedValue<Inner>(authored, slot, clsF, fullF);
   {
     Grayed g(!authored);
-    if (DrawValue(ctx, label.c_str(), work, fd.arity_min)) {
+    if (DrawFieldValue(ctx, fd, label.c_str(), work, fd.arity_min)) {
       slot = std::move(work);
       EditCommit(ctx, std::string("edit ") + std::string(fd.name));
     }
@@ -469,7 +514,7 @@ void RowRequired(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
   ImGui::SameLine(kLabelColumn);
   Inner work = slot;
   const std::string label = RowLabel(fd);
-  if (DrawValue(ctx, label.c_str(), work, fd.arity_min)) {
+  if (DrawFieldValue(ctx, fd, label.c_str(), work, fd.arity_min)) {
     slot = std::move(work);
     EditCommit(ctx, std::string("edit ") + std::string(fd.name));
   }
@@ -557,6 +602,83 @@ void RenderNameRow(EditorContext& ctx, E& e) {
   }
 }
 
+// A Material's texture <layer>s are an owned child list, so the generic field
+// visitor (which only walks scalar/array fields) never reaches them. This is the
+// one element whose appearance authoring needs its child list edited in place:
+// per layer a texture reference + a role, with add / remove. Each change is its
+// own undo entry. SE5 "full material and texturing editing".
+inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
+  if (!ImGui::CollapsingHeader("Texture Layers", ImGuiTreeNodeFlags_DefaultOpen))
+    return;
+  const std::vector<std::string> cands =
+      RefCandidates(*ctx.tree, {mj::ElementType::Texture});
+  const std::vector<std::string_view> roles = EnumLabels<mj::TexRole>();
+
+  int remove_idx = -1;
+  for (std::size_t i = 0; i < mat.layers.size(); ++i) {
+    mj::MaterialLayer* layer = mat.layers[i].get();
+    if (!layer) continue;
+    ImGui::PushID(static_cast<int>(i));
+
+    // Texture reference combo.
+    const std::string cur = layer->texture ? layer->texture->name : std::string();
+    ImGui::SetNextItemWidth(kFieldWidth * 1.8f);
+    if (ImGui::BeginCombo("##tex", cur.empty() ? "(none)" : cur.c_str())) {
+      if (ImGui::Selectable("(none)", cur.empty())) {
+        EditBegin(ctx);
+        layer->texture.reset();
+        EditCommit(ctx, "edit layer texture");
+      }
+      for (const std::string& c : cands) {
+        if (ImGui::Selectable(c.c_str(), c == cur)) {
+          EditBegin(ctx);
+          layer->texture = ps::Ref<mj::Texture>(c);
+          EditCommit(ctx, "edit layer texture");
+        }
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+
+    // Role combo.
+    const int role_cur = layer->role ? static_cast<int>(*layer->role) : 0;
+    const std::string role_prev =
+        (role_cur >= 0 && role_cur < static_cast<int>(roles.size()))
+            ? std::string(roles[role_cur])
+            : std::string("rgb");
+    ImGui::SetNextItemWidth(kFieldWidth * 1.4f);
+    if (ImGui::BeginCombo("##role", role_prev.c_str())) {
+      for (std::size_t r = 0; r < roles.size(); ++r) {
+        if (ImGui::Selectable(std::string(roles[r]).c_str(),
+                              static_cast<int>(r) == role_cur)) {
+          EditBegin(ctx);
+          layer->role = static_cast<mj::TexRole>(r);
+          EditCommit(ctx, "edit layer role");
+        }
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("x")) remove_idx = static_cast<int>(i);
+    ImGui::PopID();
+  }
+
+  if (remove_idx >= 0) {
+    EditBegin(ctx);
+    mat.layers.erase(mat.layers.begin() + remove_idx);
+    EditCommit(ctx, "remove texture layer");
+    return;  // mat.layers mutated; stop iterating it this frame
+  }
+  if (ImGui::SmallButton("+ Add layer")) {
+    EditBegin(ctx);
+    auto layer = std::make_unique<mj::MaterialLayer>();
+    layer->role = mj::TexRole::rgb;
+    if (!cands.empty()) layer->texture = ps::Ref<mj::Texture>(cands.front());
+    mat.layers.push_back(std::move(layer));
+    EditCommit(ctx, "add texture layer");
+  }
+}
+
 template <class E>
 void RenderElement(EditorContext& ctx, E& e) {
   const reflect::ElementDescriptor& desc =
@@ -590,6 +712,9 @@ void RenderElement(EditorContext& ctx, E& e) {
   if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
     RowVisitor<E> v{ctx, desc, eff_class.get(), eff_full.get(), false};
     mj::Visit(e, v);
+  }
+  if constexpr (std::is_same_v<E, mj::Material>) {
+    RenderMaterialTextureLayers(ctx, e);
   }
 }
 

@@ -3,7 +3,10 @@
 // details_panel.cc (SE1b); this TU keeps Assets / Diagnostics, the File menu
 // (load / save), and the Ctrl+Z / Ctrl+Y / Ctrl+S key handlers.
 
+#include <array>
 #include <string>
+#include <variant>
+#include <vector>
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -21,6 +24,144 @@ namespace mj = ps::mjcf;
 
 static EditorContext* Ctx(void* data) {
   return static_cast<EditorContext*>(data);
+}
+
+// Every material / texture in the model, in document order (across asset blocks).
+static std::vector<mj::Material*> AllMaterials(mj::Model& tree) {
+  std::vector<mj::Material*> out;
+  for (auto& a : tree.assets) {
+    if (!a) continue;
+    for (auto& m : a->materials) {
+      if (m) out.push_back(m.get());
+    }
+  }
+  return out;
+}
+static std::vector<mj::Texture*> AllTextures(mj::Model& tree) {
+  std::vector<mj::Texture*> out;
+  for (auto& a : tree.assets) {
+    if (!a) continue;
+    for (auto& t : a->textures) {
+      if (t) out.push_back(t.get());
+    }
+  }
+  return out;
+}
+
+static const char* kBuiltinLabels[] = {"none", "gradient", "checker", "flat"};
+
+// A small rgba colour square (the browsable-list swatch).
+static void ColorSwatch(const char* id, const std::array<float, 4>& c) {
+  ImGui::ColorButton(id, ImVec4(c[0], c[1], c[2], c[3]),
+                     ImGuiColorEditFlags_AlphaPreviewHalf, ImVec2(16, 16));
+}
+
+// The "New Material" modal: name + rgba + PBR sliders + a texture-role dropdown
+// that assigns an existing texture to the material's rgb role.
+static void NewMaterialModal(EditorContext* c) {
+  if (!ImGui::BeginPopupModal("New Material", nullptr,
+                              ImGuiWindowFlags_AlwaysAutoResize)) {
+    return;
+  }
+  static MaterialSpec spec;
+  ImGui::SetNextItemWidth(200);
+  ImGui::InputText("name", &spec.name);
+  ImGui::ColorEdit4("rgba", spec.rgba.data(),
+                    ImGuiColorEditFlags_AlphaBar |
+                        ImGuiColorEditFlags_AlphaPreviewHalf);
+  ImGui::SliderFloat("specular", &spec.specular, 0.0f, 1.0f);
+  ImGui::SliderFloat("shininess", &spec.shininess, 0.0f, 1.0f);
+  ImGui::SliderFloat("reflectance", &spec.reflectance, 0.0f, 1.0f);
+  ImGui::SliderFloat("metallic", &spec.metallic, 0.0f, 1.0f);
+  ImGui::SliderFloat("roughness", &spec.roughness, 0.0f, 1.0f);
+
+  // Texture-role dropdown: assign an existing texture to the rgb role.
+  const std::vector<mj::Texture*> texs = AllTextures(*c->tree);
+  const std::string preview =
+      spec.texture_rgb.empty() ? "(none)" : spec.texture_rgb;
+  if (ImGui::BeginCombo("rgb texture", preview.c_str())) {
+    if (ImGui::Selectable("(none)", spec.texture_rgb.empty())) {
+      spec.texture_rgb.clear();
+    }
+    for (mj::Texture* t : texs) {
+      const std::string tn = t->name ? *t->name : std::string();
+      if (tn.empty()) continue;
+      if (ImGui::Selectable(tn.c_str(), tn == spec.texture_rgb)) {
+        spec.texture_rgb = tn;
+      }
+    }
+    ImGui::EndCombo();
+  }
+
+  ImGui::Separator();
+  if (ImGui::Button("Create")) {
+    CreateMaterialOp(*c, spec);
+    spec = MaterialSpec{};
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+// The "New Texture" modal: builtin (checker/gradient/flat) with rgb1/rgb2/markrgb
+// colours + width/height, OR a file path.
+static void NewTextureModal(EditorContext* c) {
+  if (!ImGui::BeginPopupModal("New Texture", nullptr,
+                              ImGuiWindowFlags_AlwaysAutoResize)) {
+    return;
+  }
+  static TextureSpec spec;
+  static float rgb1[3] = {0.8f, 0.8f, 0.8f};
+  static float rgb2[3] = {0.2f, 0.2f, 0.2f};
+  static float markrgb[3] = {0, 0, 0};
+  ImGui::SetNextItemWidth(200);
+  ImGui::InputText("name", &spec.name);
+
+  ImGui::RadioButton("builtin", spec.builtin);
+  if (ImGui::IsItemClicked()) spec.builtin = true;
+  ImGui::SameLine();
+  ImGui::RadioButton("file", !spec.builtin);
+  if (ImGui::IsItemClicked()) spec.builtin = false;
+
+  if (spec.builtin) {
+    int bi = static_cast<int>(spec.builtin_type);
+    ImGui::SetNextItemWidth(140);
+    if (ImGui::Combo("pattern", &bi, kBuiltinLabels,
+                     IM_ARRAYSIZE(kBuiltinLabels))) {
+      spec.builtin_type = static_cast<mj::TextureBuiltin>(bi);
+    }
+    ImGui::ColorEdit3("rgb1", rgb1);
+    ImGui::ColorEdit3("rgb2", rgb2);
+    ImGui::ColorEdit3("markrgb", markrgb);
+    ImGui::SetNextItemWidth(90);
+    ImGui::InputInt("width", &spec.width);
+    ImGui::SetNextItemWidth(90);
+    ImGui::InputInt("height", &spec.height);
+  } else {
+    ImGui::SetNextItemWidth(280);
+    ImGui::InputTextWithHint("file", "path to image (.png)...", &spec.file);
+  }
+
+  ImGui::Separator();
+  const bool ready = spec.builtin || !spec.file.empty();
+  ImGui::BeginDisabled(!ready);
+  if (ImGui::Button("Create")) {
+    for (int i = 0; i < 3; ++i) {
+      spec.rgb1[i] = rgb1[i];
+      spec.rgb2[i] = rgb2[i];
+      spec.markrgb[i] = markrgb[i];
+    }
+    if (spec.width < 1) spec.width = 1;
+    if (spec.height < 1) spec.height = 1;
+    CreateTextureOp(*c, spec);
+    spec = TextureSpec{};
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 // A shared "Import Mesh..." control: a path input (no OS dialog dependency in the
@@ -43,7 +184,7 @@ static void ImportMeshControl(EditorContext* c) {
   if (!import_status.empty()) ImGui::TextWrapped("%s", import_status.c_str());
 }
 
-// Assets: the model's assets + the mesh importer (deliverable 2).
+// Assets: meshes / textures / materials, with creation + a browsable swatch list.
 static void AssetsUpdate(GuiPlugin* self) {
   EditorContext* c = Ctx(self->data);
   ImGui::TextDisabled("Assets (meshes / textures / materials / hfields)");
@@ -52,7 +193,73 @@ static void AssetsUpdate(GuiPlugin* self) {
     ImGui::TextDisabled("No model loaded.");
     return;
   }
+
+  // --- Mesh import (single inline + native multi / folder dialogs) --------- //
   ImportMeshControl(c);
+  ImGui::BeginDisabled(!c->model_ready);
+  if (ImGui::Button("Import Meshes...")) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportMeshes, c->base_dir);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Import Folder...")) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportFolder, c->base_dir);
+  }
+  ImGui::EndDisabled();
+  ImGui::Separator();
+
+  // --- Material / texture creation ---------------------------------------- //
+  if (ImGui::Button("New Material")) ImGui::OpenPopup("New Material");
+  ImGui::SameLine();
+  if (ImGui::Button("New Texture")) ImGui::OpenPopup("New Texture");
+  NewMaterialModal(c);
+  NewTextureModal(c);
+  ImGui::Separator();
+
+  // --- Browsable materials list (rgba swatch + name) ---------------------- //
+  const std::vector<mj::Material*> mats = AllMaterials(*c->tree);
+  ImGui::Text("Materials (%zu)", mats.size());
+  for (mj::Material* m : mats) {
+    ImGui::PushID(static_cast<int>(m->serial));
+    std::array<float, 4> col{0.8f, 0.8f, 0.8f, 1.0f};
+    if (m->rgba) col = *m->rgba;
+    ColorSwatch("##matsw", col);
+    ImGui::SameLine();
+    const std::string name = m->name ? *m->name : ("material#" +
+                                std::to_string(m->serial));
+    if (ImGui::Selectable(name.c_str(), c->selected_serial == m->serial)) {
+      SelectBySerial(*c, m->serial);
+    }
+    ImGui::PopID();
+  }
+  ImGui::Spacing();
+
+  // --- Browsable textures list (builtin preview / file badge) ------------- //
+  const std::vector<mj::Texture*> texs = AllTextures(*c->tree);
+  ImGui::Text("Textures (%zu)", texs.size());
+  for (mj::Texture* t : texs) {
+    ImGui::PushID(static_cast<int>(t->serial));
+    // A builtin texture previews as its rgb1 swatch; a file texture as a marker.
+    std::array<float, 4> col{0.5f, 0.5f, 0.5f, 1.0f};
+    const char* kind = "file";
+    if (t->source && std::holds_alternative<mj::TextureBuiltin>(*t->source)) {
+      kind = kBuiltinLabels[static_cast<int>(
+          std::get<mj::TextureBuiltin>(*t->source))];
+      if (t->rgb1) {
+        col = {static_cast<float>((*t->rgb1)[0]),
+               static_cast<float>((*t->rgb1)[1]),
+               static_cast<float>((*t->rgb1)[2]), 1.0f};
+      }
+    }
+    ColorSwatch("##texsw", col);
+    ImGui::SameLine();
+    const std::string name = t->name ? *t->name : ("texture#" +
+                                std::to_string(t->serial));
+    const std::string label = name + "  [" + kind + "]";
+    if (ImGui::Selectable(label.c_str(), c->selected_serial == t->serial)) {
+      SelectBySerial(*c, t->serial);
+    }
+    ImGui::PopID();
+  }
 }
 
 // The "+ Add" panel: model-level structural adds (deliverable 1). Target-aware --
