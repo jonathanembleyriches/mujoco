@@ -153,6 +153,18 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
   if (feature_key == "lengthrange") {
     return true;
   }
+  // NC7b plugins: the <extension><plugin><instance><config> declaration machinery
+  // and element-level plugin refs (the shared "plugin" tag covers <plugin> under
+  // extension, the actuator/sensor <plugin> elements, and the geom/mesh plugin
+  // ref). Plugin instances resolve to registry slots (mjp_getPlugin), config
+  // packs into plugin_attr, and actuator/sensor plugins fill
+  // actuator_plugin/sensor_plugin + nstate/nsensordata. A geom/mesh plugin (SDF)
+  // routes to the XML fallback via the finer scan (geom.plugin/mesh.plugin); a
+  // composite passive plugin (elasticity) via the composite family gate.
+  if (feature_key == "extension" || feature_key == "plugin" ||
+      feature_key == "instance" || feature_key == "config") {
+    return true;
+  }
   // NC2 sensors: fixed-dim, single-typed-target (site/joint/tendon/actuator/
   // body) and frame sensors, plus the scalar energy/clock sensors. Gated:
   // plugin/user (dim/needstage from callbacks), tactile/contact/rangefinder

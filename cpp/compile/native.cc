@@ -266,16 +266,10 @@ class SubFeatureScanner {
   void CheckFreeJoint(const FreeJoint& fj) {
     if (fj.align && *fj.align == TriState::true_) Note("freejoint.align", fj.loc);
   }
-  // The native path resolves joint/jointinparent/tendon/body transmission only,
-  // has no history/delay buffer, and does not run mj_setLengthRange, so site /
-  // refsite / slidercrank transmission, a delay buffer, or a length-range-needing
-  // gain/bias type (muscle/user) route to the XML fallback.
+  // The cylinder-bias UB gate (below); the transmission / muscle length-range /
+  // delay features are all native now.
   template <class E>
   void CheckActuator(const E& a) {
-    if constexpr (requires { a.nsample; })
-      if (a.nsample) Note("actuator.delay", a.loc);
-    if constexpr (requires { a.delay; })
-      if (a.delay) Note("actuator.delay", a.loc);
     // MuJoCo's cylinder reader reads the 3-vector `bias` into a single double
     // (ReadAttr("bias", 3, &bias)), overflowing the stack and corrupting the
     // adjacent `timeconst` with bias[1] -- deterministic upstream UB that leg B
@@ -360,15 +354,12 @@ class SubFeatureScanner {
   // The contact sensor (dataspec/reduce/num intprm, variable dim) is native; only
   // its delay buffer routes to the fallback (shared sensor delay gate).
   void CheckSensorContact(const SensorContact& s) { CheckSensorDelay(s); }
-  // A sensor delay buffer (nsample>0) or fixed delay drives the sensor_history
-  // ring the native path does not emit; route such a sensor to the fallback.
+  // The sensor delay/history buffer (nsample>0, interp, delay) is now emitted
+  // natively (nhistory sizing + sensor_history/historyadr/delay), so no gate.
   template <class E>
-  void CheckSensorDelay(const E& e) {
-    if ((e.nsample && *e.nsample > 0) || e.delay) Note("sensor.delay", e.loc);
-  }
+  void CheckSensorDelay(const E&) {}
   // A camera-target rangefinder's dim scales with the camera resolution (one ray
-  // per pixel); only the single-ray site rangefinder is native. Plus the shared
-  // delay gate.
+  // per pixel); only the single-ray site rangefinder is native.
   void CheckRangefinder(const Rangefinder& r) {
     if (r.camera) Note("rangefinder.camera", r.loc);
     CheckSensorDelay(r);

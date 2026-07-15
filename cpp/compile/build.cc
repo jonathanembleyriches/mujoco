@@ -3911,7 +3911,7 @@ struct NameLists {
   std::string modelname;
   std::vector<std::string> body, jnt, geom, site, cam, light, flex, mesh, skin,
       hfield, tex, mat, pair, exclude, eq, tendon, actuator, sensor, numeric,
-      text, tuple, key;
+      text, tuple, key, plugin;
 
   int TotalNames() const {
     int n = static_cast<int>(modelname.size()) + 1;
@@ -3922,7 +3922,7 @@ struct NameLists {
     add(flex); add(mesh); add(skin); add(hfield); add(tex); add(mat);
     add(pair); add(exclude); add(eq); add(tendon); add(actuator); add(sensor);
     add(numeric); add(text); add(tuple);
-    add(key);
+    add(key); add(plugin);
     return n;
   }
 };
@@ -3962,6 +3962,7 @@ void FillNames(mjModel* m, const NameLists& nl) {
   pass(nl.text, m->name_textadr);
   pass(nl.tuple, m->name_tupleadr);
   pass(nl.key, m->name_keyadr);
+  pass(nl.plugin, m->name_pluginadr);
 }
 
 // Effective name of a nameable element: authored name, else the auto-name the
@@ -4756,6 +4757,9 @@ struct CActuator {
          lengthrange[2] = {0, 0};
   double damping[3] = {0, 0, 0}, armature = 0, cranklength = 0;
   int group = 0, actdim = 0, actadr = -1;
+  int nsample = 0, interp = 0;
+  double delay = 0;
+  bool is_plugin = false;  // <plugin> actuator: force computed by a plugin
   bool ctrllimited = false, forcelimited = false, actlimited = false;
   bool actearly = false;
   std::vector<double> user;
@@ -4791,6 +4795,10 @@ void FillActuatorCommon(const T& eff, CActuator& ca, ActParams& ap) {
   }
   if constexpr (requires { eff.armature; }) if (eff.armature) ca.armature = *eff.armature;
   if constexpr (requires { eff.cranklength; }) if (eff.cranklength) ca.cranklength = *eff.cranklength;
+  // Delay/history buffer (mjCActuator: nsample rings, interp order, delay time).
+  if constexpr (requires { eff.nsample; }) if (eff.nsample) ca.nsample = *eff.nsample;
+  if constexpr (requires { eff.interp; }) if (eff.interp) ca.interp = static_cast<int>(*eff.interp);
+  if constexpr (requires { eff.delay; }) if (eff.delay) ca.delay = *eff.delay;
   if (eff.user) ca.user = *eff.user;
   if constexpr (requires { eff.ctrllimited; })
     if (eff.ctrllimited) ap.ctrllimited = static_cast<int>(*eff.ctrllimited);
@@ -4990,8 +4998,25 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
                        ca.trntype = mjTRN_BODY; ca.trnid[0] = it == bodyid.end() ? -1 : it->second; }
       break;
     }
+    case ActuatorAny::Kind::ActuatorPlugin: {
+      const ActuatorPlugin& e = *std::get<std::unique_ptr<ActuatorPlugin>>(any.node);
+      std::unique_ptr<ActuatorPlugin> eff = ps::sdk::Effective(model, e);
+      ca.src = &e; ca.serial = e.serial; ca.name = e.name;
+      ca.is_plugin = true;
+      FillActuatorCommon(*eff, ca, ap);
+      if (eff->dyntype) ap.dyntype = static_cast<int>(*eff->dyntype);
+      if (eff->actearly) ap.actearly = *eff->actearly ? 1 : 0;
+      if (eff->dynprm) for (std::size_t k = 0; k < eff->dynprm->size() && k < mjNDYN; ++k)
+        ap.dynprm[k] = (*eff->dynprm)[k];
+      if (eff->actrange) { ca.actrange[0] = (*eff->actrange)[0]; ca.actrange[1] = (*eff->actrange)[1];
+                           ap.actrange[0] = ca.actrange[0]; ap.actrange[1] = ca.actrange[1]; }
+      if (eff->actlimited) ap.actlimited = static_cast<int>(*eff->actlimited);
+      if (eff->actdim) ap.actdim = *eff->actdim;
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
+      break;
+    }
     default:
-      break;  // dcmotor / plugin gated out
+      break;  // dcmotor gated out
   }
 
   // Copy lowered gain/bias/dyn state into the compiled actuator.
@@ -5108,7 +5133,8 @@ int ComputeNJmom(const std::vector<CActuator>& acts,
   return count;
 }
 
-void FillActuators(mjModel* m, const std::vector<CActuator>& acts) {
+void FillActuators(mjModel* m, const std::vector<CActuator>& acts,
+                   int& delay_adr) {
   int adr = 0;
   for (int i = 0; i < static_cast<int>(acts.size()); ++i) {
     const CActuator& a = acts[i];
@@ -5123,10 +5149,15 @@ void FillActuators(mjModel* m, const std::vector<CActuator>& acts) {
     adr += a.actdim;
     m->actuator_group[i] = a.group;
     m->actuator_plugin[i] = -1;
-    m->actuator_delay[i] = 0;
-    m->actuator_history[2 * i] = 0;
-    m->actuator_history[2 * i + 1] = 0;
-    m->actuator_historyadr[i] = -1;
+    m->actuator_delay[i] = a.delay;
+    m->actuator_history[2 * i] = a.nsample;
+    m->actuator_history[2 * i + 1] = a.interp;
+    if (a.nsample > 0) {
+      m->actuator_historyadr[i] = delay_adr;
+      delay_adr += 2 + 2 * a.nsample;  // [user, cursor, times, values]
+    } else {
+      m->actuator_historyadr[i] = -1;
+    }
     m->actuator_ctrllimited[i] = static_cast<mjtByte>(a.ctrllimited);
     m->actuator_forcelimited[i] = static_cast<mjtByte>(a.forcelimited);
     m->actuator_actlimited[i] = static_cast<mjtByte>(a.actlimited);
@@ -5235,6 +5266,8 @@ struct CSensor {
   int intprm[mjNSENS] = {0, 0, 0};
   double cutoff = 0, noise = 0;
   double interval[2] = {0, 0};
+  int nsample = 0, interp = 0;
+  double delay = 0;
   std::vector<double> user;
 };
 
@@ -5490,9 +5523,27 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
                      cs.intprm[2] = e.num ? *e.num : 1;
                      cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
                      if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::SensorPlugin: { auto& e=get(SensorPlugin{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_PLUGIN;
+                     // Typed obj/ref by explicit string (mju_str2Type); dim=0 and
+                     // needstage are filled post-alloc from the plugin decl.
+                     if (e.objtype) { cs.objtype = mju_str2Type(e.objtype->c_str());
+                                      objname = e.objname ? *e.objname : std::string(); }
+                     if (e.reftype) { cs.reftype = mju_str2Type(e.reftype->c_str());
+                                      refname = e.refname ? *e.refname : std::string(); }
+                     cs.cutoff=e.cutoff?*e.cutoff:0; if(e.user)cs.user=*e.user; break; }
     default:
-      break;  // gated types (plugin/user/tactile)
+      break;  // gated types (user/tactile)
   }
+  // Delay/history buffer (nsample rings, interp order, delay time) is common to
+  // every sensor family; read it generically from the source node.
+  std::visit([&](const auto& p) {
+    if (!p) return;
+    const auto& e = *p;
+    if constexpr (requires { e.nsample; }) if (e.nsample) cs.nsample = *e.nsample;
+    if constexpr (requires { e.interp; }) if (e.interp) cs.interp = static_cast<int>(*e.interp);
+    if constexpr (requires { e.delay; }) if (e.delay) cs.delay = *e.delay;
+  }, node);
   (void)model;
   cs.objid = ResolveObj(sm, cs.objtype, objname);
   cs.refid = ResolveObj(sm, cs.reftype, refname);
@@ -5507,7 +5558,8 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
   return cs;
 }
 
-void FillSensors(mjModel* m, const std::vector<CSensor>& sensors) {
+void FillSensors(mjModel* m, const std::vector<CSensor>& sensors,
+                 int& delay_adr) {
   int adr = 0;
   for (int i = 0; i < static_cast<int>(sensors.size()); ++i) {
     const CSensor& s = sensors[i];
@@ -5524,12 +5576,17 @@ void FillSensors(mjModel* m, const std::vector<CSensor>& sensors) {
     m->sensor_dim[i] = s.dim;
     m->sensor_cutoff[i] = s.cutoff;
     m->sensor_noise[i] = s.noise;
-    m->sensor_delay[i] = 0;
-    m->sensor_history[2 * i] = 0;
-    m->sensor_history[2 * i + 1] = 0;
+    m->sensor_delay[i] = s.delay;
+    m->sensor_history[2 * i] = s.nsample;
+    m->sensor_history[2 * i + 1] = s.interp;
     m->sensor_interval[2 * i] = s.interval[0];
     m->sensor_interval[2 * i + 1] = s.interval[1];
-    m->sensor_historyadr[i] = -1;
+    if (s.nsample > 0) {
+      m->sensor_historyadr[i] = delay_adr;
+      delay_adr += 2 + s.nsample + s.nsample * s.dim;  // [user, cursor, times, values]
+    } else {
+      m->sensor_historyadr[i] = -1;
+    }
     for (int k = 0; k < m->nuser_sensor && k < static_cast<int>(s.user.size()); ++k)
       m->sensor_user[m->nuser_sensor * i + k] = s.user[k];
     m->sensor_adr[i] = adr;
@@ -9198,6 +9255,228 @@ long long ParseSizeMemoryBytes(const std::string& raw, bool* valid) {
   return static_cast<long long>(total_size);
 }
 
+// --------------------------------------------------------------------------- //
+// Plugins (extension/instance resolution + mjModel plugin arrays). MuJoCo's     //
+// plugin registry is process-global; the harness loads the first-party plugin   //
+// DLLs before compile, so mjp_getPlugin / mjp_getPluginAtSlot resolve every      //
+// corpus plugin. A plugin instance is a slot + config; the config is packed into //
+// flattened_attributes in the plugin's declared attribute order (mjCPlugin::     //
+// Compile, user_objects.cc:8489). Element-level plugin refs (actuator/sensor)    //
+// map to an instance id -> {body,geom,actuator,sensor}_plugin. nstate and (for   //
+// sensor plugins) nsensordata are queried from the plugin callbacks after the    //
+// model is allocated (CopyPlugins, user_model.cc:3122).                          //
+// --------------------------------------------------------------------------- //
+struct CPlugin {
+  int slot = -1;
+  std::string name;              // instance name ("" for an implicit instance)
+  std::vector<char> attr;        // flattened_attributes
+  int needstage = mjSTAGE_POS;   // from the plugin decl (sensor plugins)
+  int capabilityflags = 0;
+};
+
+struct PluginCollection {
+  std::vector<CPlugin> plugins;
+  std::unordered_map<const void*, int> elem_of;  // element src ptr -> plugin id
+};
+
+// Pack a plugin instance's config into flattened_attributes: the plugin's
+// declared attributes in order, each value NUL-terminated, an empty NUL for an
+// absent one (mjCPlugin::Compile). nattribute==0 emits a single NUL.
+std::vector<char> PackPluginAttr(
+    const mjpPlugin* p, const std::map<std::string, std::string>& cfg) {
+  std::vector<char> out;
+  for (int i = 0; i < p->nattribute; ++i) {
+    auto it = cfg.find(p->attributes[i]);
+    if (it == cfg.end()) {
+      out.push_back('\0');
+    } else {
+      out.insert(out.end(), it->second.begin(), it->second.end());
+      out.push_back('\0');
+    }
+  }
+  if (p->nattribute == 0) out.push_back('\0');
+  return out;
+}
+
+std::map<std::string, std::string> ConfigMap(
+    const std::vector<std::unique_ptr<Config>>& config) {
+  std::map<std::string, std::string> cfg;
+  for (const auto& c : config)
+    if (c && c->key) cfg[*c->key] = c->value ? *c->value : std::string();
+  return cfg;
+}
+
+// Collect plugin instances (explicit <extension><plugin><instance> first, then
+// implicit inline-config instances in element order) and map every plugin-
+// bearing element to its instance id. Returns false + a diagnostic on an
+// unresolved plugin name.
+bool CollectPlugins(const Model& m, PluginCollection& pc,
+                    std::vector<bridge::Diagnostic>& diags) {
+  auto slot_of = [&](const std::string& name, const ps::SourceLoc&) -> int {
+    int slot = -1;
+    if (!mjp_getPlugin(name.c_str(), &slot)) return -1;
+    return slot;
+  };
+
+  // Referenced explicit-instance names drive RemovePlugins: an explicit instance
+  // never referenced by name is dropped (user_model.cc:566).
+  std::set<std::string> referenced;
+  for (const auto& ac : m.actuators)
+    if (ac) for (const auto& any : ac->actuators)
+      if (any.kind() == ActuatorAny::Kind::ActuatorPlugin) {
+        const auto& e = *std::get<std::unique_ptr<ActuatorPlugin>>(any.node);
+        if (e.instance && !e.instance->name.empty()) referenced.insert(e.instance->name);
+      }
+  for (const auto& sn : m.sensors)
+    if (sn) for (const auto& any : sn->sensors)
+      if (any.kind() == SensorAny::Kind::SensorPlugin) {
+        const auto& e = *std::get<std::unique_ptr<SensorPlugin>>(any.node);
+        if (e.instance && !e.instance->name.empty()) referenced.insert(e.instance->name);
+      }
+
+  // Explicit instances, in extension document order.
+  std::unordered_map<std::string, int> id_of_name;
+  for (const auto& ext : m.extensions) {
+    if (!ext) continue;
+    for (const auto& pd : ext->pluginDefs) {
+      if (!pd || !pd->plugin) continue;
+      const int slot = slot_of(*pd->plugin, pd->loc);
+      if (slot < 0) {
+        diags.push_back({bridge::Diagnostic::Severity::Error, "plugin",
+                         "native: unresolved plugin '" + *pd->plugin + "'", {}});
+        return false;
+      }
+      const mjpPlugin* p = mjp_getPluginAtSlot(slot);
+      for (const auto& inst : pd->pluginInstances) {
+        if (!inst) continue;
+        const std::string name = inst->name ? *inst->name : std::string();
+        if (!name.empty() && !referenced.count(name)) continue;  // RemovePlugins
+        CPlugin cp;
+        cp.slot = slot;
+        cp.name = name;
+        cp.attr = PackPluginAttr(p, ConfigMap(inst->config));
+        cp.needstage = p->needstage;
+        cp.capabilityflags = p->capabilityflags;
+        const int id = static_cast<int>(pc.plugins.size());
+        pc.plugins.push_back(std::move(cp));
+        if (!name.empty()) id_of_name[name] = id;
+      }
+    }
+  }
+
+  // Implicit instances + element->instance mapping. An element referencing an
+  // explicit instance by name maps to it; one with an inline plugin name + config
+  // creates a fresh implicit instance (empty name). Element order: actuators then
+  // sensors (bodies/geoms/meshes plugins are gated before reaching here).
+  auto bind = [&](const void* src, const ps::opt<std::string>& plugin_name,
+                  const ps::opt<ps::Ref<PluginInstance>>& instance,
+                  const std::vector<std::unique_ptr<Config>>& config,
+                  const ps::SourceLoc& loc) -> bool {
+    if (instance && !instance->name.empty()) {
+      auto it = id_of_name.find(instance->name);
+      if (it == id_of_name.end()) {
+        diags.push_back({bridge::Diagnostic::Severity::Error, "plugin",
+                         "native: unresolved plugin instance '" + instance->name + "'", {}});
+        return false;
+      }
+      pc.elem_of[src] = it->second;
+      return true;
+    }
+    const std::string pname = plugin_name ? *plugin_name : std::string();
+    const int slot = slot_of(pname, loc);
+    if (slot < 0) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "plugin",
+                       "native: unresolved plugin '" + pname + "'", {}});
+      return false;
+    }
+    const mjpPlugin* p = mjp_getPluginAtSlot(slot);
+    CPlugin cp;
+    cp.slot = slot;
+    cp.attr = PackPluginAttr(p, ConfigMap(config));
+    cp.needstage = p->needstage;
+    cp.capabilityflags = p->capabilityflags;
+    const int id = static_cast<int>(pc.plugins.size());
+    pc.plugins.push_back(std::move(cp));
+    pc.elem_of[src] = id;
+    return true;
+  };
+
+  for (const auto& ac : m.actuators)
+    if (ac) for (const auto& any : ac->actuators)
+      if (any.kind() == ActuatorAny::Kind::ActuatorPlugin) {
+        const auto& e = *std::get<std::unique_ptr<ActuatorPlugin>>(any.node);
+        if (!bind(&e, e.plugin, e.instance, e.config, e.loc)) return false;
+      }
+  for (const auto& sn : m.sensors)
+    if (sn) for (const auto& any : sn->sensors)
+      if (any.kind() == SensorAny::Kind::SensorPlugin) {
+        const auto& e = *std::get<std::unique_ptr<SensorPlugin>>(any.node);
+        if (!bind(&e, e.plugin, e.instance, e.config, e.loc)) return false;
+      }
+  return true;
+}
+
+// Fill the mjModel plugin arrays + query the plugin callbacks (nstate; sensor
+// dim/needstage). Runs after every element fill so the *_plugin arrays and the
+// plugin_attr blob are in place before the callbacks read them.
+void FillPlugins(mjModel* m, const PluginCollection& pc,
+                 const std::vector<CActuator>& actuators,
+                 const std::vector<CSensor>& sensors) {
+  const int nplugin = static_cast<int>(pc.plugins.size());
+
+  // Slot + packed attributes.
+  int adr = 0;
+  for (int i = 0; i < nplugin; ++i) {
+    m->plugin[i] = pc.plugins[i].slot;
+    const int size = static_cast<int>(pc.plugins[i].attr.size());
+    std::memcpy(m->plugin_attr + adr, pc.plugins[i].attr.data(), size);
+    m->plugin_attradr[i] = adr;
+    adr += size;
+  }
+
+  // Element -> instance id (actuator/sensor plugins in the achievable scope).
+  auto lookup = [&](const void* src) -> int {
+    auto it = pc.elem_of.find(src);
+    return it == pc.elem_of.end() ? -1 : it->second;
+  };
+  for (int i = 0; i < static_cast<int>(actuators.size()); ++i)
+    if (actuators[i].is_plugin) m->actuator_plugin[i] = lookup(actuators[i].src);
+  std::vector<std::vector<int>> plugin_to_sensors(nplugin);
+  for (int i = 0; i < static_cast<int>(sensors.size()); ++i)
+    if (sensors[i].type == mjSENS_PLUGIN) {
+      const int pid = lookup(sensors[i].src);
+      m->sensor_plugin[i] = pid;
+      if (pid >= 0) plugin_to_sensors[pid].push_back(i);
+    }
+
+  // nstate + sensor dim/needstage (CopyPlugins, user_model.cc:3177). The state
+  // and sensordata callbacks read plugin_attr, so they run after the fill above.
+  int stateadr = 0;
+  for (int i = 0; i < nplugin; ++i) {
+    const mjpPlugin* p = mjp_getPluginAtSlot(m->plugin[i]);
+    const int nstate = p->nstate ? p->nstate(m, i) : 0;
+    m->plugin_stateadr[i] = stateadr;
+    m->plugin_statenum[i] = nstate;
+    stateadr += nstate;
+    if (p->capabilityflags & mjPLUGIN_SENSOR)
+      for (int sid : plugin_to_sensors[i]) {
+        const int dim = p->nsensordata ? p->nsensordata(m, i, sid) : 0;
+        m->sensor_dim[sid] = dim;
+        m->sensor_needstage[sid] = pc.plugins[i].needstage;
+      }
+  }
+  m->npluginstate = stateadr;
+
+  // Plugin sensor dims were 0 at the size census; recompute sensor_adr and the
+  // total nsensordata now that the plugin dims are set.
+  int sadr = 0;
+  for (int i = 0; i < m->nsensor; ++i) {
+    m->sensor_adr[i] = sadr;
+    sadr += m->sensor_dim[i];
+  }
+  m->nsensordata = sadr;
+}
+
 mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
                           std::vector<bridge::Diagnostic>& diags) {
   const CompilerSettings cs = ReadCompiler(m);
@@ -9392,6 +9671,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     for (const auto& any : sn->sensors)
       sensors.push_back(SensorCompile(m, any, smaps));
   }
+
+  // Plugins (extension/instance resolution + element->instance mapping).
+  PluginCollection plugins;
+  if (!CollectPlugins(m, plugins, diags)) return nullptr;
 
   // Keyframes (S12): flattened key list, document order.
   std::vector<const Key*> keys;
@@ -9682,6 +9965,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const Key* k : keys) nl.key.push_back(EffectiveName(*k, opts));
   for (int i = static_cast<int>(keys.size()); i < total_nkey; ++i)
     nl.key.push_back("");  // padded keyframe: empty name (AddKey)
+  // Plugin instance names (implicit instances keep an empty name), CopyNames-last.
+  for (const CPlugin& p : plugins.plugins) nl.plugin.push_back(p.name);
 
   // nbvh census (SetSizes): static BVH nodes over all bodies, then meshes. Mesh
   // face-BVH nodes are laid out after every body node (CopyObjects bvh_adr).
@@ -9777,6 +10062,21 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CSensor& s : sensors) nsensordata += s.dim;
   sizes.nsensordata = nsensordata;
   sizes.nuser_sensor = nuser_sensor;
+  // nhistory: delay/interp history buffer, actuators then sensors (user_model.cc
+  // :2288). Actuator ring = [user, cursor, times(n), values(n)] = 2 + 2n; sensor
+  // ring = [user, cursor, times(n), values(n*dim)] = 2 + n + n*dim.
+  int nhistory = 0;
+  for (const CActuator& a : actuators)
+    if (a.nsample > 0) nhistory += 2 + 2 * a.nsample;
+  for (const CSensor& s : sensors)
+    if (s.nsample > 0) nhistory += 2 + s.nsample + s.nsample * s.dim;
+  sizes.nhistory = nhistory;
+  // Plugins (SetSizes user_model.cc:2132/2317). npluginstate is queried post-alloc
+  // (nstate callback) since it needs the allocated model; it sizes only mjData.
+  sizes.nplugin = static_cast<int>(plugins.plugins.size());
+  int npluginattr = 0;
+  for (const CPlugin& p : plugins.plugins) npluginattr += static_cast<int>(p.attr.size());
+  sizes.npluginattr = npluginattr;
   // Custom fields (SetSizes user_model.cc:2302-2314).
   sizes.nnumeric = static_cast<int>(numerics.size());
   int nnumericdata = 0;
@@ -9900,8 +10200,10 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   FillExcludes(out, excludes);
   FillEqualities(out, equalities);
   FillTendons(out, tendons);
-  FillActuators(out, actuators);
-  FillSensors(out, sensors);
+  int delay_adr = 0;  // shared history cursor: actuators then sensors (nhistory)
+  FillActuators(out, actuators, delay_adr);
+  FillSensors(out, sensors, delay_adr);
+  FillPlugins(out, plugins, actuators, sensors);
   FillNumerics(out, numerics);
   FillTexts(out, texts);
   FillTuples(out, tuples);

@@ -91,7 +91,7 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)** + **NC6c attach FULL-IMPORT (defaults merge + assets + referencing + keyframes + whole-model)** + **NC5 wave 6 interpolated FE + strain equality (trilinear/quadratic nodal mesh, FE stiffness/bending, mjEQ_FLEXSTRAIN)**, **ratchet 335/387** | queue below |
+| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)** + **NC6c attach FULL-IMPORT (defaults merge + assets + referencing + keyframes + whole-model)** + **NC5 wave 6 interpolated FE + strain equality (trilinear/quadratic nodal mesh, FE stiffness/bending, mjEQ_FLEXSTRAIN)** + **NC7b plugins (extension/instance/config machinery + actuator/sensor plugins) + actuator/sensor delay-history**, **ratchet 339/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
@@ -243,6 +243,32 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
    plugin corpus models now round-trip byte-identical: **differential 376/387**, floor guarded
    by `test_xml_parity_floor`. Remaining 11 skips are non-loadable fixtures (10 malformed + 1
    engine-fail). Native plugin support (flex.plugin etc.) is still gated → NC7+.
+8. **NC7b native plugins + delay — LANDED (ratchet 335 → 339, 0 divergences).** The
+   `<extension><plugin><instance><config>` machinery + actuator/sensor plugin refs compile
+   native (`CollectPlugins`/`FillPlugins`/`PackPluginAttr` in `cpp/compile/build.cc`): instances
+   resolve to registry slots via the PUBLIC `mjp_getPlugin`/`mjp_getPluginAtSlot` (the harness
+   loads the first-party plugin DLLs process-wide), config packs into `plugin_attr` in the
+   plugin's declared attribute order (mjCPlugin::Compile), and `nplugin`/`npluginattr`/`plugin[]`/
+   `plugin_attradr`/`name_pluginadr` + `actuator_plugin`/`sensor_plugin` are filled; `nstate`
+   (`npluginstate`) and sensor-plugin `dim`/`needstage` (`nsensordata`) are queried from the
+   plugin callbacks AFTER allocation (mirroring CopyPlugins — plugin sensor dim is 0 at the size
+   census, so `sensor_adr`/`nsensordata` are recomputed post-callback). Explicit `<instance>`s
+   come first (extension order; unreferenced ones dropped = RemovePlugins), implicit inline-config
+   instances follow in element order. The actuator/sensor **delay+history** buffer is also native
+   (`nhistory` sizing + `actuator_history`/`historyadr`/`delay` + `sensor_history`/`historyadr`/
+   `delay`/`interval`, one shared cursor across actuators-then-sensors); the former
+   `actuator.delay`/`sensor.delay` gates are removed (the latter also closed a latent gap — basic
+   sensors with `nsample` had no delay sub-gate and would have diverged). **Lands** pid (4 explicit
+   pid-actuator instances, actdim/na), touch_grid + touch_grid_test (implicit sensor-plugin
+   instance, dim from nsensordata), delay. **Descoped (precise gates, honest reasons):**
+   `geom.sdf`/`mesh.plugin` — SDF meshes need marching-cubes (`MC::marching_cube`) + octree at
+   compile time (mjCMesh::LoadSDF, user_mesh.cc:356) — the genuinely large remaining lift (14
+   files: torus/gear/nutbolt/bowl/cow/mesh/primitives/mug/cloth_sdf/ray sdf...); `composite`
+   passive plugins (elasticity cable/belt/coil are `<composite>`-gated, a separate family); `tactile`
+   (dim = 3·mesh.nvert); `mesh.builtin` (procedural generators); `rangefinder.camera` (rfcamera
+   also needs mesh.builtin). No verbatim lifts (packing/CopyPlugins reproduced in ProtoSpec style),
+   so no `lifted_code.json` delta. **Next-largest bucket = the SDF pipeline** (marching cubes +
+   octree + the SDF-mesh geom AABB/BVH), which would unlock ~14 files.
 
 ## Editor remaining queue (Gate 2)
 
