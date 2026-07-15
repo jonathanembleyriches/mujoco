@@ -252,6 +252,30 @@ std::uint64_t AddGeomOp(EditorContext& ctx, std::uint64_t parent_serial,
   });
 }
 
+std::uint64_t AddGeomsOp(EditorContext& ctx, std::uint64_t parent_serial,
+                         mj::GeomType type, int count) {
+  const int n = count < 1 ? 1 : count;
+  const std::string label =
+      n == 1 ? ("Add " + GeomLabel(type))
+             : ("Add " + std::to_string(n) + " " + GeomLabel(type) + "s");
+  return DoAdd(ctx, label, [&](mj::Model& tree) -> std::uint64_t {
+    Container c = FindContainer(tree, parent_serial);
+    if (!c.valid()) return 0;
+    constexpr double kStep = 0.3;  // metres between adjacent geoms in the row
+    std::uint64_t last = 0;
+    for (int i = 0; i < n; ++i) {
+      const std::string gn =
+          UniqueNameFor(tree, mj::ElementType::Geom, "geom");
+      mj::Geom& g = c.body ? sdk::AddGeom(*c.body, type, gn)
+                           : sdk::AddGeom(*c.frame, type, gn);
+      StampGeomSize(g, type);
+      if (i > 0) g.pos = std::array<double, 3>{i * kStep, 0.0, 0.0};
+      last = g.serial;
+    }
+    return last;
+  });
+}
+
 std::uint64_t AddJointOp(EditorContext& ctx, std::uint64_t parent_serial,
                          mj::JointType type) {
   const bool freejoint = (type == mj::JointType::free);
@@ -448,6 +472,72 @@ std::uint64_t AddSensorOp(EditorContext& ctx, SensorSpelling spelling,
     }
     return 0;
   });
+}
+
+std::uint64_t CreateMaterialOp(EditorContext& ctx, const MaterialSpec& spec) {
+  return DoAdd(ctx, "Add material", [&](mj::Model& tree) -> std::uint64_t {
+    const std::string n = UniqueNameFor(
+        tree, mj::ElementType::Material,
+        spec.name.empty() ? "material" : spec.name);
+    mj::Material& m = sdk::AddMaterial(tree, n);
+    m.rgba = spec.rgba;
+    m.specular = spec.specular;
+    m.shininess = spec.shininess;
+    m.reflectance = spec.reflectance;
+    m.metallic = spec.metallic;
+    m.roughness = spec.roughness;
+    if (!spec.texture_rgb.empty()) {
+      auto layer = std::make_unique<mj::MaterialLayer>();
+      layer->texture = ps::Ref<mj::Texture>(spec.texture_rgb);
+      layer->role = mj::TexRole::rgb;
+      m.layers.push_back(std::move(layer));
+    }
+    return m.serial;
+  });
+}
+
+std::uint64_t CreateTextureOp(EditorContext& ctx, const TextureSpec& spec) {
+  return DoAdd(ctx, "Add texture", [&](mj::Model& tree) -> std::uint64_t {
+    const std::string n = UniqueNameFor(
+        tree, mj::ElementType::Texture,
+        spec.name.empty() ? "texture" : spec.name);
+    mj::Texture& t = sdk::AddTexture(tree, n);
+    t.type = spec.type;
+    if (spec.builtin) {
+      t.source = mj::TextureSource{spec.builtin_type};  // builtin arm
+      t.rgb1 = spec.rgb1;
+      t.rgb2 = spec.rgb2;
+      t.markrgb = spec.markrgb;
+      t.width = spec.width;
+      t.height = spec.height;
+    } else {
+      t.source = mj::TextureSource{mj::TexFile{spec.file}};
+    }
+    return t.serial;
+  });
+}
+
+bool AssignGeomMaterialOp(EditorContext& ctx, std::uint64_t geom_serial,
+                          const std::string& material_name) {
+  if (!ctx.tree || geom_serial == 0) return false;
+  mj::Geom* target = nullptr;
+  sdk_detail::WalkModelAll(*ctx.tree, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (std::is_same_v<E, mj::Geom>) {
+      if (!target && e.serial == geom_serial) target = &e;
+    }
+  });
+  if (!target) return false;
+  ctx.BeginEdit();
+  if (material_name.empty()) {
+    target->material.reset();
+  } else {
+    target->material = ps::Ref<mj::Material>(material_name);
+  }
+  ctx.CommitEdit(material_name.empty() ? "Clear geom material"
+                                       : "Assign geom material");
+  SelectBySerial(ctx, geom_serial);
+  return true;
 }
 
 std::uint64_t AddTendonOp(EditorContext& ctx) {
