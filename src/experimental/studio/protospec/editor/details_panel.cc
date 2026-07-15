@@ -392,6 +392,21 @@ std::string RowLabel(const reflect::FieldDescriptor& fd) {
   return std::string("##") + std::string(fd.name);
 }
 
+// The pixel column where every field's value widget begins. One constant keeps
+// names and value widgets aligned across every row of the panel.
+constexpr float kLabelColumn = 180.0f;
+
+// Draws a field's name label and, when the schema carries a description for it,
+// attaches that description as a hover tooltip. The doc text is generated into
+// each reflect::FieldDescriptor from the schema comment, so every field the
+// model can hold documents itself here at zero per-field cost.
+void FieldLabel(std::string_view name, std::string_view doc) {
+  ImGui::TextUnformatted(name.data(), name.data() + name.size());
+  if (!doc.empty()) {
+    ImGui::SetItemTooltip("%.*s", static_cast<int>(doc.size()), doc.data());
+  }
+}
+
 void DrawBadge(Presence pres) {
   std::string_view badge = PresenceBadge(pres);
   if (badge.empty()) return;
@@ -418,9 +433,9 @@ void RowOptional(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
       PresenceFromLayers(fd.optional, authored, inherited, has_default);
 
   ImGui::PushID(id);
-  ImGui::TextUnformatted(std::string(fd.name).c_str());
+  FieldLabel(fd.name, fd.doc);
   DrawBadge(pres);
-  ImGui::SameLine(180.0f);
+  ImGui::SameLine(kLabelColumn);
 
   // Always edit a temp: BeginEdit (fired inside DrawValue on activation) snapshots
   // the still-pristine tree, and the field is written only on commit -- so undo
@@ -450,8 +465,8 @@ template <class Inner>
 void RowRequired(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
                  Inner& slot) {
   ImGui::PushID(id);
-  ImGui::TextUnformatted(std::string(fd.name).c_str());
-  ImGui::SameLine(180.0f);
+  FieldLabel(fd.name, fd.doc);
+  ImGui::SameLine(kLabelColumn);
   Inner work = slot;
   const std::string label = RowLabel(fd);
   if (DrawValue(ctx, label.c_str(), work, fd.arity_min)) {
@@ -525,8 +540,8 @@ void RenderNameRow(EditorContext& ctx, E& e) {
     const std::string cur = nm ? *nm : "";
     std::string work = cur;
     ImGui::PushID("name_field");
-    ImGui::TextUnformatted("name");
-    ImGui::SameLine(180.0f);
+    FieldLabel("name", "element name (unique; referrers update on rename)");
+    ImGui::SameLine(kLabelColumn);
     ImGui::SetNextItemWidth(kFieldWidth * 2.2f);
     ImGui::InputText("##name", &work);
     if (GestureShouldCommit(ctx)) {
@@ -585,8 +600,8 @@ void DetailsUpdate(GuiPlugin* self) {
     return;
   }
   if (c->selected_serial == 0) {
-    ImGui::TextUnformatted("No selection.");
-    ImGui::TextDisabled("Select an element in the Hierarchy or viewport.");
+    ImGui::TextUnformatted("Nothing selected.");
+    ImGui::TextDisabled("Click an element in the viewport or Hierarchy.");
     return;
   }
   bool found = false;
