@@ -84,6 +84,7 @@ static constexpr const char* ICON_REDO_SPEC = platform::ICON_FA_REPEAT;
 static constexpr const char* ICON_PLAY = platform::ICON_FA_PLAY;
 static constexpr const char* ICON_PAUSE = platform::ICON_FA_PAUSE;
 static constexpr const char* ICON_STOP = platform::ICON_FA_STOP;
+static constexpr const char* ICON_WARNING = "\xEF\x81\xB1";  // U+F071 warning
 
 App::App(Config config)
     : app_title_(std::move(config.title)),
@@ -1755,6 +1756,35 @@ void App::StatusBarGui() {
       ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "%s", "\xE2\x97\x8f");
       ImGui::SameLine();
       ImGui::Text("unsaved |");
+      ImGui::SameLine();
+    }
+
+    // Error chip: a compact red badge when an editor's Diagnostics hold errors.
+    // Clicking it brings that editor's Diagnostics panel to the front.
+    int editor_errors = 0;
+    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
+      if (p->error_count) editor_errors += p->error_count(p);
+    });
+    if (editor_errors > 0) {
+      platform::ScopedStyle chip;
+      chip.Var(ImGuiStyleVar_FrameRounding, 3.0f);
+      chip.Color(ImGuiCol_Button, ImVec4(0.62f, 0.16f, 0.16f, 1.0f));
+      chip.Color(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.22f, 0.22f, 1.0f));
+      chip.Color(ImGuiCol_ButtonActive, ImVec4(0.92f, 0.28f, 0.28f, 1.0f));
+      chip.Color(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+      const std::string label =
+          std::string(ICON_WARNING) + " " + std::to_string(editor_errors) +
+          "##diagchip";
+      if (ImGui::SmallButton(label.c_str())) {
+        platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
+          if (p->focus_diagnostics) p->focus_diagnostics(p);
+        });
+      }
+      chip.Reset();
+      ImGui::SetItemTooltip("%d diagnostic error%s | click to open Diagnostics",
+                            editor_errors, editor_errors == 1 ? "" : "s");
+      ImGui::SameLine();
+      ImGui::Text("|");
       ImGui::SameLine();
     }
 

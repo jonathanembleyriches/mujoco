@@ -182,10 +182,18 @@ struct ToolbarPlugin final {
 struct EditorShellPlugin final {
   using SetModeFn = void (*)(EditorShellPlugin* self, int mode);
   using IsDirtyFn = bool (*)(EditorShellPlugin* self);
+  using ErrorCountFn = int (*)(EditorShellPlugin* self);
+  using FocusDiagnosticsFn = void (*)(EditorShellPlugin* self);
   const char* name = "";
   SetModeFn set_mode = nullptr;
   // True when the editor has unsaved authored edits (drives the dirty indicator).
   IsDirtyFn is_dirty = nullptr;
+  // Number of outstanding error-severity diagnostics (drives the status-bar
+  // error chip). Null or 0 means no chip is shown.
+  ErrorCountFn error_count = nullptr;
+  // Asked to bring the editor's Diagnostics panel to the front (the status-bar
+  // chip's click target).
+  FocusDiagnosticsFn focus_diagnostics = nullptr;
   void* data = nullptr;
 };
 

@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -557,6 +558,22 @@ static void TestIconMappingTotality() {
   CHECK(FamilyOf(ET::Pair) == IconFamily::Contact);
 }
 
+// The status-bar chip predicate counts only error-severity diagnostics.
+static void TestChipPredicate() {
+  using ps::studio::DiagEntry;
+  using ps::studio::DiagnosticErrorCount;
+  std::deque<DiagEntry> diags;
+  CHECK(DiagnosticErrorCount(diags) == 0);
+  diags.push_back({DiagEntry::Severity::Info, "load", {}, {}});
+  diags.push_back({DiagEntry::Severity::Warning, "warn", {}, {}});
+  CHECK(DiagnosticErrorCount(diags) == 0);  // info/warning don't trip the chip
+  diags.push_back({DiagEntry::Severity::Error, "boom", {}, {}});
+  diags.push_back({DiagEntry::Severity::Error, "bang", {}, {}});
+  CHECK(DiagnosticErrorCount(diags) == 2);
+  diags.clear();
+  CHECK(DiagnosticErrorCount(diags) == 0);  // clears with the diagnostics
+}
+
 int main() {
   TestPendingLoadStateMachine();
   TestStatusToastExpiry();
@@ -564,6 +581,7 @@ int main() {
   TestRegistryOrderAndDedup();
   TestLoadFailureIsClean();
   TestIconMappingTotality();
+  TestChipPredicate();
 
   EditorContext ctx;
   TestLoadHumanoid(ctx);
