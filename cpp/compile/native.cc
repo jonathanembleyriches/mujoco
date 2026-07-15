@@ -41,6 +41,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
@@ -51,7 +52,7 @@
 
 #include <mujoco/mujoco.h>
 
-#include "attach.h"    // ps::sdk::detail::PrefixSubtree (cross-model NameSpace)
+#include "attach.h"    // ps::sdk::detail::RefPrefixer (cross-model NameSpace)
 #include "build.h"
 #include "classes.h"   // ps::sdk defaults resolution (partial-array detector)
 #include "context.h"
@@ -610,97 +611,359 @@ void ScanReplicateChildclass(
 }
 
 // --------------------------------------------------------------------------- //
-// NC6b: native <attach>/<model> expansion (self-contained-child slice).        //
+// NC6/NC6c: native <attach>/<model> expansion (full mjs_attach import).         //
 //                                                                              //
 // ProtoSpec stores <model file=...> as a ModelAsset (a file ref, NOT a parsed  //
 // child) and <attach model=.. body=.. prefix=..> as an Attach body-child; the  //
 // reader passes both through unexpanded (DR-7), so leg B relies on mj_loadXML   //
 // to recursively parse the child file and run mjs_attach. The native path       //
-// reproduces that at compile time for the tractable slice: parse the child      //
-// model (io::ParseMjcfFile; orientation is already quat-resolved in the child's //
-// own compiler context, so the graft is context-safe), deep-clone the named     //
-// child body, prefix-namespace every element name -- mjCBase::NameSpace,        //
-// user_objects.cc:1490-1497 / mjCBody::NameSpace_ :1955-2001: name = prefix +   //
-// name (cross-model, so this is mjs_attach with an empty suffix) -- and splice   //
-// it where the <attach> stood (the reader's fabricated identity frame,          //
-// xml_native_reader.cc:3935, folds away). Lifted semantics: mjs_attach          //
-// user_api.cc:386-459 + attachBody :304-318 -> mjCFrame::operator+= :2939.      //
-//                                                                              //
-// The FULL mjs_attach (child asset deepcopy-import, child default-class merge,  //
-// keyframe StoreKeyframes resize, referencing-element copy with the drop rule,  //
-// bit-exact append ordering) is NOT reproduced here; a child that would need    //
-// any of it is routed to the XML fallback with a written attach.* reason. This  //
-// slice grafts only self-contained child bodies whose subtree carries no cross- //
-// reference (so nothing dangles without an imported asset/class), which is the  //
-// pure NameSpace-of-names case.                                                 //
+// reproduces mjs_attach (user_api.cc:386-459 -> mjCFrame::operator+= :2939 ->   //
+// mjCModel::operator+= :452-503) into a synthetic model: parse the child        //
+// (io::ParseMjcfFile; orientation is already quat-resolved in the child's own   //
+// compiler context, so the graft is context-safe), deep-clone the named body    //
+// (or fabricate an identity frame over the whole child worldbody for an empty-  //
+// body whole-model attach, :397-412), and prefix-namespace it. Since attach is  //
+// always cross-model, mjCBase::NameSpace's `m != model` guards are always true, //
+// so every name, classname, and typed reference is prefixed uniformly           //
+// (user_objects.cc:1490-1497 + the per-family NameSpace overrides). The child's //
+// <default> tree grafts as a prefix-named subclass under the parent root, its   //
+// assets and referencing sections (tendons/equalities/actuators/sensors/        //
+// contacts) are appended prefixed, and its keyframes are placed at the graft's  //
+// qpos offset -- all merged into the synth so the existing build pipeline        //
+// compiles the graft in context. Clone regenerates serials, so parent unnamed   //
+// elements' original serials are copied back (their _ps auto-name must match the //
+// oracle) and imported child unnamed elements are given an authored empty name   //
+// (the oracle pulls the child raw, so they stay unnamed).                        //
 // --------------------------------------------------------------------------- //
 namespace {
 
-// The clone carries a cross-reference (asset/class/target ref) that the graft
-// would need imported alongside it; outside this slice. Reuses RefNameCollector
-// (any non-empty typed ref name in the subtree).
-bool SubtreeHasRefs(const Body& b) {
-  std::set<std::string> refs;
-  RefNameCollector rc(refs);
-  rc(b);
-  return !refs.empty();
+// --- NC6c: full mjs_attach import ----------------------------------------- //
+//
+// mjs_attach copies far more than the graft body: the child model's default
+// tree, its referenced assets, its referencing (non-tree) elements, and its
+// keyframes, all NameSpace-prefixed into the parent (user_api.cc:386-459 ->
+// mjCFrame::operator+= :2939-2985 -> mjCModel::operator+= :452-503). Since attach
+// is always cross-model, mjCBase::NameSpace's `m != model` guards are always
+// true, so every name, classname, and every typed reference is prefixed
+// uniformly (user_objects.cc:1490-1497 + the per-family NameSpace overrides).
+// ProtoSpec reproduces this by MERGING the child sections into the synth Model
+// so the existing build pipeline compiles the graft in context.
+
+// Set an element's own class to `cls` when it authored none (opt<Ref<Default>>
+// dclass field). No-op for elements without a dclass field.
+template <class E>
+void TagClass(E& e, const std::string& cls) {
+  if constexpr (requires { e.dclass; }) {
+    using DT = std::decay_t<decltype(e.dclass)>;
+    if constexpr (ps::sdk::detail::is_opt<DT>::value) {
+      using Inner = typename ps::sdk::detail::is_opt<DT>::inner;
+      if constexpr (ps::sdk::detail::is_ref<Inner>::value) {
+        if (!e.dclass || e.dclass->name.empty()) {
+          Inner r;
+          r.name = cls;
+          e.dclass = r;
+        }
+      }
+    }
+  }
 }
 
-// True if any list in the child's <asset>/<deformable>/referencing sections is
-// non-empty -- i.e. attaching its body would trigger mjs_attach's asset import,
-// default merge, keyframe resize, or referencing-element copy (operator+=,
-// user_model.cc:452-503), none of which this slice reproduces. `key` receives
-// the specific attach.* reason for the first non-empty section found.
-bool ChildNeedsImport(const Model& child, const char*& key) {
+// Prefix every name and every typed reference (target refs + dclass + childclass)
+// throughout an element subtree -- the uniform cross-model NameSpace.
+template <class E>
+void PrefixTree(E& root, const std::string& prefix) {
+  ps::sdk::detail::WalkTree(root, [&](auto& e) {
+    if (const std::string* nm = ps::sdk::detail::NameOf(e))
+      ps::sdk::detail::SetName(e, prefix + *nm);
+    ps::sdk::detail::RefPrefixer p{&prefix};
+    ps::mjcf::Visit(e, p);
+  });
+}
+
+// A class-free child element resolves to the child's root default ("main"). After
+// merge that root is a subclass named `prefix` under the parent root, so a
+// class-free imported element must carry `prefix` as its class; one that inherits
+// a childclass already resolves correctly and is left alone.
+void TagGraftSubtree(std::vector<BodyChildAny>& subtree, const std::string& prefix,
+                     bool cc_scope);
+
+void TagGraftBody(Body& b, const std::string& prefix, bool cc_scope) {
+  bool scope = cc_scope || (b.childclass && !b.childclass->name.empty());
+  if (!scope) {
+    ps::Ref<Default> r;
+    r.name = prefix;
+    b.childclass = r;  // shields descendants from any host childclass
+    scope = true;
+  }
+  TagGraftSubtree(b.subtree, prefix, scope);
+}
+
+void TagGraftSubtree(std::vector<BodyChildAny>& subtree, const std::string& prefix,
+                     bool cc_scope) {
+  for (BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Body:
+        if (auto& b = std::get<std::unique_ptr<Body>>(c.node))
+          TagGraftBody(*b, prefix, cc_scope);
+        break;
+      case BodyChildAny::Kind::Frame:
+        if (auto& f = std::get<std::unique_ptr<Frame>>(c.node))
+          TagGraftSubtree(f->subtree, prefix, cc_scope);
+        break;
+      case BodyChildAny::Kind::Replicate:
+        if (auto& r = std::get<std::unique_ptr<Replicate>>(c.node))
+          TagGraftSubtree(r->subtree, prefix, cc_scope);
+        break;
+      case BodyChildAny::Kind::Geom:
+        if (!cc_scope) TagClass(*std::get<std::unique_ptr<Geom>>(c.node), prefix);
+        break;
+      case BodyChildAny::Kind::Site:
+        if (!cc_scope) TagClass(*std::get<std::unique_ptr<Site>>(c.node), prefix);
+        break;
+      case BodyChildAny::Kind::Joint:
+        if (!cc_scope) TagClass(*std::get<std::unique_ptr<Joint>>(c.node), prefix);
+        break;
+      case BodyChildAny::Kind::Camera:
+        if (!cc_scope) TagClass(*std::get<std::unique_ptr<Camera>>(c.node), prefix);
+        break;
+      case BodyChildAny::Kind::Light:
+        if (!cc_scope) TagClass(*std::get<std::unique_ptr<Light>>(c.node), prefix);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+// Tag class-free referencing elements inside one imported section with `prefix`
+// (only referencing families carry a dclass; wrap/anchor sub-items do not).
+template <class E>
+void TagSectionClasses(E& section, const std::string& prefix) {
+  ps::sdk::detail::WalkTree(section, [&](auto& e) { TagClass(e, prefix); });
+}
+
+// Give every still-unnamed nameable element in an imported subtree an authored
+// EMPTY name. mjs_attach pulls the child straight from disk in the XML oracle,
+// so its unnamed elements stay unnamed; the native build otherwise injects the
+// `_ps:<family>:<serial>` auto-name (which uses the clone's regenerated serial
+// and would never match). A present-but-empty name suppresses that auto-name and
+// reproduces the empty mjModel name entry. (Default's dclass identity is skipped:
+// imported default subclasses are always renamed, never left blank.)
+template <class E>
+void EmptyUnnamed(E& root) {
+  ps::sdk::detail::WalkTree(root, [&](auto& e) {
+    using X = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<X, Default>) {
+      if (ps::sdk::detail::HasNameField<X>() && !ps::sdk::detail::NameOf(e))
+        ps::sdk::detail::SetName(e, "");
+    }
+  });
+}
+
+// Merge one parsed child's default tree, assets, and referencing elements into
+// the synth model (prefix-namespaced). `root` is synth's root default; the child
+// default tree grafts under it as a subclass named `prefix` so a class-free
+// child element resolves prefix -> root (child main -> parent main), and a named
+// child class resolves child_class -> prefix -> root (mjCModel::operator+= :644 +
+// the def merge at user_objects.cc:2969-2974).
+void ImportChildSections(const Model& child, const std::string& prefix,
+                         Default* root, Model& synth) {
+  // Defaults: exactly one child block for the tractable slice (see gate).
+  for (const auto& d : child.defaults) {
+    if (!d) continue;
+    std::unique_ptr<Default> cd = Clone(*d);
+    PrefixTree(*cd, prefix);   // prefixes nested class names + template refs
+    cd->dclass = prefix;       // child root ("" -> prefix), nested under parent root
+    root->subclasses.push_back(std::move(cd));
+  }
+
+  // Assets (meshes/skins/hfields/textures/materials): appended prefixed. Nested
+  // <model> assets are gated out before this runs.
   for (const auto& a : child.assets) {
     if (!a) continue;
-    if (!a->meshs.empty() || !a->hfields.empty() || !a->skins.empty() ||
-        !a->textures.empty() || !a->materials.empty()) {
-      key = "attach.child_assets";
-      return true;
+    std::unique_ptr<Asset> ca = Clone(*a);
+    PrefixTree(*ca, prefix);
+    EmptyUnnamed(*ca);
+    synth.assets.push_back(std::move(ca));
+  }
+
+  // Referencing sections (tendons, equalities, actuators, sensors, contacts):
+  // prefixed and tagged, appended after the parent's own (operator+= push_back
+  // order). Refs that do not resolve into the graft would be dropped by
+  // mjs_attach; the corpus grafts resolve every ref, so the whole child section
+  // is imported and any unresolved ref surfaces as a build failure -> fallback.
+  auto import = [&](const auto& src, auto& dst) {
+    for (const auto& s : src) {
+      if (!s) continue;
+      auto cs = Clone(*s);
+      PrefixTree(*cs, prefix);
+      TagSectionClasses(*cs, prefix);
+      EmptyUnnamed(*cs);
+      dst.push_back(std::move(cs));
     }
-    if (!a->modelAssets.empty()) {  // nested <model> in the child
-      key = "attach.child_nested_model";
-      return true;
+  };
+  import(child.tendons, synth.tendons);
+  import(child.equalitys, synth.equalitys);
+  import(child.actuators, synth.actuators);
+  import(child.sensors, synth.sensors);
+  import(child.contacts, synth.contacts);
+}
+
+// One imported child keyframe awaiting offset resolution: the grafted node it
+// belongs to determines where its qpos slice lands in the parent layout.
+struct KeyImport {
+  Key* key;
+  const void* graft;
+};
+
+// nq contributed by one joint.
+int JointNq(const Joint& j) {
+  switch (j.type ? *j.type : JointType::hinge) {
+    case JointType::free: return 7;
+    case JointType::ball: return 4;
+    default:              return 1;  // slide, hinge
+  }
+}
+
+// Sum the nq of every joint in a subtree; set `macro` if a joint-bearing macro
+// (replicate/flexcomp/composite) is present (its dof count is not known until the
+// build expands it, so a keyframe offset past it cannot be computed here).
+void CountSubtreeNq(const std::vector<BodyChildAny>& sub, int& nq, bool& macro) {
+  for (const BodyChildAny& c : sub) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Joint:
+        nq += JointNq(*std::get<std::unique_ptr<Joint>>(c.node)); break;
+      case BodyChildAny::Kind::FreeJoint: nq += 7; break;
+      case BodyChildAny::Kind::Body:
+        CountSubtreeNq(std::get<std::unique_ptr<Body>>(c.node)->subtree, nq, macro);
+        break;
+      case BodyChildAny::Kind::Frame:
+        CountSubtreeNq(std::get<std::unique_ptr<Frame>>(c.node)->subtree, nq, macro);
+        break;
+      case BodyChildAny::Kind::Replicate: {
+        // A <replicate count=N> emits N copies of its subtree (native replicate
+        // pass), contributing N x subtree-nq dofs.
+        const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        int sub_nq = 0;
+        CountSubtreeNq(r->subtree, sub_nq, macro);
+        nq += r->count * sub_nq;
+        break;
+      }
+      case BodyChildAny::Kind::Flexcomp:
+      case BodyChildAny::Kind::Composite:
+        macro = true; break;
+      default: break;
     }
   }
-  if (!child.defaults.empty())   { key = "attach.child_defaults";   return true; }
-  if (!child.keyframes.empty())  { key = "attach.child_keyframes";  return true; }
+}
+
+// Depth-first (== mjModel qposadr) walk accumulating the nq of every joint BEFORE
+// `graft` into `nq`; sets `found` when the graft node is reached and `macro` if a
+// joint-bearing macro precedes it (offset not computable). Grafts are complete
+// bodies/frames, so joints are counted whole.
+void WalkToGraftNq(const std::vector<BodyChildAny>& sub, const void* graft,
+                   int& nq, bool& found, bool& macro) {
+  for (const BodyChildAny& c : sub) {
+    if (found || macro) return;
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Joint:
+        nq += JointNq(*std::get<std::unique_ptr<Joint>>(c.node)); break;
+      case BodyChildAny::Kind::FreeJoint: nq += 7; break;
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        if (b.get() == graft) { found = true; return; }
+        WalkToGraftNq(b->subtree, graft, nq, found, macro);
+        break;
+      }
+      case BodyChildAny::Kind::Frame: {
+        const auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+        if (f.get() == graft) { found = true; return; }
+        WalkToGraftNq(f->subtree, graft, nq, found, macro);
+        break;
+      }
+      case BodyChildAny::Kind::Replicate: {
+        // A <replicate> BEFORE the graft (an attach is never nested inside one
+        // that reaches here -- that is gated) contributes count x subtree-nq.
+        const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        int sub_nq = 0;
+        CountSubtreeNq(r->subtree, sub_nq, macro);
+        nq += r->count * sub_nq;
+        break;
+      }
+      case BodyChildAny::Kind::Flexcomp:
+      case BodyChildAny::Kind::Composite:
+        macro = true; return;
+      default: break;
+    }
+  }
+}
+
+// Import a child's keyframes: prefix names, and (for the tractable slice) record
+// each for offset resolution. Only qpos keys are handled; a key carrying qvel/act/
+// ctrl/mpos/mquat routes to the fallback (the graft's dof/act/mocap offsets are a
+// separate placement not yet reproduced). Returns false + reason on such a key.
+bool ImportChildKeyframes(const Model& child, const std::string& prefix,
+                          const void* graft, Model& synth,
+                          std::vector<KeyImport>& keyimports,
+                          std::vector<bridge::FallbackReason>& reasons,
+                          const ps::SourceLoc& loc) {
+  for (const auto& kf : child.keyframes) {
+    if (!kf) continue;
+    for (const auto& k : kf->keys) {
+      if (k && (k->qvel || k->act || k->ctrl || k->mpos || k->mquat)) {
+        bridge::FallbackReason r;
+        r.feature = "attach.keyframe_state";
+        r.count = 1;
+        r.first = loc;
+        reasons.push_back(std::move(r));
+        return false;
+      }
+    }
+    std::unique_ptr<Keyframe> ckf = Clone(*kf);
+    PrefixTree(*ckf, prefix);
+    EmptyUnnamed(*ckf);
+    for (const auto& k : ckf->keys)
+      if (k) keyimports.push_back({k.get(), graft});
+    synth.keyframes.push_back(std::move(ckf));
+  }
+  return true;
+}
+
+// A child section this wave does not import bit-exactly yet routes the whole
+// model to the XML fallback with a precise reason.
+bool ChildGate(const Model& child, const char*& key) {
+  for (const auto& a : child.assets)
+    if (a && !a->modelAssets.empty()) { key = "attach.child_nested_model"; return true; }
+  if (child.defaults.size() > 1) { key = "attach.child_multidefault"; return true; }
   if (!child.deformables.empty()){ key = "attach.child_deformable"; return true; }
   if (!child.customs.empty())    { key = "attach.child_custom";     return true; }
-  if (!child.actuators.empty() || !child.tendons.empty() ||
-      !child.sensors.empty() || !child.equalitys.empty() ||
-      !child.contacts.empty()) {
-    key = "attach.referencing_elements";
-    return true;
-  }
+  if (!child.extensions.empty()) { key = "attach.child_plugin";     return true; }
   return false;
 }
 
 // Find a top-level worldbody body by name in a parsed child model.
 const Body* FindWorldbodyBody(const Model& child, const std::string& name) {
-  std::function<const Body*(const std::vector<BodyChildAny>&)> rec =
-      [&](const std::vector<BodyChildAny>& subtree) -> const Body* {
-    for (const BodyChildAny& c : subtree) {
+  for (const auto& wb : child.worldbody) {
+    if (!wb) continue;
+    for (const BodyChildAny& c : wb->subtree) {
       if (c.kind() == BodyChildAny::Kind::Body) {
         const auto& b = std::get<std::unique_ptr<Body>>(c.node);
         if (b && b->name && *b->name == name) return b.get();
       }
     }
-    return nullptr;
-  };
-  for (const auto& wb : child.worldbody)
-    if (wb) if (const Body* b = rec(wb->subtree)) return b;
+  }
   return nullptr;
 }
 
-// Resolve one <attach> to the prefixed, self-contained body clone to splice in,
-// or nullptr (with a written reason pushed) to route the model to the fallback.
-std::unique_ptr<Body> ResolveAttach(
+// Parse + resolve the child referenced by an <attach>, returning the parsed
+// model (owned by `store`) or nullptr with a written reason.
+const Model* LoadChild(
     const Attach& at, const std::string& base_dir,
     const std::unordered_map<std::string, const ModelAsset*>& modelassets,
-    std::vector<bridge::FallbackReason>& reasons) {
-  auto fail = [&](const char* feature) -> std::unique_ptr<Body> {
+    std::vector<std::unique_ptr<ps::mjcf::Model>>& store,
+    std::vector<bridge::FallbackReason>& reasons, const char*& why) {
+  auto fail = [&](const char* feature) -> const Model* {
+    why = feature;
     bridge::FallbackReason r;
     r.feature = feature;
     r.count = 1;
@@ -708,71 +971,131 @@ std::unique_ptr<Body> ResolveAttach(
     reasons.push_back(std::move(r));
     return nullptr;
   };
-
-  // A whole-model attach (empty body) fabricates a world frame and grafts every
-  // top-level child body (user_api.cc:397-412); outside this slice.
-  if (!at.body || at.body->empty()) return fail("attach.whole_model");
   if (!at.prefix) return fail("attach.no_prefix");
   if (!at.model || at.model->name.empty()) return fail("attach.no_model_ref");
-
   auto it = modelassets.find(at.model->name);
   if (it == modelassets.end() || !it->second->file || it->second->file->empty())
     return fail("attach.model_not_found");
-
-  // Child file path: modelfiledir_ + file (xml_native_reader.cc:3616). The
-  // reader joins the PARENT model's directory (== base_dir for a top-level
-  // model), then normalizes any embedded "..".
   std::filesystem::path child_path =
       (std::filesystem::path(base_dir) / *it->second->file).lexically_normal();
-
   ps::mjcf::io::ParseResult pr = ps::mjcf::io::ParseMjcfFile(child_path.string());
   if (!pr.ok() || !pr.model) return fail("attach.child_parse_failed");
-  const Model& child = *pr.model;
+  const char* gate = nullptr;
+  if (ChildGate(*pr.model, gate)) return fail(gate);
+  store.push_back(std::move(pr.model));
+  return store.back().get();
+}
 
-  const char* import_reason = nullptr;
-  if (ChildNeedsImport(child, import_reason)) return fail(import_reason);
+// Resolve one <attach> into the graft node (a prefixed body clone, or a fabricated
+// identity frame over the whole child worldbody for a whole-model attach) AND
+// import the child's defaults/assets/referencing elements into `synth`. Returns
+// false (with a written reason) to route the model to the fallback. `in_replicate`
+// gates an attach whose referencing elements would need per-clone replication.
+bool ExpandOneAttach(
+    const Attach& at, BodyChildAny& slot, bool in_replicate,
+    const std::string& base_dir, Default* root, Model& synth,
+    const std::unordered_map<std::string, const ModelAsset*>& modelassets,
+    std::vector<std::unique_ptr<ps::mjcf::Model>>& store,
+    std::vector<KeyImport>& keyimports,
+    std::vector<bridge::FallbackReason>& reasons) {
+  auto fail = [&](const char* feature) {
+    bridge::FallbackReason r;
+    r.feature = feature;
+    r.count = 1;
+    r.first = at.loc;
+    reasons.push_back(std::move(r));
+    return false;
+  };
+
+  const char* why = nullptr;
+  const Model* childp = LoadChild(at, base_dir, modelassets, store, reasons, why);
+  if (!childp) return false;
+  const Model& child = *childp;
+  const std::string& prefix = *at.prefix;
+
+  const bool whole = !at.body || at.body->empty();
+  const bool has_refs =
+      !child.tendons.empty() || !child.equalitys.empty() ||
+      !child.actuators.empty() || !child.sensors.empty() || !child.contacts.empty();
+  // An attach inside a <replicate> whose child carries referencing elements or
+  // keyframes would need those replicated per clone (mjs_attach's per-clone
+  // referencing/keyframe cloning); the native replicate pass does not do that.
+  if (in_replicate && (has_refs || !child.keyframes.empty()))
+    return fail("attach.replicate_referencing");
+
+  if (whole) {
+    // Whole-model attach: fabricate an identity frame over every top-level child
+    // worldbody element (user_api.cc:397-412), namespace + tag it, splice it in.
+    auto frame = std::make_unique<Frame>();
+    for (const auto& wb : child.worldbody) {
+      if (!wb) continue;
+      for (const BodyChildAny& c : wb->subtree)
+        frame->subtree.push_back(Clone(c));
+    }
+    PrefixTree(*frame, prefix);
+    TagGraftSubtree(frame->subtree, prefix, false);
+    EmptyUnnamed(*frame);
+    const void* graft = frame.get();
+    ImportChildSections(child, prefix, root, synth);
+    if (!ImportChildKeyframes(child, prefix, graft, synth, keyimports, reasons,
+                              at.loc))
+      return false;
+    slot = BodyChildAny{std::move(frame)};
+    return true;
+  }
 
   const Body* target = FindWorldbodyBody(child, *at.body);
   if (!target) return fail("attach.body_not_found");
-
   std::unique_ptr<Body> clone = Clone(*target);
-  if (SubtreeHasRefs(*clone)) return fail("attach.subtree_refs");
-
-  // Cross-model NameSpace: prefix every element name in the graft (no suffix).
-  ps::sdk::detail::PrefixSubtree(*clone, *at.prefix);
-  return clone;
+  PrefixTree(*clone, prefix);
+  TagGraftBody(*clone, prefix, false);
+  EmptyUnnamed(*clone);
+  const void* graft = clone.get();
+  ImportChildSections(child, prefix, root, synth);
+  if (!ImportChildKeyframes(child, prefix, graft, synth, keyimports, reasons,
+                            at.loc))
+    return false;
+  slot = BodyChildAny{std::move(clone)};
+  return true;
 }
 
 // Replace every <attach> in a body subtree (and nested bodies/frames/replicates)
-// with its resolved graft. On any non-tractable attach a reason is pushed and
-// the Attach is left in place (the caller falls back before building).
+// with its resolved graft, importing each child's sections into `synth`. On any
+// non-tractable attach a reason is pushed and the Attach is left in place (the
+// caller falls back before building).
 void ExpandAttachInSubtree(
-    std::vector<BodyChildAny>& subtree, const std::string& base_dir,
+    std::vector<BodyChildAny>& subtree, bool in_replicate,
+    const std::string& base_dir, Default* root, Model& synth,
     const std::unordered_map<std::string, const ModelAsset*>& modelassets,
+    std::vector<std::unique_ptr<ps::mjcf::Model>>& store,
+    std::vector<KeyImport>& keyimports,
     std::vector<bridge::FallbackReason>& reasons) {
   for (BodyChildAny& c : subtree) {
     switch (c.kind()) {
       case BodyChildAny::Kind::Body: {
         auto& b = std::get<std::unique_ptr<Body>>(c.node);
-        if (b) ExpandAttachInSubtree(b->subtree, base_dir, modelassets, reasons);
+        if (b) ExpandAttachInSubtree(b->subtree, in_replicate, base_dir, root,
+                                     synth, modelassets, store, keyimports, reasons);
         break;
       }
       case BodyChildAny::Kind::Frame: {
         auto& f = std::get<std::unique_ptr<Frame>>(c.node);
-        if (f) ExpandAttachInSubtree(f->subtree, base_dir, modelassets, reasons);
+        if (f) ExpandAttachInSubtree(f->subtree, in_replicate, base_dir, root,
+                                     synth, modelassets, store, keyimports, reasons);
         break;
       }
       case BodyChildAny::Kind::Replicate: {
         auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
-        if (r) ExpandAttachInSubtree(r->subtree, base_dir, modelassets, reasons);
+        if (r) ExpandAttachInSubtree(r->subtree, /*in_replicate=*/true, base_dir,
+                                     root, synth, modelassets, store, keyimports,
+                                     reasons);
         break;
       }
       case BodyChildAny::Kind::Attach: {
         const auto& at = std::get<std::unique_ptr<Attach>>(c.node);
         if (!at) break;
-        std::unique_ptr<Body> graft =
-            ResolveAttach(*at, base_dir, modelassets, reasons);
-        if (graft) c = BodyChildAny{std::move(graft)};
+        ExpandOneAttach(*at, c, in_replicate, base_dir, root, synth, modelassets,
+                        store, keyimports, reasons);
         break;
       }
       default:
@@ -803,6 +1126,24 @@ std::unique_ptr<Model> ExpandAttaches(const Model& m,
 
   std::unique_ptr<Model> synth = Clone(m);
 
+  // Clone regenerates every serial, but a parent element's `_ps:<family>:<serial>`
+  // auto-name (used when it is unnamed) must match the XML oracle, which derives
+  // it from the ORIGINAL parse. Copy the original serials back onto the synth in
+  // lockstep (both walk the same structure in the same order) before any attach
+  // expands and adds graft elements. Graft elements are emptied (EmptyUnnamed), so
+  // their regenerated serials never surface.
+  {
+    std::vector<std::uint64_t> serials;
+    ps::sdk::detail::WalkModelLive(const_cast<Model&>(m), [&](auto& e) {
+      if constexpr (requires { e.serial; }) serials.push_back(e.serial);
+    });
+    std::size_t i = 0;
+    ps::sdk::detail::WalkModelLive(*synth, [&](auto& e) {
+      if constexpr (requires { e.serial; })
+        if (i < serials.size()) e.serial = serials[i++];
+    });
+  }
+
   // ModelAsset name -> file lookup (the Attach.model ref resolves by name). An
   // <model> with an explicit name uses it; a nameless <model file=child.xml> is
   // referenced by the CHILD's own <mujoco model=..> name (the reader overwrites
@@ -825,8 +1166,80 @@ std::unique_ptr<Model> ExpandAttaches(const Model& m,
     }
   }
 
+  // The child default trees graft as subclasses under synth's root default;
+  // ensure it exists (a parent with no <default> gets an empty "main").
+  Default* root = ps::sdk::detail::EnsureRoot(*synth);
+
+  // Parsed children live for the whole expansion (grafts reference nothing from
+  // them after cloning, but keep them alive through the walk).
+  std::vector<std::unique_ptr<ps::mjcf::Model>> store;
+  std::vector<KeyImport> keyimports;
   for (auto& wb : synth->worldbody)
-    if (wb) ExpandAttachInSubtree(wb->subtree, opts.base_dir, modelassets, reasons);
+    if (wb) ExpandAttachInSubtree(wb->subtree, /*in_replicate=*/false,
+                                  opts.base_dir, root, *synth, modelassets, store,
+                                  keyimports, reasons);
+
+  // Resolve each imported keyframe's qpos placement now that every graft is
+  // spliced. A child keyframe covers the graft's own dofs; it lands at the graft's
+  // qposadr in the parent layout (the joints before it, depth-first) with the
+  // surrounding dofs left at qpos0 (NaN gap -> qpos0 in FillKeyframes), mirroring
+  // mjCModel::ResolveKeyframes/RestoreState. A macro before the graft (offset not
+  // computable) or a key wider than the graft (child has non-grafted bodies)
+  // routes the model to the XML fallback.
+  for (const KeyImport& ki : keyimports) {
+    // Locate the graft (depth-first) to get the qpos offset before it.
+    int offset = 0;
+    bool found = false, macro = false;
+    for (auto& wb : synth->worldbody)
+      if (wb && !found)
+        WalkToGraftNq(wb->subtree, ki.graft, offset, found, macro);
+    // graft nq via a direct subtree scan of the located node handled below
+    auto push_gate = [&](const char* feat) {
+      bridge::FallbackReason r;
+      r.feature = feat;
+      r.count = 1;
+      r.first = ki.key->loc;
+      reasons.push_back(std::move(r));
+    };
+    if (macro || !found) { push_gate("attach.keyframe_macro_offset"); continue; }
+
+    // graft width: recompute over the graft node's own subtree.
+    int gwidth = 0;
+    bool wmacro = false;
+    // The graft node is a Body or a Frame; scan whichever holds ki.graft.
+    std::function<bool(const std::vector<BodyChildAny>&)> scan =
+        [&](const std::vector<BodyChildAny>& sub) -> bool {
+      for (const BodyChildAny& c : sub) {
+        const void* p = nullptr;
+        const std::vector<BodyChildAny>* inner = nullptr;
+        if (c.kind() == BodyChildAny::Kind::Body) {
+          const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+          p = b.get(); inner = &b->subtree;
+        } else if (c.kind() == BodyChildAny::Kind::Frame) {
+          const auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+          p = f.get(); inner = &f->subtree;
+        }
+        if (p == ki.graft) {
+          if (c.kind() == BodyChildAny::Kind::Body)
+            CountSubtreeNq(std::get<std::unique_ptr<Body>>(c.node)->subtree, gwidth, wmacro);
+          else
+            CountSubtreeNq(*inner, gwidth, wmacro);
+          return true;
+        }
+        if (inner && scan(*inner)) return true;
+      }
+      return false;
+    };
+    for (auto& wb : synth->worldbody)
+      if (wb) if (scan(wb->subtree)) break;
+
+    std::vector<double>& q = *ki.key->qpos;
+    if (static_cast<int>(q.size()) > gwidth) { push_gate("attach.keyframe_partial"); continue; }
+    // Prepend `offset` NaN gap slots (default to qpos0 at fill time).
+    if (offset > 0)
+      q.insert(q.begin(), static_cast<std::size_t>(offset),
+               std::numeric_limits<double>::quiet_NaN());
+  }
 
   return synth;
 }

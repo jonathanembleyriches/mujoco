@@ -44,7 +44,7 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)**, **ratchet 315/387** | queue below |
+| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)** + **NC6c attach FULL-IMPORT (defaults merge + assets + referencing + keyframes + whole-model)**, **ratchet 323/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
@@ -72,8 +72,36 @@ are DONE and on the ratchet (239). The one remaining flex descope:
    resolution, `skin_*` arrays), and mesh-fit geoms (`mjCMesh::FitGeom`: inertia-box/aabb size +
    fitscale, `geom_dataid` retains the source mesh). Still gated: texture separate cube-faces +
    authored content_type; light.texture; `hfield`/`skin` authored content_type.
-3. **NC6b attach/`<model>` — self-contained-child slice LANDED (ratchet 259 -> 262); full-import
-   wave still queued.** ProtoSpec stores `<model file=...>` as a `ModelAsset` (file ref only) and
+3. **NC6c attach FULL-IMPORT — LANDED (ratchet 315 -> 323, +8 attach files, 0 divergences).** The
+   full `mjs_attach` import is now reproduced into the synth model
+   (`ExpandAttaches`/`ImportChildSections`/`ImportChildKeyframes` in `cpp/compile/native.cc`):
+   child `<default>` tree grafted as a **prefix-named subclass under the parent root** (a class-free
+   child element resolves `prefix -> root` == child-main -> parent-main; a named child class
+   `prefix_cls -> prefix -> root`; graft bodies get an injected `childclass=prefix` and class-free
+   world-level / referencing elements a `dclass=prefix` -- matching `mjCBase::NameSpace`'s always-true
+   cross-model guards); child **assets** (meshes/textures/materials/hfields/skins) appended prefixed;
+   **referencing sections** (tendons/equalities/actuators/sensors/contacts) appended prefixed+tagged in
+   `operator+=` order; **whole-model attach** (empty body) fabricates an identity frame over the whole
+   child worldbody. Uniform cross-model NameSpace prefixes every name + typed ref (incl. `dclass`/
+   `childclass` -- both are `opt<Ref<Default>>`, so the existing `RefPrefixer` reaches them).
+   **Serial pitfalls fixed** (the predecessor's flag): `Clone` regenerates serials, so (a) parent
+   unnamed elements get their ORIGINAL serials copied back in lockstep (their `_ps:<family>:<serial>`
+   auto-name must match the XML oracle) and (b) imported child unnamed elements are given an authored
+   EMPTY name (`mj_loadXML` pulls the child raw -> unnamed, never `_ps`-auto-named).
+   **Keyframes:** child keys import as prefixed top-level keys placed at the graft's qpos offset
+   (joints before it, depth-first, counting `<replicate>` as `count x subtree-nq`) with the surrounding
+   dofs NaN-gapped -> `qpos0` in `FillKeyframes` (mirrors `ResolveKeyframes`/`RestoreState`; a NaN slot
+   defaults to qpos0). **Lands** ten_armature_0/1_compare, humanoid100, contact_subtree, 2humanoid100
+   x3 (benchmark/island/sleep-perf), engine-testdata/hammock. **Still gated (honest sub-gates):**
+   `attach.keyframe_macro_offset` (a flexcomp/composite before the attach makes the qpos offset
+   uncomputable -> model/hammock), `attach.replicate_referencing` (an attach nested in `<replicate>`
+   whose child carries referencing elements or keyframes needs per-clone cloning -> 22/100_humanoids,
+   sleep/100_humanoids), `attach.keyframe_state` (child key with qvel/act/ctrl/mpos/mquat -- a separate
+   dof/act/mocap offset), and `attach.child_multidefault`/`child_deformable`/`child_custom`/
+   `child_plugin`/`child_nested_model`.
+
+3b. **NC6b attach/`<model>` — self-contained-child slice (ratchet 259 -> 262), superseded by NC6c
+   above.** ProtoSpec stores `<model file=...>` as a `ModelAsset` (file ref only) and
    `<attach model=.. body=.. prefix=..>` as an `Attach` element; the reader passes both unexpanded,
    so leg B relies on `mj_loadXML` to recursively parse the child and run `mjs_attach`.
    **Landed** (`ExpandAttaches` in `cpp/compile/native.cc`, "attach"/"model" admitted in

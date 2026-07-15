@@ -24,8 +24,8 @@ All MuJoCo file references below are relative to `third_party/MuJoCo/src` (so `s
 ## STATUS (living section — update on every milestone commit)
 
 Last updated: 2026-07-15. The milestone table below is the ORIGINAL forecast and is stale
-(NC0-NC5 + NC6 assets + NC7a long-tail are done); the living per-wave state is `HANDOFF.md`
-("Native compiler remaining queue"). Native ratchet floor **315/387** (`tests/native_ratchet.json`),
+(NC0-NC5 + NC6 assets + NC7a long-tail + NC6c attach full-import are done); the living per-wave state
+is `HANDOFF.md` ("Native compiler remaining queue"). Native ratchet floor **323/387** (`tests/native_ratchet.json`),
 0 divergences, all baselines green (cpp 6/6, differential 380/11, registry 119, emit --check).
 NC7a burned the long tail from 262->315: per-body sleep, geom/site partial-size eager-copy +
 `<size nkey>`, the full sensor family (rangefinder/camprojection/insidesite/distance/normal/fromto/
@@ -35,12 +35,16 @@ transmission (+ a reproduced `mj_mergeChain` for nJmom); plus a real dynamic-hfi
 Remaining fallbacks (61 files): plugin models, geom.sdf, mesh.builtin, flexcomp interpolated (excluded),
 attach full-import (excluded), cross_spelling_default, dcmotor, discardvisual, alignfree, and a few
 singletons — full histogram in HANDOFF NC7a. NC6b (attach/`<model>`)
-landed its self-contained-child slice: `<attach>`/`<model>` expand natively when the referenced child
-body is self-contained (parse child via `io::ParseMjcfFile`, deep-clone + prefix-namespace names,
-splice; +parent/parent_model/many_dependencies). The full `mjs_attach` import machinery (child asset
-deepcopy, default-class merge, keyframe resize, referencing-element copy with the drop rule + bit-exact
-`operator+=` order) is the queued remainder — every attach.* fallback reason names its missing piece;
-see HANDOFF NC6b for the exact `user_model.cc`/`user_api.cc` cites and the humanoid-family gate.
+landed its self-contained-child slice, then **NC6c landed the full `mjs_attach` import** (315 -> 323):
+the child `<default>` tree grafts as a prefix-named subclass under the parent root, child assets and
+referencing sections (tendon/equality/actuator/sensor/contact) are appended prefixed in `operator+=`
+order, whole-model attach (empty body) fabricates an identity frame over the child worldbody, and child
+keyframes are placed at the graft's qpos offset (NaN gap -> qpos0 in FillKeyframes). Two `Clone`-serial
+pitfalls fixed (parent unnamed serials copied back for `_ps` auto-name parity; imported child unnamed
+elements given an authored empty name). Lands the humanoid family (humanoid100, 2humanoid100 x3,
+contact_subtree) + ten_armature_0/1 + engine/hammock. Still gated: flexcomp-before-attach keyframe
+offset, attach-in-replicate with referencing/keyframes, and child keyframe qvel/act/ctrl/mocap state
+(all with written attach.* reasons); see HANDOFF NC6c for the exact `user_model.cc`/`user_api.cc` cites.
 
 Implementation plan: `docs/plan_native_compiler_impl.md` (public API, CDR-14 purity/binding
 architecture, CompileContext side tables, lifted-code registry mechanics, NC0/NC1 work breakdown).

@@ -5282,7 +5282,13 @@ void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
       const int n0 = (k.qpos && !k.qpos->empty())
                          ? std::min(static_cast<int>(k.qpos->size()), nq)
                          : 0;
-      for (int j = 0; j < n0; ++j) m->key_qpos[i * nq + j] = (*k.qpos)[j];
+      // A NaN slot is an attach-imported keyframe's gap (a dof not owned by the
+      // grafted child): it defaults to qpos0, exactly as mjCModel::RestoreState
+      // uses pos0 for a joint the child keyframe did not define (user_model.cc
+      // :4156-4161). Authored keyframes never carry NaN.
+      for (int j = 0; j < n0; ++j)
+        m->key_qpos[i * nq + j] =
+            std::isnan((*k.qpos)[j]) ? m->qpos0[j] : (*k.qpos)[j];
       for (int j = n0; j < nq; ++j) m->key_qpos[i * nq + j] = m->qpos0[j];
     }
 
