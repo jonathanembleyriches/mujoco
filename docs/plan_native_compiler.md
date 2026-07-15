@@ -23,7 +23,15 @@ All MuJoCo file references below are relative to `third_party/MuJoCo/src` (so `s
 
 ## STATUS (living section — update on every milestone commit)
 
-Last updated: 2026-07-07.
+Last updated: 2026-07-15. The milestone table below is the ORIGINAL forecast and is stale
+(NC0-NC5 + NC6 assets are done); the living per-wave state is `HANDOFF.md` ("Native compiler
+remaining queue"). Native ratchet floor 262/387 (`tests/native_ratchet.json`). NC6b (attach/`<model>`)
+landed its self-contained-child slice: `<attach>`/`<model>` expand natively when the referenced child
+body is self-contained (parse child via `io::ParseMjcfFile`, deep-clone + prefix-namespace names,
+splice; +parent/parent_model/many_dependencies). The full `mjs_attach` import machinery (child asset
+deepcopy, default-class merge, keyframe resize, referencing-element copy with the drop rule + bit-exact
+`operator+=` order) is the queued remainder — every attach.* fallback reason names its missing piece;
+see HANDOFF NC6b for the exact `user_model.cc`/`user_api.cc` cites and the humanoid-family gate.
 
 Implementation plan: `docs/plan_native_compiler_impl.md` (public API, CDR-14 purity/binding
 architecture, CompileContext side tables, lifted-code registry mechanics, NC0/NC1 work breakdown).

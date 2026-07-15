@@ -44,7 +44,7 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5 + NC6 assets (file textures/hfields, skins, mesh-fit) done, **ratchet 259/387** | queue below |
+| Native compiler | NC0-NC5 + NC6 assets (file textures/hfields, skins, mesh-fit) + NC6b attach self-contained-child slice done, **ratchet 262/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
@@ -72,20 +72,40 @@ are DONE and on the ratchet (239). The one remaining flex descope:
    resolution, `skin_*` arrays), and mesh-fit geoms (`mjCMesh::FitGeom`: inertia-box/aabb size +
    fitscale, `geom_dataid` retains the source mesh). Still gated: texture separate cube-faces +
    authored content_type; light.texture; `hfield`/`skin` authored content_type.
-3. **NC6 attach/`<model>` — DESCOPED (queued, self-contained wave).** ~15 corpus files (parent,
-   parent_model, many_dependencies, humanoid100, 2humanoid100, hammock, ...). ProtoSpec stores
-   `<model file=...>` as a `ModelAsset` (file ref only, NOT a nested parsed model) and `<attach
-   model=.. body=.. prefix=..>` as an `Attach` element; the reader passes both through unexpanded,
-   so leg B relies on `mj_loadXML` to recursively parse the child file and run `mjs_attach`. The
-   native path must reimplement that whole machinery: (a) recursively invoke the ProtoSpec reader
-   on the child model file at compile time (resolve via base_dir; the child is a full MJCF doc);
-   (b) `mjs_attach` semantics — deep-clone the referenced body subtree, prefix-namespace ALL
-   element names AND every internal cross-reference (joints/sites/actuators/tendons/sensors/
-   defaults that target the attached subtree), world-attach frame handling (xml reader :3928-3960);
-   (c) child-model keyframe merge (`mjCModel` attach-keyframe path); (d) child defaults/classes
-   merge with the prefix. Descoped now for size + high FP-divergence risk in the exact
-   name/ref-prefixing (a single mismatched internal ref diverges the whole model); it is a
-   self-contained wave on the NC4 ExpandReplicate clone precedent. Gated as feature `model`.
+3. **NC6b attach/`<model>` — self-contained-child slice LANDED (ratchet 259 -> 262); full-import
+   wave still queued.** ProtoSpec stores `<model file=...>` as a `ModelAsset` (file ref only) and
+   `<attach model=.. body=.. prefix=..>` as an `Attach` element; the reader passes both unexpanded,
+   so leg B relies on `mj_loadXML` to recursively parse the child and run `mjs_attach`.
+   **Landed** (`ExpandAttaches` in `cpp/compile/native.cc`, "attach"/"model" admitted in
+   `native_supported.h`): at native compile, parse the child model (`io::ParseMjcfFile`; child path
+   = parent-model dir + `file`, `..` normalized; a nameless `<model>` is indexed by its child
+   `<mujoco model=..>` name per reader :3624), deep-clone the named child body, prefix-namespace
+   every element NAME (`mjCBase::NameSpace`, name=prefix+name — cross-model, so real `mjs_attach`
+   with empty suffix), splice where the `<attach>` stood (the reader's fabricated identity frame
+   :3935 folds away). Orientation is quat-resolved in the child's own compiler context at parse, so
+   the graft is context-safe. Lands **parent.xml, parent_model.xml, many_dependencies.xml** (the
+   last a lone unreferenced `<model>` asset, now admitted+ignored), all bit-identical.
+   **NOT reproduced (routes to XML fallback with a written `attach.*` reason)** — the full
+   `mjs_attach` machinery: (a) child asset deepcopy-import (prefixed meshes/textures/materials/
+   hfields/skins into the parent asset space) → `attach.child_assets`; (b) child default-class
+   NameSpace-merge (`mjCFrame::operator+= :2969-2974`, `*model += *subdef`) → `attach.child_defaults`;
+   (c) keyframe `StoreKeyframes`/`ExpandAllKeyframes` resize+prefix → `attach.child_keyframes`;
+   (d) referencing-element copy with the drop rule and bit-exact `operator+=` append ordering
+   (`user_model.cc:452-503` copies meshes,skins,hfields,textures,materials, then flexes,pairs,
+   excludes,tendons,equalities,actuators,sensors,tuples — each dropped if its refs don't resolve
+   into the graft) → `attach.referencing_elements`; plus `attach.whole_model` (empty `body`:
+   fabricated world frame over every top body, `user_api.cc:397-412`), `attach.subtree_refs` (graft
+   subtree carries any cross-ref — would dangle without an imported asset/class), `attach.child_
+   deformable`/`child_custom`/`child_nested_model`. The **humanoid/hammock family** (humanoid100,
+   2humanoid100, 22/100_humanoids, hammock, sleep perf — ~13 files) all gate on `attach.child_assets`
+   (humanoid.xml carries 5 assets + 21 defaults + actuator/tendon/keyframe): they need the FULL
+   import wave, which is the genuinely large, high-FP-divergence remainder (a single mismatched ref
+   or one-off in the append order or keyframe resize diverges the whole model). Build on the landed
+   `ExpandAttaches` seam (it already produces a mutable synth `Model` from `Clone(m)`); the next
+   wave imports child assets/defaults/keyframes/referencing-sections into that synth with the exact
+   `operator+=` order and prefix rules, then reuses the existing pipeline. Note: `Clone` regenerates
+   serials, so a full-import wave handling models with UNNAMED referenceable elements must bake the
+   original-serial auto-name before cloning (the `BakeName` precedent in `build.cc`).
 6. **NC7 long tail** — muscle (`mj_setLengthRange` public/post-build), dcmotor, site/refsite/
    slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,
    alignfree, per-body sleep, partial-size-default eager-copy, `Expand()`, flexcomp

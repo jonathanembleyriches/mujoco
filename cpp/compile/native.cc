@@ -39,6 +39,7 @@
 #include "native.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <set>
@@ -50,9 +51,11 @@
 
 #include <mujoco/mujoco.h>
 
+#include "attach.h"    // ps::sdk::detail::PrefixSubtree (cross-model NameSpace)
 #include "build.h"
 #include "classes.h"   // ps::sdk defaults resolution (partial-array detector)
 #include "context.h"
+#include "mjcf.h"      // io::ParseMjcfFile (recursive child-model parse)
 #include "native_supported.h"
 #include "reflect.h"
 #include "visit.h"
@@ -634,6 +637,228 @@ void ScanReplicateChildclass(
   }
 }
 
+// --------------------------------------------------------------------------- //
+// NC6b: native <attach>/<model> expansion (self-contained-child slice).        //
+//                                                                              //
+// ProtoSpec stores <model file=...> as a ModelAsset (a file ref, NOT a parsed  //
+// child) and <attach model=.. body=.. prefix=..> as an Attach body-child; the  //
+// reader passes both through unexpanded (DR-7), so leg B relies on mj_loadXML   //
+// to recursively parse the child file and run mjs_attach. The native path       //
+// reproduces that at compile time for the tractable slice: parse the child      //
+// model (io::ParseMjcfFile; orientation is already quat-resolved in the child's //
+// own compiler context, so the graft is context-safe), deep-clone the named     //
+// child body, prefix-namespace every element name -- mjCBase::NameSpace,        //
+// user_objects.cc:1490-1497 / mjCBody::NameSpace_ :1955-2001: name = prefix +   //
+// name (cross-model, so this is mjs_attach with an empty suffix) -- and splice   //
+// it where the <attach> stood (the reader's fabricated identity frame,          //
+// xml_native_reader.cc:3935, folds away). Lifted semantics: mjs_attach          //
+// user_api.cc:386-459 + attachBody :304-318 -> mjCFrame::operator+= :2939.      //
+//                                                                              //
+// The FULL mjs_attach (child asset deepcopy-import, child default-class merge,  //
+// keyframe StoreKeyframes resize, referencing-element copy with the drop rule,  //
+// bit-exact append ordering) is NOT reproduced here; a child that would need    //
+// any of it is routed to the XML fallback with a written attach.* reason. This  //
+// slice grafts only self-contained child bodies whose subtree carries no cross- //
+// reference (so nothing dangles without an imported asset/class), which is the  //
+// pure NameSpace-of-names case.                                                 //
+// --------------------------------------------------------------------------- //
+namespace {
+
+// The clone carries a cross-reference (asset/class/target ref) that the graft
+// would need imported alongside it; outside this slice. Reuses RefNameCollector
+// (any non-empty typed ref name in the subtree).
+bool SubtreeHasRefs(const Body& b) {
+  std::set<std::string> refs;
+  RefNameCollector rc(refs);
+  rc(b);
+  return !refs.empty();
+}
+
+// True if any list in the child's <asset>/<deformable>/referencing sections is
+// non-empty -- i.e. attaching its body would trigger mjs_attach's asset import,
+// default merge, keyframe resize, or referencing-element copy (operator+=,
+// user_model.cc:452-503), none of which this slice reproduces. `key` receives
+// the specific attach.* reason for the first non-empty section found.
+bool ChildNeedsImport(const Model& child, const char*& key) {
+  for (const auto& a : child.assets) {
+    if (!a) continue;
+    if (!a->meshs.empty() || !a->hfields.empty() || !a->skins.empty() ||
+        !a->textures.empty() || !a->materials.empty()) {
+      key = "attach.child_assets";
+      return true;
+    }
+    if (!a->modelAssets.empty()) {  // nested <model> in the child
+      key = "attach.child_nested_model";
+      return true;
+    }
+  }
+  if (!child.defaults.empty())   { key = "attach.child_defaults";   return true; }
+  if (!child.keyframes.empty())  { key = "attach.child_keyframes";  return true; }
+  if (!child.deformables.empty()){ key = "attach.child_deformable"; return true; }
+  if (!child.customs.empty())    { key = "attach.child_custom";     return true; }
+  if (!child.actuators.empty() || !child.tendons.empty() ||
+      !child.sensors.empty() || !child.equalitys.empty() ||
+      !child.contacts.empty()) {
+    key = "attach.referencing_elements";
+    return true;
+  }
+  return false;
+}
+
+// Find a top-level worldbody body by name in a parsed child model.
+const Body* FindWorldbodyBody(const Model& child, const std::string& name) {
+  std::function<const Body*(const std::vector<BodyChildAny>&)> rec =
+      [&](const std::vector<BodyChildAny>& subtree) -> const Body* {
+    for (const BodyChildAny& c : subtree) {
+      if (c.kind() == BodyChildAny::Kind::Body) {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        if (b && b->name && *b->name == name) return b.get();
+      }
+    }
+    return nullptr;
+  };
+  for (const auto& wb : child.worldbody)
+    if (wb) if (const Body* b = rec(wb->subtree)) return b;
+  return nullptr;
+}
+
+// Resolve one <attach> to the prefixed, self-contained body clone to splice in,
+// or nullptr (with a written reason pushed) to route the model to the fallback.
+std::unique_ptr<Body> ResolveAttach(
+    const Attach& at, const std::string& base_dir,
+    const std::unordered_map<std::string, const ModelAsset*>& modelassets,
+    std::vector<bridge::FallbackReason>& reasons) {
+  auto fail = [&](const char* feature) -> std::unique_ptr<Body> {
+    bridge::FallbackReason r;
+    r.feature = feature;
+    r.count = 1;
+    r.first = at.loc;
+    reasons.push_back(std::move(r));
+    return nullptr;
+  };
+
+  // A whole-model attach (empty body) fabricates a world frame and grafts every
+  // top-level child body (user_api.cc:397-412); outside this slice.
+  if (!at.body || at.body->empty()) return fail("attach.whole_model");
+  if (!at.prefix) return fail("attach.no_prefix");
+  if (!at.model || at.model->name.empty()) return fail("attach.no_model_ref");
+
+  auto it = modelassets.find(at.model->name);
+  if (it == modelassets.end() || !it->second->file || it->second->file->empty())
+    return fail("attach.model_not_found");
+
+  // Child file path: modelfiledir_ + file (xml_native_reader.cc:3616). The
+  // reader joins the PARENT model's directory (== base_dir for a top-level
+  // model), then normalizes any embedded "..".
+  std::filesystem::path child_path =
+      (std::filesystem::path(base_dir) / *it->second->file).lexically_normal();
+
+  ps::mjcf::io::ParseResult pr = ps::mjcf::io::ParseMjcfFile(child_path.string());
+  if (!pr.ok() || !pr.model) return fail("attach.child_parse_failed");
+  const Model& child = *pr.model;
+
+  const char* import_reason = nullptr;
+  if (ChildNeedsImport(child, import_reason)) return fail(import_reason);
+
+  const Body* target = FindWorldbodyBody(child, *at.body);
+  if (!target) return fail("attach.body_not_found");
+
+  std::unique_ptr<Body> clone = Clone(*target);
+  if (SubtreeHasRefs(*clone)) return fail("attach.subtree_refs");
+
+  // Cross-model NameSpace: prefix every element name in the graft (no suffix).
+  ps::sdk::detail::PrefixSubtree(*clone, *at.prefix);
+  return clone;
+}
+
+// Replace every <attach> in a body subtree (and nested bodies/frames/replicates)
+// with its resolved graft. On any non-tractable attach a reason is pushed and
+// the Attach is left in place (the caller falls back before building).
+void ExpandAttachInSubtree(
+    std::vector<BodyChildAny>& subtree, const std::string& base_dir,
+    const std::unordered_map<std::string, const ModelAsset*>& modelassets,
+    std::vector<bridge::FallbackReason>& reasons) {
+  for (BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Body: {
+        auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        if (b) ExpandAttachInSubtree(b->subtree, base_dir, modelassets, reasons);
+        break;
+      }
+      case BodyChildAny::Kind::Frame: {
+        auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+        if (f) ExpandAttachInSubtree(f->subtree, base_dir, modelassets, reasons);
+        break;
+      }
+      case BodyChildAny::Kind::Replicate: {
+        auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        if (r) ExpandAttachInSubtree(r->subtree, base_dir, modelassets, reasons);
+        break;
+      }
+      case BodyChildAny::Kind::Attach: {
+        const auto& at = std::get<std::unique_ptr<Attach>>(c.node);
+        if (!at) break;
+        std::unique_ptr<Body> graft =
+            ResolveAttach(*at, base_dir, modelassets, reasons);
+        if (graft) c = BodyChildAny{std::move(graft)};
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
+}  // namespace
+
+// True if the model authors any <attach>. Attach models are rare; the 259
+// existing native files author none, so this keeps them on the zero-copy path.
+bool ModelUsesAttach(const Model& m) {
+  bool found = false;
+  ps::sdk::detail::WalkModelLive(const_cast<Model&>(m), [&](auto& e) {
+    if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Attach>) found = true;
+  });
+  return found;
+}
+
+// Build a synthetic model with every <attach> expanded in place, or nullptr when
+// the model authors no attach (caller compiles the original). Non-tractable
+// attaches populate `reasons`; the caller falls back without building.
+std::unique_ptr<Model> ExpandAttaches(const Model& m,
+                                      const bridge::CompileOptions& opts,
+                                      std::vector<bridge::FallbackReason>& reasons) {
+  if (!ModelUsesAttach(m)) return nullptr;
+
+  std::unique_ptr<Model> synth = Clone(m);
+
+  // ModelAsset name -> file lookup (the Attach.model ref resolves by name). An
+  // <model> with an explicit name uses it; a nameless <model file=child.xml> is
+  // referenced by the CHILD's own <mujoco model=..> name (the reader overwrites
+  // it only when a name attr is given, xml_native_reader.cc:3624-3628), so parse
+  // the nameless ones once to index them by that name.
+  std::unordered_map<std::string, const ModelAsset*> modelassets;
+  for (const auto& a : synth->assets) {
+    if (!a) continue;
+    for (const auto& ma : a->modelAssets) {
+      if (!ma) continue;
+      if (ma->name) {
+        modelassets[*ma->name] = ma.get();
+      } else if (ma->file && !ma->file->empty()) {
+        std::filesystem::path cp =
+            (std::filesystem::path(opts.base_dir) / *ma->file).lexically_normal();
+        ps::mjcf::io::ParseResult pr = ps::mjcf::io::ParseMjcfFile(cp.string());
+        if (pr.ok() && pr.model && pr.model->model && !pr.model->model->empty())
+          modelassets[*pr.model->model] = ma.get();
+      }
+    }
+  }
+
+  for (auto& wb : synth->worldbody)
+    if (wb) ExpandAttachInSubtree(wb->subtree, opts.base_dir, modelassets, reasons);
+
+  return synth;
+}
+
 std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::unordered_map<ElementType, FeatureUse> used;
   FeatureCollector collect(used);
@@ -734,22 +959,38 @@ mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
   // S0 gate: route or record fallback (CDR-2).
   std::vector<bridge::FallbackReason> unsupported = CollectUnsupportedFeatures(m);
 
-  // Every feature admitted: run the S1..S13 build pipeline. On success return
-  // the built model with report.taken == NativePath.
+  // Every family admitted: expand <attach> (NC6b) then run the build pipeline.
   if (unsupported.empty()) {
-    std::vector<bridge::Diagnostic> diags;
-    mjModel* built = BuildNativeModel(m, opts, diags);
-    if (built) {
-      report.fallback_reasons.clear();
-      return built;
+    // NC6b: splice each tractable <attach> into a synthetic model. A non-
+    // tractable attach (child needing asset import / default merge / keyframe
+    // resize) routes here with an explicit attach.* reason; a model with no
+    // attach yields synth == nullptr and compiles unchanged.
+    std::vector<bridge::FallbackReason> attach_reasons;
+    std::unique_ptr<Model> synth = ExpandAttaches(m, opts, attach_reasons);
+    if (!attach_reasons.empty()) {
+      unsupported = std::move(attach_reasons);
+    } else {
+      const Model& build_m = synth ? *synth : m;
+      // The grafted child body may use a feature the gate on the original tree
+      // could not see (the child was an unparsed file ref); re-gate the synth.
+      if (synth) unsupported = CollectUnsupportedFeatures(*synth);
+
+      if (unsupported.empty()) {
+        std::vector<bridge::Diagnostic> diags;
+        mjModel* built = BuildNativeModel(build_m, opts, diags);
+        if (built) {
+          report.fallback_reasons.clear();
+          return built;
+        }
+        // A build failure on an admitted model is a native-compiler bug:
+        // surface the diagnostics and fall back (Auto) / hard-error (forced).
+        for (auto& d : diags) report.errors.push_back(std::move(d));
+        bridge::FallbackReason r;
+        r.feature = "native.build_failed";
+        r.count = 1;
+        unsupported.push_back(std::move(r));
+      }
     }
-    // A build failure on an admitted model is a native-compiler bug: surface the
-    // diagnostics and fall back (Auto) / hard-error (forced NativePath).
-    for (auto& d : diags) report.errors.push_back(std::move(d));
-    bridge::FallbackReason r;
-    r.feature = "native.build_failed";
-    r.count = 1;
-    unsupported.push_back(std::move(r));
   }
 
   report.fallback_reasons = unsupported;

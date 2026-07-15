@@ -118,6 +118,17 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
   if (feature_key == "skin" || feature_key == "bone") {
     return true;
   }
+  // NC6b attach/<model>: <model file=...> (a ModelAsset file ref) and <attach
+  // model=.. body=.. prefix=..> are admitted at family granularity so the
+  // native path can attempt expansion. The tractability of a given attach --
+  // whether its child model is self-contained enough to graft without asset
+  // import / default merge / keyframe resize -- is decided per attach in
+  // ExpandAttaches (native.cc), which parses the child file (needs base_dir, not
+  // available to this pure gate) and routes non-tractable shapes to the XML
+  // fallback with an explicit attach.* reason.
+  if (feature_key == "attach" || feature_key == "model") {
+    return true;
+  }
   // NC2 tendons: spatial (site/geom/pulley wraps) and fixed (joint) tendons.
   // A tendon material ref or non-zero armature routes to fallback (finer scan).
   if (feature_key == "tendon" || feature_key == "spatial" ||
