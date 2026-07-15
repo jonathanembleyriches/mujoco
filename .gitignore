@@ -4,6 +4,6 @@ __pycache__/
 .pytest_cache/
 dist/
 *.egg-info/
-cpp/**/build/
+cpp/**/build*/
 apps/**/build/
 MUJOCO_LOG.TXT
