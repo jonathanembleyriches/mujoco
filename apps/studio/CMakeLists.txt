@@ -106,6 +106,8 @@ set(PROTOSPEC_SRC
   ${CPP_ROOT}/compile/lifted/mjuu_util.cc
   ${CPP_ROOT}/compile/lifted/mesh_pipeline.cc
   ${CPP_ROOT}/compile/lifted/image_pipeline.cc
+  ${CPP_ROOT}/compile/lifted/builtin_mesh.cc
+  ${CPP_ROOT}/compile/lifted/marching_cube.cc
   ${CPP_ROOT}/third_party/tinyxml2/tinyxml2.cpp
 )
 
@@ -380,3 +382,29 @@ add_custom_command(TARGET protospec_studio_authoring_tests POST_BUILD
   VERBATIM)
 add_test(NAME protospec_studio_authoring_tests
          COMMAND protospec_studio_authoring_tests)
+
+add_executable(protospec_studio_se5_tests
+  test/test_se5_assets.cc
+  editor/authoring_ops.cc
+  editor/asset_import.cc
+  editor/editor_ops.cc
+  editor/undo.cc
+  editor/transform_math.cc
+)
+target_link_libraries(protospec_studio_se5_tests PRIVATE
+  protospec_studio_core
+  "${MUJOCO_IMPORT_LIB}"
+)
+target_include_directories(protospec_studio_se5_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${MUJOCO_INCLUDE_DIR}
+)
+if(MSVC)
+  target_compile_options(protospec_studio_se5_tests PRIVATE /bigobj)
+endif()
+add_custom_command(TARGET protospec_studio_se5_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MUJOCO_DLL}" "$<TARGET_FILE_DIR:protospec_studio_se5_tests>"
+  VERBATIM)
+add_test(NAME protospec_studio_se5_tests
+         COMMAND protospec_studio_se5_tests)

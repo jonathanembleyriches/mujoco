@@ -17,7 +17,7 @@ that counts. Sync-back is a gap item (G9).
 
 ## 1. Automated certification
 
-All seven batteries plus the core-repo suites must exit 0 at the certification commit.
+All eight batteries plus the core-repo suites must exit 0 at the certification commit.
 Every battery below runs **identically in both trees** (studio branch + protospec
 `apps/studio/test/`); the parenthesised check counts are the current identical totals.
 
@@ -30,6 +30,7 @@ Every battery below runs **identically in both trees** (studio branch + protospe
 | Authoring (add/duplicate/reparent/import/exit story) | `test_authoring` | 9 (114 checks) |
 | **Host** (Play/Stop discard, Save As externalize, delete-confirm, **diagnostics click-to-select**) | `test_host` | 6 (82 checks) |
 | **Host-UI** (key-routing gate, overlay/geom pick, gizmo priority) | `test_hostui` | 3 (19 checks) |
+| **SE5 authoring** (multi/folder mesh import as one undo, batch primitive add, material/texture create + geom assign + round-trip, default class) | `test_se5_assets` | 5 (56 checks) |
 
 ### 1.1 Guarantee → evidence map (must be green)
 
@@ -179,7 +180,18 @@ standalone `apps/studio` host does not carry.
 | M37 | *(studio branch)* Load a model with a planted validation error (e.g. a duplicate joint name); switch the lower panel to Assets, then click the status-bar error chip | A compact **red chip** with the error **count** appears in the status bar whenever Diagnostics hold errors; clicking it **brings the Diagnostics panel to the front**; the chip clears when the diagnostics are cleared | ☐ |
 | M38 | *(studio branch)* Launch classic (`--gfx=classic --screenshot_seq=<dir>`) and press **F12** (or pass `--screenshot_after=<N> --screenshot_count=<K>`) | A PNG of the **composited UI** (menu bar + panels + viewport) is written to `<dir>` — a host-side self-capture that bypasses OS screen grab; images are non-black with the full chrome visible | ☐ |
 
-**38 steps.**
+### SE5 authoring richness (multi-import, primitives, materials/textures, defaults)
+
+| # | Action | Expected | P/F |
+|---|---|---|---|
+| M39 | *(studio branch)* File → **Import Meshes…**, multi-select several `.obj/.stl/.msh` in the native dialog | Each file adds a **Mesh asset + a Body + a mesh Geom**, the bodies laid out on a **grid** so they don't overlap; the last is selected; the model recompiles with all meshes; **one Undo** removes the whole batch. File → **Import Folder…** imports every mesh file in the chosen folder the same way | ☐ |
+| M40 | In the **+ Add ▸ Body / geom (world)** menu, set **count** to N (>1), then pick a primitive (Sphere/Box/…) | **N** geoms drop in a row (offset so they don't overlap) as **one Undo** entry; the last is selected. count=1 (default) is the single-add behaviour | ☐ |
+| M41 | In the **Assets** panel, click **New Texture**: pick a builtin (checker/gradient/flat), set rgb1/rgb2/markrgb via the colour pickers and width/height (or switch to **file** and give a path); **Create** | A `<texture>` asset is created and appears in the panel's **Textures** list with a swatch/kind badge; the model recompiles (`ntex` rises for a builtin) | ☐ |
+| M42 | In the **Assets** panel, click **New Material**: set rgba (ColorEdit4), the specular/shininess/reflectance/metallic/roughness sliders, and assign a texture to the **rgb texture** role; **Create** | A `<material>` asset is created and appears in the **Materials** list with an **rgba colour swatch**; when a texture role was set it carries one layer; the model recompiles (`nmat` rises) | ☐ |
+| M43 | Select a material or geom in Details; find the **rgba** field. Then right-click a **geom** in the Hierarchy → **Assign material** and pick one | The rgba field renders as a **ColorEdit4 swatch/picker** (not a bare 4-number row); assigning a material sets the geom's `material` ref and live-recompiles (the classic backend tints the geom's rgba; textures require the Filament backend) | ☐ |
+| M44 | In the Hierarchy, type a name in **new default class…** and click **+ Class** (or right-click the **Defaults** section → Add class). Select an element and set its **dclass** (or a body's **childclass**) combo in Details | A new `<default>` class is added under `main` and shows in the Defaults section; setting an element's dclass makes its unset fields show the class value with the **[inherited]** presence badge in Details, live | ☐ |
+
+**44 steps.**
 
 ---
 
@@ -187,9 +199,9 @@ standalone `apps/studio` host does not carry.
 
 ### Exit criteria
 
-1. All seven batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
+1. All eight batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
 2. Every §1.2 gap row marked Closed (test added and green) or Waived with owner initials.
-3. All 38 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
+3. All 44 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
 4. The statement below signed.
 
 ### Known exclusions — certified does NOT cover
@@ -216,7 +228,7 @@ standalone `apps/studio` host does not carry.
 ### Certification statement
 
 > I certify that the ProtoSpec Studio model editor meets every guarantee in Section 1, that all
-> Section 1.2 gaps are closed or waived above, and that I walked all 38 steps of Section 2 on
+> Section 1.2 gaps are closed or waived above, and that I walked all 44 steps of Section 2 on
 > the build identified below with zero failures.
 >
 > protospec commit: `________________`  mujoco-studio (`studio`) commit: `________________`

@@ -132,6 +132,42 @@ static void TestWidgetMappingSpecifics() {
   CHECK(ClassifyField(*field(cam, "output")) == WidgetKind::EnumSet);
 }
 
+// SE5 deliverable 3: the rgba/rgb colour classifier. A material's rgba is an
+// rgba4 colour; a light's rgb triples are rgb3; a same-named scalar
+// (Material.specular) never trips the classifier; non-colour rows stay None.
+static void TestColorClassifier() {
+  using det::ColorKind;
+  using det::ColorKindOf;
+  auto field = [&](const reflect::ElementDescriptor& d, std::string_view name)
+      -> const reflect::FieldDescriptor* {
+    for (std::size_t i = 0; i < d.field_count; ++i)
+      if (d.fields[i].name == name) return &d.fields[i];
+    return nullptr;
+  };
+
+  const reflect::ElementDescriptor& mat =
+      reflect::Describe(mj::ElementType::Material);
+  CHECK(ColorKindOf(*field(mat, "rgba")) == ColorKind::Rgba4);
+  // Material.specular is a scalar float, NOT a colour, despite the name.
+  CHECK(ColorKindOf(*field(mat, "specular")) == ColorKind::None);
+
+  const reflect::ElementDescriptor& geom =
+      reflect::Describe(mj::ElementType::Geom);
+  CHECK(ColorKindOf(*field(geom, "rgba")) == ColorKind::Rgba4);
+  CHECK(ColorKindOf(*field(geom, "size")) == ColorKind::None);
+  CHECK(ColorKindOf(*field(geom, "pos")) == ColorKind::None);
+
+  const reflect::ElementDescriptor& light =
+      reflect::Describe(mj::ElementType::Light);
+  CHECK(ColorKindOf(*field(light, "diffuse")) == ColorKind::Rgb3);
+  CHECK(ColorKindOf(*field(light, "ambient")) == ColorKind::Rgb3);
+
+  // The name-only helper is independent of storage shape.
+  CHECK(det::ColorKindByName("rgba") == ColorKind::Rgba4);
+  CHECK(det::ColorKindByName("markrgb") == ColorKind::Rgb3);
+  CHECK(det::ColorKindByName("pos") == ColorKind::None);
+}
+
 // --- 2. Presence layering -------------------------------------------------- //
 static const reflect::FieldDescriptor* FindField(
     const reflect::ElementDescriptor& d, std::string_view name, int& id_out) {
@@ -506,6 +542,7 @@ int main() {
   TestWidgetCoverage();
   TestFieldDocCoverage();
   TestWidgetMappingSpecifics();
+  TestColorClassifier();
   TestPresenceInherited();
   TestPresenceIdlDefault();
   TestPresenceRequiredAndUnset();

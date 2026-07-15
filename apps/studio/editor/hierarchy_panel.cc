@@ -33,6 +33,7 @@ constexpr const char* kClearIcon = "\xEF\x80\x8D";    // U+F00D times
 
 struct HierUiState {
   std::string search;
+  std::string new_class;        // "New Default class" input buffer
   bool keep_world_pose = true;  // reparent "keep world pose" toggle (deliverable 4)
 
   std::uint64_t rename_serial = 0;
@@ -62,8 +63,19 @@ void DrawAddChildMenu(EditorContext& ctx, std::uint64_t parent) {
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Joint")) {
-    if (ImGui::MenuItem("hinge")) AddJointOp(ctx, parent, mj::JointType::hinge);
-    if (ImGui::MenuItem("slide")) AddJointOp(ctx, parent, mj::JointType::slide);
+    static const double kX[3] = {1, 0, 0}, kY[3] = {0, 1, 0}, kZ[3] = {0, 0, 1};
+    if (ImGui::BeginMenu("hinge")) {
+      if (ImGui::MenuItem("axis X")) AddJointAxisOp(ctx, parent, mj::JointType::hinge, kX);
+      if (ImGui::MenuItem("axis Y")) AddJointAxisOp(ctx, parent, mj::JointType::hinge, kY);
+      if (ImGui::MenuItem("axis Z")) AddJointAxisOp(ctx, parent, mj::JointType::hinge, kZ);
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("slide")) {
+      if (ImGui::MenuItem("axis X")) AddJointAxisOp(ctx, parent, mj::JointType::slide, kX);
+      if (ImGui::MenuItem("axis Y")) AddJointAxisOp(ctx, parent, mj::JointType::slide, kY);
+      if (ImGui::MenuItem("axis Z")) AddJointAxisOp(ctx, parent, mj::JointType::slide, kZ);
+      ImGui::EndMenu();
+    }
     if (ImGui::MenuItem("ball")) AddJointOp(ctx, parent, mj::JointType::ball);
     if (ImGui::MenuItem("free (freejoint)"))
       AddJointOp(ctx, parent, mj::JointType::free);
@@ -142,6 +154,40 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
   if (IsContainerNode(node)) {
     DrawAddChildMenu(ctx, node.serial);
   }
+  // Geom material assignment: pick from the model's materials (or clear).
+  if (node.type == mj::ElementType::Geom) {
+    if (ImGui::BeginMenu("Assign material")) {
+      if (ImGui::MenuItem("(none)")) {
+        AssignGeomMaterialOp(ctx, node.serial, "");
+      }
+      bool any = false;
+      for (auto& a : ctx.tree->assets) {
+        if (!a) continue;
+        for (auto& m : a->materials) {
+          if (!m || !m->name) continue;
+          any = true;
+          if (ImGui::MenuItem(m->name->c_str())) {
+            AssignGeomMaterialOp(ctx, node.serial, *m->name);
+          }
+        }
+      }
+      if (!any) ImGui::TextDisabled("no materials -- add one in Assets");
+      ImGui::EndMenu();
+    }
+  }
+  // Quick-rig: wire an actuator to a selected joint (surfaces AddActuatorOp).
+  if (node.type == mj::ElementType::Joint ||
+      node.type == mj::ElementType::FreeJoint) {
+    if (ImGui::BeginMenu("Add actuator for joint")) {
+      if (ImGui::MenuItem("motor"))
+        AddActuatorOp(ctx, ActuatorSpelling::Motor, node.serial);
+      if (ImGui::MenuItem("position"))
+        AddActuatorOp(ctx, ActuatorSpelling::Position, node.serial);
+      if (ImGui::MenuItem("velocity"))
+        AddActuatorOp(ctx, ActuatorSpelling::Velocity, node.serial);
+      ImGui::EndMenu();
+    }
+  }
 }
 
 // Drag-drop reparent: every element node is a drag source; body/frame nodes are
@@ -178,6 +224,20 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     if (node.tag == std::string("Body Tree") &&
         ImGui::BeginPopupContextItem("##bodytree_add")) {
       DrawAddChildMenu(ctx, 0);
+      ImGui::EndPopup();
+    }
+    // The Defaults header adds a new default class.
+    if (node.tag == std::string("Defaults") &&
+        ImGui::BeginPopupContextItem("##defaults_add")) {
+      static std::string cls;
+      ImGui::SetNextItemWidth(160);
+      ImGui::InputTextWithHint("##newclass", "class name", &cls);
+      ImGui::SameLine();
+      if (ImGui::Button("Add class") && !cls.empty()) {
+        AddDefaultClassOp(ctx, cls);
+        cls.clear();
+        ImGui::CloseCurrentPopup();
+      }
       ImGui::EndPopup();
     }
     if (open) {
@@ -303,6 +363,16 @@ void HierarchyUpdate(GuiPlugin* self) {
     ImGui::TextDisabled("%d match%s", matches, matches == 1 ? "" : "es");
   }
   ImGui::Checkbox("Keep world pose on reparent", &st.keep_world_pose);
+
+  // New Default class (also reachable via the Defaults section context menu, but
+  // kept here so it works before any class exists / the section is present).
+  ImGui::SetNextItemWidth(140);
+  ImGui::InputTextWithHint("##newdefclass", "new default class...", &st.new_class);
+  ImGui::SameLine();
+  if (ImGui::Button("+ Class") && !st.new_class.empty()) {
+    AddDefaultClassOp(*c, st.new_class);
+    st.new_class.clear();
+  }
   ImGui::Separator();
 
   const HierNode view = FilterHierarchy(model, st.search);

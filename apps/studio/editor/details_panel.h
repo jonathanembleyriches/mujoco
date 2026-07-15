@@ -13,6 +13,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -175,6 +176,42 @@ inline std::string_view WidgetKindName(WidgetKind w) {
   return "?";
 }
 
+// --- Colour fields --------------------------------------------------------- //
+// A handful of fields are RGB(A) colours and read far better as an ImGui colour
+// swatch/picker than as a bare numeric row. They are recognised by field name
+// (an authoring convenience -- a real color-space hint would be schema-driven),
+// and only when the storage is actually a fixed 3- or 4-wide float/double array,
+// so a same-named scalar (e.g. Material.specular) never trips the classifier.
+enum class ColorKind {
+  None,
+  Rgb3,   // ImGui::ColorEdit3
+  Rgba4,  // ImGui::ColorEdit4
+};
+
+inline ColorKind ColorKindByName(std::string_view xml) {
+  if (xml == "rgba") return ColorKind::Rgba4;
+  if (xml == "rgb" || xml == "rgb1" || xml == "rgb2" || xml == "markrgb" ||
+      xml == "ambient" || xml == "diffuse" || xml == "specular" ||
+      xml == "emission" || xml == "fog" || xml == "haze") {
+    return ColorKind::Rgb3;
+  }
+  return ColorKind::None;
+}
+
+// The classifier proper: a colour field must also be a fixed-arity real row of
+// the matching width, so the widget can bind directly to the array's floats.
+inline ColorKind ColorKindOf(const reflect::FieldDescriptor& fd) {
+  const ColorKind by_name = ColorKindByName(fd.xml);
+  if (by_name == ColorKind::None) return ColorKind::None;
+  const bool real = fd.kind == reflect::FieldKind::Float ||
+                    fd.kind == reflect::FieldKind::Double;
+  const bool fixed = fd.arity == reflect::ArityKind::Fixed;
+  if (!real || !fixed) return ColorKind::None;
+  if (by_name == ColorKind::Rgba4 && fd.arity_min == 4) return ColorKind::Rgba4;
+  if (by_name == ColorKind::Rgb3 && fd.arity_min == 3) return ColorKind::Rgb3;
+  return ColorKind::None;
+}
+
 // --- Field grouping -------------------------------------------------------- //
 // Transform-ish fields lead the panel under their own header (plan Section 4);
 // everything else follows in schema order.
@@ -309,6 +346,59 @@ inline std::string_view PresenceBadge(Presence p) {
     case Presence::Unset: return "unset";
   }
   return "";
+}
+
+// --- Material texture layers ----------------------------------------------- //
+// A Material's <layer> children are an owned vector<unique_ptr<MaterialLayer>>,
+// so the generic field visitor -- which walks scalar/array fields only -- never
+// reaches them: this is the one appearance surface the reflection panel misses.
+// These pure mutators are the whole editing contract the Details panel drives for
+// a material's texture layers. The panel wraps each in one BeginEdit/CommitEdit
+// so it is a single undo step; keeping the mutation here (not inside the ImGui
+// callback) lets the exact same code be exercised windowless.
+
+// The display name of a layer's texture reference ("" when unset).
+inline std::string LayerTextureName(const mj::MaterialLayer& layer) {
+  return layer.texture ? layer.texture->name : std::string();
+}
+
+// A layer's role as an enum index; an unset role reads as rgb (index 0), the role
+// a freshly added layer carries.
+inline int LayerRoleIndex(const mj::MaterialLayer& layer) {
+  return layer.role ? static_cast<int>(*layer.role) : 0;
+}
+
+// Point a layer at a texture by name; an empty name clears the reference.
+inline void SetLayerTexture(mj::MaterialLayer& layer, std::string_view texture) {
+  if (texture.empty()) {
+    layer.texture.reset();
+  } else {
+    layer.texture = ps::Ref<mj::Texture>(std::string(texture));
+  }
+}
+
+inline void SetLayerRole(mj::MaterialLayer& layer, mj::TexRole role) {
+  layer.role = role;
+}
+
+// Append a texture layer (role rgb, referencing `texture` when non-empty) and
+// return its index.
+inline std::size_t AddMaterialLayer(mj::Material& mat,
+                                    std::string_view texture = {}) {
+  auto layer = std::make_unique<mj::MaterialLayer>();
+  layer->role = mj::TexRole::rgb;
+  if (!texture.empty()) {
+    layer->texture = ps::Ref<mj::Texture>(std::string(texture));
+  }
+  mat.layers.push_back(std::move(layer));
+  return mat.layers.size() - 1;
+}
+
+// Remove the layer at `idx`; a no-op returning false when out of range.
+inline bool RemoveMaterialLayer(mj::Material& mat, std::size_t idx) {
+  if (idx >= mat.layers.size()) return false;
+  mat.layers.erase(mat.layers.begin() + idx);
+  return true;
 }
 
 // --- Panel registration ---------------------------------------------------- //

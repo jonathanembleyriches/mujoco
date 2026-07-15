@@ -19,6 +19,7 @@
 #ifndef PS_STUDIO_EDITOR_AUTHORING_OPS_H_
 #define PS_STUDIO_EDITOR_AUTHORING_OPS_H_
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -44,9 +45,21 @@ namespace mj = ps::mjcf;
 std::uint64_t AddBodyOp(EditorContext& ctx, std::uint64_t parent_serial);
 std::uint64_t AddGeomOp(EditorContext& ctx, std::uint64_t parent_serial,
                         mj::GeomType type);
+
+// Batch add: `count` geoms of `type` under `parent_serial`, laid out in a row
+// (each offset a fixed step further along +X) so they do not overlap. ONE undo
+// entry for the whole batch; the last geom is selected. `count <= 1` is exactly
+// AddGeomOp. Returns the last geom's serial, or 0 when the parent is invalid.
+std::uint64_t AddGeomsOp(EditorContext& ctx, std::uint64_t parent_serial,
+                         mj::GeomType type, int count);
 // JointType::free adds a <freejoint>; the other three add a typed <joint>.
 std::uint64_t AddJointOp(EditorContext& ctx, std::uint64_t parent_serial,
                          mj::JointType type);
+// Quick-rig add: a hinge/slide joint with `axis` (a body-frame unit vector)
+// baked in, so the context-menu presets ("hinge X/Y/Z", "slide X/Y/Z") land a
+// ready-to-use joint. One undo entry; the new joint is selected.
+std::uint64_t AddJointAxisOp(EditorContext& ctx, std::uint64_t parent_serial,
+                             mj::JointType type, const double axis[3]);
 std::uint64_t AddSiteOp(EditorContext& ctx, std::uint64_t parent_serial);
 std::uint64_t AddCameraOp(EditorContext& ctx, std::uint64_t parent_serial);
 std::uint64_t AddLightOp(EditorContext& ctx, std::uint64_t parent_serial);
@@ -87,6 +100,63 @@ std::uint64_t AddSensorOp(EditorContext& ctx, SensorSpelling spelling,
 // element is selected; returns its creation serial. (Tendon/equality/pair/
 // exclude are created empty -- they need targets wired in Details before they
 // compile; keyframe and default class compile as-is.)
+// --- Assets: materials & textures ----------------------------------------- //
+
+// A new material's authored appearance. Only fields the New Material dialog
+// exposes; everything else stays unset (inherits IDL/class defaults, DR-1).
+struct MaterialSpec {
+  std::string name;
+  std::array<float, 4> rgba{0.8f, 0.8f, 0.8f, 1.0f};
+  float specular = 0.5f;
+  float shininess = 0.5f;
+  float reflectance = 0.0f;
+  float metallic = 0.0f;
+  float roughness = 1.0f;
+  // When non-empty, a MaterialLayer{role=rgb} is added referencing this texture.
+  std::string texture_rgb;
+};
+
+// A new texture. `builtin` selects a procedural pattern (checker/gradient/flat)
+// with rgb1/rgb2/markrgb colours and a width/height; otherwise `file` names an
+// on-disk image the compiler loads.
+struct TextureSpec {
+  std::string name;
+  bool builtin = true;
+  mj::TextureBuiltin builtin_type = mj::TextureBuiltin::checker;
+  mj::TextureType type = mj::TextureType::twod;
+  std::array<double, 3> rgb1{0.8, 0.8, 0.8};
+  std::array<double, 3> rgb2{0.2, 0.2, 0.2};
+  std::array<double, 3> markrgb{0.0, 0.0, 0.0};
+  int width = 100;
+  int height = 100;
+  std::string file;  // when !builtin
+};
+
+// Create a fully-specified material / texture asset from a dialog spec (name +
+// appearance in one shot, the "New Material" / "New Texture" flow). One undo
+// entry each; the new asset is selected; returns its creation serial.
+std::uint64_t CreateMaterialOp(EditorContext& ctx, const MaterialSpec& spec);
+std::uint64_t CreateTextureOp(EditorContext& ctx, const TextureSpec& spec);
+
+// Dialog-commit validation for the New Material / New Texture flows. The create
+// button is gated on these: a create needs a non-empty name, and a builtin
+// texture needs positive dimensions while a file texture needs a path. Pure so
+// the dialog gate and the tests share one definition of "ready to create".
+inline bool MaterialSpecValid(const MaterialSpec& spec) {
+  return !spec.name.empty();
+}
+inline bool TextureSpecValid(const TextureSpec& spec) {
+  if (spec.name.empty()) return false;
+  return spec.builtin ? (spec.width >= 1 && spec.height >= 1)
+                      : !spec.file.empty();
+}
+
+// Assign (or clear, when `material_name` is empty) the material of the geom with
+// `geom_serial`. One undo entry; the geom stays selected. Returns false when the
+// serial does not resolve to a geom.
+bool AssignGeomMaterialOp(EditorContext& ctx, std::uint64_t geom_serial,
+                          const std::string& material_name);
+
 std::uint64_t AddTendonOp(EditorContext& ctx);
 std::uint64_t AddEqualityWeldOp(EditorContext& ctx);
 std::uint64_t AddPairOp(EditorContext& ctx);
