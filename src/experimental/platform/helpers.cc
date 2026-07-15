@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "lodepng.h"
 #include "webp/encode.h"
 #include "webp/types.h"
 #include <mujoco/mjxmacro.h>
@@ -103,6 +104,19 @@ void SaveToWebp(int width, int height, const std::byte* data,
   file.write(reinterpret_cast<const char*>(webp), size);
   file.close();
   WebPFree(webp);
+}
+
+bool SaveToPng(int width, int height, const std::byte* data,
+               const std::string& filename) {
+  const unsigned err = lodepng::encode(
+      filename, reinterpret_cast<const unsigned char*>(data),
+      static_cast<unsigned>(width), static_cast<unsigned>(height), LCT_RGB, 8);
+  if (err) {
+    mju_warning("SaveToPng(%s) failed: %s", filename.c_str(),
+                lodepng_error_text(err));
+    return false;
+  }
+  return true;
 }
 
 const void* GetValue(const mjModel* model, const mjData* data,

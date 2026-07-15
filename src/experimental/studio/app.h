@@ -61,6 +61,16 @@ class App {
 
     // The application title shown in the window title bar.
     std::string title = "MuJoCo Studio";
+
+    // Self-screenshot mode (classic backend only). When `screenshot_dir` is set,
+    // F12 writes a PNG of the composited framebuffer (menu bar + panels + scene)
+    // into it. If `screenshot_after` > 0, `screenshot_count` PNGs are written
+    // automatically starting on that frame; `screenshot_exit` then quits the app
+    // once the sequence is done. This bypasses OS screen capture entirely.
+    std::string screenshot_dir;
+    int screenshot_after = 0;
+    int screenshot_count = 1;
+    bool screenshot_exit = false;
   };
 
   explicit App(Config config);
@@ -215,6 +225,11 @@ class App {
   void HandleMouseEvents();
   void HandleKeyboardEvents();
 
+  // Captures the composited window framebuffer (classic backend) to a PNG under
+  // screenshot_dir_. Services the F12 key and the --screenshot-seq auto mode.
+  void ServiceScreenshots();
+  void WriteScreenshot(const std::string& path);
+
   void ProcessPendingLoads();
 
   void MoveCamera(platform::CameraMotion motion, mjtNum reldx, mjtNum reldy);
@@ -269,6 +284,15 @@ class App {
   mjvCamera camera_;
   mjvPerturb perturb_;
   mjvOption vis_options_;
+
+  // Self-screenshot state (see Config screenshot fields).
+  std::string screenshot_dir_;
+  int screenshot_after_ = 0;
+  int screenshot_remaining_ = 0;
+  bool screenshot_exit_ = false;
+  int frame_counter_ = 0;
+  int screenshot_index_ = 0;
+  bool screenshot_key_ = false;  // F12 pressed since the last capture pass
 
   UiState ui_;
   UiTempState tmp_;

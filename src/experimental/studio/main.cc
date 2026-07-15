@@ -39,6 +39,15 @@ ABSL_FLAG(int, window_width, 1400, "Window width");
 ABSL_FLAG(int, window_height, 720, "Window height");
 ABSL_FLAG(std::string, model_file, "", "MuJoCo model file.");
 ABSL_FLAG(std::string, gfx, "", "Graphics API");
+ABSL_FLAG(std::string, screenshot_seq, "",
+          "Directory for self-screenshots (F12 + auto mode). Classic backend "
+          "only.");
+ABSL_FLAG(int, screenshot_after, 0,
+          "Auto-capture starting on this frame (0 disables auto mode).");
+ABSL_FLAG(int, screenshot_count, 1,
+          "Number of auto-capture frames to write.");
+ABSL_FLAG(bool, screenshot_exit, false,
+          "Quit once the auto-capture sequence is written.");
 
 std::string Resolve(std::string_view path) {
   std::string_view subpath = path.substr(path.find(':') + 1);
@@ -154,6 +163,10 @@ int main(int argc, char** argv, char** envp) {
     .ini_path = ini_path,
     .gfx_mode = gfx_mode,
     .title = app_title,
+    .screenshot_dir = absl::GetFlag(FLAGS_screenshot_seq),
+    .screenshot_after = absl::GetFlag(FLAGS_screenshot_after),
+    .screenshot_count = absl::GetFlag(FLAGS_screenshot_count),
+    .screenshot_exit = absl::GetFlag(FLAGS_screenshot_exit),
   });
 
   // If the model file is not specified, try to load it from the first argument
