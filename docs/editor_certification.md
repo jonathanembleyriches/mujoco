@@ -26,7 +26,7 @@ Every battery below runs **identically in both trees** (studio branch + protospe
 | Core (load, pick, hierarchy, rename/delete, undo, save) | `test_studio` | 11 (112 checks) |
 | Gizmo (delta rule, joint rig, projection, mode machine, **perf gate**) | `test_gizmo` | 20 (170 checks) |
 | Movability audit (inline fixtures + 5 corpus models) | `test_movability` | 4 + audit engine (584 checks) |
-| Details (reflection coverage, presence, refs, enums) | `test_details` | 8 (75 checks) |
+| Details (reflection coverage, presence, refs, enums, **display fidelity**) | `test_details` | 11 (4848 checks) |
 | Authoring (add/duplicate/reparent/import/exit story) | `test_authoring` | 9 (114 checks) |
 | **Host** (Play/Stop discard, Save As externalize, delete-confirm) | `test_host` | 3 (55 checks) |
 | **Host-UI** (key-routing gate, overlay/geom pick, gizmo priority) | `test_hostui` | 3 (19 checks) |
@@ -54,6 +54,7 @@ Every battery below runs **identically in both trees** (studio branch + protospe
 | A17 | **Save round-trip fidelity**: editor save is a byte-stable WriteMjcf fixpoint + deep-equal reload; the SE3 exit story (blank → build → simulate → save → reload → deep compare); the writer's own fixpoint battery + differential-vs-MuJoCo harness | `test_studio.cc` TestSaveRoundTripFixpoint; `test_authoring.cc` TestExitStory; `cpp/test/test_io.cc`; `cpp/harness` |
 | A18 | **Load/pick/registry core**: clean failure on bad path (tree untouched, diagnostics populated); humanoid loads via ParseMjcf→Compile; every bound geom/body id resolves back to its authored element with the same serial; plugin registry order + name-dedup + pointer mutation | `test_studio.cc` TestLoadFailureIsClean, TestLoadHumanoid, TestPickResolvesToElement, TestRegistryOrderAndDedup |
 | A19 | **Mode-machine recompile gate (DR-S2)**: Edit services queued recompiles; Play defers them; the one-shot `apply_edits` (Play transition) forces one | `test_gizmo.cc` TestModeMachineRecompileGate |
+| A20 | **Display-value fidelity**: every value the panel shows is drawn from a real layer — the authored value, the class/IDL effective value, or the type's defined zero — never an uninitialised temp; and every numeric drag widget is exactly as wide as its storage (`NumericWidgetOf` == `sizeof`), so an int32 field can never be read as a 64-bit word and shown as a garbage "super big number". Swept over all group-bearing families instantiated fresh + every element of the corpus-loaded humanoid. | `test_details.cc` TestNumericWidgetWidths, TestDisplayFidelityFresh, TestDisplayFidelityHumanoid |
 
 ### 1.2 Gaps — guarantees with no automated test yet
 
