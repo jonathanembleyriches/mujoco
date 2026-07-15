@@ -1,0 +1,23 @@
+void mjCMesh::MakeWedge(int resolution[2], double fov[2], double gamma) {
+  std::vector<double> x_edges(resolution[0] + 1, 0);
+  std::vector<double> y_edges(resolution[1] + 1, 0);
+  BinEdges(x_edges.data(), y_edges.data(), resolution, fov, gamma);
+  std::vector<float> uservert(3 * resolution[0] * resolution[1], 0);
+  std::vector<float> usernormal(9 * resolution[0] * resolution[1], 0);
+
+  for (int i = 0; i < resolution[0]; i++) {
+    for (int j = 0; j < resolution[1]; j++) {
+      double aer[3];
+      aer[0] = 0.5 * (x_edges[i + 1] + x_edges[i]);
+      aer[1] = 0.5 * (y_edges[j + 1] + y_edges[j]);
+      aer[2] = 1;
+      SphericalToCartesian(aer, uservert.data() + 3 * (i * resolution[1] + j));
+      TangentFrame(aer, usernormal.data() + 9 * (i * resolution[1] + j));
+    }
+  }
+
+  mjs_setFloat(spec.uservert, uservert.data(),
+               3 * resolution[0] * resolution[1]);
+  mjs_setFloat(spec.usernormal, usernormal.data(),
+               9 * resolution[0] * resolution[1]);
+}

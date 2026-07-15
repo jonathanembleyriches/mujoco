@@ -1,0 +1,24 @@
+void mjCMesh::MakeCone(int nedge, double radius) {
+  int n = 3 * (nedge + (radius > 0 ? nedge : 1));
+  std::vector<float> uservert(n, 0);
+
+  // bottom face
+  for (int i = 0; i < nedge; i++) {
+    uservert[3 * i + 0] = cos(2 * i * mjPI / nedge);
+    uservert[3 * i + 1] = sin(2 * i * mjPI / nedge);
+    uservert[3 * i + 2] = -1;
+  }
+
+  // top face or single point
+  if (radius > 0) {
+    for (int i = nedge; i < 2 * nedge; i++) {
+      uservert[3 * i + 0] = radius * cos(2 * i * mjPI / nedge);
+      uservert[3 * i + 1] = radius * sin(2 * i * mjPI / nedge);
+      uservert[3 * i + 2] = 1;
+    }
+  } else {
+    uservert[3 * nedge + 2] = 1;
+  }
+
+  mjs_setFloat(spec.uservert, uservert.data(), n);
+}

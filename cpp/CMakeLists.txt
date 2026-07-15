@@ -161,6 +161,8 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
     compile/lifted/make_model.cc
     compile/lifted/mjuu_util.cc
     compile/lifted/mesh_pipeline.cc
+    compile/lifted/marching_cube.cc
+    compile/lifted/builtin_mesh.cc
     compile/lifted/image_pipeline.cc
   )
   target_include_directories(protospec_lifted

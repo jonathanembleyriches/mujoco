@@ -269,6 +269,71 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
    also needs mesh.builtin). No verbatim lifts (packing/CopyPlugins reproduced in ProtoSpec style),
    so no `lifted_code.json` delta. **Next-largest bucket = the SDF pipeline** (marching cubes +
    octree + the SDF-mesh geom AABB/BVH), which would unlock ~14 files.
+9. **NC7c FINAL wave — LANDED (ratchet 339 -> 354, +14 files, 0 divergences), all baselines green
+   (pytest, cpp 6/6, differential, registry 141 entries drift-clean, emit --check).** Five buckets
+   burned down:
+   - **SDF plugin pipeline (+8: primitives/torus/bowl/gear/nutbolt/mesh + ray/sdf + cloth_sdf).**
+     `mjCMesh::LoadSDF` reproduced (`LoadSdfMesh`, build.cc): resolve the plugin instance, call the
+     public `sdf_attribute`/`sdf_aabb`/`sdf_staticdistance` callbacks, sample a regular grid
+     (`floor(300/total*aabb)+1` per axis), marching-cube it via the **vendored MarchingCubeCpp**
+     single header (`cpp/compile/lifted/marching_cube.{h,cc}`, `MC_IMPLEM_ENABLE` instantiated once),
+     rescale the verts back to geom-local, and feed the generated vert/normal/face to the ordinary
+     mesh pipeline with a new `MeshInput.needreorient=false` (nulls the CoM/principal-axis transform,
+     `mjCMesh::Process` :1511). geom `type="sdf"` binds bounds/inertia exactly like a mesh geom
+     (upstream treats `mjGEOM_SDF` as `mjGEOM_MESH`); `CollectMeshHullRefs` counts sdf collision
+     geoms for the hull. Plugin arrays extended to geoms: `CollectPlugins` walks the body tree for
+     geom plugin refs (+ mesh refs) into the `referenced` set (RemovePlugins) and binds each geom;
+     `FillPlugins` fills `geom_plugin`. **Precise remaining gate (`geom.sdf`, 3 files cow/mug/shapes
+     + solver/testdata model):** an sdf geom over a PLAIN (non-plugin) mesh is a mesh-DERIVED SDF
+     that needs the octree / `mjCOctree::ComputeSdfCoeffs` (`needsdf=true`), which this wave does not
+     build (plugin-SDF sets `needsdf=false`, so no octree) -- gated by resolving the geom's mesh and
+     checking it is a plugin (SDF) mesh.
+   - **Builtin procedural meshes (+2: makemesh/spheremesh).** The `mjCMesh::Make{Sphere,Hemisphere,
+     Supersphere,Supertorus,Wedge,Rect,Cone}` generators + the `mjs_makeMesh` dispatch/validation
+     lifted verbatim into `cpp/compile/lifted/builtin_mesh.{h,cc}` (with the file-local
+     Fovea/LinSpace/BinEdges/SphericalToCartesian/TangentFrame/aux_c/aux_s helpers); wired into
+     MeshCompile (generate vert/normal/face -> pipeline; plate sets `mjMESH_INERTIA_SHELL`).
+   - **Free-joint alignment (+2: dzhanibekov/freejoint).** `mjCBody::Compile` phase 1/2 (user_objects.cc
+     :2795-2897) in `BodyCollector`: when exactly one free joint, no child bodies, and `align="true"`
+     (or `align="auto"` + `<compiler alignfree>`), fold the inertial frame into the body frame
+     (`mjuu_frameaccum`), null it, and inverse-transform child geoms (phase 1) then sites/cameras/
+     lights (phase 2, lights rotate their dir), before xpos0/BVH.
+   - **Camera-target rangefinder (+1: rfcamera).** dim = `RaydataSize(dataspec) * resolution[0]*
+     resolution[1]` (one ray per pixel, `mjs_sensorDim` :1758); `CameraResolutionByName` resolves the
+     target camera's effective resolution.
+   - **Tactile sensor (+1: tactile).** obj = mesh, ref = geom (`mjOBJ_MESH`/`mjOBJ_GEOM`),
+     dim = `3 * mesh.nvert`; `SensorMaps` gains a mesh id + nvert map; `native_supported.h` admits the
+     `tactile` family. (tactile.xml also exercised the new SDF gear plugin mesh + builtin wedge/plate
+     meshes, all native now.)
+   **Registry delta (+10 entries, 141 total, drift-clean):** `marching_cube` (vendored MC.h, whole
+   file), `mesh_loadsdf` (`mjCMesh::LoadSDF`), and `builtin_make{sphere,hemisphere,supersphere,
+   supertorus,wedge,rect,cone}` + `builtin_makemesh_dispatch`.
+   **FINAL remaining histogram (23 fallback files after NC7c; reason -> #files):** `geom.sdf` 5
+   (mesh-derived SDF octree: cow/mug/shapes + solver/testdata model), `actuator.cross_spelling_default`
+   5, `attach.keyframe_macro_offset` 4 (hammock, one file x4 keys), `attach.replicate_referencing` 3
+   (100/22 humanoids, sleep/100), `composite` 3 (belt/cable/coil), `replicate.referencing_element` 3
+   (newton_cradle/tendon/lengthrange), then singletons `replicate.childclass` 1 (inertia),
+   `dcmotor` 1, `flexcomp.document_order` 1 (flex), `compiler.discardvisual` 1, `material.class_layers`
+   1 (pbr). **Per-bucket reasons for what remains (each a deliberate, documented sub-gate):**
+   (a) **mesh-derived `geom.sdf`** needs the ~750-line mjC-entangled `mjCOctree`/`ComputeSdfCoeffs`
+   octree (only the plugin-SDF slice, which skips the octree, was tractable). (b)
+   **`cross_spelling_default`** = MuJoCo shares ONE actuator mjCDef per class across every spelling,
+   so a `<general ctrllimited>` in a parent leaks into a child `<velocity>`; ProtoSpec keeps
+   per-spelling partials and `Effective` merges only the matching one -- reproducing the shared merge
+   (type/gain/bias/dyn set by the last spelling, common fields last-write-wins across the class chain)
+   is high-divergence-risk, deferred (robot_arm has a real general->velocity ctrllimited leak).
+   (c) **`composite` cable** needs body-level passive plugins (the elasticity plugin attaches to
+   every synthesized body), but ProtoSpec `Body` has no plugin field and the native binder only does
+   actuator/sensor plugins -- new infrastructure with no precedent. (d) **`attach.*`** are attach-in-
+   replicate referencing/keyframe cloning and flexcomp-before-attach qpos offsets (existing NC6c
+   gates). (e) **`replicate.referencing_element`/`childclass`** need per-clone referencing-element
+   cloning / a ParentMap that reaches arena clones (the clones live outside the source tree, so
+   `Effective` can't resolve an unclassed clone descendant's childclass). (f) **`dcmotor`** is a
+   ~154-line stateful `mjs_setToDCMotor` (na/actdim + electrical/thermal/lugre models) for 1 file.
+   (g) **`flexcomp.document_order`** is the single flex-id-ordering descope from NC5. (h)
+   **`compiler.discardvisual`** needs the visual-geom delete + id compaction + inertia-baking pre-pass
+   (CDR-8) for 1 file. (i) **`material.class_layers`** (inherit the `<layer>` child-list from a class
+   default) masks a latent PBR material bug per NC7a, so it is left gated rather than risk a divergence.
 
 ## Editor remaining queue (Gate 2)
 

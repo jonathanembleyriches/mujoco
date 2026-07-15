@@ -91,6 +91,48 @@ bool ForeignActuatorDefault(const ps::sdk::detail::DefaultIndex& idx,
   return false;
 }
 
+// True if a geom/mesh <plugin> reference resolves to an SDF-capability plugin
+// (mjPLUGIN_SDF). SDF geoms/meshes are native (marching-cubes mesh generation);
+// any other geom/mesh plugin still routes to the XML fallback.
+bool PluginRefIsSdf(const Model& m, const PluginRef& pr) {
+  std::string plugin_name;
+  if (pr.instance && !pr.instance->name.empty()) {
+    for (const auto& ext : m.extensions) {
+      if (!ext) continue;
+      for (const auto& pd : ext->pluginDefs) {
+        if (!pd || !pd->plugin) continue;
+        for (const auto& inst : pd->pluginInstances)
+          if (inst && inst->name && *inst->name == pr.instance->name)
+            plugin_name = *pd->plugin;
+      }
+    }
+  } else if (pr.plugin) {
+    plugin_name = *pr.plugin;
+  }
+  if (plugin_name.empty()) return false;
+  int slot = -1;
+  if (!mjp_getPlugin(plugin_name.c_str(), &slot)) return false;
+  const mjpPlugin* p = mjp_getPluginAtSlot(slot);
+  return p && (p->capabilityflags & mjPLUGIN_SDF);
+}
+
+// Find a mesh by its authored name in the model's <asset> lists.
+const Mesh* FindMeshByName(const Model& m, const std::string& name) {
+  if (name.empty()) return nullptr;
+  for (const auto& a : m.assets)
+    if (a) for (const auto& mesh : a->meshs)
+      if (mesh && mesh->name && *mesh->name == name) return mesh.get();
+  return nullptr;
+}
+
+// True if a mesh is a plugin-generated SDF mesh (marching cubes; native). A
+// plain mesh referenced by an sdf geom instead becomes a mesh-derived SDF (the
+// octree / ComputeSdfCoeffs path, not native).
+bool MeshIsSdfPlugin(const Model& m, const Mesh* mesh) {
+  return mesh && !mesh->plugin.empty() && mesh->plugin.front() &&
+         PluginRefIsSdf(m, *mesh->plugin.front());
+}
+
 // The feature key a used element contributes to the gate. Today this is the
 // element's MJCF tag (falling back to its IR name for tagless families) -- a
 // stable, human-legible key that can later be refined below family granularity
@@ -260,12 +302,10 @@ class SubFeatureScanner {
   void CheckHfield(const Hfield& h) {
     if (h.content_type) Note("hfield.file", h.loc);
   }
-  // Free-joint alignment (align="true", or align="auto" with compiler
-  // alignfree) rewrites the body/inertial frames and child-geom poses -- out of
-  // the NC1b rigid-body slice, so route such a model to the XML fallback.
-  void CheckFreeJoint(const FreeJoint& fj) {
-    if (fj.align && *fj.align == TriState::true_) Note("freejoint.align", fj.loc);
-  }
+  // Free-joint alignment (align="true", or align="auto" with compiler alignfree)
+  // is now native (build.cc BodyCollector phase 1/2): the inertial frame folds
+  // into the body frame and children transform by its inverse. No gate.
+  void CheckFreeJoint(const FreeJoint&) {}
   // The cylinder-bias UB gate (below); the transmission / muscle length-range /
   // delay features are all native now.
   template <class E>
@@ -359,13 +399,9 @@ class SubFeatureScanner {
   template <class E>
   void CheckSensorDelay(const E&) {}
   // A camera-target rangefinder's dim scales with the camera resolution (one ray
-  // per pixel); only the single-ray site rangefinder is native.
-  void CheckRangefinder(const Rangefinder& r) {
-    if (r.camera) Note("rangefinder.camera", r.loc);
-    CheckSensorDelay(r);
-  }
+  // per pixel, mjs_sensorDim); native now (build.cc CameraResolutionByName).
+  void CheckRangefinder(const Rangefinder& r) { CheckSensorDelay(r); }
   void CheckCompiler(const Compiler& c) {
-    if (c.alignfree && *c.alignfree) Note("compiler.alignfree", c.loc);
     // discardvisual="true" drops visual-only geoms in the parser (renumbering
     // geoms/bvh and dropping their inertia); the native path keeps every geom,
     // so route such a model to the XML fallback.
@@ -408,16 +444,27 @@ class SubFeatureScanner {
     std::unique_ptr<Geom> eff = ps::sdk::Effective(m_, g);
     const int type = eff->type ? static_cast<int>(*eff->type)
                                : static_cast<int>(GeomType::sphere);
-    if (type == static_cast<int>(GeomType::sdf)) Note("geom.sdf", g.loc);
+    // An SDF geom is native only when its mesh is a plugin (SDF) mesh: the
+    // marching-cubes mesh feeds the ordinary mesh-bounds/inertia path (build.cc)
+    // and runtime collision uses the plugin distance callback. An sdf geom over a
+    // PLAIN mesh is a mesh-derived SDF that needs the octree / ComputeSdfCoeffs
+    // (not native) -- route it to the XML fallback.
+    if (type == static_cast<int>(GeomType::sdf)) {
+      const Mesh* mp = eff->mesh ? FindMeshByName(m_, eff->mesh->name) : nullptr;
+      if (!MeshIsSdfPlugin(m_, mp)) Note("geom.sdf", g.loc);
+      return;
+    }
     if (!g.plugin.empty()) Note("geom.plugin", g.loc);
   }
-  // Plugin / SDF meshes need marching cubes + octree (not native). A builtin
-  // (procedural sphere/cone/...) mesh needs the generator the native pipeline
-  // does not run, so route it to the XML fallback.
+  // SDF meshes (a plugin defining a signed distance field) are native -- sampled
+  // + marching-cubed into a visualization mesh (mjCMesh::LoadSDF, build.cc).
+  // Builtin procedural meshes (sphere/hemisphere/cone/supersphere/supertorus/
+  // wedge/plate) are native too (the mjCMesh::Make* generators, build.cc). A
+  // non-SDF mesh plugin still needs machinery the native pipeline does not run.
   void CheckMesh(const Mesh& mesh) {
-    if (!mesh.plugin.empty()) Note("mesh.plugin", mesh.loc);
-    if (mesh.builtin && *mesh.builtin != MeshBuiltin::none)
-      Note("mesh.builtin", mesh.loc);
+    if (!mesh.plugin.empty() && mesh.plugin.front() &&
+        !PluginRefIsSdf(m_, *mesh.plugin.front()))
+      Note("mesh.plugin", mesh.loc);
   }
   struct Recurse {
     SubFeatureScanner* c;

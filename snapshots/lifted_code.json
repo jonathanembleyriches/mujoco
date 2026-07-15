@@ -101,6 +101,97 @@
       "notes": "body-compile ordering chain (inertia inference, bounds, bvh, joints)"
     },
     {
+      "id": "builtin_makecone",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeCone",
+      "line_span": "2475-2498",
+      "content_hash": "65d6a407db0445916b74303bf40b475da50dc0319dd7621f3047507cca8cf1ad",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeCone.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: generalized discrete cone (verbatim)"
+    },
+    {
+      "id": "builtin_makehemisphere",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeHemisphere",
+      "line_span": "2010-2127",
+      "content_hash": "c9d6c82c4b3b480b95b43eb9075cd9903c649ec0408925dd3321a9074dcbf338",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeHemisphere.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: quad-projected hemisphere (verbatim)"
+    },
+    {
+      "id": "builtin_makemesh_dispatch",
+      "upstream_rel_path": "src/user/user_api.cc",
+      "symbol": "mjs_makeMesh",
+      "line_span": "824-975",
+      "content_hash": "7ee796b42edfd4373e41766be082ab236c9c00220b0b60ee42d8ef3eb9868295",
+      "snapshot": "snapshots/lifted_upstream/mjs_makeMesh.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh dispatch + param validation (reproduced as MakeBuiltinMesh)"
+    },
+    {
+      "id": "builtin_makerect",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeRect",
+      "line_span": "2431-2470",
+      "content_hash": "85afffa1381cd008ad2cfd67093eac9b06bd355ce0f10bb0024761f544b98618",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeRect.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: plate/rect shell (verbatim)"
+    },
+    {
+      "id": "builtin_makesphere",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeSphere",
+      "line_span": "2132-2231",
+      "content_hash": "21ab95e38c9f45cb7d88e6f6fde1df52d14ecf5647db5a32df2d5222ad2580b8",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeSphere.txt",
+      "local_path": [
+        "cpp/compile/lifted/builtin_mesh.h",
+        "cpp/compile/lifted/builtin_mesh.cc"
+      ],
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: icosahedral sphere subdivision (verbatim)"
+    },
+    {
+      "id": "builtin_makesupersphere",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeSupersphere",
+      "line_span": "2236-2293",
+      "content_hash": "be1a31d620294e10d88f00483c2c572fbd82fd3cde15593d0435500af5dde9b2",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeSupersphere.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: superellipsoid (verbatim)"
+    },
+    {
+      "id": "builtin_makesupertorus",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeSupertorus",
+      "line_span": "2351-2399",
+      "content_hash": "ef258a3dfe7fe30e19949331844f10a8eaa4c40378dc839b4a8fe862b4cf8205",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeSupertorus.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: supertoroid (verbatim)"
+    },
+    {
+      "id": "builtin_makewedge",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::MakeWedge",
+      "line_span": "2404-2426",
+      "content_hash": "39e4dca3f10bdcbb9e4bcb856043a2a057ace0d68b004df39643eae0710cf50a",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__MakeWedge.txt",
+      "local_path": "cpp/compile/lifted/builtin_mesh.cc",
+      "lifted": "2026-07-16",
+      "notes": "builtin mesh: spherical wedge + BinEdges/Fovea/SphericalToCartesian/TangentFrame helpers (verbatim)"
+    },
+    {
       "id": "bvh_makebvh",
       "upstream_rel_path": "src/user/user_objects.cc",
       "symbol": "mjCBoundingVolumeHierarchy::MakeBVH",
@@ -778,6 +869,20 @@
       "notes": "positional size args -> read n* from a caller mjModel; reuse/freeModelBuffers branch dropped; buffer layout verbatim"
     },
     {
+      "id": "marching_cube",
+      "upstream_rel_path": "build/_deps/marchingcubecpp-src/MC.h",
+      "symbol": "*",
+      "line_span": "1-340",
+      "content_hash": "bd9fdfb96ec701d9cc2bcf87947ec00fd431eb68bf6dedf73ee1010a8f4689fc",
+      "snapshot": "snapshots/lifted_upstream/MC.h",
+      "local_path": [
+        "cpp/compile/lifted/marching_cube.h",
+        "cpp/compile/lifted/marching_cube.cc"
+      ],
+      "lifted": "2026-07-15",
+      "notes": "MarchingCubeCpp single-header (vendored verbatim); drives mjCMesh::LoadSDF; impl instantiated in marching_cube.cc"
+    },
+    {
       "id": "mesh_applytransformations",
       "upstream_rel_path": "src/user/user_mesh.cc",
       "symbol": "mjCMesh::ApplyTransformations",
@@ -864,6 +969,17 @@
       "local_path": "cpp/compile/lifted/mesh_pipeline.cc",
       "lifted": "2026-07-08",
       "notes": "binary MSH parser"
+    },
+    {
+      "id": "mesh_loadsdf",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCMesh::LoadSDF",
+      "line_span": "356-442",
+      "content_hash": "d6913d47751c8a34e5f0054eee70aec7c51e771398b130bc5630104655960942",
+      "snapshot": "snapshots/lifted_upstream/mjCMesh__LoadSDF.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "SDF plugin mesh: sample plugin distance field on a grid, marching-cubes to a mesh, feed the pipeline (needreorient=false); reproduced as LoadSdfMesh"
     },
     {
       "id": "mesh_makecenter",

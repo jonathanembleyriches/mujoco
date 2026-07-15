@@ -23,10 +23,18 @@ All MuJoCo file references below are relative to `third_party/MuJoCo/src` (so `s
 
 ## STATUS (living section — update on every milestone commit)
 
-Last updated: 2026-07-15. The milestone table below is the ORIGINAL forecast and is stale
-(NC0-NC5 + NC6 assets + NC7a long-tail + NC6c attach full-import are done); the living per-wave state
-is `HANDOFF.md` ("Native compiler remaining queue"). Native ratchet floor **323/387** (`tests/native_ratchet.json`),
-0 divergences, all baselines green (cpp 6/6, differential 380/11, registry 119, emit --check).
+Last updated: 2026-07-16. The milestone table below is the ORIGINAL forecast and is stale
+(NC0-NC5 + NC6 assets + NC7a long-tail + NC6c attach full-import + NC7b plugins + **NC7c FINAL wave**
+are done); the living per-wave state is `HANDOFF.md` ("Native compiler remaining queue"). Native
+ratchet floor **354/387** (`tests/native_ratchet.json`), 0 divergences, all baselines green (cpp 6/6,
+differential, registry 141 drift-clean, emit --check). **NC7c** landed the SDF plugin pipeline
+(`mjCMesh::LoadSDF` marching cubes over the vendored MarchingCubeCpp header, `needreorient=false`,
+geom_plugin + geom `type=sdf` bounds; +8), builtin procedural meshes (Make{Sphere,Hemisphere,
+Supersphere,Supertorus,Wedge,Rect,Cone} lifted verbatim; +2), free-joint alignment (+2), camera-target
+rangefinder dim (+1), and the tactile sensor (+1). Remaining fallbacks (23 files): mesh-derived
+`geom.sdf` (octree), `cross_spelling_default`, `composite` cable (body plugins), `attach.*`,
+`replicate.*`, `dcmotor`, `flexcomp.document_order`, `discardvisual`, `material.class_layers` -- full
+histogram + per-bucket reasons in HANDOFF NC7c.
 NC7a burned the long tail from 262->315: per-body sleep, geom/site partial-size eager-copy +
 `<size nkey>`, the full sensor family (rangefinder/camprojection/insidesite/distance/normal/fromto/
 contact with intprm), tendon-armature demotion, muscle via the public `mj_setLengthRange` post-build

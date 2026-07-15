@@ -44,6 +44,10 @@ struct MeshInput {
   int maxhullvert = -1;
   int inertia = 2;  // mjMESH_INERTIA_LEGACY
   bool needhull = false;
+  // Marching-cubes SDF meshes disable the CoM/principal-axis reorientation
+  // (mjCMesh::LoadSDF sets needreorient_=false, user_mesh.cc:436): the generated
+  // vertices are kept in the plugin's own frame so pos_/quat_ stay identity.
+  bool needreorient = true;
 };
 
 // The compiled mesh, in the exact array layout mjModel expects. `graph` is the

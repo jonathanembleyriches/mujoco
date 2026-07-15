@@ -50,8 +50,10 @@
 #include "binding.h"       // bridge::ObjTypeOf / FamilyToken
 #include "classes.h"       // ps::sdk::Effective (pure effective-defaults query)
 #include "context.h"
+#include "builtin_mesh.h"  // lifted procedural mesh generators
 #include "image_pipeline.h" // lifted PNG decode
 #include "make_model.h"    // lifted::MakeModel
+#include "marching_cube.h" // vendored MarchingCubeCpp (mjCMesh::LoadSDF)
 #include "mesh_pipeline.h" // lifted mesh compile
 #include "mjuu_util.h"     // lifted math
 #include "reflect.h"       // reflection tables
@@ -97,6 +99,7 @@ struct CompilerSettings {
   std::string texturedir;       // <compiler texturedir> (falls back to assetdir)
   bool strippath = false;       // <compiler strippath>
   bool fitaabb = false;         // <compiler fitaabb> (fitgeom: aabb vs inertia box)
+  bool alignfree = false;       // <compiler alignfree> (free-joint frame alignment)
 };
 
 CompilerSettings ReadCompiler(const Model& m) {
@@ -120,6 +123,7 @@ CompilerSettings ReadCompiler(const Model& m) {
     if (c->texturedir) s.texturedir = *c->texturedir;
     if (c->strippath) s.strippath = *c->strippath;
     if (c->fitaabb) s.fitaabb = *c->fitaabb;
+    if (c->alignfree) s.alignfree = *c->alignfree;
   }
   return s;
 }
@@ -834,8 +838,10 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
 
   // mesh geom: accumulate the mesh frame, then take size/aabb/rbound from the
   // mesh aamm and inertia from the mesh volume/box (mjCGeom::Compile mesh branch
-  // + GetVolume/SetInertia/GetRBound/ComputeAABB mesh cases).
-  if (cg.type == mjGEOM_MESH) {
+  // + GetVolume/SetInertia/GetRBound/ComputeAABB mesh cases). An SDF geom binds
+  // its plugin-generated mesh identically (upstream treats mjGEOM_SDF as mjGEOM_MESH
+  // for bounds/inertia, user_objects.cc:3417/3496/3743/3902).
+  if (cg.type == mjGEOM_MESH || cg.type == mjGEOM_SDF) {
     // The geom's mesh ref carries the referenced name, which is exactly the key
     // the asset table is built under (authored name, else the file stem).
     const std::string mn = eff->mesh ? eff->mesh->name : std::string();
@@ -3358,6 +3364,25 @@ class BodyCollector {
     cb.geomnum = static_cast<int>(geoms_.size()) - gstart;
     cb.geomadr = cb.geomnum ? gstart : -1;
 
+    // Free-joint alignment precondition (mjCBody::Compile user_objects.cc:2787):
+    // exactly one free joint, no child bodies, and align="true" (or align="auto"
+    // with compiler alignfree). When set, phase 1 (below) folds the inertial
+    // frame into the body frame and null-transforms child geoms; phase 2
+    // transforms sites/cameras/lights.
+    bool align_free = false;
+    if (fc.joints.size() == 1 && fc.bodies.empty()) {
+      const auto& [child, jxf] = fc.joints.front();
+      if (child->kind() == BodyChildAny::Kind::FreeJoint) {
+        const auto& fj = std::get<std::unique_ptr<FreeJoint>>(child->node);
+        const TriState al = fj->align ? *fj->align : TriState::auto_;
+        align_free = (al == TriState::true_) ||
+                     (al == TriState::auto_ && cs_.alignfree);
+      }
+    }
+    const int sstart = static_cast<int>(sites_.size());
+    const int cstart = static_cast<int>(cameras_.size());
+    const int lstart = static_cast<int>(lights_.size());
+
     // Sites, cameras, lights on this body (document order == id order).
     CollectVisual(fc, id);
 
@@ -3398,6 +3423,36 @@ class BodyCollector {
     // inertial-frame copy (mjCBody::Compile order).
     if (body_xf.present)
       lift::mjuu_frameaccumChild(body_xf.pos, body_xf.quat, cb.pos, cb.quat);
+
+    // Free-joint alignment (mjCBody::Compile user_objects.cc:2795-2812 phase 1 +
+    // :2877-2897 phase 2). Fold the inertial frame into the body frame so the
+    // free joint's qpos0 rest pose sits at the CoM with principal axes, then
+    // null-transform the children by the inverse inertial frame. Phase 1 runs
+    // after the enclosing-frame accum and before xpos0/BVH (so both see the
+    // aligned frame and the nulled inertial frame); phase 2 transforms the
+    // already-collected sites/cameras/lights.
+    if (align_free) {
+      double ipos_inv[3], iquat_inv[4];
+      lift::mjuu_frameaccum(cb.pos, cb.quat, cb.ipos, cb.iquat);
+      lift::mjuu_frameinvert(ipos_inv, iquat_inv, cb.ipos, cb.iquat);
+      lift::mjuu_setvec(cb.ipos, 0, 0, 0);
+      lift::mjuu_setvec(cb.iquat, 1, 0, 0, 0);
+      for (int j = cb.geomadr; j < cb.geomadr + cb.geomnum; ++j)
+        lift::mjuu_frameaccumChild(ipos_inv, iquat_inv, geoms_[j].pos,
+                                   geoms_[j].quat);
+      // phase 2: sites, cameras, lights of this body.
+      for (int j = sstart; j < static_cast<int>(sites_.size()); ++j)
+        lift::mjuu_frameaccumChild(ipos_inv, iquat_inv, sites_[j].pos,
+                                   sites_[j].quat);
+      for (int j = cstart; j < static_cast<int>(cameras_.size()); ++j)
+        lift::mjuu_frameaccumChild(ipos_inv, iquat_inv, cameras_[j].pos,
+                                   cameras_[j].quat);
+      for (int j = lstart; j < static_cast<int>(lights_.size()); ++j) {
+        double qunit[4] = {1, 0, 0, 0};
+        lift::mjuu_frameaccumChild(ipos_inv, iquat_inv, lights_[j].pos, qunit);
+        lift::mjuu_rotVecQuat(lights_[j].dir, lights_[j].dir, iquat_inv);
+      }
+    }
 
     // Global rest pose (no joint xform in qpos0), accumulated through the parent
     // (mjCBody::Compile, user_objects.cc:2844-2849). Parent id < id (preorder),
@@ -5280,6 +5335,8 @@ struct SensorMaps {
   const NameIdMap* joint;
   const NameIdMap* tendon;
   const NameIdMap* actuator;
+  const NameIdMap* mesh = nullptr;                    // tactile obj
+  const std::unordered_map<std::string, int>* meshnvert = nullptr;  // tactile dim
 };
 
 int ResolveObj(const SensorMaps& sm, int objtype, const std::string& name) {
@@ -5292,11 +5349,45 @@ int ResolveObj(const SensorMaps& sm, int objtype, const std::string& name) {
     case mjOBJ_JOINT: m = sm.joint; break;
     case mjOBJ_TENDON: m = sm.tendon; break;
     case mjOBJ_ACTUATOR: m = sm.actuator; break;
+    case mjOBJ_MESH: m = sm.mesh; break;
     default: return -1;
   }
   if (!m || name.empty()) return -1;
   auto it = m->find(name);
   return it == m->end() ? -1 : it->second;
+}
+
+// A camera-target rangefinder casts one ray per camera pixel, so its dim scales
+// with the camera resolution (mjs_sensorDim user_api.cc:1758). Resolve the named
+// camera's effective resolution (default 1x1, mjs_defaultCamera).
+void CameraResolutionByName(const Model& m, const std::string& name, int res[2]) {
+  res[0] = res[1] = 1;
+  const Camera* found = nullptr;
+  std::function<void(const std::vector<BodyChildAny>&)> walk =
+      [&](const std::vector<BodyChildAny>& sub) {
+        for (const auto& c : sub) {
+          if (found) return;
+          switch (c.kind()) {
+            case BodyChildAny::Kind::Camera: {
+              const auto& cam = std::get<std::unique_ptr<Camera>>(c.node);
+              if (cam && cam->name && *cam->name == name) found = cam.get();
+              break;
+            }
+            case BodyChildAny::Kind::Body:
+              walk(std::get<std::unique_ptr<Body>>(c.node)->subtree); break;
+            case BodyChildAny::Kind::Frame:
+              walk(std::get<std::unique_ptr<Frame>>(c.node)->subtree); break;
+            case BodyChildAny::Kind::Replicate:
+              walk(std::get<std::unique_ptr<Replicate>>(c.node)->subtree); break;
+            default: break;
+          }
+        }
+      };
+  for (const auto& wb : m.worldbody)
+    if (wb && !found) walk(wb->subtree);
+  if (!found) return;
+  std::unique_ptr<Camera> eff = ps::sdk::Effective(m, *found);
+  if (eff->resolution) { res[0] = (*eff->resolution)[0]; res[1] = (*eff->resolution)[1]; }
 }
 
 CSensor SensorCompile(const Model& model, const SensorAny& any,
@@ -5523,6 +5614,12 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
                      cs.intprm[2] = e.num ? *e.num : 1;
                      cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
                      if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Tactile: { auto& e=get(Tactile{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     // obj = mesh, ref = geom (mjCSensor::Compile user_objects.cc:7915).
+                     cs.type=mjSENS_TACTILE;
+                     cs.objtype=mjOBJ_MESH; if (e.mesh) objname=e.mesh->name;
+                     cs.reftype=mjOBJ_GEOM; if (e.geom) refname=e.geom->name;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
     case K::SensorPlugin: { auto& e=get(SensorPlugin{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
                      cs.type=mjSENS_PLUGIN;
                      // Typed obj/ref by explicit string (mju_str2Type); dim=0 and
@@ -5549,11 +5646,26 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
   cs.refid = ResolveObj(sm, cs.reftype, refname);
   cs.datatype = SensorDatatype(cs.type);
   cs.needstage = SensorNeedstage(cs.type);
-  if (cs.type == mjSENS_RANGEFINDER)
-    cs.dim = RaydataSize(cs.intprm[0]);
+  if (cs.type == mjSENS_RANGEFINDER) {
+    int num_rays = 1;
+    if (cs.objtype == mjOBJ_CAMERA) {
+      int res[2];
+      CameraResolutionByName(model, objname, res);
+      num_rays = res[0] * res[1];
+    }
+    cs.dim = RaydataSize(cs.intprm[0]) * num_rays;
+  }
   else if (cs.type == mjSENS_CONTACT)
     cs.dim = cs.intprm[2] * CondataSize(cs.intprm[0]);
-  else
+  else if (cs.type == mjSENS_TACTILE) {
+    // dim = 3 * nvert of the referenced mesh (mjs_sensorDim user_api.cc:1753).
+    int nvert = 0;
+    if (sm.meshnvert) {
+      auto it = sm.meshnvert->find(objname);
+      if (it != sm.meshnvert->end()) nvert = it->second;
+    }
+    cs.dim = 3 * nvert;
+  } else
     cs.dim = SensorDim(cs.type);
   return cs;
 }
@@ -6817,7 +6929,8 @@ void CollectMeshHullRefs(const Model& m, const std::set<std::string>& pair_geoms
           const bool in_pair =
               eff->name && pair_geoms.count(*eff->name) > 0;
           const bool coll =
-              type == mjGEOM_MESH && (contype || conaff || in_pair);
+              (type == mjGEOM_MESH || type == mjGEOM_SDF) &&
+              (contype || conaff || in_pair);
           out[eff->mesh->name] = out[eff->mesh->name] || coll;
           break;
         }
@@ -6876,6 +6989,129 @@ std::string MeshCombine(const std::string& dir, const std::string& file) {
   return dir + file;
 }
 
+// Resolve a mesh/geom <plugin> reference to its plugin descriptor + config, from
+// the model's <extension> instances. A ref by instance name resolves that
+// instance's declared plugin + config; an inline plugin name carries its own
+// config. Returns false if the plugin name is unknown (unresolved).
+std::map<std::string, std::string> ConfigMap(
+    const std::vector<std::unique_ptr<Config>>& config) {
+  std::map<std::string, std::string> cfg;
+  for (const auto& c : config)
+    if (c && c->key) cfg[*c->key] = c->value ? *c->value : std::string();
+  return cfg;
+}
+
+struct ResolvedPluginRef {
+  const mjpPlugin* p = nullptr;
+  std::map<std::string, std::string> config;
+};
+bool ResolvePluginRef(const Model& m, const PluginRef& pr, ResolvedPluginRef& out) {
+  std::string plugin_name;
+  const std::vector<std::unique_ptr<Config>>* config = nullptr;
+  if (pr.instance && !pr.instance->name.empty()) {
+    // Find the extension instance and the <plugin> that declares it.
+    for (const auto& ext : m.extensions) {
+      if (!ext) continue;
+      for (const auto& pd : ext->pluginDefs) {
+        if (!pd || !pd->plugin) continue;
+        for (const auto& inst : pd->pluginInstances) {
+          if (inst && inst->name && *inst->name == pr.instance->name) {
+            plugin_name = *pd->plugin;
+            config = &inst->config;
+          }
+        }
+      }
+    }
+    if (plugin_name.empty()) return false;
+  } else if (pr.plugin) {
+    plugin_name = *pr.plugin;
+    config = &pr.config;
+  } else {
+    return false;
+  }
+  int slot = -1;
+  if (!mjp_getPlugin(plugin_name.c_str(), &slot)) return false;
+  out.p = mjp_getPluginAtSlot(slot);
+  if (config) out.config = ConfigMap(*config);
+  return true;
+}
+
+// mjCMesh::LoadSDF (user_mesh.cc:356-442): a plugin (SDF) mesh has no vertices of
+// its own -- the plugin defines a signed distance field, which is sampled on a
+// regular grid and marching-cubed into a visualization mesh. The generated
+// vert/normal/face feed the ordinary mesh pipeline (needreorient=false keeps the
+// plugin frame). Returns false on a non-SDF/unresolved plugin.
+bool LoadSdfMesh(const Model& model, const Mesh& mesh, lift::MeshInput& in,
+                 std::vector<bridge::Diagnostic>& diags) {
+  ResolvedPluginRef rp;
+  if (mesh.plugin.empty() || !mesh.plugin.front() ||
+      !ResolvePluginRef(model, *mesh.plugin.front(), rp)) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                     "native: unresolved SDF mesh plugin", mesh.loc});
+    return false;
+  }
+  const mjpPlugin* p = rp.p;
+  if (!(p->capabilityflags & mjPLUGIN_SDF)) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                     "native: mesh plugin is not an SDF plugin", mesh.loc});
+    return false;
+  }
+
+  std::vector<mjtNum> attributes(p->nattribute, 0);
+  std::vector<const char*> names(p->nattribute, nullptr);
+  std::vector<std::string> valstore(p->nattribute);
+  std::vector<const char*> values(p->nattribute, nullptr);
+  for (int i = 0; i < p->nattribute; ++i) {
+    names[i] = p->attributes[i];
+    auto it = rp.config.find(p->attributes[i]);
+    valstore[i] = it == rp.config.end() ? std::string() : it->second;
+    values[i] = valstore[i].c_str();
+  }
+  if (p->sdf_attribute)
+    p->sdf_attribute(attributes.data(), names.data(), values.data());
+
+  mjtNum aabb[6] = {0};
+  p->sdf_aabb(aabb, attributes.data());
+  const mjtNum total = aabb[3] + aabb[4] + aabb[5];
+  const double n = 300;
+  const int nx = static_cast<int>(std::floor(n / total * aabb[3])) + 1;
+  const int ny = static_cast<int>(std::floor(n / total * aabb[4])) + 1;
+  const int nz = static_cast<int>(std::floor(n / total * aabb[5])) + 1;
+  std::vector<MC::MC_FLOAT> field(static_cast<std::size_t>(nx) * ny * nz);
+  for (int i = 0; i < nx; ++i)
+    for (int j = 0; j < ny; ++j)
+      for (int k = 0; k < nz; ++k) {
+        mjtNum point[] = {aabb[0] - aabb[3] + 2 * aabb[3] * i / (nx - 1),
+                          aabb[1] - aabb[4] + 2 * aabb[4] * j / (ny - 1),
+                          aabb[2] - aabb[5] + 2 * aabb[5] * k / (nz - 1)};
+        field[(static_cast<std::size_t>(k) * ny + j) * nx + i] =
+            p->sdf_staticdistance(point, attributes.data());
+      }
+
+  MC::mcMesh mc;
+  MC::marching_cube(field.data(), nx, ny, nz, mc);
+  in.format = lift::MeshFormat::UserVertex;
+  in.needreorient = false;
+  in.uservert.reserve(mc.vertices.size() * 3);
+  for (auto& v : mc.vertices) {
+    in.uservert.push_back(
+        static_cast<float>(2 * aabb[3] * v.x / (nx - 1) + aabb[0] - aabb[3]));
+    in.uservert.push_back(
+        static_cast<float>(2 * aabb[4] * v.y / (ny - 1) + aabb[1] - aabb[4]));
+    in.uservert.push_back(
+        static_cast<float>(2 * aabb[5] * v.z / (nz - 1) + aabb[2] - aabb[5]));
+  }
+  in.usernormal.reserve(mc.normals.size() * 3);
+  for (auto& nrm : mc.normals) {
+    in.usernormal.push_back(nrm.x);
+    in.usernormal.push_back(nrm.y);
+    in.usernormal.push_back(nrm.z);
+  }
+  in.userface.reserve(mc.indices.size());
+  for (unsigned int idx : mc.indices) in.userface.push_back(static_cast<int>(idx));
+  return true;
+}
+
 // Compile one mesh into a CMesh (files resolved via the resource API).
 bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& cs,
                  const std::string& base_dir,
@@ -6911,7 +7147,42 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
   in.inertia = MeshInertiaToMj(eff->inertia);
   in.needhull = needhull || in.inertia == mjMESH_INERTIA_CONVEX;
 
-  if (eff->file) {
+  if (!mesh.plugin.empty()) {
+    // Plugin (SDF) mesh: geometry generated by marching cubes over the plugin's
+    // signed distance field (mjCMesh::LoadSDF), then run through the pipeline.
+    if (!LoadSdfMesh(model, mesh, in, diags)) return false;
+  } else if (eff->builtin && *eff->builtin != MeshBuiltin::none) {
+    // Builtin procedural mesh (sphere/hemisphere/cone/...): generate its
+    // vert/normal/face (mjs_makeMesh + mjCMesh::Make*), then run the pipeline.
+    lift::MeshBuiltinKind kind;
+    switch (*eff->builtin) {
+      case MeshBuiltin::sphere:      kind = lift::MeshBuiltinKind::Sphere; break;
+      case MeshBuiltin::hemisphere:  kind = lift::MeshBuiltinKind::Hemisphere; break;
+      case MeshBuiltin::cone:        kind = lift::MeshBuiltinKind::Cone; break;
+      case MeshBuiltin::supertorus:  kind = lift::MeshBuiltinKind::Supertorus; break;
+      case MeshBuiltin::supersphere: kind = lift::MeshBuiltinKind::Supersphere; break;
+      case MeshBuiltin::wedge:       kind = lift::MeshBuiltinKind::Wedge; break;
+      case MeshBuiltin::plate:       kind = lift::MeshBuiltinKind::Plate; break;
+      default:
+        diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                         "native: unsupported builtin mesh", mesh.loc});
+        return false;
+    }
+    std::vector<double> params;
+    if (eff->params) params = *eff->params;
+    lift::BuiltinMeshResult br;
+    std::string berr;
+    if (!lift::MakeBuiltinMesh(kind, params, br, berr)) {
+      diags.push_back({bridge::Diagnostic::Severity::Error, "mesh",
+                       "native: builtin mesh: " + berr, mesh.loc});
+      return false;
+    }
+    in.format = lift::MeshFormat::UserVertex;
+    in.uservert = std::move(br.uservert);
+    in.usernormal = std::move(br.usernormal);
+    in.userface = std::move(br.userface);
+    if (br.inertia_shell) in.inertia = mjMESH_INERTIA_SHELL;
+  } else if (eff->file) {
     std::string file = *eff->file;
     if (cs.strippath) file = MeshStripPath(file);
     out.file = file;
@@ -9298,14 +9569,6 @@ std::vector<char> PackPluginAttr(
   return out;
 }
 
-std::map<std::string, std::string> ConfigMap(
-    const std::vector<std::unique_ptr<Config>>& config) {
-  std::map<std::string, std::string> cfg;
-  for (const auto& c : config)
-    if (c && c->key) cfg[*c->key] = c->value ? *c->value : std::string();
-  return cfg;
-}
-
 // Collect plugin instances (explicit <extension><plugin><instance> first, then
 // implicit inline-config instances in element order) and map every plugin-
 // bearing element to its instance id. Returns false + a diagnostic on an
@@ -9333,6 +9596,47 @@ bool CollectPlugins(const Model& m, PluginCollection& pc,
         const auto& e = *std::get<std::unique_ptr<SensorPlugin>>(any.node);
         if (e.instance && !e.instance->name.empty()) referenced.insert(e.instance->name);
       }
+
+  // Geom plugins (SDF) live in the body tree; each references an explicit
+  // instance (kept by RemovePlugins) and fills geom_plugin. Collect them and
+  // their instance names.
+  std::vector<const Geom*> plugin_geoms;
+  {
+    std::function<void(const std::vector<BodyChildAny>&)> walk =
+        [&](const std::vector<BodyChildAny>& sub) {
+          for (const auto& c : sub) {
+            switch (c.kind()) {
+              case BodyChildAny::Kind::Geom: {
+                const auto& g = std::get<std::unique_ptr<Geom>>(c.node);
+                if (g && !g->plugin.empty() && g->plugin.front()) {
+                  plugin_geoms.push_back(g.get());
+                  const auto& pr = *g->plugin.front();
+                  if (pr.instance && !pr.instance->name.empty())
+                    referenced.insert(pr.instance->name);
+                }
+                break;
+              }
+              case BodyChildAny::Kind::Body:
+                walk(std::get<std::unique_ptr<Body>>(c.node)->subtree); break;
+              case BodyChildAny::Kind::Frame:
+                walk(std::get<std::unique_ptr<Frame>>(c.node)->subtree); break;
+              case BodyChildAny::Kind::Replicate:
+                walk(std::get<std::unique_ptr<Replicate>>(c.node)->subtree); break;
+              default: break;
+            }
+          }
+        };
+    for (const auto& wb : m.worldbody)
+      if (wb) walk(wb->subtree);
+  }
+  // Mesh (SDF) plugins reference explicit instances too (kept by RemovePlugins,
+  // even if no geom also references them).
+  for (const auto& a : m.assets)
+    if (a) for (const auto& mesh : a->meshs)
+      if (mesh && !mesh->plugin.empty() && mesh->plugin.front() &&
+          mesh->plugin.front()->instance &&
+          !mesh->plugin.front()->instance->name.empty())
+        referenced.insert(mesh->plugin.front()->instance->name);
 
   // Explicit instances, in extension document order.
   std::unordered_map<std::string, int> id_of_name;
@@ -9401,6 +9705,12 @@ bool CollectPlugins(const Model& m, PluginCollection& pc,
     return true;
   };
 
+  // Geom plugins first (worldbody precedes the actuator/sensor sections in
+  // document order, so any implicit instances they create are ordered before).
+  for (const Geom* g : plugin_geoms) {
+    const auto& pr = *g->plugin.front();
+    if (!bind(g, pr.plugin, pr.instance, pr.config, g->loc)) return false;
+  }
   for (const auto& ac : m.actuators)
     if (ac) for (const auto& any : ac->actuators)
       if (any.kind() == ActuatorAny::Kind::ActuatorPlugin) {
@@ -9421,7 +9731,8 @@ bool CollectPlugins(const Model& m, PluginCollection& pc,
 // plugin_attr blob are in place before the callbacks read them.
 void FillPlugins(mjModel* m, const PluginCollection& pc,
                  const std::vector<CActuator>& actuators,
-                 const std::vector<CSensor>& sensors) {
+                 const std::vector<CSensor>& sensors,
+                 const std::vector<CGeom>& geoms) {
   const int nplugin = static_cast<int>(pc.plugins.size());
 
   // Slot + packed attributes.
@@ -9441,6 +9752,11 @@ void FillPlugins(mjModel* m, const PluginCollection& pc,
   };
   for (int i = 0; i < static_cast<int>(actuators.size()); ++i)
     if (actuators[i].is_plugin) m->actuator_plugin[i] = lookup(actuators[i].src);
+  // Geom plugins (SDF): geom_plugin[i] = instance id, -1 otherwise.
+  for (int i = 0; i < static_cast<int>(geoms.size()); ++i) {
+    const int pid = lookup(geoms[i].src);
+    if (pid >= 0) m->geom_plugin[i] = pid;
+  }
   std::vector<std::vector<int>> plugin_to_sensors(nplugin);
   for (int i = 0; i < static_cast<int>(sensors.size()); ++i)
     if (sensors[i].type == mjSENS_PLUGIN) {
@@ -9662,9 +9978,20 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (int i = 0; i < static_cast<int>(cameras.size()); ++i)
     if (cameras[i].src && cameras[i].src->name) cameraid_of[*cameras[i].src->name] = i;
 
+  // Mesh name -> id / nvert maps (tactile sensor obj + dim). Mesh id is the fill
+  // index; the key is the authored name (else the file stem, as elsewhere).
+  std::unordered_map<std::string, int> meshid_of, meshnvert_of;
+  for (int i = 0; i < static_cast<int>(meshes.size()); ++i) {
+    if (!meshes[i].listname.empty()) {
+      meshid_of[meshes[i].listname] = i;
+      meshnvert_of[meshes[i].listname] = meshes[i].r.nvert();
+    }
+  }
+
   // Sensors (S8): document order across all <sensor> sections.
   SensorMaps smaps{&bodyid_of, &geomid_of, &siteid_of, &cameraid_of,
-                   &jointid_of, &tendonid_of, &actuatorid_of};
+                   &jointid_of, &tendonid_of, &actuatorid_of,
+                   &meshid_of, &meshnvert_of};
   std::vector<CSensor> sensors;
   for (const auto& sn : m.sensors) {
     if (!sn) continue;
@@ -10203,7 +10530,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   int delay_adr = 0;  // shared history cursor: actuators then sensors (nhistory)
   FillActuators(out, actuators, delay_adr);
   FillSensors(out, sensors, delay_adr);
-  FillPlugins(out, plugins, actuators, sensors);
+  FillPlugins(out, plugins, actuators, sensors, geoms);
   FillNumerics(out, numerics);
   FillTexts(out, texts);
   FillTuples(out, tuples);

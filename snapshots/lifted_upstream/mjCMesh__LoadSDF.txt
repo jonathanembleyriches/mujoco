@@ -1,0 +1,87 @@
+void mjCMesh::LoadSDF() {
+  if (plugin_name.empty() && plugin_instance_name.empty()) {
+    throw mjCError(
+            this, "neither 'plugin' nor 'instance' is specified for mesh '%s', (id = %d)",
+            name.c_str(), id);
+  }
+
+  if (scale[0] != 1 || scale[1] != 1 || scale[2] != 1) {
+    throw mjCError(this, "attribute scale is not compatible with SDFs in mesh '%s', (id = %d)",
+                   name.c_str(), id);
+  }
+
+  mjCPlugin* plugin_instance = static_cast<mjCPlugin*>(plugin.element);
+  model->ResolvePlugin(this, plugin_name, plugin_instance_name, &plugin_instance);
+  plugin.element = plugin_instance;
+  const mjpPlugin* pplugin = mjp_getPluginAtSlot(plugin_instance->plugin_slot);
+  if (!(pplugin->capabilityflags & mjPLUGIN_SDF)) {
+    throw mjCError(this, "plugin '%s' does not support signed distance fields", pplugin->name);
+  }
+
+  std::vector<mjtNum> attributes(pplugin->nattribute, 0);
+  std::vector<const char*> names(pplugin->nattribute, 0);
+  std::vector<const char*> values(pplugin->nattribute, 0);
+  for (int i=0; i < pplugin->nattribute; i++) {
+    names[i] = pplugin->attributes[i];
+    values[i] = plugin_instance->config_attribs[names[i]].c_str();
+  }
+
+  if (pplugin->sdf_attribute) {
+    pplugin->sdf_attribute(attributes.data(), names.data(), values.data());
+  }
+
+  mjtNum aabb[6] = {0};
+  pplugin->sdf_aabb(aabb, attributes.data());
+  mjtNum total = aabb[3] + aabb[4] + aabb[5];
+
+  const double n = 300;
+  int nx, ny, nz;
+  nx = floor(n / total * aabb[3]) + 1;
+  ny = floor(n / total * aabb[4]) + 1;
+  nz = floor(n / total * aabb[5]) + 1;
+  MC::MC_FLOAT* field = new MC::MC_FLOAT[nx * ny * nz];
+
+  for (int i = 0; i < nx; i++) {
+    for (int j = 0; j < ny; j++) {
+      for (int k = 0; k < nz; k++) {
+        mjtNum point[] = {aabb[0]-aabb[3] + 2 * aabb[3] * i / (nx-1),
+                          aabb[1]-aabb[4] + 2 * aabb[4] * j / (ny-1),
+                          aabb[2]-aabb[5] + 2 * aabb[5] * k / (nz-1)};
+        field[(k * ny + j) * nx + i] =  pplugin->sdf_staticdistance(point, attributes.data());
+      }
+    }
+  }
+
+  MC::mcMesh mesh;
+  MC::marching_cube(field, nx, ny, nz, mesh);
+  std::vector<float> uservert;
+  std::vector<float> usernormal;
+  std::vector<int> userface;
+
+  uservert.reserve(mesh.vertices.size() * 3);
+  usernormal.reserve(mesh.normals.size() * 3);
+  userface.reserve(mesh.indices.size());
+
+  for (const auto& vertex : mesh.vertices) {
+    uservert.push_back(2*aabb[3]*vertex.x/(nx-1) + aabb[0]-aabb[3]);
+    uservert.push_back(2*aabb[4]*vertex.y/(ny-1) + aabb[1]-aabb[4]);
+    uservert.push_back(2*aabb[5]*vertex.z/(nz-1) + aabb[2]-aabb[5]);
+  }
+
+  for (const auto& normal : mesh.normals) {
+    usernormal.push_back(normal.x);
+    usernormal.push_back(normal.y);
+    usernormal.push_back(normal.z);
+  }
+
+  for (unsigned int index : mesh.indices) {
+    userface.push_back(index);
+  }
+
+  needreorient_ = false;
+  needsdf = false;
+  normal_ = std::move(usernormal);
+  face_ = std::move(userface);
+  ProcessVertices(uservert);
+  delete[] field;
+}

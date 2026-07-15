@@ -203,6 +203,8 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "normal" || feature_key == "fromto") {
     return true;
   }
+  // NC7c: tactile sensor (obj = mesh, ref = geom; dim = 3*mesh.nvert).
+  if (feature_key == "tactile") return true;
   return false;
 }
 

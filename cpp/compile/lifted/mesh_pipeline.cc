@@ -289,6 +289,7 @@ struct Mesh {
   int maxhullvert_ = -1;
   int inertia = mjMESH_INERTIA_LEGACY;
   bool needhull_ = false;
+  bool needreorient_ = true;
   std::string content_type_;
 
   // geometry
@@ -1355,8 +1356,12 @@ void Mesh::Process() {
   boxsz_[1] = 0.5 * std::sqrt(6 * (eigval[0] + eigval[2] - eigval[1]) / volume);
   boxsz_[2] = 0.5 * std::sqrt(6 * (eigval[0] + eigval[1] - eigval[2]) / volume);
 
-  // needreorient_ is always true in this scope (only marching-cubes SDF meshes,
-  // which are gated, disable it), so the CoM/principal-axis transform applies.
+  // Marching-cubes SDF meshes keep their generated frame (mjCMesh::Process,
+  // user_mesh.cc:1511-1515): null CoM/quat so no reorientation is applied.
+  if (!needreorient_) {
+    mjuu_setvec(CoM, 0, 0, 0);
+    mjuu_setvec(quattmp, 1, 0, 0, 0);
+  }
   for (int i = 0; i < nvert(); i++) {
     dvert[3 * i + 0] -= CoM[0];
     dvert[3 * i + 1] -= CoM[1];
@@ -1394,6 +1399,7 @@ bool CompileMesh(const MeshInput& in, MeshResult& out, std::string& err) {
   m.maxhullvert_ = in.maxhullvert;
   m.inertia = in.inertia;
   m.needhull_ = in.needhull;
+  m.needreorient_ = in.needreorient;
   m.content_type_ = in.content_type;
 
   try {

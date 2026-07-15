@@ -1,0 +1,49 @@
+void mjCMesh::MakeSupertorus(int res, double radius, double s, double t) {
+  // allocate vertices and faces
+  int nvert = res * res;
+  int nface = res * res * 2;
+  std::vector<float> vert(3 * nvert);
+  std::vector<int> face(3 * nface);
+
+  // generate vertices
+  for (int i = 0; i < res; ++i) {
+    for (int j = 0; j < res; ++j) {
+      double u = 2 * mjPI * i / res;
+      double v = 2 * mjPI * j / res;
+      int vidx = i * res + j;
+      vert[3 * vidx + 0] = (1 + radius * aux_c(v, s)) * aux_c(u, t);
+      vert[3 * vidx + 1] = (1 + radius * aux_c(v, s)) * aux_s(u, t);
+      vert[3 * vidx + 2] = radius * aux_s(v, s);
+    }
+  }
+
+  // generate faces
+  int fidx = 0;
+  for (int i = 0; i < res; ++i) {
+    for (int j = 0; j < res; ++j) {
+      int i_next = (i + 1) % res;
+      int j_next = (j + 1) % res;
+
+      int v1 = i * res + j;
+      int v2 = i_next * res + j;
+      int v3 = i_next * res + j_next;
+      int v4 = i * res + j_next;
+
+      // first triangle
+      face[3 * fidx + 0] = v1;
+      face[3 * fidx + 1] = v2;
+      face[3 * fidx + 2] = v4;
+      fidx++;
+
+      // second triangle
+      face[3 * fidx + 0] = v2;
+      face[3 * fidx + 1] = v3;
+      face[3 * fidx + 2] = v4;
+      fidx++;
+    }
+  }
+
+  // save vertices and faces
+  mjs_setFloat(spec.uservert, vert.data(), vert.size());
+  mjs_setInt(spec.userface, face.data(), face.size());
+}
