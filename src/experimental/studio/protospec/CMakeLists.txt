@@ -165,6 +165,14 @@ protospec_add_test(protospec_studio_authoring_tests
   editor/undo.cc
   editor/transform_math.cc
 )
+protospec_add_test(protospec_studio_se5_tests
+  test/test_se5_assets.cc
+  editor/authoring_ops.cc
+  editor/asset_import.cc
+  editor/editor_ops.cc
+  editor/undo.cc
+  editor/transform_math.cc
+)
 protospec_add_test(protospec_studio_host_tests
   test/test_host.cc
   editor/authoring_ops.cc
