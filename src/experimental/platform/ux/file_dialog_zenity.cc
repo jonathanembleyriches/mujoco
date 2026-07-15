@@ -85,6 +85,43 @@ DialogResult OpenFileDialog(std::string_view path,
   return RunZenity(args);
 }
 
+DialogResult OpenFilesDialog(std::string_view path,
+                             std::span<std::string_view> filters) {
+  std::vector<std::string> args;
+  args.push_back("--file-selection");
+  args.push_back("--title=Open Files");
+  args.push_back("--multiple");
+  args.push_back("--separator=\"\\n\"");
+  UpdateArgs(args, path, filters);
+
+  std::string cmd = "zenity";
+  for (const std::string& a : args) cmd += " " + a;
+  FILE* out = popen(cmd.c_str(), "r");
+  if (!out) return DialogResult{.status = DialogResult::kCancelled};
+  std::string acc;
+  char buf[1024];
+  size_t n = 0;
+  while ((n = fread(buf, 1, sizeof(buf), out)) > 0) acc.append(buf, n);
+  const int rc = pclose(out);
+  if (rc != 0 && acc.empty()) {
+    return DialogResult{.status = DialogResult::kCancelled};
+  }
+  DialogResult r;
+  size_t start = 0;
+  while (start < acc.size()) {
+    size_t nl = acc.find('\n', start);
+    std::string p = acc.substr(
+        start, nl == std::string::npos ? std::string::npos : nl - start);
+    if (!p.empty()) r.paths.push_back(p);
+    if (nl == std::string::npos) break;
+    start = nl + 1;
+  }
+  if (r.paths.empty()) return DialogResult{.status = DialogResult::kCancelled};
+  r.status = DialogResult::kAccepted;
+  r.path = r.paths.front();
+  return r;
+}
+
 DialogResult SaveFileDialog(std::string_view path,
                             std::span<std::string_view> filters) {
   std::vector<std::string> args;

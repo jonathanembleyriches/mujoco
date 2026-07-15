@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "editor/editor_context.h"
 
@@ -41,6 +42,29 @@ struct MeshImportResult {
 // (nothing changed) when the file cannot be read.
 MeshImportResult ImportMesh(EditorContext& ctx, const std::string& file_path,
                             const double world_point[3]);
+
+struct MultiMeshImportResult {
+  bool ok = false;                          // at least one mesh imported
+  std::string error;                        // per-file skip reasons (if any)
+  int imported = 0;                         // meshes successfully added
+  int skipped = 0;                          // files that could not be read
+  std::vector<std::uint64_t> body_serials;  // one body per imported mesh
+  std::uint64_t last_body_serial = 0;       // the selected (last) body
+  bool vfs = false;                         // any asset registered in-memory
+};
+
+// Import every file in `file_paths` as ONE undo entry ("Import N meshes"): each
+// becomes a Mesh asset + a Body + a mesh Geom, the bodies laid out on a grid in
+// the XY plane (fixed step) so they do not overlap. The last imported body is
+// selected. Unreadable files are skipped and counted; ok is true when at least
+// one file imported. Nothing is committed (no undo entry) when none imported.
+MultiMeshImportResult ImportMeshes(EditorContext& ctx,
+                                   const std::vector<std::string>& file_paths);
+
+// Glob `folder` (non-recursive) for *.obj / *.stl / *.msh and ImportMeshes them.
+// Returns ok=false with an error when the folder holds no importable mesh files.
+MultiMeshImportResult ImportMeshFolder(EditorContext& ctx,
+                                       const std::string& folder);
 
 // Write every in-memory vfs asset to disk relative to `xml_path` (into the
 // model's meshdir when the compiler authored one, else beside the .xml), then

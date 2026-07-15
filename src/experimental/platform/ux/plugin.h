@@ -218,10 +218,19 @@ struct FileDialogPlugin final {
   // True when this request kind is a Save dialog (the host picks Save vs Open).
   using IsSaveFn = bool (*)(FileDialogPlugin* self, int kind);
 
+  // True when this request kind wants a multi-select open dialog. The host then
+  // opens a multi-file picker and delivers the chosen paths joined by '\n'.
+  using IsMultiFn = bool (*)(FileDialogPlugin* self, int kind);
+
+  // True when this request kind wants a folder picker rather than a file dialog.
+  using IsFolderFn = bool (*)(FileDialogPlugin* self, int kind);
+
   const char* name = "";
   PollFn poll = nullptr;
   DeliverFn deliver = nullptr;
   IsSaveFn is_save = nullptr;
+  IsMultiFn is_multi = nullptr;    // optional; nullptr == never multi-select
+  IsFolderFn is_folder = nullptr;  // optional; nullptr == never a folder picker
   void* data = nullptr;
 };
 

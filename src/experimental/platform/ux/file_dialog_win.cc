@@ -192,6 +192,65 @@ static DialogResult RunDialog(IFileDialog* dialog,
   }
 }
 
+static std::string ShellItemPath(IShellItem* item) {
+  wchar_t* wselected = nullptr;
+  if (!SUCCEEDED(item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &wselected))) {
+    return std::string();
+  }
+  std::string out = WCharToChar(wselected);
+  CoTaskMemFree(wselected);
+  return out;
+}
+
+// Runs a multi-select IFileOpenDialog and collects every chosen path.
+static DialogResult RunMultiDialog(IFileOpenDialog* dialog,
+                                   std::string_view default_path,
+                                   std::span<std::string_view> filters = {}) {
+  if (!dialog) {
+    return SetError("Could not create dialog.");
+  }
+  DWORD options = 0;
+  if (SUCCEEDED(dialog->GetOptions(&options))) {
+    dialog->SetOptions(options | FOS_ALLOWMULTISELECT);
+  }
+  if (!SetDefaultPath(dialog, default_path)) {
+    return SetError("Could not set path.");
+  }
+  if (!AddFilters(dialog, filters)) {
+    return SetError("Could not create dialog.");
+  }
+
+  HRESULT hresult = dialog->Show(nullptr);
+  if (hresult == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+    return {.status = DialogResult::kCancelled};
+  }
+  if (!SUCCEEDED(hresult)) {
+    return SetError("File dialog box show failed.");
+  }
+
+  IShellItemArray* items = nullptr;
+  if (!SUCCEEDED(dialog->GetResults(&items)) || !items) {
+    return SetError("Could not get results for selection.");
+  }
+  DWORD count = 0;
+  items->GetCount(&count);
+  DialogResult res;
+  for (DWORD i = 0; i < count; ++i) {
+    IShellItem* item = nullptr;
+    if (!SUCCEEDED(items->GetItemAt(i, &item)) || !item) continue;
+    std::string p = ShellItemPath(item);
+    item->Release();
+    if (!p.empty()) res.paths.push_back(std::move(p));
+  }
+  items->Release();
+  if (res.paths.empty()) {
+    return {.status = DialogResult::kCancelled};
+  }
+  res.status = DialogResult::kAccepted;
+  res.path = res.paths.front();
+  return res;
+}
+
 namespace {
 struct ScopedCom {
   ScopedCom() {
@@ -226,6 +285,18 @@ DialogResult OpenFileDialog(std::string_view path,
   auto dialog =
       MakeDialog<IFileOpenDialog>(CLSID_FileOpenDialog, IID_IFileOpenDialog);
   return RunDialog(dialog.get(), path, filters);
+}
+
+DialogResult OpenFilesDialog(std::string_view path,
+                             std::span<std::string_view> filters) {
+  ScopedCom com;
+  if (!com.ok()) {
+    return SetError("Could not initialize COM.");
+  }
+
+  auto dialog =
+      MakeDialog<IFileOpenDialog>(CLSID_FileOpenDialog, IID_IFileOpenDialog);
+  return RunMultiDialog(dialog.get(), path, filters);
 }
 
 DialogResult SaveFileDialog(std::string_view path,

@@ -2092,14 +2092,36 @@ void App::ServiceEditorFileDialogs() {
         const int kind = p->poll ? p->poll(p, hint, sizeof(hint)) : 0;
         if (kind == 0) return;  // nothing pending this frame
         const bool save = p->is_save && p->is_save(p, kind);
+        const bool multi = p->is_multi && p->is_multi(p, kind);
+        const bool folder = p->is_folder && p->is_folder(p, kind);
+        // Mesh open/import dialogs offer a mesh-file filter (plus the *.* the
+        // platform always appends).
+        std::string_view mesh_filter = "obj,stl,msh";
+        std::span<std::string_view> filters =
+            (multi || (!save && !folder))
+                ? std::span<std::string_view>(&mesh_filter, 1)
+                : std::span<std::string_view>{};
         // Native dialogs are modal/synchronous on the desktop platforms; a
         // still-pending status is treated as no-selection (the editor keeps its
         // inline path field as the fallback for any platform without dialogs).
         const platform::DialogResult res =
-            save ? platform::SaveFileDialog(hint) : platform::OpenFileDialog(hint);
+            folder  ? platform::SelectPathDialog(hint)
+            : multi ? platform::OpenFilesDialog(hint, filters)
+            : save  ? platform::SaveFileDialog(hint)
+                    : platform::OpenFileDialog(hint);
         const bool accepted = res.status == platform::DialogResult::kAccepted;
+        // Multi-select delivers all chosen paths joined by '\n'; single dialogs
+        // deliver the one path.
+        std::string delivered = res.path;
+        if (multi && accepted && !res.paths.empty()) {
+          delivered.clear();
+          for (std::size_t i = 0; i < res.paths.size(); ++i) {
+            if (i) delivered += '\n';
+            delivered += res.paths[i];
+          }
+        }
         if (p->deliver) {
-          p->deliver(p, kind, accepted ? res.path.c_str() : "", accepted);
+          p->deliver(p, kind, accepted ? delivered.c_str() : "", accepted);
         }
       });
 }

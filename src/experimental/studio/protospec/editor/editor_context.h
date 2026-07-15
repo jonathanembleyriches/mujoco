@@ -137,7 +137,10 @@ struct StatusToast {
 // chosen path back. A pure phase machine so it is unit-tested windowless.
 class FileDialogState {
  public:
-  enum class Kind { None, Open, SaveAs, ImportMesh };
+  // ImportMeshes opens a multi-select file dialog (the host joins the chosen
+  // paths with '\n' when delivering); ImportFolder opens a folder picker whose
+  // single path the editor globs for mesh files.
+  enum class Kind { None, Open, SaveAs, ImportMesh, ImportMeshes, ImportFolder };
 
   struct Result {
     Kind kind = Kind::None;

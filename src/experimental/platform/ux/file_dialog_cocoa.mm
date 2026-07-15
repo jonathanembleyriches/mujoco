@@ -40,6 +40,33 @@ DialogResult OpenFileDialog(std::string_view path,
   return result;
 }
 
+DialogResult OpenFilesDialog(std::string_view path,
+                             std::span<std::string_view> filters) {
+  NSOpenPanel* panel = [NSOpenPanel openPanel];
+  NSURL* userDocumentsDir = [NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory
+                                                          inDomains:NSUserDomainMask].firstObject;
+  [panel setDirectoryURL:userDocumentsDir];
+  [panel setAllowsMultipleSelection:YES];
+
+  DialogResult result;
+  if ([panel runModal] == NSModalResponseOK) {
+    for (NSURL* url in panel.URLs) {
+      std::ostringstream s;
+      s << [url.path cStringUsingEncoding:NSUTF8StringEncoding];
+      result.paths.push_back(s.str());
+    }
+    if (result.paths.empty()) {
+      result.status = DialogResult::kCancelled;
+    } else {
+      result.path = result.paths.front();
+      result.status = DialogResult::kAccepted;
+    }
+  } else {
+    result.status = DialogResult::kCancelled;
+  }
+  return result;
+}
+
 DialogResult SaveFileDialog(std::string_view path,
                             std::span<std::string_view> filters) {
   NSSavePanel* panel = [NSSavePanel savePanel];

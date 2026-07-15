@@ -54,6 +54,15 @@ DialogResult OpenFileDialog(std::string_view path,
   return ImGui_FileDialog(path);
 }
 
+DialogResult OpenFilesDialog(std::string_view path,
+                             std::span<std::string_view> filters) {
+  DialogResult r = ImGui_FileDialog(path);
+  if (r.status == DialogResult::kAccepted && !r.path.empty()) {
+    r.paths.push_back(r.path);
+  }
+  return r;
+}
+
 DialogResult SaveFileDialog(std::string_view path,
                             std::span<std::string_view> filters) {
   return ImGui_FileDialog(path);
