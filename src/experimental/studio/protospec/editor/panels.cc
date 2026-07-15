@@ -117,16 +117,59 @@ static void AddMenuUpdate(GuiPlugin* self) {
   }
 }
 
-// Diagnostics: live Validate/Compile log + status line (§3).
+// Diagnostics: live Validate/Compile log + status line (§3). Rows are severity
+// coloured; a row that carries a serial is clickable and selects the element it
+// blames (SelectBySerial -> Hierarchy/viewport highlight); a row that carries a
+// SourceLoc shows its file:line origin.
+static ImVec4 SeverityColor(DiagEntry::Severity s) {
+  switch (s) {
+    case DiagEntry::Severity::Error:
+      return ImVec4(0.95f, 0.45f, 0.42f, 1.0f);  // red
+    case DiagEntry::Severity::Warning:
+      return ImVec4(0.95f, 0.78f, 0.35f, 1.0f);  // amber
+    case DiagEntry::Severity::Info:
+      break;
+  }
+  return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+}
+
 static void DiagnosticsUpdate(GuiPlugin* self) {
   EditorContext* c = Ctx(self->data);
   if (!c->status_line.empty()) {
     ImGui::TextWrapped("%s", c->status_line.c_str());
-    ImGui::Separator();
+    ImGui::SameLine();
   }
+  ImGui::BeginDisabled(c->diagnostics.empty());
+  if (ImGui::SmallButton("Clear")) {
+    c->ClearDiagnostics();
+  }
+  ImGui::EndDisabled();
+  ImGui::Separator();
+
   ImGui::BeginChild("##diag_log");
-  for (const std::string& line : c->diagnostics) {
-    ImGui::TextUnformatted(line.c_str());
+  int row = 0;
+  for (const DiagEntry& d : c->diagnostics) {
+    ImGui::PushID(row++);
+    std::string label;
+    if (d.loc) {
+      label = d.loc->file;
+      if (d.loc->line > 0) label += ":" + std::to_string(d.loc->line);
+      label += ": ";
+    }
+    label += d.message;
+
+    ImGui::PushStyleColor(ImGuiCol_Text, SeverityColor(d.severity));
+    // Only serial-bearing rows are actionable; the rest render as inert text so
+    // a stray click never changes the selection.
+    if (d.serial) {
+      if (ImGui::Selectable(label.c_str())) {
+        SelectBySerial(*c, *d.serial);
+      }
+    } else {
+      ImGui::TextUnformatted(label.c_str());
+    }
+    ImGui::PopStyleColor();
+    ImGui::PopID();
   }
   if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
     ImGui::SetScrollHereY(1.0f);

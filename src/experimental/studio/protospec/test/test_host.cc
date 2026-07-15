@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -33,6 +34,7 @@
 #include "protospec/refs.h"
 #include "protospec/traversal.h"
 #include "types.h"
+#include "validate.h"
 
 namespace mj = ps::mjcf;
 namespace bridge = ps::mjcf::bridge;
@@ -329,10 +331,146 @@ static void TestDeleteConfirmFlow() {
   CHECK(RecompileTree(ctx) && ctx.compiled.ok());
 }
 
+// ------------------------------------------------------------------------- //
+// G8: Diagnostics click-to-select navigation. Three units behind the panel's
+// clickable rows: (1) the structured append contract -- severity / serial /
+// SourceLoc, the retained legacy plain-string path, and the ring cap; (2)
+// serial routing on a row click, at the state-machine level (per G7): a real
+// producer stamps the acting serial and the exact call the Selectable makes
+// (SelectBySerial) selects that element; (3) the Validate -> diagnostic ->
+// serial mapping on a planted tier-2 (referential) error.
+// ------------------------------------------------------------------------- //
+static void TestDiagnosticStructuredAppend() {
+  EditorContext ctx;
+
+  // Legacy plain-string path: an Info entry with no serial and no loc.
+  ctx.Log("plain line");
+  CHECK(ctx.diagnostics.size() == 1);
+  CHECK(ctx.diagnostics.back().severity == DiagEntry::Severity::Info);
+  CHECK(ctx.diagnostics.back().message == "plain line");
+  CHECK(!ctx.diagnostics.back().serial.has_value());
+  CHECK(!ctx.diagnostics.back().loc.has_value());
+
+  // Structured path: severity, serial, and SourceLoc all carried through.
+  ctx.Diagnose(DiagEntry{DiagEntry::Severity::Error, "boom", std::uint64_t{99},
+                         ps::SourceLoc{"model.xml", 12}});
+  const DiagEntry& e = ctx.diagnostics.back();
+  CHECK(e.severity == DiagEntry::Severity::Error);
+  CHECK(e.serial.has_value() && *e.serial == 99);
+  CHECK(e.loc.has_value() && e.loc->file == "model.xml" && e.loc->line == 12);
+
+  // Ring cap: the deque never grows past the bound; the oldest rows are evicted.
+  ctx.ClearDiagnostics();
+  CHECK(ctx.diagnostics.empty());
+  for (std::size_t i = 0; i < EditorContext::kMaxDiagnostics + 50; ++i) {
+    ctx.Log("row " + std::to_string(i));
+  }
+  CHECK(ctx.diagnostics.size() == EditorContext::kMaxDiagnostics);
+  CHECK(ctx.diagnostics.front().message == "row 50");  // first 50 evicted
+  CHECK(ctx.diagnostics.back().message ==
+        "row " + std::to_string(EditorContext::kMaxDiagnostics + 49));
+
+  ctx.ClearDiagnostics();
+  CHECK(ctx.diagnostics.empty());
+}
+
+static void TestDiagnosticClickSelectsElement() {
+  TempDir tmp;
+  const std::string path = tmp.file("pickrig.xml");
+  WriteFile(path, R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="0 0 1">
+        <geom name="g" type="box" size="0.1 0.1 0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)");
+
+  EditorContext ctx;
+  CHECK(LoadModel(ctx, path));
+  CHECK(ctx.compiled.ok());
+  const std::uint64_t g = ps::sdk::Find<mj::Geom>(*ctx.tree, "g")->serial;
+
+  // A producer (the viewport pick logger) stamps the acting element's serial
+  // onto its Diagnostics row. This model has a single geom -> compiled id 0.
+  ctx.ClearDiagnostics();
+  const PickResolution r = ResolvePick(ctx, /*geom_id=*/0, /*body_id=*/-1);
+  CHECK(r.hit && r.serial == g);
+  CHECK(!ctx.diagnostics.empty());
+  const DiagEntry& row = ctx.diagnostics.back();
+  CHECK(row.serial.has_value() && *row.serial == g);
+
+  // Simulate the row click: drop the selection, then route the row's serial
+  // through the exact call the panel's Selectable makes (SelectBySerial). The
+  // element is reselected -> Hierarchy/viewport highlight follows.
+  ctx.selected_serial = 0;
+  ctx.selected_desc.clear();
+  CHECK(SelectBySerial(ctx, *row.serial));
+  CHECK(ctx.selected_serial == g);
+  CHECK(!ctx.selected_desc.empty());
+
+  // A row with no serial (a plain Info line) is inert -- nothing to route.
+  ctx.Log("just a note");
+  CHECK(!ctx.diagnostics.back().serial.has_value());
+}
+
+static void TestDiagnosticValidateMapsSerial() {
+  // A tier-2 (referential) error: a sensor references a joint that does not
+  // exist. Validate flags it at the sensor's element path; the mapping resolves
+  // that path back to the sensor's creation serial so a click selects it. (The
+  // model also fails compile, so in the live load path the tree rolls back --
+  // this exercises the mapping unit on the retained parse, the part a click
+  // depends on.)
+  const std::string xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="0 0 1">
+        <joint name="j" type="hinge" axis="0 1 0"/>
+        <geom name="g" type="box" size="0.1 0.1 0.1"/>
+      </body>
+    </worldbody>
+    <sensor>
+      <jointpos name="badsensor" joint="ghost"/>
+    </sensor>
+  </mujoco>)";
+
+  mj::io::ParseResult parsed = mj::io::ParseMjcfString(xml, "planted.xml");
+  CHECK(parsed.ok());
+
+  const std::vector<mj::validate::Diagnostic> diags = mj::validate::Validate(
+      *parsed.model,
+      mj::validate::kTierStructural | mj::validate::kTierReferential);
+
+  const mj::validate::Diagnostic* bad = nullptr;
+  for (const mj::validate::Diagnostic& d : diags) {
+    if (d.severity == mj::validate::Severity::Error &&
+        d.message.find("ghost") != std::string::npos) {
+      bad = &d;
+    }
+  }
+  CHECK(bad != nullptr);
+
+  // The mapping resolves the diagnostic's path to the offending sensor.
+  const std::uint64_t want =
+      ps::sdk::Find<mj::Jointpos>(*parsed.model, "badsensor")->serial;
+  const std::optional<std::uint64_t> got =
+      SerialForValidatePath(*parsed.model, bad->path);
+  CHECK(got.has_value() && *got == want);
+
+  // And routing that serial (the click) selects the sensor on the live tree.
+  EditorContext ctx;
+  ctx.tree = std::move(parsed.model);
+  CHECK(SelectBySerial(ctx, *got));
+  CHECK(ctx.selected_serial == want);
+}
+
 int main() {
   TestPlayStopStateDiscard();
   TestSaveAsExternalizeHostPath();
   TestDeleteConfirmFlow();
+  TestDiagnosticStructuredAppend();
+  TestDiagnosticClickSelectsElement();
+  TestDiagnosticValidateMapsSerial();
 
   std::printf("%d checks, %d failed\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

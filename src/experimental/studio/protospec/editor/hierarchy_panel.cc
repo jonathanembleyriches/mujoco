@@ -236,7 +236,9 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
   }
   if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
     ctx.focus_request_serial = node.serial;  // consumed by the viewport (SE2)
-    ctx.Log("focus request -> serial " + std::to_string(node.serial));
+    ctx.Diagnose(DiagEntry{DiagEntry::Severity::Info,
+                           "focus request -> serial " + std::to_string(node.serial),
+                           node.serial, {}});
   }
   if (ImGui::BeginPopupContextItem()) {
     DrawContextMenu(ctx, node, st);
