@@ -17,6 +17,11 @@ set(MUJOCO_INCLUDE_DIR "${MUJOCO_ROOT}/include")
 set(MUJOCO_IMPORT_LIB  "${MUJOCO_ROOT}/build/lib/Release/mujoco.lib")
 set(MUJOCO_DLL         "${MUJOCO_ROOT}/build/bin/Release/mujoco.dll")
 
+# The first-party engine-plugin DLLs (elasticity/sdf/sensor/actuator) are
+# prebuilt beside mujoco.dll; this is the default directory the plugin registry
+# loads them from (overridable per tool via --plugin-dir or PROTOSPEC_PLUGIN_DIR).
+set(MUJOCO_PLUGIN_DIR "${MUJOCO_ROOT}/build/bin/Release")
+
 if(NOT EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mjxmacro.h")
   message(FATAL_ERROR
     "MuJoCo headers not found under ${MUJOCO_INCLUDE_DIR}; set -DMUJOCO_ROOT=...")
@@ -24,6 +29,26 @@ endif()
 if(NOT EXISTS "${MUJOCO_IMPORT_LIB}")
   message(FATAL_ERROR
     "mujoco.lib not found at ${MUJOCO_IMPORT_LIB}; set -DMUJOCO_ROOT=...")
+endif()
+
+# First-party engine-plugin registration, shared by every tool that loads
+# plugin-bearing corpus models (mj_model_diff, ps_native_diff, ps_compile).
+# MuJoCo's plugin registry is process-global, so one small lift-free lib linked
+# into each tool is the single registration point. Guarded so a parent project
+# that has already defined it (or a re-run) does not redefine the target.
+if(NOT TARGET plugin_registry)
+  add_library(plugin_registry STATIC plugin_registry.cc)
+  target_include_directories(plugin_registry PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    "${MUJOCO_INCLUDE_DIR}")
+  target_link_libraries(plugin_registry PUBLIC "${MUJOCO_IMPORT_LIB}")
+  target_compile_definitions(plugin_registry PRIVATE
+    "PROTOSPEC_DEFAULT_PLUGIN_DIR=\"${MUJOCO_PLUGIN_DIR}\"")
+  if(MSVC)
+    target_compile_options(plugin_registry PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(plugin_registry PRIVATE -Wall -Wextra)
+  endif()
 endif()
 
 # The mjModel comparison core, shared by the mj_model_diff CLI and the
@@ -41,7 +66,7 @@ endif()
 
 add_executable(mj_model_diff mj_model_diff.cc)
 target_include_directories(mj_model_diff PRIVATE "${MUJOCO_INCLUDE_DIR}")
-target_link_libraries(mj_model_diff PRIVATE model_diff_lib "${MUJOCO_IMPORT_LIB}")
+target_link_libraries(mj_model_diff PRIVATE model_diff_lib plugin_registry "${MUJOCO_IMPORT_LIB}")
 
 if(MSVC)
   target_compile_options(mj_model_diff PRIVATE /W4 /permissive-)

@@ -25,6 +25,7 @@
 
 #include "compile.h"
 #include "mjcf.h"
+#include "plugin_registry.h"
 
 namespace {
 
@@ -63,11 +64,14 @@ bool IsAuto(const std::string& name) {
 int main(int argc, char** argv) {
   const char* in = nullptr;
   std::string base_dir;
+  std::string plugin_dir;
   bool emit_xml = false;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--base-dir" && i + 1 < argc) {
       base_dir = argv[++i];
+    } else if (a == "--plugin-dir" && i + 1 < argc) {
+      plugin_dir = argv[++i];
     } else if (a == "--emit-xml") {
       emit_xml = true;
     } else if (!in) {
@@ -78,9 +82,14 @@ int main(int argc, char** argv) {
     }
   }
   if (!in) {
-    std::fprintf(stderr, "usage: ps_compile <in.xml> [--base-dir DIR]\n");
+    std::fprintf(stderr,
+                 "usage: ps_compile <in.xml> [--base-dir DIR] [--plugin-dir DIR]\n");
     return 1;
   }
+
+  // Register the first-party engine plugins so the bridge's mj_loadXML resolves
+  // plugin-bearing models (elasticity/sdf/sensor/pid).
+  ps::plugin::RegisterFirstPartyPlugins(plugin_dir);
 
   ps::mjcf::io::ParseResult parsed = ps::mjcf::io::ParseMjcfFile(in);
   if (!parsed.ok()) {

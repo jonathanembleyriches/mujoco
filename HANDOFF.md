@@ -66,7 +66,12 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
    slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,
    alignfree, per-body sleep, partial-size-default eager-copy, `Expand()`, flexcomp
    document-order interleaving (known limitation note in wave-2 report).
-7. **Plugins** — register first-party plugin libs in the harness to unlock the 28 skips.
+7. **Plugins** — DONE (XML route). First-party engine plugins registered at harness startup
+   (`cpp/harness/plugin_registry.{h,cc}`, shared by mj_model_diff/ps_native_diff/ps_compile;
+   default DLL dir beside mujoco.dll, `--plugin-dir`/`PROTOSPEC_PLUGIN_DIR` override). The 17
+   plugin corpus models now round-trip byte-identical: **differential 376/387**, floor guarded
+   by `test_xml_parity_floor`. Remaining 11 skips are non-loadable fixtures (10 malformed + 1
+   engine-fail). Native plugin support (flex.plugin etc.) is still gated → NC7+.
 
 ## Editor remaining queue (Gate 2)
 

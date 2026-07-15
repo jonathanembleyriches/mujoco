@@ -19,6 +19,7 @@
 #include <mujoco/mujoco.h>
 
 #include "model_diff_lib.h"
+#include "plugin_registry.h"
 
 namespace {
 
@@ -150,11 +151,14 @@ int main(int argc, char** argv) {
   bool json = false;
   Tol tol;
   int max_examples = 8;
+  std::string plugin_dir;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--json") {
       json = true;
+    } else if (arg == "--plugin-dir" && i + 1 < argc) {
+      plugin_dir = argv[++i];
     } else if (arg == "--tol" && i + 1 < argc) {
       double t = std::atof(argv[++i]);
       tol.rtol = t;
@@ -178,9 +182,13 @@ int main(int argc, char** argv) {
   if (!fa || !fb) {
     std::fprintf(stderr,
                  "usage: mj_model_diff a.xml b.xml [--json] [--tol T] "
-                 "[--atol A] [--rtol R] [--examples N]\n");
+                 "[--atol A] [--rtol R] [--examples N] [--plugin-dir DIR]\n");
     return 1;
   }
+
+  // Register the first-party engine plugins so plugin-bearing corpus models load
+  // (mujoco.elasticity.*, mujoco.sdf.*, mujoco.sensor.touch_grid, mujoco.pid).
+  ps::plugin::RegisterFirstPartyPlugins(plugin_dir);
 
   std::string err;
   mjModel* a = Load(fa, err);

@@ -45,6 +45,17 @@ Runtime cap
 bounded, models whose source XML exceeds ``MAX_XML_BYTES`` are skipped for size
 rather than silently truncated; the skipped-for-size list is printed in the
 session summary.
+
+Engine plugins
+--------------
+``mj_model_diff`` registers the first-party MuJoCo engine plugins
+(``mujoco.elasticity.*``, ``mujoco.sdf.*``, ``mujoco.sensor.touch_grid``,
+``mujoco.pid``) at startup, so plugin-bearing corpus models load on both legs
+and are differential-tested like any other model -- our reader/writer carry the
+``<extension>``/``<plugin>`` config as ordered data, which the round trip must
+preserve verbatim. The plugin DLLs are found beside ``mujoco.dll`` by default;
+override with ``--plugin-dir`` or ``PROTOSPEC_PLUGIN_DIR``. See the parity floor
+at the bottom of this file for the resulting corpus accounting.
 """
 
 from __future__ import annotations
@@ -358,3 +369,39 @@ def test_roundtrip_matches_mujoco(model: Path):
 
     assert diff.returncode == 0, f"unexpected exit {diff.returncode}\n{diff.stdout}\n{diff.stderr}"
     _STATS["identical"] += 1
+
+
+# --------------------------------------------------------------------------- #
+# Parity floor                                                                 #
+# --------------------------------------------------------------------------- #
+# XML-route 100% parity: every corpus model MuJoCo can load WITH its first-party
+# engine plugins registered (mj_model_diff --plugin-dir / PROTOSPEC_PLUGIN_DIR,
+# defaulting to the DLLs beside mujoco.dll) must round-trip byte-identical. The
+# only models allowed to fall out are the ones MuJoCo itself cannot load
+# standalone: the deliberately-malformed flexcomp fixtures and the sleep-init
+# engine-fail fixture. Of the 387-file corpus that leaves 376 loadable models,
+# all identical; the 11 skips are 10 malformed fixtures + 1 engine-fail fixture.
+# (The 18 previously plugin-skipped files were 17 distinct plugin models -- three
+# share mujoco.elasticity.cable -- so the flip is +17, from 359 to 376.)
+_PARITY_FLOOR_IDENTICAL = 376
+_MAX_UNLOADABLE_SKIP = 11
+
+
+@pytest.mark.skipif(not _PIPELINE_READY, reason=_pipeline_skip_reason())
+def test_xml_parity_floor():
+    """Regression guard: the plugin-inclusive corpus must stay 100% identical."""
+    ran = sum(_STATS.values())
+    if ran == 0:  # parametrized body never executed (e.g. -k filtered it out)
+        pytest.skip("differential pipeline did not run in this session")
+    assert _STATS["differ"] == 0, f"{_STATS['differ']} model(s) diverged"
+    assert _STATS["load-error"] == 0, (
+        f"{_STATS['load-error']} round trip(s) failed to load"
+    )
+    assert _STATS["identical"] >= _PARITY_FLOOR_IDENTICAL, (
+        f"parity regressed: {_STATS['identical']} identical "
+        f"< floor {_PARITY_FLOOR_IDENTICAL}"
+    )
+    assert _STATS["skip-unloadable-original"] <= _MAX_UNLOADABLE_SKIP, (
+        f"more models became unloadable ({_STATS['skip-unloadable-original']} "
+        f"> {_MAX_UNLOADABLE_SKIP}); a plugin may have failed to register"
+    )

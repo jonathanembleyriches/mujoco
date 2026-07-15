@@ -145,6 +145,13 @@ set(TINYOBJ_LIB         "${MUJOCO_ROOT}/build/lib/Release/tinyobjloader.lib")
 set(LODEPNG_INCLUDE_DIR "${MUJOCO_DEPS}/lodepng-src")
 set(LODEPNG_LIB         "${MUJOCO_ROOT}/build/lib/Release/lodepng.lib")
 
+# The differential/corpus harness lives in cpp/harness/ (owned separately); wire
+# it in before the MuJoCo bridge tools below so its plugin_registry / model_diff
+# targets exist when ps_compile and ps_native_diff link them.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/harness/CMakeLists.txt)
+  add_subdirectory(harness)
+endif()
+
 if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LIB}")
   # Lifted MuJoCo code (CDR-3): copied-with-provenance algorithms, tracked in
   # snapshots/lifted_code.json. Its own TU so the conformance mode (/permissive-)
@@ -220,10 +227,12 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
       VERBATIM)
   endfunction()
 
-  # Corpus compile CLI (the harness contract: ps_compile <in.xml>).
+  # Corpus compile CLI (the harness contract: ps_compile <in.xml>). Links the
+  # shared plugin_registry so the bridge's mj_loadXML resolves plugin models.
   add_executable(ps_compile tools/ps_compile.cc)
-  target_include_directories(ps_compile PRIVATE ${MUJOCO_INCLUDE_DIR})
-  target_link_libraries(ps_compile PRIVATE protospec_bridge "${MUJOCO_IMPORT_LIB}")
+  target_include_directories(ps_compile PRIVATE
+    ${MUJOCO_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/harness)
+  target_link_libraries(ps_compile PRIVATE protospec_bridge plugin_registry "${MUJOCO_IMPORT_LIB}")
   ps_copy_mujoco_dll(ps_compile)
 
   add_executable(protospec_bridge_tests test/test_bridge.cc)
@@ -256,12 +265,6 @@ else()
 endif()
 add_test(NAME protospec_sdk_tests COMMAND protospec_sdk_tests)
 
-# The differential/corpus harness lives in cpp/harness/ and is owned by a
-# separate agent; wire it in only when present.
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/harness/CMakeLists.txt)
-  add_subdirectory(harness)
-endif()
-
 # --------------------------------------------------------------------------- #
 # Native-compiler harness + tests (impl-plan NC0). Placed after the harness    #
 # subdirectory so model_diff_lib exists. Guarded on both the bridge and the    #
@@ -271,9 +274,10 @@ if(TARGET protospec_bridge AND TARGET model_diff_lib)
   # Three-way differential driver (leg B XML path vs leg C native path).
   add_executable(ps_native_diff harness/ps_native_diff.cc)
   target_include_directories(ps_native_diff PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/bridge ${MUJOCO_INCLUDE_DIR})
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge ${CMAKE_CURRENT_SOURCE_DIR}/harness
+    ${MUJOCO_INCLUDE_DIR})
   target_link_libraries(ps_native_diff
-    PRIVATE protospec_bridge model_diff_lib "${MUJOCO_IMPORT_LIB}")
+    PRIVATE protospec_bridge model_diff_lib plugin_registry "${MUJOCO_IMPORT_LIB}")
   if(MSVC)
     target_compile_options(ps_native_diff PRIVATE /W4 /permissive-)
   else()

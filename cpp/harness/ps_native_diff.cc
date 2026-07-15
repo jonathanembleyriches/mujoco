@@ -35,6 +35,7 @@
 #include "compile.h"
 #include "mjcf.h"
 #include "model_diff_lib.h"
+#include "plugin_registry.h"
 
 namespace {
 
@@ -82,6 +83,10 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "usage: ps_native_diff <in.xml> [--base-dir DIR]\n");
     return 1;
   }
+
+  // Register the first-party engine plugins so both compile legs resolve
+  // plugin-bearing models (elasticity/sdf/sensor/pid).
+  ps::plugin::RegisterFirstPartyPlugins();
 
   ps::mjcf::io::ParseResult parsed = ps::mjcf::io::ParseMjcfFile(in);
   if (!parsed.ok()) {
