@@ -144,7 +144,13 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "motor" || feature_key == "position" ||
       feature_key == "velocity" || feature_key == "intvelocity" ||
       feature_key == "damper" || feature_key == "cylinder" ||
-      feature_key == "adhesion") {
+      feature_key == "adhesion" || feature_key == "muscle") {
+    return true;
+  }
+  // NC7a: <muscle> and <general gain/bias=muscle> get actuator_lengthrange from
+  // the public mj_setLengthRange post-build pass; the <compiler><lengthrange>
+  // options block tunes it.
+  if (feature_key == "lengthrange") {
     return true;
   }
   // NC2 sensors: fixed-dim, single-typed-target (site/joint/tendon/actuator/
@@ -172,6 +178,17 @@ inline bool IsFeatureSupported(std::string_view feature_key) {
       feature_key == "frameangvel" || feature_key == "framelinacc" ||
       feature_key == "frameangacc" || feature_key == "clock" ||
       feature_key == "e_potential" || feature_key == "e_kinetic") {
+    return true;
+  }
+  // NC7a sensors: rangefinder (ray dataspec bitmask in sensor_intprm[0]),
+  // camprojection (site obj + camera ref, dim 2), insidesite (typed obj + site
+  // ref, dim 1), and the geom-distance sensors distance/normal/fromto (geom|body
+  // obj + geom|body ref). A camera-target rangefinder (dim scales with camera
+  // resolution) and any sensor authoring a delay buffer (nsample) route to the
+  // XML fallback via the finer scan. contact/tactile/user/plugin stay unlisted.
+  if (feature_key == "rangefinder" || feature_key == "camprojection" ||
+      feature_key == "insidesite" || feature_key == "distance" ||
+      feature_key == "normal" || feature_key == "fromto") {
     return true;
   }
   return false;

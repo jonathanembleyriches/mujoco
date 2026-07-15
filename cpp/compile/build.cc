@@ -265,6 +265,7 @@ struct CJoint {
   double stiffness[3] = {0, 0, 0};   // [scalar, poly0, poly1]
   double damping[3] = {0, 0, 0};
   double margin = 0, ref = 0, springref = 0, armature = 0, frictionloss = 0;
+  double springdamper[2] = {0, 0};   // [timeconst, dampratio]; AutoSpringDamper
   bool limited = false, actfrclimited = false, actgravcomp = false;
 
   int nq() const {
@@ -586,6 +587,62 @@ void GeomFluidCoefs(int type, const double size[3], const double coefs[5],
   for (int k = 0; k < 3; ++k) { fluid[6 + k] = vmass[k]; fluid[9 + k] = vinertia[k]; }
 }
 
+// Eager per-slot `size`: MuJoCo pre-fills the 3-vector from the governing
+// default chain, then ReadAttr overwrites only the element's authored prefix
+// (user_objects.cc: the mjCGeom/mjCSite default carries a full size[3]). So a
+// geom/site authoring FEWER size values than a class-chain default provides
+// inherits that default's tail -- which ProtoSpec's whole-field presence merge
+// (Effective takes the first-present WHOLE vector) does not reproduce. Rebuild
+// the eager result per slot: the highest-priority level (element, then leaf
+// class up to the root blocks, high rank first) that authors slot j wins it.
+// Only needed when the element authored a partial (1-2 value) size; the full /
+// unauthored cases already agree with Effective, so the hot path is untouched.
+// `out` enters holding the element-type constructor default (mjCGeom {0,0,0},
+// mjCSite {0.005,0.005,0.005}) -- the eager base MuJoCo pre-fills before any
+// overwrite. Slots no level authors keep that default; a slot any level authors
+// takes the highest-priority authored value.
+template <class T>
+void EagerSizeArray(const Model& m, const T& e, double out[3]) {
+  bool set[3] = {false, false, false};
+  auto overlay = [&](const auto& sz) {
+    if (!sz) return;
+    for (std::size_t k = 0; k < sz->size() && k < 3; ++k)
+      if (!set[k]) { out[k] = (*sz)[k]; set[k] = true; }
+  };
+  auto node_size = [&](const ps::mjcf::Default& d) {
+    const auto* vec = ps::sdk::DefaultVec<T>(d);
+    if (vec && !vec->empty() && vec->front()) overlay(vec->front()->size);
+  };
+  overlay(e.size);  // element authored prefix is highest priority
+  ps::sdk::ParentMap pm(m);
+  ps::sdk::detail::DefaultIndex idx(m);
+  const std::string cls =
+      ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(e), &e);
+  for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d;
+       d = idx.ParentOf(d)) {
+    if (idx.ParentOf(d) == nullptr) {  // terminal: top-level block(s) -> `main`
+      const int rank = idx.RootRank(d);
+      if (rank < 0) {
+        node_size(*d);
+      } else {
+        const auto& roots = idx.Roots();
+        for (int i = rank; i >= 0; --i)
+          if (roots[i]) node_size(*roots[i]);
+      }
+      break;
+    }
+    node_size(*d);
+  }
+}
+
+// True when the element authored a partial size (1-2 values), the only case
+// EagerSizeArray must correct.
+template <class T>
+bool AuthoredPartialSize(const T& e) {
+  const int n = e.size ? static_cast<int>(e.size->size()) : -1;
+  return n == 1 || n == 2;
+}
+
 // Compile one geom (mjCGeom::Compile, primitive path). `cs` supplies degree;
 // `assets` binds hfield/mesh geoms (assets compiled before the body walk).
 CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
@@ -596,8 +653,11 @@ CGeom GeomCompile(const Model& model, const Geom& g, const CompilerSettings& cs,
   cg.src = &g;
   cg.bodyid = bodyid;
   cg.type = eff->type ? static_cast<int>(*eff->type) : mjGEOM_SPHERE;
-  if (eff->size) for (std::size_t k = 0; k < eff->size->size() && k < 3; ++k)
-    cg.size[k] = (*eff->size)[k];
+  if (AuthoredPartialSize(g))
+    EagerSizeArray(model, g, cg.size);
+  else if (eff->size)
+    for (std::size_t k = 0; k < eff->size->size() && k < 3; ++k)
+      cg.size[k] = (*eff->size)[k];
   if (eff->pos) { cg.pos[0] = (*eff->pos)[0]; cg.pos[1] = (*eff->pos)[1];
                   cg.pos[2] = (*eff->pos)[2]; }
   if (eff->contype) cg.contype = *eff->contype;
@@ -877,6 +937,10 @@ CJoint JointCompile(const Model& model, const Joint& j, const CompilerSettings& 
   if (eff->ref) cj.ref = *eff->ref;
   if (eff->springref) cj.springref = *eff->springref;
   if (eff->armature) cj.armature = *eff->armature;
+  if (eff->springdamper) {
+    cj.springdamper[0] = (*eff->springdamper)[0];
+    cj.springdamper[1] = (*eff->springdamper)[1];
+  }
   if (eff->frictionloss) cj.frictionloss = *eff->frictionloss;
   if (eff->actuatorgravcomp) cj.actgravcomp = *eff->actuatorgravcomp;
   if (eff->user) cj.user = *eff->user;
@@ -967,7 +1031,9 @@ CSite SiteCompile(const Model& model, const Site& s, const CompilerSettings& cs,
   cs2.bodyid = bodyid;
   cs2.type = eff->type ? static_cast<int>(*eff->type) : mjGEOM_SPHERE;
   if (eff->group) cs2.group = *eff->group;
-  if (eff->size)
+  if (AuthoredPartialSize(s))
+    EagerSizeArray(model, s, cs2.size);
+  else if (eff->size)
     for (std::size_t k = 0; k < eff->size->size() && k < 3; ++k)
       cs2.size[k] = (*eff->size)[k];
   if (eff->pos) { cs2.pos[0] = (*eff->pos)[0]; cs2.pos[1] = (*eff->pos)[1];
@@ -1099,6 +1165,7 @@ struct CLight {
   std::string targetbody;
   int type = mjLIGHT_SPOT;
   int texid = -1;
+  std::string texture_name;
   bool castshadow = true;
   bool active = true;
   double pos[3] = {0, 0, 0};
@@ -1139,6 +1206,7 @@ CLight LightCompile(const Model& model, const Light& l,
   if (eff->specular) for (int k = 0; k < 3; ++k)
     cl.specular[k] = (*eff->specular)[k];
   if (eff->target) cl.targetbody = eff->target->name;
+  if (eff->texture) cl.texture_name = eff->texture->name;
 
   // frame: accumulate pos, rotate dir (mjCLight::Compile), then normalize dir.
   if (xf.present) {
@@ -3119,7 +3187,8 @@ struct DofTree {
 };
 
 DofTree ComputeDofTree(const std::vector<CBody>& cbs,
-                       const std::vector<CJoint>& joints, int nv) {
+                       const std::vector<CJoint>& joints, int nv,
+                       const std::vector<int>& tendon_demote_bodies) {
   const int nbody = static_cast<int>(cbs.size());
   DofTree t;
   t.dof_parentid.assign(nv, -1); t.dof_bodyid.assign(nv, -1);
@@ -3183,6 +3252,13 @@ DofTree ComputeDofTree(const std::vector<CBody>& cbs,
         if (joints[jj].type != mjJNT_SLIDE) { t.body_simple[i] = 1; break; }
     }
   }
+
+  // Tendon-armature demotion (ComputeSparseSizes user_model.cc:1049 /
+  // FinalizeSimple :4048): an inertia-bearing tendon (armature>0) couples the
+  // dofs of every body its site/cylinder/sphere wraps touch, so those bodies
+  // cannot use the diagonal "simple" fast path. Applied before dof_simplenum/nC.
+  for (int b : tendon_demote_bodies)
+    if (b >= 0 && b < nbody) t.body_simple[b] = 0;
 
   // nM, nD
   for (int i = 0; i < nv; ++i) {
@@ -3296,8 +3372,24 @@ void FillTree(mjModel* m, const std::vector<CBody>& cbs,
     m->body_treeid[i] = dt.body_treeid[i];
   }
 
-  // tree sleep policy (AUTO for all trees; NC1 has no non-default <body sleep>).
+  // tree sleep policy: AUTO for every tree, then each body's non-default <body
+  // sleep> policy stamped onto its tree (user_model.cc:3065-3082). A non-AUTO
+  // policy is only valid on a movable root body (validated at parse; leg B would
+  // reject a misplaced one, so a flippable model always places it legally).
   for (int i = 0; i < dt.ntree; ++i) m->tree_sleep_policy[i] = mjSLEEP_AUTO;
+  for (int i = 1; i < nbody; ++i) {
+    const CBody& cb = cbs[i];
+    if (!cb.src || !cb.src->sleep) continue;
+    int policy = mjSLEEP_AUTO;
+    switch (*cb.src->sleep) {
+      case BodySleep::auto_:   policy = mjSLEEP_AUTO;    break;
+      case BodySleep::never:   policy = mjSLEEP_NEVER;   break;
+      case BodySleep::allowed: policy = mjSLEEP_ALLOWED; break;
+      case BodySleep::init:    policy = mjSLEEP_INIT;    break;
+    }
+    if (policy != mjSLEEP_AUTO && m->body_treeid[i] >= 0)
+      m->tree_sleep_policy[m->body_treeid[i]] = policy;
+  }
 
   // body_subtreemass: sum of self + descendants (leaf-up).
   for (int i = 0; i < nbody; ++i) m->body_subtreemass[i] = m->body_mass[i];
@@ -4431,7 +4523,8 @@ void FillActuatorCommon(const T& eff, CActuator& ca, ActParams& ap) {
 // joint > jointinparent > tendon > cranksite(slidercrank) > site > body).
 template <class T>
 void ResolveTransmission(const T& eff, CActuator& ca, const NameIdMap& jointid,
-                         const NameIdMap& tendonid, const NameIdMap& bodyid) {
+                         const NameIdMap& tendonid, const NameIdMap& bodyid,
+                         const NameIdMap& siteid) {
   auto id = [](const NameIdMap& m, const std::string& n) {
     auto it = m.find(n); return it == m.end() ? -1 : it->second;
   };
@@ -4439,8 +4532,34 @@ void ResolveTransmission(const T& eff, CActuator& ca, const NameIdMap& jointid,
   else if (eff.jointinparent) { ca.trntype = mjTRN_JOINTINPARENT;
                                 ca.trnid[0] = id(jointid, eff.jointinparent->name); }
   else if (eff.tendon) { ca.trntype = mjTRN_TENDON; ca.trnid[0] = id(tendonid, eff.tendon->name); }
-  else if constexpr (requires { eff.body; }) {
-    if (eff.body) { ca.trntype = mjTRN_BODY; ca.trnid[0] = id(bodyid, eff.body->name); }
+  else {
+    // slidercrank (cranksite) > site (+refsite) > body -- reader precedence
+    // (OneActuator, xml_native_reader.cc:2417-2454). trnid[1] is the refsite /
+    // slidersite id (else -1).
+    bool set = false;
+    if constexpr (requires { eff.cranksite; }) {
+      if (eff.cranksite) {
+        ca.trntype = mjTRN_SLIDERCRANK;
+        ca.trnid[0] = id(siteid, eff.cranksite->name);
+        if constexpr (requires { eff.slidersite; })
+          if (eff.slidersite) ca.trnid[1] = id(siteid, eff.slidersite->name);
+        set = true;
+      }
+    }
+    if constexpr (requires { eff.site; }) {
+      if (!set && eff.site) {
+        ca.trntype = mjTRN_SITE;
+        ca.trnid[0] = id(siteid, eff.site->name);
+        if constexpr (requires { eff.refsite; })
+          if (eff.refsite) ca.trnid[1] = id(siteid, eff.refsite->name);
+        set = true;
+      }
+    }
+    if constexpr (requires { eff.body; }) {
+      if (!set && eff.body) {
+        ca.trntype = mjTRN_BODY; ca.trnid[0] = id(bodyid, eff.body->name);
+      }
+    }
   }
 }
 
@@ -4454,7 +4573,8 @@ struct RangeLookup {
 
 CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
                           const NameIdMap& jointid, const NameIdMap& tendonid,
-                          const NameIdMap& bodyid, const RangeLookup& rl) {
+                          const NameIdMap& bodyid, const NameIdMap& siteid,
+                          const RangeLookup& rl) {
   CActuator ca;
   ActParams ap;
   auto ptr = [](const double* v) { return v; };
@@ -4480,7 +4600,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
                            ap.actrange[0] = ca.actrange[0]; ap.actrange[1] = ca.actrange[1]; }
       if (eff->actlimited) ap.actlimited = static_cast<int>(*eff->actlimited);
       if (eff->actdim) ap.actdim = *eff->actdim;
-      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
       break;
     }
     case ActuatorAny::Kind::Motor: {
@@ -4489,7 +4609,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
       ca.src = &e; ca.serial = e.serial; ca.name = e.name;
       FillActuatorCommon(*eff, ca, ap);
       actlower::SetToMotor(ap);
-      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
       break;
     }
     case ActuatorAny::Kind::Position:
@@ -4516,7 +4636,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
         } else {
           actlower::SetToPosition(ap, kp, kv, dr, tc, inherit);
         }
-        ResolveTransmission(eff, ca, jointid, tendonid, bodyid);
+        ResolveTransmission(eff, ca, jointid, tendonid, bodyid, siteid);
       };
       if (intvel) {
         const IntVelocity& e = *std::get<std::unique_ptr<IntVelocity>>(any.node);
@@ -4535,7 +4655,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
       ca.src = &e; ca.serial = e.serial; ca.name = e.name;
       FillActuatorCommon(*eff, ca, ap);
       actlower::SetToVelocity(ap, eff->kv ? *eff->kv : ap.gainprm[0]);
-      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
       break;
     }
     case ActuatorAny::Kind::Damper: {
@@ -4544,7 +4664,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
       ca.src = &e; ca.serial = e.serial; ca.name = e.name;
       FillActuatorCommon(*eff, ca, ap);
       actlower::SetToDamper(ap, eff->kv ? *eff->kv : 0);
-      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
       break;
     }
     case ActuatorAny::Kind::Cylinder: {
@@ -4558,7 +4678,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
       // so pass diameter=-1 to leave the area untouched inside SetToCylinder.
       double area = eff->area ? *eff->area : ap.gainprm[0];
       actlower::SetToCylinder(ap, timeconst, bias, area, -1);
-      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
       break;
     }
     case ActuatorAny::Kind::Muscle: {
@@ -4575,7 +4695,7 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
       actlower::SetToMuscle(ap, tc, tausmooth, range, g(eff->force), g(eff->scale),
                             g(eff->lmin), g(eff->lmax), g(eff->vmax), g(eff->fpmax),
                             g(eff->fvmax));
-      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid);
+      ResolveTransmission(*eff, ca, jointid, tendonid, bodyid, siteid);
       break;
     }
     case ActuatorAny::Kind::Adhesion: {
@@ -4639,12 +4759,38 @@ CActuator ActuatorCompile(const Model& model, const ActuatorAny& any,
 
 // nJmom (CountNJmom user_model.cc:3248) over the built transmission set; scope
 // covers joint/jointinparent/tendon/body (site/slidercrank are gated).
+// mj_mergeChain (engine_core_util.c:55): the sorted union of the dof chains of
+// two welded bodies. flg_skipcommon stops at the first shared ancestor dof (the
+// relative chain, for site/refsite); else it climbs to the world (slidercrank).
+// A dofless welded body (world after body_weldid) contributes da = -1.
+int MergeChain(const std::vector<CBody>& cbs, const std::vector<int>& dof_parentid,
+               int b1, int b2, bool skipcommon, std::vector<int>& chain) {
+  b1 = cbs[b1].weldid;
+  b2 = cbs[b2].weldid;
+  if (b1 == 0 && b2 == 0) return 0;
+  int da1 = cbs[b1].dofnum ? cbs[b1].dofadr + cbs[b1].dofnum - 1 : -1;
+  int da2 = cbs[b2].dofnum ? cbs[b2].dofadr + cbs[b2].dofnum - 1 : -1;
+  int NV = 0;
+  while (da1 >= 0 || da2 >= 0) {
+    const int da = std::max(da1, da2);
+    if (skipcommon && da1 == da && da2 == da) break;
+    chain[NV] = da;
+    if (da1 == da) da1 = dof_parentid[da1];
+    if (da2 == da) da2 = dof_parentid[da2];
+    ++NV;
+  }
+  for (int i = 0; i < NV / 2; ++i) std::swap(chain[i], chain[NV - i - 1]);
+  return NV;
+}
+
 int ComputeNJmom(const std::vector<CActuator>& acts,
                  const std::vector<CJoint>& joints,
                  const std::vector<CTendon>& tendons,
                  const std::vector<CBody>& cbs, const std::vector<CGeom>& geoms,
-                 const std::vector<CSite>& sites, int nv) {
+                 const std::vector<CSite>& sites,
+                 const std::vector<int>& dof_parentid, int nv) {
   int count = 0;
+  std::vector<int> chain(nv);
   for (const CActuator& a : acts) {
     switch (a.trntype) {
       case mjTRN_JOINT:
@@ -4657,6 +4803,20 @@ int ComputeNJmom(const std::vector<CActuator>& acts,
         std::vector<CTendon> one;
         if (a.trnid[0] >= 0) one.push_back(tendons[a.trnid[0]]);
         count += ComputeNJten(one, cbs, geoms, sites, nv);
+        break;
+      }
+      case mjTRN_SITE: {
+        // mergeChain(site body, refsite body | world, skipcommon=1).
+        const int sb = a.trnid[0] >= 0 ? sites[a.trnid[0]].bodyid : 0;
+        const int rb = a.trnid[1] >= 0 ? sites[a.trnid[1]].bodyid : 0;
+        count += MergeChain(cbs, dof_parentid, sb, rb, true, chain);
+        break;
+      }
+      case mjTRN_SLIDERCRANK: {
+        // mergeChain(crank body, slider body, skipcommon=0).
+        const int sb = a.trnid[0] >= 0 ? sites[a.trnid[0]].bodyid : 0;
+        const int slb = a.trnid[1] >= 0 ? sites[a.trnid[1]].bodyid : 0;
+        count += MergeChain(cbs, dof_parentid, sb, slb, false, chain);
         break;
       }
       case mjTRN_BODY:
@@ -4768,6 +4928,23 @@ int SensorDim(int type) {
   }
 }
 
+// Per-field element counts for a rangefinder dataspec (mjRAYDATA_SIZE,
+// engine_support.c) and a contact dataspec (mjCONDATA_SIZE); sum over set bits.
+constexpr int kRayDataSize[mjNRAYDATA] = {1, 3, 3, 3, 3, 1};
+int RaydataSize(int dataspec) {
+  int n = 0;
+  for (int i = 0; i < mjNRAYDATA; ++i)
+    if (dataspec & (1 << i)) n += kRayDataSize[i];
+  return n;
+}
+constexpr int kConDataSize[mjNCONDATA] = {1, 3, 3, 1, 3, 3, 3};
+int CondataSize(int dataspec) {
+  int n = 0;
+  for (int i = 0; i < mjNCONDATA; ++i)
+    if (dataspec & (1 << i)) n += kConDataSize[i];
+  return n;
+}
+
 struct CSensor {
   const void* src = nullptr;
   std::uint64_t serial = 0;
@@ -4776,6 +4953,7 @@ struct CSensor {
   int datatype = mjDATATYPE_REAL, needstage = mjSTAGE_POS, dim = 0;
   int objtype = mjOBJ_UNKNOWN, objid = -1;
   int reftype = mjOBJ_UNKNOWN, refid = -1;
+  int intprm[mjNSENS] = {0, 0, 0};
   double cutoff = 0, noise = 0;
   double interval[2] = {0, 0};
   std::vector<double> user;
@@ -4833,6 +5011,15 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
   auto body_sensor = [&](auto& e, int t) {
     cs.type = t; cs.objtype = mjOBJ_BODY;
     if (e.body) objname = *e.body;
+  };
+  // distance/normal/fromto: exactly one of geom1/body1 (obj) and geom2/body2
+  // (ref); objtype/reftype follow which attr was authored (reader semantics).
+  auto geom_pair_sensor = [&](auto& e, int t) {
+    cs.type = t;
+    if (e.geom1) { cs.objtype = mjOBJ_GEOM; objname = e.geom1->name; }
+    else if (e.body1) { cs.objtype = mjOBJ_BODY; objname = e.body1->name; }
+    if (e.geom2) { cs.reftype = mjOBJ_GEOM; refname = e.geom2->name; }
+    else if (e.body2) { cs.reftype = mjOBJ_BODY; refname = e.body2->name; }
   };
   auto frame_sensor = [&](auto& e, int t) {
     cs.type = t;
@@ -4968,15 +5155,76 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
     case K::EKinetic: { auto& e=get(EKinetic{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
                      cs.type=mjSENS_E_KINETIC; cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
                      if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Rangefinder: { auto& e=get(Rangefinder{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_RANGEFINDER;
+                     if (e.site) { cs.objtype=mjOBJ_SITE; objname=e.site->name; }
+                     else if (e.camera) { cs.objtype=mjOBJ_CAMERA; objname=e.camera->name; }
+                     // dataspec bitmask in intprm[0] (default 1<<mjRAYDATA_DIST).
+                     { int spec=0;
+                       if (e.data && !e.data->empty())
+                         for (RayData rd : *e.data) spec |= (1 << static_cast<int>(rd));
+                       else spec = 1 << mjRAYDATA_DIST;
+                       cs.intprm[0]=spec; }
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Camprojection: { auto& e=get(Camprojection{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_CAMPROJECTION; cs.objtype=mjOBJ_SITE;
+                     if (e.site) objname=e.site->name;
+                     cs.reftype=mjOBJ_CAMERA; if (e.camera) refname=e.camera->name;
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Insidesite: { auto& e=get(Insidesite{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_INSIDESITE;
+                     if (e.objtype) cs.objtype=mju_str2Type(e.objtype->c_str());
+                     if (e.objname) objname=*e.objname;
+                     cs.reftype=mjOBJ_SITE; if (e.site) refname=e.site->name;
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Distance: { auto& e=get(Distance{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     geom_pair_sensor(e, mjSENS_GEOMDIST);
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Normal: { auto& e=get(Normal{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     geom_pair_sensor(e, mjSENS_GEOMNORMAL);
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::Fromto: { auto& e=get(Fromto{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     geom_pair_sensor(e, mjSENS_GEOMFROMTO);
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
+    case K::SensorContact: { auto& e=get(SensorContact{}); cs.src=&e; cs.serial=e.serial; cs.name=e.name;
+                     cs.type=mjSENS_CONTACT;
+                     // first match criterion -> objtype/objname; second -> reftype/refname.
+                     if (e.site) { cs.objtype=mjOBJ_SITE; objname=e.site->name; }
+                     else if (e.body1) { cs.objtype=mjOBJ_BODY; objname=e.body1->name; }
+                     else if (e.subtree1) { cs.objtype=mjOBJ_XBODY; objname=e.subtree1->name; }
+                     else if (e.geom1) { cs.objtype=mjOBJ_GEOM; objname=e.geom1->name; }
+                     if (e.body2) { cs.reftype=mjOBJ_BODY; refname=e.body2->name; }
+                     else if (e.subtree2) { cs.reftype=mjOBJ_XBODY; refname=e.subtree2->name; }
+                     else if (e.geom2) { cs.reftype=mjOBJ_GEOM; refname=e.geom2->name; }
+                     { int spec=0;
+                       if (e.data && !e.data->empty())
+                         for (ContactData cd : *e.data) spec |= (1 << static_cast<int>(cd));
+                       else spec = 1 << mjCONDATA_FOUND;
+                       cs.intprm[0]=spec; }
+                     cs.intprm[1] = e.reduce ? static_cast<int>(*e.reduce) : 0;
+                     cs.intprm[2] = e.num ? *e.num : 1;
+                     cs.cutoff=e.cutoff?*e.cutoff:0; cs.noise=e.noise?*e.noise:0;
+                     if(e.user)cs.user=*e.user; if(e.interval){cs.interval[0]=(*e.interval)[0];cs.interval[1]=(*e.interval)[1];} break; }
     default:
-      break;  // gated types (plugin/user/tactile/contact/rangefinder/...)
+      break;  // gated types (plugin/user/tactile)
   }
   (void)model;
   cs.objid = ResolveObj(sm, cs.objtype, objname);
   cs.refid = ResolveObj(sm, cs.reftype, refname);
   cs.datatype = SensorDatatype(cs.type);
   cs.needstage = SensorNeedstage(cs.type);
-  cs.dim = SensorDim(cs.type);
+  if (cs.type == mjSENS_RANGEFINDER)
+    cs.dim = RaydataSize(cs.intprm[0]);
+  else if (cs.type == mjSENS_CONTACT)
+    cs.dim = cs.intprm[2] * CondataSize(cs.intprm[0]);
+  else
+    cs.dim = SensorDim(cs.type);
   return cs;
 }
 
@@ -4992,7 +5240,8 @@ void FillSensors(mjModel* m, const std::vector<CSensor>& sensors) {
     m->sensor_reftype[i] = s.reftype;
     m->sensor_refid[i] = s.refid;
     m->sensor_plugin[i] = -1;
-    for (int k = 0; k < mjNSENS; ++k) m->sensor_intprm[i * mjNSENS + k] = 0;
+    for (int k = 0; k < mjNSENS; ++k)
+      m->sensor_intprm[i * mjNSENS + k] = s.intprm[k];
     m->sensor_dim[i] = s.dim;
     m->sensor_cutoff[i] = s.cutoff;
     m->sensor_noise[i] = s.noise;
@@ -5020,8 +5269,12 @@ void FillSensors(mjModel* m, const std::vector<CSensor>& sensors) {
 // --------------------------------------------------------------------------- //
 void FillKeyframes(mjModel* m, const std::vector<const Key*>& keys) {
   const int nq = m->nq, nv = m->nv, na = m->na, nu = m->nu, nmocap = m->nmocap;
-  for (int i = 0; i < static_cast<int>(keys.size()); ++i) {
-    const Key& k = *keys[i];
+  // A <size nkey> pad slot (index >= keys.size()) has no source Key: it defaults
+  // wholesale, exactly as an authored empty key would (AddKey). Use a shared
+  // default Key so the existing prefix-pad logic produces the reference pose.
+  static const Key kDefaultKey{};
+  for (int i = 0; i < m->nkey; ++i) {
+    const Key& k = i < static_cast<int>(keys.size()) ? *keys[i] : kDefaultKey;
     m->key_time[i] = k.time ? *k.time : 0;
 
     // qpos: authored prefix (pad tail with qpos0); empty -> all qpos0.
@@ -5832,6 +6085,14 @@ bool HfieldCompile(const Hfield& hf, const CompilerSettings& cs,
                         diags))
       return false;
   }
+
+  // A dynamic hfield -- nrow/ncol authored, no file, no elevation -- allocates
+  // nrow*ncol zeros at read time (OneHField "user data not given, set to 0",
+  // xml_native_reader.cc:3603), to be filled at runtime. leg B round-trips those
+  // zeros, so leg C must too.
+  if ((!hf.file || hf.file->empty()) && out.data.empty() && out.nrow > 0 &&
+      out.ncol > 0)
+    out.data.assign(static_cast<std::size_t>(out.nrow) * out.ncol, 0.0f);
 
   if (out.nrow < 1 || out.ncol < 1 || out.data.empty()) {
     diags.push_back({bridge::Diagnostic::Severity::Error, "hfield",
@@ -7657,7 +7918,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   const std::vector<CJoint>& joints = collector.joints();
   std::vector<CSite> sites = collector.sites();
   const std::vector<CCamera>& cameras = collector.cameras();
-  const std::vector<CLight>& lights = collector.lights();
+  std::vector<CLight>& lights = collector.lights();
 
   // Body / geom name -> id maps for targetbody, pair, and exclude resolution.
   std::unordered_map<std::string, int> bodyid_of, geomid_of;
@@ -7750,7 +8011,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     if (!ac) continue;
     for (const auto& any : ac->actuators)
       actuators.push_back(ActuatorCompile(m, any, jointid_of, tendonid_of,
-                                          bodyid_of, rlook));
+                                          bodyid_of, siteid_of, rlook));
   }
 
   // Actuator / camera name -> id maps for sensor targets.
@@ -7777,6 +8038,16 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     for (const auto& k : kf->keys)
       if (k) keys.push_back(k.get());
   }
+  // <size nkey="N"> pre-allocates N keyframe slots (ReadAttrInt, last block
+  // wins); the compiler pads to max(authored, N) with fully-default keyframes
+  // (AddKey: empty name, time 0, qpos->qpos0, qvel/act/ctrl 0, mocap ref pose --
+  // user_model.cc:5028). The padded slots carry no name (unlike an authored
+  // unnamed key, which the XML path auto-names symmetrically).
+  int size_nkey = 0;
+  for (const auto& sz : m.sizes)
+    if (sz && sz->nkey) size_nkey = *sz->nkey;
+  const int total_nkey =
+      std::max(static_cast<int>(keys.size()), size_nkey);
 
   // Custom fields (S8): numeric / text / tuple, document order across all
   // <custom> sections. Tuple obj refs resolve against the id maps built above.
@@ -7877,6 +8148,12 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (CGeom& cg : geoms) cg.matid = resolve_mat(cg.material_name);
   for (CSite& cs2 : sites) cs2.matid = resolve_mat(cs2.material_name);
   for (CTendon& t : tendons) t.matid = resolve_mat(t.material_name);
+  // An image light's texture ref -> light_texid (mjCLight::Compile).
+  for (CLight& cl : lights) {
+    if (cl.texture_name.empty()) continue;
+    auto it = texid_of.find(cl.texture_name);
+    cl.texid = it == texid_of.end() ? -1 : it->second;
+  }
 
   // Flexes (NC5): document order across every <deformable> section. Compiled
   // after bodies (needs xpos0/xquat0/weldid) and materials (matid).
@@ -7955,8 +8232,23 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (int i = 0; i < static_cast<int>(cbs.size()); ++i)
     if (cbs[i].mocap) mocapid[i] = nmocap++;
 
+  // Bodies demoted from "simple" by an inertia-bearing tendon (armature>0): its
+  // site wrap's body, or its cylinder/sphere wrap's geom body.
+  std::vector<int> tendon_demote;
+  for (const CTendon& t : tendons) {
+    if (t.armature <= 0) continue;
+    for (const CWrap& w : t.path) {
+      if (w.type == mjWRAP_SITE && w.objid >= 0 &&
+          w.objid < static_cast<int>(sites.size()))
+        tendon_demote.push_back(sites[w.objid].bodyid);
+      else if ((w.type == mjWRAP_SPHERE || w.type == mjWRAP_CYLINDER) &&
+               w.objid >= 0 && w.objid < static_cast<int>(geoms.size()))
+        tendon_demote.push_back(geoms[w.objid].bodyid);
+    }
+  }
+
   // Dof tree + sparse sizes (the crown-jewel pass).
-  DofTree dt = ComputeDofTree(cbs, joints, nv);
+  DofTree dt = ComputeDofTree(cbs, joints, nv, tendon_demote);
 
   // S10 names: effective names (authored or XML-path auto-name). Body 0 is the
   // implicit world body, always named "world".
@@ -8009,6 +8301,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   for (const CText& t : texts) nl.text.push_back(t.name);
   for (const CTuple& t : tuples) nl.tuple.push_back(t.name);
   for (const Key* k : keys) nl.key.push_back(EffectiveName(*k, opts));
+  for (int i = static_cast<int>(keys.size()); i < total_nkey; ++i)
+    nl.key.push_back("");  // padded keyframe: empty name (AddKey)
 
   // nbvh census (SetSizes): static BVH nodes over all bodies, then meshes. Mesh
   // face-BVH nodes are laid out after every body node (CopyObjects bvh_adr).
@@ -8096,7 +8390,8 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   int na = 0;
   for (const CActuator& a : actuators) na += a.actdim;
   sizes.na = na;
-  sizes.nJmom = ComputeNJmom(actuators, joints, tendons, cbs, geoms, sites, nv);
+  sizes.nJmom = ComputeNJmom(actuators, joints, tendons, cbs, geoms, sites,
+                             dt.dof_parentid, nv);
   sizes.nuser_actuator = nuser_actuator;
   sizes.nsensor = static_cast<int>(sensors.size());
   int nsensordata = 0;
@@ -8116,7 +8411,7 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
   int ntupledata = 0;
   for (const CTuple& t : tuples) ntupledata += static_cast<int>(t.entries.size());
   sizes.ntupledata = ntupledata;
-  sizes.nkey = static_cast<int>(keys.size());
+  sizes.nkey = total_nkey;
   sizes.nbvh = nbvhstatic + nbvhdynamic;
   sizes.nbvhstatic = nbvhstatic;
   sizes.nbvhdynamic = nbvhdynamic;
@@ -8272,6 +8567,71 @@ mjModel* BuildNativeModel(const Model& m, const bridge::CompileOptions& opts,
     return nullptr;
   }
   mj_setConst(out, d);
+
+  // Automatic spring-damper (mjCModel::AutoSpringDamper, user_model.cc:2373,
+  // between mj_setConst and LengthRange): a joint authoring springdamper=
+  // "timeconst dampratio" (both >0) derives jnt_stiffness + dof_damping from the
+  // effective inertia recovered from dof_invweight0 (which mj_setConst filled).
+  for (int n = 0; n < out->njnt; ++n) {
+    const double timeconst = joints[n].springdamper[0];
+    const double dampratio = joints[n].springdamper[1];
+    if (timeconst <= 0 || dampratio <= 0) continue;
+    const int adr = out->jnt_dofadr[n];
+    const int ndim = joints[n].nv();
+    double inv = 0;
+    for (int i = 0; i < ndim; ++i) inv += out->dof_invweight0[adr + i];
+    const double inertia = static_cast<double>(ndim) / std::max(mjMINVAL, inv);
+    const double stiffness =
+        inertia / std::max(mjMINVAL, timeconst * timeconst * dampratio * dampratio);
+    const double damping = 2 * inertia / std::max(mjMINVAL, timeconst);
+    out->jnt_stiffness[n] = stiffness;
+    for (int i = 0; i < ndim; ++i) out->dof_damping[adr + i] = damping;
+  }
+
+  // Actuator length-range pass (mjCModel::LengthRange, user_model.cc:2444, after
+  // mj_setConst): mj_setLengthRange (public) forward-simulates each muscle/user
+  // actuator with physics disabled to fill actuator_lengthrange. Run for every
+  // model; the default mode (mjLRMODE_MUSCLE) + useexisting skip make it a no-op
+  // for non-muscle / already-ranged actuators. LROpt from mj_defaultLROpt,
+  // overridden by the <compiler><lengthrange> block.
+  mjLROpt lropt;
+  mj_defaultLROpt(&lropt);
+  for (const auto& c : m.compilers) {
+    if (!c) continue;
+    for (const auto& lr : c->lengthRanges) {
+      if (!lr) continue;
+      if (lr->mode) lropt.mode = static_cast<int>(*lr->mode);
+      if (lr->useexisting) lropt.useexisting = *lr->useexisting ? 1 : 0;
+      if (lr->uselimit) lropt.uselimit = *lr->uselimit ? 1 : 0;
+      if (lr->accel) lropt.accel = *lr->accel;
+      if (lr->maxforce) lropt.maxforce = *lr->maxforce;
+      if (lr->timeconst) lropt.timeconst = *lr->timeconst;
+      if (lr->timestep) lropt.timestep = *lr->timestep;
+      if (lr->inttotal) lropt.inttotal = *lr->inttotal;
+      if (lr->interval) lropt.interval = *lr->interval;
+      if (lr->tolrange) lropt.tolrange = *lr->tolrange;
+    }
+  }
+  const mjOption saveopt = out->opt;
+  out->opt.disableflags = mjDSBL_FRICTIONLOSS | mjDSBL_CONTACT | mjDSBL_SPRING |
+                          mjDSBL_DAMPER | mjDSBL_GRAVITY | mjDSBL_ACTUATION;
+  if (lropt.timestep > 0) out->opt.timestep = lropt.timestep;
+  char lrerr[200] = {0};
+  bool lr_ok = true;
+  for (int i = 0; i < out->nu; ++i)
+    if (!mj_setLengthRange(out, d, i, &lropt, lrerr, sizeof(lrerr))) {
+      lr_ok = false;
+      break;
+    }
+  out->opt = saveopt;
+  if (!lr_ok) {
+    diags.push_back({bridge::Diagnostic::Severity::Error, "finalize",
+                     std::string("native: mj_setLengthRange failed: ") + lrerr,
+                     {}});
+    mj_deleteData(d);
+    mj_deleteModel(out);
+    return nullptr;
+  }
   mj_deleteData(d);
 
   return out;

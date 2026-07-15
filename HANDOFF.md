@@ -44,7 +44,7 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5 + NC6 assets (file textures/hfields, skins, mesh-fit) + NC6b attach self-contained-child slice done, **ratchet 262/387** | queue below |
+| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)**, **ratchet 315/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
@@ -106,10 +106,44 @@ are DONE and on the ratchet (239). The one remaining flex descope:
    `operator+=` order and prefix rules, then reuses the existing pipeline. Note: `Clone` regenerates
    serials, so a full-import wave handling models with UNNAMED referenceable elements must bake the
    original-serial auto-name before cloning (the `BakeName` precedent in `build.cc`).
-6. **NC7 long tail** — muscle (`mj_setLengthRange` public/post-build), dcmotor, site/refsite/
-   slidercrank transmissions (`mj_mergeChain` lift), remaining sensors, discardvisual,
-   alignfree, per-body sleep, partial-size-default eager-copy, `Expand()`, flexcomp
-   document-order interleaving (known limitation note in wave-2 report).
+6. **NC7a long tail — LANDED (262 -> 315), 0 divergences, all baselines green.** Wave by wave:
+   per-body `sleep` (tree_sleep_policy incl. world-body demotion); geom/site partial-size
+   eager-copy tail (`EagerSizeArray`, per-slot highest-priority-wins over the mjCGeom {0,0,0} /
+   mjCSite {0.005} constructor base) + `<size nkey>` keyframe pre-allocation (pad to max(authored,
+   nkey) with empty-name default keys); the full sensor family — rangefinder (dataspec bitmask in
+   `sensor_intprm[0]`, `RaydataSize`), camprojection (site obj + camera ref, dim 2), insidesite
+   (typed obj + site ref), geom-distance distance/normal/fromto (geom|body obj/ref, AXIS datatype
+   for normal), and contact (dataspec/reduce/num in intprm[0..2], `dim = num*CondataSize`);
+   tendon-armature `body_simple`/`nC` demotion (site/cylinder/sphere wrap bodies, incl. world);
+   muscle actuators via the **public `mj_setLengthRange`** post-build forward-sim pass (runs for
+   every model after `mj_setConst`; default LRMODE_MUSCLE + useexisting make it a no-op elsewhere;
+   `<compiler><lengthrange>` LRopt overrides); joint `springdamper` (AutoSpringDamper: jnt_stiffness
+   / dof_damping from `dof_invweight0` after mj_setConst); light image-texture `light_texid`; and
+   site/refsite/slidercrank transmission (`trnid[0/1]`/gear/cranklength + `nJmom` via a reproduced
+   `mj_mergeChain`, actuator_length0 from mj_setConst's mj_transmission). **Fixed a real compiler
+   bug**: a dynamic hfield (`nrow`/`ncol` only, no file/data) now allocates zeros like the reader
+   (was `native.build_failed`). New precise sub-gates: `rangefinder.camera` (dim scales with camera
+   resolution), `sensor.delay` (nsample history ring), `material.class_layers` (child-list class
+   inheritance unmodeled by Effective — also masks a latent PBR material bug). **Final remaining
+   histogram (61 fallback files, reason -> #files, a file may carry several):** config/extension/
+   plugin 17, geom.sdf 14, flexcomp.interpolated 13, instance 12, geom.plugin/mesh.plugin 11,
+   attach.child_assets 10, actuator.cross_spelling_default 5, flexcomp.equality_kind/mesh.builtin 4,
+   composite/replicate.referencing_element 3, attach.whole_model 2, then singletons: tactile,
+   replicate.childclass, dcmotor, rangefinder.camera, actuator.delay, compiler.discardvisual,
+   freejoint.align, compiler.alignfree, material.class_layers.
+   **Still gated (tractable, next):** plugin models (config/extension/plugin/instance +
+   geom.plugin/mesh.plugin/composite/tactile — need native plugin-registry resolution for
+   actdim/sensor dims + mjModel plugin arrays), geom.sdf (marching cubes + octree), mesh.builtin
+   (procedural sphere/cone/wedge/supertorus... generators + full mesh pipeline), dcmotor (stateful
+   mjs_setToDCMotor + na/actdim), actuator.delay (nsample history ring), compiler.discardvisual
+   (delete visual geoms + id compaction pre-id-assignment), alignfree/freejoint.align (free-joint
+   frame alignment, user_objects.cc:2793), replicate.childclass/referencing_element, and
+   actuator.cross_spelling_default (the shared per-class actuator default accumulated across every
+   spelling — assessed: actuator_group_disable + python model.xml would flip, robot_arm has a real
+   `general`->`velocity` ctrllimited leak; deferred as the gain/bias/dyn interplay across the
+   shared default is high-divergence-risk to reproduce bit-exact). **Excluded (separate waves):**
+   attach full-import (attach.* gates), flexcomp interpolated FE + strain (flexcomp.interpolated/
+   equality_kind).
 7. **Plugins** — DONE (XML route). First-party engine plugins registered at harness startup
    (`cpp/harness/plugin_registry.{h,cc}`, shared by mj_model_diff/ps_native_diff/ps_compile;
    default DLL dir beside mujoco.dll, `--plugin-dir`/`PROTOSPEC_PLUGIN_DIR` override). The 17

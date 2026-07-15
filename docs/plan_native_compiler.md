@@ -24,8 +24,17 @@ All MuJoCo file references below are relative to `third_party/MuJoCo/src` (so `s
 ## STATUS (living section — update on every milestone commit)
 
 Last updated: 2026-07-15. The milestone table below is the ORIGINAL forecast and is stale
-(NC0-NC5 + NC6 assets are done); the living per-wave state is `HANDOFF.md` ("Native compiler
-remaining queue"). Native ratchet floor 262/387 (`tests/native_ratchet.json`). NC6b (attach/`<model>`)
+(NC0-NC5 + NC6 assets + NC7a long-tail are done); the living per-wave state is `HANDOFF.md`
+("Native compiler remaining queue"). Native ratchet floor **315/387** (`tests/native_ratchet.json`),
+0 divergences, all baselines green (cpp 6/6, differential 380/11, registry 119, emit --check).
+NC7a burned the long tail from 262->315: per-body sleep, geom/site partial-size eager-copy +
+`<size nkey>`, the full sensor family (rangefinder/camprojection/insidesite/distance/normal/fromto/
+contact with intprm), tendon-armature demotion, muscle via the public `mj_setLengthRange` post-build
+pass, joint springdamper (AutoSpringDamper), light image-texture, and site/refsite/slidercrank
+transmission (+ a reproduced `mj_mergeChain` for nJmom); plus a real dynamic-hfield compiler bug fix.
+Remaining fallbacks (61 files): plugin models, geom.sdf, mesh.builtin, flexcomp interpolated (excluded),
+attach full-import (excluded), cross_spelling_default, dcmotor, discardvisual, alignfree, and a few
+singletons — full histogram in HANDOFF NC7a. NC6b (attach/`<model>`)
 landed its self-contained-child slice: `<attach>`/`<model>` expand natively when the referenced child
 body is self-contained (parse child via `io::ParseMjcfFile`, deep-clone + prefix-namespace names,
 splice; +parent/parent_model/many_dependencies). The full `mjs_attach` import machinery (child asset

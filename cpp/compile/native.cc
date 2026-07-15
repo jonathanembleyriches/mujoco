@@ -63,32 +63,6 @@
 namespace ps::mjcf::compile {
 namespace {
 
-// The nearest class in a geom/site's governing chain that authors `size`, and
-// how many elements it authors. MuJoCo eager-copies a class's full size array
-// then overwrites only the authored prefix of the element (ReadAttr copies just
-// the present values), so a geom/site that authors FEWER size values than its
-// class default provides inherits the class's tail -- a semantic ProtoSpec's
-// whole-field presence merge (CDR-5) does not reproduce. Detect and fall back.
-template <class T>
-int ClassSizeLen(const Model& m, const ps::sdk::detail::DefaultIndex& idx,
-                 const ps::sdk::ParentMap& pm, const T& e) {
-  std::string cls = ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(e), &e);
-  for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d; d = idx.ParentOf(d)) {
-    const auto* vec = ps::sdk::DefaultVec<T>(*d);
-    if (vec && !vec->empty() && vec->front() && vec->front()->size)
-      return static_cast<int>(vec->front()->size->size());
-  }
-  return 0;
-}
-
-template <class T>
-bool PartialSizeInherit(const Model& m, const ps::sdk::detail::DefaultIndex& idx,
-                        const ps::sdk::ParentMap& pm, const T& e) {
-  const int authored = e.size ? static_cast<int>(e.size->size()) : -1;
-  if (authored < 0 || authored >= 3) return false;  // full or unauthored: no tail
-  return authored < ClassSizeLen(m, idx, pm, e);
-}
-
 // MuJoCo shares one actuator default per class across every spelling; ProtoSpec
 // keeps a per-spelling partial and ps::sdk::Effective merges only the matching
 // one. So when an actuator's governing class chain also carries an actuator
@@ -203,14 +177,10 @@ class SubFeatureScanner {
     } else {
       if constexpr (std::is_same_v<E, Geom>) Check(e);
       else if constexpr (std::is_same_v<E, Mesh>) CheckMesh(e);
-      else if constexpr (std::is_same_v<E, Body>) CheckBody(e);
       else if constexpr (std::is_same_v<E, Texture>) CheckTexture(e);
+      else if constexpr (std::is_same_v<E, Material>) CheckMaterial(e);
       else if constexpr (std::is_same_v<E, Hfield>) CheckHfield(e);
-      else if constexpr (std::is_same_v<E, Light>) CheckLight(e);
-      else if constexpr (std::is_same_v<E, Joint>) CheckJoint(e);
       else if constexpr (std::is_same_v<E, FreeJoint>) CheckFreeJoint(e);
-      else if constexpr (std::is_same_v<E, Spatial>) CheckSpatial(e);
-      else if constexpr (std::is_same_v<E, Fixed>) CheckFixed(e);
       else if constexpr (std::is_same_v<E, ActuatorGeneral> ||
                          std::is_same_v<E, Motor> ||
                          std::is_same_v<E, Position> ||
@@ -224,6 +194,13 @@ class SubFeatureScanner {
       else if constexpr (std::is_same_v<E, Flexcomp>) CheckFlexcomp(e);
       else if constexpr (std::is_same_v<E, EqualityFlex>) CheckEqualityFlex(e);
       else if constexpr (std::is_same_v<E, SensorContact>) CheckSensorContact(e);
+      else if constexpr (std::is_same_v<E, Rangefinder>) CheckRangefinder(e);
+      else if constexpr (std::is_same_v<E, Camprojection> ||
+                         std::is_same_v<E, Insidesite> ||
+                         std::is_same_v<E, Distance> ||
+                         std::is_same_v<E, Normal> ||
+                         std::is_same_v<E, Fromto>)
+        CheckSensorDelay(e);
       else if constexpr (std::is_same_v<E, Compiler>) CheckCompiler(e);
       else if constexpr (std::is_same_v<E, Size>) CheckSize(e);
       else if constexpr (std::is_same_v<E, TupleElement>) CheckTupleElement(e);
@@ -257,15 +234,30 @@ class SubFeatureScanner {
     if (has_cube || eff->content_type || (!is_builtin && !is_file))
       Note("texture.file", t.loc);
   }
+  // The native material compile inherits scalar fields from the class chain but
+  // not the <layer> child list (child-list class inheritance is unmodeled), so a
+  // material whose effective layer set is larger than its authored one (layers
+  // inherited from a class default) routes to the XML fallback.
+  void CheckMaterial(const Material& mat) {
+    if (!mat.layers.empty()) return;  // authored its own layers: handled
+    ps::sdk::ParentMap pm(m_);
+    ps::sdk::detail::DefaultIndex idx(m_);
+    const std::string cls =
+        ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(mat), &mat);
+    for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d;
+         d = idx.ParentOf(d)) {
+      const auto* vec = ps::sdk::DefaultVec<Material>(*d);
+      if (vec && !vec->empty() && vec->front() && !vec->front()->layers.empty()) {
+        Note("material.class_layers", mat.loc);
+        return;
+      }
+    }
+  }
   // Native hfields: inline elevation (user-data) and single-file (PNG grey via
   // lifted DecodePNG, or custom binary). An authored content_type (needs the
   // MIME-attr parser) routes to the XML fallback.
   void CheckHfield(const Hfield& h) {
     if (h.content_type) Note("hfield.file", h.loc);
-  }
-  // A light's texture would need a compiled asset (not native yet).
-  void CheckLight(const Light& l) {
-    if (l.texture) Note("light.texture", l.loc);
   }
   // Free-joint alignment (align="true", or align="auto" with compiler
   // alignfree) rewrites the body/inertial frames and child-geom poses -- out of
@@ -273,39 +265,12 @@ class SubFeatureScanner {
   void CheckFreeJoint(const FreeJoint& fj) {
     if (fj.align && *fj.align == TriState::true_) Note("freejoint.align", fj.loc);
   }
-  // springdamper drives the AutoSpringDamper post-build pass (stiffness/damping
-  // from dof_invweight0), which the native path does not yet run: route to the
-  // XML fallback until it lands.
-  void CheckJoint(const Joint& j) {
-    if (j.springdamper) Note("joint.springdamper", j.loc);
-  }
-  // A non-default per-body sleep policy sets tree_sleep_policy, which the native
-  // path does not yet emit (it writes mjSLEEP_AUTO for every tree).
-  void CheckBody(const Body& b) {
-    if (b.sleep) Note("body.sleep", b.loc);
-  }
-  // Tendon armature drives a sparse-size (nC/body_simple) demotion the native
-  // path does not yet model; route such tendons to the XML fallback.
-  void CheckSpatial(const Spatial& s) {
-    if (s.armature && *s.armature != 0) Note("tendon.armature", s.loc);
-  }
-  void CheckFixed(const Fixed& f) {
-    if (f.armature && *f.armature != 0) Note("tendon.armature", f.loc);
-  }
   // The native path resolves joint/jointinparent/tendon/body transmission only,
   // has no history/delay buffer, and does not run mj_setLengthRange, so site /
   // refsite / slidercrank transmission, a delay buffer, or a length-range-needing
   // gain/bias type (muscle/user) route to the XML fallback.
   template <class E>
   void CheckActuator(const E& a) {
-    if constexpr (requires { a.site; })
-      if (a.site) Note("actuator.site_transmission", a.loc);
-    if constexpr (requires { a.refsite; })
-      if (a.refsite) Note("actuator.site_transmission", a.loc);
-    if constexpr (requires { a.cranksite; })
-      if (a.cranksite) Note("actuator.slidercrank", a.loc);
-    if constexpr (requires { a.slidersite; })
-      if (a.slidersite) Note("actuator.slidercrank", a.loc);
     if constexpr (requires { a.nsample; })
       if (a.nsample) Note("actuator.delay", a.loc);
     if constexpr (requires { a.delay; })
@@ -318,12 +283,10 @@ class SubFeatureScanner {
       if (a.bias) Note("cylinder.bias", a.loc);
     }
     if constexpr (std::is_same_v<E, ActuatorGeneral>) {
-      if (a.gaintype && (*a.gaintype == GainType::muscle ||
-                         *a.gaintype == GainType::user ||
+      if (a.gaintype && (*a.gaintype == GainType::user ||
                          *a.gaintype == GainType::dcmotor))
         Note("actuator.gaintype", a.loc);
-      if (a.biastype && (*a.biastype == BiasType::muscle ||
-                         *a.biastype == BiasType::user ||
+      if (a.biastype && (*a.biastype == BiasType::user ||
                          *a.biastype == BiasType::dcmotor))
         Note("actuator.biastype", a.loc);
       if (a.dyntype && (*a.dyntype == DynType::user ||
@@ -378,8 +341,21 @@ class SubFeatureScanner {
   // The contact sensor shares the "contact" tag with the <contact> section
   // (admitted for pairs/excludes), so it slips past the family gate; its
   // variable dim + intprm bitmask are out of NC2 scope. Force the fallback.
-  void CheckSensorContact(const SensorContact& s) {
-    Note("sensor.contact", s.loc);
+  // The contact sensor (dataspec/reduce/num intprm, variable dim) is native; only
+  // its delay buffer routes to the fallback (shared sensor delay gate).
+  void CheckSensorContact(const SensorContact& s) { CheckSensorDelay(s); }
+  // A sensor delay buffer (nsample>0) or fixed delay drives the sensor_history
+  // ring the native path does not emit; route such a sensor to the fallback.
+  template <class E>
+  void CheckSensorDelay(const E& e) {
+    if ((e.nsample && *e.nsample > 0) || e.delay) Note("sensor.delay", e.loc);
+  }
+  // A camera-target rangefinder's dim scales with the camera resolution (one ray
+  // per pixel); only the single-ray site rangefinder is native. Plus the shared
+  // delay gate.
+  void CheckRangefinder(const Rangefinder& r) {
+    if (r.camera) Note("rangefinder.camera", r.loc);
+    CheckSensorDelay(r);
   }
   void CheckCompiler(const Compiler& c) {
     if (c.alignfree && *c.alignfree) Note("compiler.alignfree", c.loc);
@@ -465,11 +441,7 @@ class PartialArrayScanner {
   void operator()(const E& e) {
     if constexpr (std::is_same_v<E, Default>) { (void)e; return; }
     else {
-      if constexpr (std::is_same_v<E, Geom>) {
-        if (PartialSizeInherit(m_, idx_, pm_, e)) Note("geom.partial_size_default", e.loc);
-      } else if constexpr (std::is_same_v<E, Site>) {
-        if (PartialSizeInherit(m_, idx_, pm_, e)) Note("site.partial_size_default", e.loc);
-      } else if constexpr (std::is_same_v<E, ActuatorGeneral> ||
+      if constexpr (std::is_same_v<E, ActuatorGeneral> ||
                            std::is_same_v<E, Motor> || std::is_same_v<E, Position> ||
                            std::is_same_v<E, Velocity> || std::is_same_v<E, IntVelocity> ||
                            std::is_same_v<E, Damper> || std::is_same_v<E, Cylinder> ||
