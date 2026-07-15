@@ -44,26 +44,43 @@ certification signed. Nothing touches UnrealRoboticsLab until both pass.
 |---|---|---|
 | Core library (M1-M7) | complete | `docs/plan.md` STATUS |
 | Canonicalization Waves A+B | complete (minimal repr landed) | `docs/plan_canonicalization.md` |
-| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)** + **NC6c attach FULL-IMPORT (defaults merge + assets + referencing + keyframes + whole-model)**, **ratchet 323/387** | queue below |
+| Native compiler | NC0-NC5 + NC6 assets + NC6b attach slice + **NC7a long-tail (sleep, partial-size/nkey, full sensor family, tendon-armature, muscle/lengthrange, springdamper, light-texture, site/refsite/slidercrank transmission)** + **NC6c attach FULL-IMPORT (defaults merge + assets + referencing + keyframes + whole-model)** + **NC5 wave 6 interpolated FE + strain equality (trilinear/quadratic nodal mesh, FE stiffness/bending, mjEQ_FLEXSTRAIN)**, **ratchet 335/387** | queue below |
 | Studio editor SE0-SE4 + real-Studio migration | complete; running in real MuJoCo Studio | `docs/plan_studio_editor.md`, `docs/studio_ui_migration.md` |
 | Editor certification | automated side DONE (7 batteries both trees, gaps G1-G9 closed/rescoped) | `docs/editor_certification.md` — **WAITING ON OWNER: 27-step manual walk + signature** |
 
 ## Native compiler remaining queue (Gate 1)
 
 NC5 flex waves 1-4 (procedural + elasticity + direct), **wave 5 (gmsh)**, **wave 5b (mesh
-file)**, **wave 6b (vert flex equality)**, and the **reduced-dof slice of wave 6 (radial/2d)**
-are DONE and on the ratchet (239). The one remaining flex descope:
+file)**, **wave 6b (vert flex equality)**, the **reduced-dof slice of wave 6 (radial/2d)**, and
+now **wave 6 full interpolated FE + strain equality** are DONE and on the ratchet.
 
-1. **NC5 wave 6 — full interpolated FE (trilinear/quadratic) + strain equality** (~12 files:
-   bunny*, gripper_trilinear, sphere_trilinear, trilinear, quadratic, bunny_quadratic, strain,
-   hollow_vs_solid). This is the nodal finite-element machinery: lift ComputeLinearStiffness/2D,
-   EigendecomposeStiffness, ComputeWarpStiffness, ComputeInterpBending (user_mesh.cc:3826-4500),
-   the node-body generation in Make (:631+, ComputeUnrotatedNodePositions/MarkEmptyCells), and
-   the interpolated branch of FlexCompile (nodebody/nodexpos/per-cell stiffness assembly). The
-   `strain` flex equality (mjEQ_FLEXSTRAIN, one constraint per FE cell) is coupled to this wave —
-   it needs cellcount/cell_empty from the interpolated path (edge + vert equalities already land).
-   Gated as `flexcomp.interpolated` (trilinear/quadratic only now) and `flexcomp.equality_kind`
-   (strain only now). Descoped for size + FP-divergence risk; a self-contained NC5 wave 6.
+1. **NC5 wave 6 — interpolated FE (trilinear/quadratic) + strain equality — LANDED (ratchet
+   323 -> 335, +12 files, 0 divergences).** The nodal finite-element machinery is native.
+   **Make side** (`ExpandFlexcompInto`): interpolated flexcomps attach all vertices to the parent
+   and synthesize a separate nodal mesh of slider bodies (`name_gi_gj_gk`, trilinear mass=1 /
+   quadratic Simpson weights, normalized to total mass), pinning nodes exclusively in empty cells
+   via a reproduced `MarkEmptyCells`+`FlexComputeCellEmpty`, and set `<flex>` node/dof/cellcount;
+   node local offsets + the cell_empty mask flow out-of-band through the FlexcompSink. **Compile
+   side** (`FlexCompile`): the interpolated branch resolves nodebodyid, computes nodexpos +
+   `FlexComputeUnrotatedNodePositions` (inverse grid rotation R0), per-cell/per-face FE stiffness
+   (`ComputeLinearStiffness` 3D volume / `ComputeLinearStiffness2D` shell membrane +
+   `ComputeWarpMode`/`ComputeWarpStiffness`), `EigendecomposeStiffness` for strain constraints
+   (K_young=1e1, K_poisson=0.3), `ComputeInterpBending` for shell bending, and vert0/node0 in the
+   local frame; fill emits flex_node/node0/nodebodyid/interp/cellnum. **Strain equality**
+   (mjEQ_FLEXSTRAIN): one constraint per FE cell (volume, data=[ci,cj,ck]) / boundary face (shell,
+   data=[fe,-1,-1]); `has_strain_eq` is scanned from the compiled equalities before FlexCompile.
+   **Mesh fidelity fix**: the flexcomp mesh path now applies `ProcessVertices(remove_repeated)` --
+   position-dedup + face remap -- matching `LoadFromResource(...,true)` (fixed bunny_with_uv;
+   textured_torus_flex unaffected). **11 registry lifts** (ComputeLinearStiffness/2D, WarpMode,
+   WarpStiffness, EigendecomposeStiffness, ComputeInterpBending, quadrature/phi/dphi,
+   ComputeCellEmpty, ComputeUnrotatedNodePositions, MarkEmptyCells). **Landed**: trilinear,
+   quadratic, strain, hollow_vs_solid (+sleep/), bunny, bunny_multicell, bunny_shell,
+   bunny_quadratic, bunny_with_uv, gripper_trilinear, sphere_trilinear. **New precise sub-gates**:
+   `flexcomp.document_order` (a flexcomp inside an earlier child body must get a lower flex id than
+   a later flexcomp sibling, but the collector expands a body's own flexcomps first -> reorders;
+   the ONE remaining descope: `test/testdata/flex.xml`), `flexcomp.constraint_elasticity` (reader
+   hard error: equality + young>0 needs elastic2d==bend), `flexcomp.interpolated_pingrid` (non-grid
+   pin grid uses an adjusted count check).
 2. **NC6 assets — DONE** (ratchet 239 -> 259). File textures (mjCTexture single-file 2D/cube:
    PNG via lifted lodepng `DecodePNG`, KTX raw, custom binary; gridsize/gridlayout composition;
    hflip/vflip; colorspace=AUTO from the PNG sRGB chunk; texturedir+strippath; file-stem naming;
@@ -171,7 +188,8 @@ are DONE and on the ratchet (239). The one remaining flex descope:
    `general`->`velocity` ctrllimited leak; deferred as the gain/bias/dyn interplay across the
    shared default is high-divergence-risk to reproduce bit-exact). **Excluded (separate waves):**
    attach full-import (attach.* gates), flexcomp interpolated FE + strain (flexcomp.interpolated/
-   equality_kind).
+   equality_kind -- SINCE LANDED in NC5 wave 6; the histogram's "flexcomp.interpolated 13" line is
+   now retired, leaving only the single-file flexcomp.document_order descope).
 7. **Plugins** — DONE (XML route). First-party engine plugins registered at harness startup
    (`cpp/harness/plugin_registry.{h,cc}`, shared by mj_model_diff/ps_native_diff/ps_compile;
    default DLL dir beside mujoco.dll, `--plugin-dir`/`PROTOSPEC_PLUGIN_DIR` override). The 17

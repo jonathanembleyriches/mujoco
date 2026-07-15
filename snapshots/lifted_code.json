@@ -200,6 +200,17 @@
       "notes": "FlexCompile driver (young=0, non-interpolated edge-only path); plumbing retargeted to ProtoSpec + CompileContext, algorithm verbatim"
     },
     {
+      "id": "flex_compute_cell_empty",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCFlex::ComputeCellEmpty",
+      "line_span": "5285-5406",
+      "content_hash": "d66e29f83e014a3319692edf26d4bac41eb5847396497234836b3ef4b8f4444a",
+      "snapshot": "snapshots/lifted_upstream/mjCFlex__ComputeCellEmpty.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "empty-cell mask from vertex/element geometry (Wave 6); retargeted to free fn FlexComputeCellEmpty"
+    },
+    {
       "id": "flex_create_bvh",
       "upstream_rel_path": "src/user/user_mesh.cc",
       "symbol": "mjCFlex::CreateBVH",
@@ -332,6 +343,105 @@
       "notes": "flex young>0: triangle-area overload for bending (Wave 3)"
     },
     {
+      "id": "flex_interp_bending",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeInterpBending",
+      "line_span": "4391-4626",
+      "content_hash": "c60a8222c415d5fb1d108810149c8e751a68921b6d26148005d5f1b92b2d5655",
+      "snapshot": "snapshots/lifted_upstream/ComputeInterpBending.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "interpolated shell bending edge data (Wave 6)"
+    },
+    {
+      "id": "flex_interp_dphi",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "dphi",
+      "line_span": "3774-3793",
+      "content_hash": "381fbc4e612312f74d14f66f57d44e774c835a91231464f4213dd406776f077a",
+      "snapshot": "snapshots/lifted_upstream/dphi.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "FE 1D basis gradient (Wave 6)"
+    },
+    {
+      "id": "flex_interp_eigendecompose",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "EigendecomposeStiffness",
+      "line_span": "4130-4163",
+      "content_hash": "1372e7475f29abc1ced7e40fcb08dd66bb62fba5f1569d44f961b57eb15ea86d",
+      "snapshot": "snapshots/lifted_upstream/EigendecomposeStiffness.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "strain-eq cell stiffness eigendecomposition (Wave 6); mjuu_eigendecompose lift"
+    },
+    {
+      "id": "flex_interp_linear_stiffness",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeLinearStiffness",
+      "line_span": "3826-3904",
+      "content_hash": "69f6f16d87a19ba4abbcc96749a2ea01945bdfdd1be52f5998842e3cc1501dbc",
+      "snapshot": "snapshots/lifted_upstream/ComputeLinearStiffness.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "interpolated FE 3D cell linear stiffness (NC5 Wave 6); mjuu_* -> lift::, internal asserts -> mju_error"
+    },
+    {
+      "id": "flex_interp_linear_stiffness_2d",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeLinearStiffness2D",
+      "line_span": "3914-3998",
+      "content_hash": "2e4be21d4950813315875c00989137136317cdee348352b381e0b8f554825d20",
+      "snapshot": "snapshots/lifted_upstream/ComputeLinearStiffness2D.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "interpolated FE 2D shell membrane stiffness (Wave 6)"
+    },
+    {
+      "id": "flex_interp_phi",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "phi",
+      "line_span": "3752-3771",
+      "content_hash": "5e562cd06d2d320af6836db7674d27bc8d8c68a0267c333b02866e670522f945",
+      "snapshot": "snapshots/lifted_upstream/phi.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "FE 1D basis function (Wave 6)"
+    },
+    {
+      "id": "flex_interp_quadrature",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "quadratureGaussLegendre",
+      "line_span": "3727-3749",
+      "content_hash": "a2e9d33cd1988ed20c0717218bcc954d24289398085bf5459053013b26254bde",
+      "snapshot": "snapshots/lifted_upstream/quadratureGaussLegendre.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "Gauss-Legendre quadrature for FE stiffness (Wave 6)"
+    },
+    {
+      "id": "flex_interp_warp_mode",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeWarpMode",
+      "line_span": "4007-4093",
+      "content_hash": "5b7f764bd6b21136d62296b93421a6804737b8c1ea3110eae5df1a4287852b5b",
+      "snapshot": "snapshots/lifted_upstream/ComputeWarpMode.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "interpolated FE 2D warp/twist mode (Wave 6)"
+    },
+    {
+      "id": "flex_interp_warp_stiffness",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "ComputeWarpStiffness",
+      "line_span": "4104-4119",
+      "content_hash": "9d59c10c0edfdc9730da114230cdc195a837056965d5d94e3f5b85680dc69123",
+      "snapshot": "snapshots/lifted_upstream/ComputeWarpStiffness.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "interpolated FE plate bending warp stiffness (Wave 6)"
+    },
+    {
       "id": "flex_resolve_references",
       "upstream_rel_path": "src/user/user_mesh.cc",
       "symbol": "mjCFlex::ResolveReferences",
@@ -341,6 +451,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-08",
       "notes": "vertex body-id resolution; retargeted to native bodyid map"
+    },
+    {
+      "id": "flex_unrotated_nodes",
+      "upstream_rel_path": "src/user/user_mesh.cc",
+      "symbol": "mjCFlex::ComputeUnrotatedNodePositions",
+      "line_span": "5202-5281",
+      "content_hash": "07110e06542d051a16be98f38c03767ff2842fd9792ec1b4f7fa014dc3548cd3",
+      "snapshot": "snapshots/lifted_upstream/mjCFlex__ComputeUnrotatedNodePositions.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "inverse grid-rotation of node positions (Wave 6); retargeted to free fn, throw -> diagnostic"
     },
     {
       "id": "flexcomp_boxid",
@@ -451,6 +572,17 @@
       "local_path": "cpp/compile/build.cc",
       "lifted": "2026-07-13",
       "notes": "MakeSquare (2D square/disc via MakeGrid + radial projection); verbatim in FcompGeom"
+    },
+    {
+      "id": "flexcomp_mark_empty_cells",
+      "upstream_rel_path": "src/user/user_flexcomp.cc",
+      "symbol": "mjCFlexcomp::MarkEmptyCells",
+      "line_span": "102-144",
+      "content_hash": "592761999ffa7f10c8c273b018c7fa2f65f107d43d3a27cb5e635d2af088e104",
+      "snapshot": "snapshots/lifted_upstream/mjCFlexcomp__MarkEmptyCells.txt",
+      "local_path": "cpp/compile/build.cc",
+      "lifted": "2026-07-15",
+      "notes": "interpolated: pin nodes exclusively in empty cells (Wave 6); reproduced inline in ExpandFlexcompInto"
     },
     {
       "id": "frame_compile",

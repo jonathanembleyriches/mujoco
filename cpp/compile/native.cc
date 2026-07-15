@@ -325,17 +325,32 @@ class SubFeatureScanner {
   // interpolated dof (trilinear/quadratic) and strain equality route to fallback.
   void CheckFlexcomp(const Flexcomp& fc) {
     const FlexDof dof = fc.dof ? *fc.dof : FlexDof::full;
-    // trilinear/quadratic need the nodal FE machinery (nodes, interpolated
-    // stiffness) -- still gated. radial/2d are a per-vertex slider change only.
-    if (dof == FlexDof::trilinear || dof == FlexDof::quadratic)
-      Note("flexcomp.interpolated", fc.loc);
+    const bool interpolated =
+        dof == FlexDof::trilinear || dof == FlexDof::quadratic;
+    // interpolated dof (trilinear/quadratic) now expands the nodal finite-element
+    // mesh + FE stiffness/bending native (NC5 Wave 6); strain (mjEQ_FLEXSTRAIN)
+    // emits one constraint per FE cell / boundary face.
+    const FlexElasticity* el =
+        (!fc.flexElasticitys.empty() && fc.flexElasticitys.front())
+            ? fc.flexElasticitys.front().get()
+            : nullptr;
+    const double young = el && el->young ? *el->young : 0;
+    const bool shell = el && el->elastic2d && *el->elastic2d != Elastic2D::none;
     if (!fc.flexcompEdges.empty() && fc.flexcompEdges.front()) {
       const FlexcompEdge& fe = *fc.flexcompEdges.front();
-      // edge (mjEQ_FLEX) and vert (mjEQ_FLEXVERT) synthesize a single flex
-      // equality (native). strain (mjEQ_FLEXSTRAIN) emits one constraint per
-      // finite-element cell, needing the interpolated cellcount machinery.
-      if (fe.equality && *fe.equality == FlexEquality::strain)
-        Note("flexcomp.equality_kind", fc.loc);
+      const bool has_equality = fe.equality.has_value();
+      // reader hard error (xml_native_reader.cc:2942): flex constraints and
+      // elasticity (young>0) cannot coexist unless elastic2d==bend. Both paths
+      // fail the same way, so route to the oracle.
+      if (has_equality && young > 0 && !shell)
+        Note("flexcomp.constraint_elasticity", fc.loc);
+      // interpolated pin grid(range) on a non-grid type uses an adjusted count
+      // check (Make :364) not reproduced natively.
+      if (interpolated && fc.type && *fc.type != FlexcompType::grid) {
+        for (const auto& p : fc.flexcompPins)
+          if (p && (p->grid || p->gridrange))
+            Note("flexcomp.interpolated_pingrid", fc.loc);
+      }
     }
     if (!fc.plugin.empty()) Note("flexcomp.plugin", fc.loc);
   }
@@ -608,6 +623,75 @@ void ScanReplicateChildclass(
         break;
     }
   }
+}
+
+// True if `subtree` contains a flexcomp anywhere (frames/replicate/bodies
+// recursed). Used by the document-order hazard scan below.
+bool SubtreeHasFlexcomp(const std::vector<BodyChildAny>& subtree) {
+  for (const BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Flexcomp:
+        return true;
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        if (b && SubtreeHasFlexcomp(b->subtree)) return true;
+        break;
+      }
+      case BodyChildAny::Kind::Frame: {
+        const auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+        if (f && SubtreeHasFlexcomp(f->subtree)) return true;
+        break;
+      }
+      case BodyChildAny::Kind::Replicate: {
+        const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        if (r && SubtreeHasFlexcomp(r->subtree)) return true;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return false;
+}
+
+// The native collector expands a body's own flexcomps (assigning flex ids)
+// before descending into child bodies, whereas mjCFlexcomp::Make runs at parse
+// time in document order (a flexcomp inside an earlier child body precedes a
+// later flexcomp sibling). The two orders diverge exactly when, within one
+// (frame/replicate-flattened) body level, a child body transitively holding a
+// flexcomp appears before a flexcomp sibling. `seen_body_fc` threads that state
+// across the flattened level.
+bool FlexcompOrderHazard(const std::vector<BodyChildAny>& subtree,
+                         bool& seen_body_fc) {
+  for (const BodyChildAny& c : subtree) {
+    switch (c.kind()) {
+      case BodyChildAny::Kind::Flexcomp:
+        if (seen_body_fc) return true;
+        break;
+      case BodyChildAny::Kind::Body: {
+        const auto& b = std::get<std::unique_ptr<Body>>(c.node);
+        if (b) {
+          if (SubtreeHasFlexcomp(b->subtree)) seen_body_fc = true;
+          bool child_seen = false;
+          if (FlexcompOrderHazard(b->subtree, child_seen)) return true;
+        }
+        break;
+      }
+      case BodyChildAny::Kind::Frame: {  // flattened inline: shares the flag
+        const auto& f = std::get<std::unique_ptr<Frame>>(c.node);
+        if (f && FlexcompOrderHazard(f->subtree, seen_body_fc)) return true;
+        break;
+      }
+      case BodyChildAny::Kind::Replicate: {
+        const auto& r = std::get<std::unique_ptr<Replicate>>(c.node);
+        if (r && FlexcompOrderHazard(r->subtree, seen_body_fc)) return true;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return false;
 }
 
 // --------------------------------------------------------------------------- //
@@ -1313,6 +1397,20 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
     }
     for (const auto& b : m.worldbody)
       if (b) ScanReplicateChildclass(b->subtree, false, note_sub);
+  }
+
+  // Flexcomp document-order hazard: a flexcomp inside an earlier child body must
+  // get a lower flex id than a later flexcomp sibling, but the native collector
+  // expands a body's own flexcomps first. All <worldbody> blocks merge into one
+  // body, so the flag threads across them.
+  {
+    bool seen_body_fc = false;
+    ps::SourceLoc loc;
+    for (const auto& b : m.worldbody)
+      if (b && FlexcompOrderHazard(b->subtree, seen_body_fc)) {
+        note_sub("flexcomp.document_order", loc);
+        break;
+      }
   }
   for (const auto& [key, use] : sub) {
     FeatureUse& agg = by_key[key];

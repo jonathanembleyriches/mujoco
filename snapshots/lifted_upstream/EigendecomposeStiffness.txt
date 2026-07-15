@@ -1,0 +1,34 @@
+static int EigendecomposeStiffness(const double* K_cell_data,
+                                   double* out, int ndof) {
+  // copy K_cell for in-place decomposition
+  std::vector<double> mat(K_cell_data, K_cell_data + ndof * ndof);
+  std::vector<double> eigval(ndof);
+  std::vector<double> eigvec(ndof * ndof);
+
+  mjuu_eigendecompose(mat.data(), eigval.data(), eigvec.data(), ndof);
+
+  // K_stored = -K_physical, so physical eigenvalue = -eigval[i]
+  // retain modes where physical eigenvalue > threshold
+  double max_eigval = 0;
+  for (int i = 0; i < ndof; i++) {
+    max_eigval = std::max(max_eigval, std::abs(eigval[i]));
+  }
+
+  double threshold = max_eigval * 1e-8;
+  int neig = 0;
+  for (int i = 0; i < ndof; i++) {
+    double lambda_phys = -eigval[i];  // negate to get physical eigenvalue
+    if (lambda_phys > threshold) {
+      // store sqrt(λ) * eigenvector (column i of eigvec matrix)
+      double scale = std::sqrt(lambda_phys);
+      double* w = out + 1 + neig * ndof;
+      for (int j = 0; j < ndof; j++) {
+        w[j] = scale * eigvec[j * ndof + i];
+      }
+      neig++;
+    }
+  }
+
+  out[0] = static_cast<double>(neig);
+  return neig;
+}

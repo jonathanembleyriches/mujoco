@@ -1,0 +1,16 @@
+static double ComputeWarpStiffness(const double* pos, int npe, int normal_axis,
+                                   double E, double nu, double thickness) {
+  int axis0 = (normal_axis + 1) % 3;
+  int axis1 = (normal_axis + 2) % 3;
+  double d0 = std::abs(pos[3*(npe-1) + axis0] - pos[axis0]);
+  double d1 = std::abs(pos[3*(npe-1) + axis1] - pos[axis1]);
+
+  if (d0 < 1e-30 || d1 < 1e-30) return 0;
+
+  // plate bending rigidity: D = E*t³ / (12*(1-ν²))
+  double D = E * thickness * thickness * thickness / (12.0 * (1.0 - nu * nu));
+
+  // warp stiffness from twist curvature Rayleigh quotient:
+  //   w^T K_bend w / |w|^2 = D*(1-ν)*4 / (d0*d1)
+  return D * (1.0 - nu) * 4.0 / (d0 * d1);
+}

@@ -1,0 +1,23 @@
+void quadratureGaussLegendre(double* points, double* weights,
+                             const int order, const double a, const double b) {
+  if (order > 3)
+    mju_error("Integration order > 3 not yet supported.");
+
+  // x is on [-1, 1], p on [a, b]
+  double p0 = (a+b)/2.;
+  double dpdx = (b-a)/2;
+
+  if (order == 2) {
+    points[0] = -dpdx / sqrt(3) + p0;
+    points[1] =  dpdx / sqrt(3) + p0;
+    weights[0] = dpdx;
+    weights[1] = dpdx;
+  } else {
+    points[0] = p0;
+    points[1] = -dpdx / sqrt(3. / 5.) + p0;
+    points[2] =  dpdx / sqrt(3. / 5.) + p0;
+    weights[0] = 8. / 9. * dpdx;
+    weights[1] = 5. / 9. * dpdx;
+    weights[2] = 5. / 9. * dpdx;
+  }
+}

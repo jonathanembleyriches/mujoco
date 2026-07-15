@@ -1,0 +1,87 @@
+static void ComputeWarpMode(double* warp, const double* pos,
+                            int npe, int order, int normal_axis) {
+  int ndof = 3 * npe;
+  int nbasis = order + 1;
+
+  // zero out
+  std::fill(warp, warp + ndof, 0.0);
+
+  // evaluate warp pattern (1-2s)(1-2t) at each node
+  for (int b0 = 0; b0 < nbasis; b0++) {
+    for (int b1 = 0; b1 < nbasis; b1++) {
+      int node = b0 * nbasis + b1;
+      double s = static_cast<double>(b0) / (nbasis - 1);
+      double t = static_cast<double>(b1) / (nbasis - 1);
+      warp[3*node + normal_axis] = (1 - 2*s) * (1 - 2*t);
+    }
+  }
+
+  // orthogonalize against rigid body modes (6 modes: 3 translations + 3 rotations)
+  // this is a no-op for rectangular elements (warp is already orthogonal)
+  // but keeps the code robust for non-square elements
+  double centroid[3] = {0, 0, 0};
+  for (int n = 0; n < npe; n++) {
+    for (int k = 0; k < 3; k++) {
+      centroid[k] += pos[3*n + k];
+    }
+  }
+  for (int k = 0; k < 3; k++) {
+    centroid[k] /= npe;
+  }
+
+  // build and orthonormalize rigid body modes inline
+  std::vector<double> rigid(6 * ndof, 0.0);
+
+  // translations
+  for (int n = 0; n < npe; n++) {
+    rigid[0*ndof + 3*n + 0] = 1;
+    rigid[1*ndof + 3*n + 1] = 1;
+    rigid[2*ndof + 3*n + 2] = 1;
+  }
+
+  // rotations about centroid
+  for (int n = 0; n < npe; n++) {
+    double rx = pos[3*n + 0] - centroid[0];
+    double ry = pos[3*n + 1] - centroid[1];
+    double rz = pos[3*n + 2] - centroid[2];
+    rigid[3*ndof + 3*n + 1] = -rz;
+    rigid[3*ndof + 3*n + 2] =  ry;
+    rigid[4*ndof + 3*n + 0] =  rz;
+    rigid[4*ndof + 3*n + 2] = -rx;
+    rigid[5*ndof + 3*n + 0] = -ry;
+    rigid[5*ndof + 3*n + 1] =  rx;
+  }
+
+  // orthonormalize rigid modes via modified Gram-Schmidt
+  for (int i = 0; i < 6; i++) {
+    double* ri = rigid.data() + i * ndof;
+    for (int j = 0; j < i; j++) {
+      const double* rj = rigid.data() + j * ndof;
+      double dot = 0;
+      for (int k = 0; k < ndof; k++) dot += ri[k] * rj[k];
+      for (int k = 0; k < ndof; k++) ri[k] -= dot * rj[k];
+    }
+    double norm2 = 0;
+    for (int k = 0; k < ndof; k++) norm2 += ri[k] * ri[k];
+    if (norm2 > 1e-20) {
+      double inv_norm = 1.0 / std::sqrt(norm2);
+      for (int k = 0; k < ndof; k++) ri[k] *= inv_norm;
+    }
+  }
+
+  // project warp against rigid modes
+  for (int i = 0; i < 6; i++) {
+    const double* ri = rigid.data() + i * ndof;
+    double dot = 0;
+    for (int k = 0; k < ndof; k++) dot += warp[k] * ri[k];
+    for (int k = 0; k < ndof; k++) warp[k] -= dot * ri[k];
+  }
+
+  // normalize
+  double norm2 = 0;
+  for (int k = 0; k < ndof; k++) norm2 += warp[k] * warp[k];
+  if (norm2 > 1e-20) {
+    double inv_norm = 1.0 / std::sqrt(norm2);
+    for (int k = 0; k < ndof; k++) warp[k] *= inv_norm;
+  }
+}
