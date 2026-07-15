@@ -94,13 +94,17 @@ static void NewMaterialModal(EditorContext* c) {
   }
 
   ImGui::Separator();
+  const bool valid = MaterialSpecValid(spec);
+  ImGui::BeginDisabled(!valid);
   if (ImGui::Button("Create")) {
     CreateMaterialOp(*c, spec);
     spec = MaterialSpec{};
     ImGui::CloseCurrentPopup();
   }
+  ImGui::EndDisabled();
   ImGui::SameLine();
   if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+  if (!valid) ImGui::TextDisabled("Enter a name to create.");
   ImGui::EndPopup();
 }
 
@@ -144,16 +148,14 @@ static void NewTextureModal(EditorContext* c) {
   }
 
   ImGui::Separator();
-  const bool ready = spec.builtin || !spec.file.empty();
-  ImGui::BeginDisabled(!ready);
+  const bool valid = TextureSpecValid(spec);
+  ImGui::BeginDisabled(!valid);
   if (ImGui::Button("Create")) {
     for (int i = 0; i < 3; ++i) {
       spec.rgb1[i] = rgb1[i];
       spec.rgb2[i] = rgb2[i];
       spec.markrgb[i] = markrgb[i];
     }
-    if (spec.width < 1) spec.width = 1;
-    if (spec.height < 1) spec.height = 1;
     CreateTextureOp(*c, spec);
     spec = TextureSpec{};
     ImGui::CloseCurrentPopup();
@@ -161,6 +163,13 @@ static void NewTextureModal(EditorContext* c) {
   ImGui::EndDisabled();
   ImGui::SameLine();
   if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+  if (spec.name.empty()) {
+    ImGui::TextDisabled("Enter a name to create.");
+  } else if (spec.builtin && (spec.width < 1 || spec.height < 1)) {
+    ImGui::TextDisabled("Width and height must be at least 1.");
+  } else if (!spec.builtin && spec.file.empty()) {
+    ImGui::TextDisabled("Enter an image path to create.");
+  }
   ImGui::EndPopup();
 }
 
@@ -318,7 +327,7 @@ static void AddMenuUpdate(GuiPlugin* self) {
   ImGui::SetNextItemWidth(120);
   ImGui::InputTextWithHint("##class", "class name", &class_name);
   ImGui::SameLine();
-  if (ImGui::Button("Add Default class")) {
+  if (ImGui::Button("Add Default Class")) {
     AddDefaultClassOp(*c, class_name);
     class_name.clear();
   }

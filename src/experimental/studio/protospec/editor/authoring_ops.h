@@ -138,6 +138,19 @@ struct TextureSpec {
 std::uint64_t CreateMaterialOp(EditorContext& ctx, const MaterialSpec& spec);
 std::uint64_t CreateTextureOp(EditorContext& ctx, const TextureSpec& spec);
 
+// Dialog-commit validation for the New Material / New Texture flows. The create
+// button is gated on these: a create needs a non-empty name, and a builtin
+// texture needs positive dimensions while a file texture needs a path. Pure so
+// the dialog gate and the tests share one definition of "ready to create".
+inline bool MaterialSpecValid(const MaterialSpec& spec) {
+  return !spec.name.empty();
+}
+inline bool TextureSpecValid(const TextureSpec& spec) {
+  if (spec.name.empty()) return false;
+  return spec.builtin ? (spec.width >= 1 && spec.height >= 1)
+                      : !spec.file.empty();
+}
+
 // Assign (or clear, when `material_name` is empty) the material of the geom with
 // `geom_serial`. One undo entry; the geom stays selected. Returns false when the
 // serial does not resolve to a geom.

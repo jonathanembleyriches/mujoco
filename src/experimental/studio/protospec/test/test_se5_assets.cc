@@ -372,6 +372,34 @@ static void TestMaterialLayerEditing() {
   }
 }
 
+// New Material / New Texture dialog commit-validation: the Create button is gated
+// on these pure predicates. A create needs a non-empty name; a builtin texture
+// needs positive dimensions; a file texture needs a path.
+static void TestDialogValidation() {
+  ps::studio::MaterialSpec ms;
+  CHECK(!ps::studio::MaterialSpecValid(ms));  // empty name rejected
+  ms.name = "surf";
+  CHECK(ps::studio::MaterialSpecValid(ms));
+
+  ps::studio::TextureSpec ts;  // builtin, default 100x100, but no name
+  CHECK(!ps::studio::TextureSpecValid(ts));  // empty name rejected
+  ts.name = "tex";
+  CHECK(ps::studio::TextureSpecValid(ts));    // builtin w/h >= 1
+  ts.width = 0;
+  CHECK(!ps::studio::TextureSpecValid(ts));   // builtin needs w/h >= 1
+  ts.width = 128;
+  ts.height = 0;
+  CHECK(!ps::studio::TextureSpecValid(ts));
+  ts.height = 128;
+  CHECK(ps::studio::TextureSpecValid(ts));
+
+  ts.builtin = false;  // file texture: dims irrelevant, path required
+  ts.file.clear();
+  CHECK(!ps::studio::TextureSpecValid(ts));
+  ts.file = "wood.png";
+  CHECK(ps::studio::TextureSpecValid(ts));
+}
+
 int main() {
   TestMultiImportOneUndo();
   TestFolderImportGlob();
@@ -380,6 +408,7 @@ int main() {
   TestFileTextureSource();
   TestDefaultClass();
   TestMaterialLayerEditing();
+  TestDialogValidation();
 
   std::printf("%d checks, %d failed\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;
