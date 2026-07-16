@@ -79,6 +79,14 @@ MaterialManager::~MaterialManager() {
 
 void MaterialManager::BeginFrame() { used_keys_.clear(); }
 
+void MaterialManager::Reset() {
+  for (auto& [key, instance] : instances_) {
+    object_mgr_->GetEngine()->destroy(instance);
+  }
+  instances_.clear();
+  used_keys_.clear();
+}
+
 void MaterialManager::EndFrame() {
   if (instances_.size() == used_keys_.size()) {
     return;

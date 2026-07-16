@@ -57,6 +57,13 @@ class MaterialManager {
   // Removes any unused MaterialInstances.
   void EndFrame();
 
+  // Destroys every cached MaterialInstance. Call when the model is being
+  // swapped: the cache is keyed on the mjrfMaterial (which embeds texture
+  // pointers), so an instance built for the old model would otherwise be reused
+  // while still referencing textures freed with the old model -- a use-after-
+  // free. The next frame rebuilds instances against the new model's textures.
+  void Reset();
+
   // Returns a MaterialType that best matches the given material data and mesh.
   MaterialType GetMaterialType(const mjrfMaterial& material, const Mesh* mesh);
 

@@ -223,9 +223,11 @@ void App::OnModelLoaded(std::string filename, ModelKind model_kind) {
     step_control_.SetPauseState(PauseState::kNormalPaused);
   }
 
-  // Reset/reinitialize everything that depends on the new mjModel.
+  // Reset/reinitialize everything that depends on the new mjModel. UpdateModel
+  // reuses the persistent Filament engine across recompiles/adopts and only
+  // rebuilds the per-model scene; it falls back to a full Init on first load.
   mjModel* model = model_holder_->model();
-  renderer_->Init(model);
+  renderer_->UpdateModel(model);
   const int state_size = mj_stateSize(model, mjSTATE_INTEGRATION);
   sim_history_.Init(state_size);
 
