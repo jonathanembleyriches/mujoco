@@ -343,6 +343,48 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
   }
 }
 
+Rigid FrameChainPrefix(mj::Model& tree, std::uint64_t serial) {
+  Rigid A;  // identity
+  if (serial == 0) return A;
+  const void* elem = nullptr;
+  sdkd::WalkModelAll(tree, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model>) {
+      if constexpr (requires { e.serial; }) {
+        if (!elem && e.serial == serial) elem = &e;
+      }
+    }
+  });
+  if (!elem) return A;
+
+  sdk::ParentMap pm(tree);
+  std::vector<const mj::Frame*> frames;  // innermost first
+  const sdk::ParentMap::Node* self = pm.Lookup(elem);
+  const void* p = self ? self->parent : nullptr;
+  while (p) {
+    const sdk::ParentMap::Node* n = pm.Lookup(p);
+    if (!n) break;
+    if (n->type == mj::ElementType::Frame) {
+      frames.push_back(static_cast<const mj::Frame*>(p));
+      p = n->parent;
+    } else {
+      break;  // a Body / world / non-spatial container: A is body-local, stop
+    }
+  }
+  for (auto it = frames.rbegin(); it != frames.rend(); ++it) {  // outermost first
+    const mj::Frame* f = *it;
+    Rigid fr;
+    if (f->pos) {
+      fr.pos[0] = (*f->pos)[0];
+      fr.pos[1] = (*f->pos)[1];
+      fr.pos[2] = (*f->pos)[2];
+    }
+    QuatOf(f->quat, fr.quat);
+    A = Compose(A, fr);
+  }
+  return A;
+}
+
 Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial) {
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref) return {};

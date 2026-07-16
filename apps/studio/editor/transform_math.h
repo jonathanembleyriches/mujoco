@@ -118,6 +118,14 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
 // fromto-authored geoms/sites, whose compiled pose is derived from the endpoints).
 Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial);
 
+// The composed authored <frame> chain (body-local) enclosing the element with
+// `serial`: identity when it sits directly under a body, else frame_outer ∘ ... ∘
+// frame_inner. mjModel flattens frames away, folding this prefix into the
+// element's compiled pose, so it maps an authored body-frame pos/axis (e.g. a
+// joint's) to the compiled mjModel frame. Resolves any element (joints included),
+// not just the spatial families.
+Rigid FrameChainPrefix(mj::Model& tree, std::uint64_t serial);
+
 // Apply a cumulative world-space translation `world_delta` (since grab) onto the
 // element's authored pos, per the delta rule. Writes (materialises) pos; leaves
 // orient untouched (its authored form is preserved).

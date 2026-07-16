@@ -298,21 +298,19 @@ void GizmoController::Begin(EditorContext& ctx, const ViewportInput& in,
   if (ctx.gizmo.tool == GizmoTool::Scale) scale_base_ = BuildScaleBase(*ctx.tree, drag_serial_);
 
   // Capture the pose-patch for the drag fast path (deliverable 1): a pure
-  // Translate/Rotate drag of a bound Body/Geom/Site/Camera/Light patches the live
-  // mjModel each frame instead of recompiling. Excluded (fall back to recompile):
-  // joints (patched via jnt_pos/axis, a separate concern), fromto-authored
-  // geoms/sites (their compiled pose is derived from the endpoints, not pos/quat,
-  // so the pos/quat patch would not move them), and a light being rotated
-  // (ApplyPosePatch moves light_pos, not light_dir). Any element with no captured
-  // PosePatch (unbound / unsupported family) also falls back.
+  // Translate/Rotate drag patches the live mjModel each frame instead of
+  // recompiling; the release does one real Compile. Bodies/geoms/sites/cameras/
+  // lights (incl. fromto geoms/sites, handled specially in UpdateDrag) get a
+  // PosePatch; joints are patched via jnt_pos/jnt_axis (UpdateDrag, no PosePatch).
+  // Only a light being ROTATED falls back to recompile (ApplyPosePatch moves
+  // light_pos, not light_dir), as does any element with no captured PosePatch.
   pose_patch_.reset();
   const GizmoTool tool = ctx.gizmo.tool;
   const bool pose_tool =
       tool == GizmoTool::Translate || tool == GizmoTool::Rotate;
   const bool light_rotate =
       frame_.type == mj::ElementType::Light && tool == GizmoTool::Rotate;
-  if (pose_tool && !joint_mode_ && !frame_.is_fromto && !light_rotate &&
-      ctx.tree) {
+  if (pose_tool && !joint_mode_ && !light_rotate && ctx.tree) {
     if (SpatialRef ref = FindSpatial(*ctx.tree, drag_serial_)) {
       pose_patch_ = ctx.compiled.binding.PosePatchFor(ref.ptr);
     }
@@ -445,30 +443,93 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
   }
   ctx.dirty = true;
 
-  // Fast path: patch the live mjModel pose field + mj_kinematics, no recompile.
-  // The authored tree was already edited above (DR-S1), so the on-release Compile
-  // reconciles from ground truth. Any patch failure falls back to a recompile so
-  // behaviour is never worse than the debounced-recompile preview.
-  if (pose_patch_) {
-    mjModel* m = ctx.compiled.model.get();
-    mjData* d = const_cast<mjData*>(in.data);  // host-owned; const only in the input
-    if (m != nullptr && d != nullptr && m == in.model) {
-      const Rigid L = EffectiveLocalPose(*ctx.tree, drag_serial_);
-      mj::RigidPose Lnew;
-      for (int i = 0; i < 3; ++i) Lnew.pos[i] = L.pos[i];
-      for (int i = 0; i < 4; ++i) Lnew.quat[i] = L.quat[i];
-      if (mj::ApplyPosePatch(m, *pose_patch_, Lnew)) {
-        // A free/ball body's rest pose lives in qpos0 (just reseeded): copy it
-        // into qpos so mj_kinematics moves the body from the new rest pose.
-        if (pose_patch_->reseed_qposadr >= 0) {
-          mju_copy(d->qpos, m->qpos0, m->nq);
-        }
-        mj_kinematics(m, d);
-        return;
-      }
+  // Fast path: patch the live mjModel + mj_kinematics, no recompile. The authored
+  // tree was already edited above (DR-S1), so the on-release Compile reconciles
+  // from ground truth. Any patch failure falls back to a recompile so behaviour is
+  // never worse than the debounced-recompile preview.
+  if (LivePatch(ctx, in)) return;
+  ctx.RequestRecompile();
+}
+
+// Patch the live compiled model to preview the current drag frame without
+// recompiling. Returns false when the element is not live-patchable (framed
+// joint, unbound, ...), in which case the caller recompiles. Covers:
+//   * joints        -- write jnt_pos / jnt_axis from the authored anchor/axis
+//                      mapped through the enclosing <frame> chain;
+//   * fromto geoms  -- the compiled pose is the endpoint-derived (midpoint +
+//                      z->axis) pose, so feed ApplyPosePatch  derived ∘ B^-1  to
+//                      land  A ∘ derived  (B is the grab-time derived residual);
+//   * everything else -- the authored pos/quat local pose.
+bool GizmoController::LivePatch(EditorContext& ctx, const ViewportInput& in) {
+  mjModel* m = ctx.compiled.model.get();
+  mjData* d = const_cast<mjData*>(in.data);  // host-owned; const only in the input
+  if (m == nullptr || d == nullptr || m != in.model || !ctx.tree) return false;
+
+  if (joint_mode_) return LivePatchJoint(ctx, m, d);
+  if (!pose_patch_) return false;
+
+  Rigid L;
+  if (frame_.is_fromto) {
+    // Rebuild the display frame to read the fresh endpoint-derived local pose.
+    DragFrame f =
+        BuildDragFrame(m, d, ctx.compiled.binding, *ctx.tree, drag_serial_);
+    if (!f.valid) return false;
+    Rigid B;  // the captured residual suffix == the grab-time derived pose
+    for (int i = 0; i < 3; ++i) B.pos[i] = pose_patch_->suffix.pos[i];
+    for (int i = 0; i < 4; ++i) B.quat[i] = pose_patch_->suffix.quat[i];
+    L = Compose(f.local, Invert(B));  // A ∘ L ∘ B == A ∘ derived_new
+  } else {
+    L = EffectiveLocalPose(*ctx.tree, drag_serial_);
+  }
+  mj::RigidPose Lnew;
+  for (int i = 0; i < 3; ++i) Lnew.pos[i] = L.pos[i];
+  for (int i = 0; i < 4; ++i) Lnew.quat[i] = L.quat[i];
+  if (!mj::ApplyPosePatch(m, *pose_patch_, Lnew)) return false;
+  // A free/ball body's rest pose lives in qpos0 (just reseeded): copy it into
+  // qpos so mj_kinematics moves the body from the new rest pose.
+  if (pose_patch_->reseed_qposadr >= 0) mju_copy(d->qpos, m->qpos0, m->nq);
+  mj_kinematics(m, d);
+  return true;
+}
+
+// Patch a joint's compiled anchor (jnt_pos) and axis (jnt_axis) from the authored
+// values, so a joint drag previews without recompiling. jnt_pos/jnt_axis live in
+// the body-local frame (frames flattened), so the authored parent-frame values
+// map through the enclosing <frame> chain prefix. Returns false (recompile) for a
+// free joint (nothing to drag) or an unbound joint.
+bool GizmoController::LivePatchJoint(EditorContext& ctx, mjModel* m, mjData* d) {
+  int jid = -1;
+  for (const mj::Binding::Entry& e : ctx.compiled.binding.entries()) {
+    if (e.serial == drag_serial_ && e.id >= 0 &&
+        (e.etype == mj::ElementType::Joint ||
+         e.etype == mj::ElementType::FreeJoint)) {
+      jid = e.id;
+      break;
     }
   }
-  ctx.RequestRecompile();
+  if (jid < 0 || jid >= m->njnt) return false;
+  if (m->jnt_type[jid] == mjJNT_FREE) return true;  // no anchor/axis to drag; no-op
+
+  const JointDragFrame f =
+      BuildJointDragFrame(m, d, ctx.compiled.binding, *ctx.tree, drag_serial_);
+  if (!f.valid) return false;
+  const Rigid A = FrameChainPrefix(*ctx.tree, drag_serial_);
+
+  // Compiled jnt_pos = A applied to the authored anchor (a point).
+  double jp[3];
+  QuatRotate(A.quat, f.pos, jp);
+  for (int i = 0; i < 3; ++i) m->jnt_pos[3 * jid + i] = jp[i] + A.pos[i];
+  // Compiled jnt_axis = A.quat . authored axis (a direction), renormalized.
+  if (f.has_axis) {
+    double ja[3];
+    QuatRotate(A.quat, f.axis, ja);
+    double n = std::sqrt(ja[0] * ja[0] + ja[1] * ja[1] + ja[2] * ja[2]);
+    if (n > 1e-12)
+      for (int i = 0; i < 3; ++i) ja[i] /= n;
+    for (int i = 0; i < 3; ++i) m->jnt_axis[3 * jid + i] = ja[i];
+  }
+  mj_kinematics(m, d);
+  return true;
 }
 
 void GizmoController::Cancel(EditorContext& ctx) {

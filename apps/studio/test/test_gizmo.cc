@@ -840,6 +840,104 @@ static void TestPosePatchDragFreeBodyReseed() {
   for (int i = 0; i < 3; ++i) CHECK_NEAR(patched[i], before[i] + D[i]);
 }
 
+// A fromto-authored capsule (humanoid limb): the compiled pose is derived from
+// the endpoints, so the fast path feeds ApplyPosePatch  derived_new ∘ B^-1  (B =
+// grab-time derived residual) to land  A ∘ derived_new  -- no recompile, and the
+// compiled world (midpoint) pos tracks the drag delta.
+static void TestPosePatchDragFromto() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="0 0 1" euler="0 0 30">
+        <geom name="limb" type="capsule" size="0.05" fromto="0 0 0  0.4 0 0"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  CHECK(s.compiled.ok());
+  const std::uint64_t g = SerialOf<mj::Geom>(*s.tree, "limb");
+  const mj::Geom* gp = ps::sdk::Find<mj::Geom>(*s.tree, "limb");
+  CHECK(g != 0 && gp != nullptr);
+  std::optional<mj::PosePatch> patch = s.compiled.binding.PosePatchFor(gp);
+  CHECK(patch.has_value());
+
+  double before[3];
+  CHECK(WorldPosOf(s, g, before));  // compiled geom pos == fromto midpoint
+
+  DragFrame f0 = BuildDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, g);
+  CHECK(f0.is_fromto);
+  const double D[3] = {0.3, -0.2, 0.15};
+  ApplyTranslate(*s.tree, g, f0, D);
+
+  // Replicate GizmoController::LivePatch's fromto branch.
+  DragFrame f1 = BuildDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, g);
+  Rigid B;
+  for (int i = 0; i < 3; ++i) B.pos[i] = patch->suffix.pos[i];
+  for (int i = 0; i < 4; ++i) B.quat[i] = patch->suffix.quat[i];
+  const Rigid L = Compose(f1.local, Invert(B));
+  mj::RigidPose Lp;
+  for (int i = 0; i < 3; ++i) Lp.pos[i] = L.pos[i];
+  for (int i = 0; i < 4; ++i) Lp.quat[i] = L.quat[i];
+  CHECK(mj::ApplyPosePatch(s.compiled.model.get(), *patch, Lp));
+  mj_kinematics(s.compiled.model.get(), s.data);
+
+  double patched[3];
+  CHECK(WorldPosOf(s, g, patched));
+  for (int i = 0; i < 3; ++i) CHECK_NEAR(patched[i], before[i] + D[i]);
+
+  CHECK(s.Recompile());  // release reconcile matches the live patch
+  double rec[3];
+  CHECK(WorldPosOf(s, g, rec));
+  for (int i = 0; i < 3; ++i) CHECK_NEAR(rec[i], patched[i]);
+}
+
+// A joint anchor drag patches mjModel jnt_pos (authored anchor mapped through the
+// enclosing frame chain) so the compiled global anchor tracks the delta without a
+// recompile -- matching the release recompile.
+static void TestJointLivePatchAnchor() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="1 2 0.5" euler="0 0 90">
+        <joint name="j" type="hinge" pos="0.1 0 0" axis="0 0 1"/>
+        <geom name="g" type="box" size="0.1 0.1 0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  const std::uint64_t j = SerialOf<mj::Joint>(*s.tree, "j");
+  const int jid = JointIdOf(s, j);
+  CHECK(j != 0 && jid >= 0);
+  double before[3];
+  CHECK(JointAnchorWorld(s, j, before));
+
+  JointDragFrame f =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, j);
+  const double wd[3] = {0.5, 0, 0};
+  ApplyJointTranslate(*s.tree, j, f, wd);
+
+  // Replicate GizmoController::LivePatchJoint.
+  JointDragFrame f2 =
+      BuildJointDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, j);
+  const Rigid A = FrameChainPrefix(*s.tree, j);  // identity here (no <frame>)
+  double jp[3];
+  QuatRotate(A.quat, f2.pos, jp);
+  mjModel* m = s.compiled.model.get();
+  for (int i = 0; i < 3; ++i) m->jnt_pos[3 * jid + i] = jp[i] + A.pos[i];
+  mj_kinematics(m, s.data);
+
+  double patched[3];
+  CHECK(JointAnchorWorld(s, j, patched));
+  CHECK_NEAR(patched[0], before[0] + 0.5);
+  CHECK_NEAR(patched[1], before[1]);
+  CHECK_NEAR(patched[2], before[2]);
+
+  CHECK(s.Recompile());
+  double rec[3];
+  CHECK(JointAnchorWorld(s, j, rec));
+  for (int i = 0; i < 3; ++i) CHECK_NEAR(rec[i], patched[i]);
+}
+
 // ------------------------------------------------------------------------- //
 // Gizmo projection + hit-testing math against a fixed camera fixture.
 // ------------------------------------------------------------------------- //
@@ -1106,6 +1204,8 @@ int main() {
   TestScaleMapping();
   TestPosePatchDragTracksXpos();
   TestPosePatchDragFreeBodyReseed();
+  TestPosePatchDragFromto();
+  TestJointLivePatchAnchor();
   TestGizmoProjection();
   TestGizmoHitTests();
 

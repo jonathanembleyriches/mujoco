@@ -59,6 +59,11 @@ class GizmoController {
              const GizmoHandle& h);
   void UpdateDrag(EditorContext& ctx, const ViewportInput& in,
                   const ViewProj& vp);
+  // Preview the current drag frame on the live compiled model without a recompile
+  // (returns false when the element is not live-patchable, so the caller
+  // recompiles). LivePatchJoint handles the joint anchor/axis case.
+  bool LivePatch(EditorContext& ctx, const ViewportInput& in);
+  bool LivePatchJoint(EditorContext& ctx, mjModel* m, mjData* d);
   void Cancel(EditorContext& ctx);
 
   bool prev_left_ = false;
