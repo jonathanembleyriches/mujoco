@@ -594,15 +594,17 @@ void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context&
 
   const ViewProj vp = BuildViewProj(vc.model, vc.data, vc.camera, vc.aspect_ratio);
   const VpMetrics m = MainViewport();
+  // The gizmo tracks the selection live -- during a drag too, so its handles
+  // follow the object under the cursor instead of staying frozen at the grab
+  // point (which reads as a disconnected, unsmooth drag). The world anchor
+  // recomputes each frame as parent_pose . the freshly authored local pose, so it
+  // follows both the fast-patch and recompile drag paths. The drag MATH still uses
+  // the immutable grab-time frame_; only the drawn frame follows.
   bool joint_now = joint_mode_;
-  DragFrame f;
-  if (dragging_) {
-    f = frame_;
-  } else {
-    DisplayFrame df = BuildDisplay(ctx, vc.model, vc.data);
-    f = df.f;
-    joint_now = df.joint;
-  }
+  DisplayFrame df = BuildDisplay(ctx, vc.model, vc.data);
+  DragFrame f = df.f;
+  joint_now = df.joint;
+  if (dragging_ && !f.valid) f = frame_;  // keep the grab frame if it can't resolve
   if (!f.valid) return;
   // Joints expose translate + reorient handles only, never scale.
   if (joint_now && ctx.gizmo.tool == GizmoTool::Scale) return;
