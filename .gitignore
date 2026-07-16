@@ -8,3 +8,4 @@ cpp/**/build*/
 apps/**/build/
 MUJOCO_LOG.TXT
 imgui.ini
+.mujoco.ini

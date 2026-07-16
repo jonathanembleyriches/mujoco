@@ -5,6 +5,8 @@
 // round-trip of a created appearance. Every structural op is followed by a real
 // compile, so a broken op surfaces as a compile failure.
 
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -400,7 +402,44 @@ static void TestDialogValidation() {
   CHECK(ps::studio::TextureSpecValid(ts));
 }
 
+// Editing an EXISTING material's rgba (what the Details colour picker commits)
+// must propagate to the recompiled model's mat_rgba -- the "existing material
+// won't change" report. Isolates the editor/compile core from the GPU renderer.
+static void TestEditExistingMaterialRecompiles() {
+  const char* xml = R"(
+  <mujoco>
+    <asset><material name="red" rgba="1 0 0 1"/></asset>
+    <worldbody><body><geom type="box" size="0.1 0.1 0.1" material="red"/></body></worldbody>
+  </mujoco>)";
+  EditorContext ctx;
+  mj::io::ParseResult r = mj::io::ParseMjcfString(xml, "mat_edit_test");
+  CHECK(r.ok());
+  if (!r.ok()) return;
+  ctx.tree = std::move(r.model);
+  CHECK(ps::studio::RecompileTree(ctx) && ctx.compiled.ok());
+
+  const int id0 = mj_name2id(ctx.compiled.model.get(), mjOBJ_MATERIAL, "red");
+  CHECK(id0 >= 0);
+  CHECK(std::fabs(ctx.compiled.model->mat_rgba[4 * id0 + 0] - 1.0f) < 1e-5f);
+  CHECK(std::fabs(ctx.compiled.model->mat_rgba[4 * id0 + 1] - 0.0f) < 1e-5f);
+
+  // Edit the existing material's rgba (BeginEdit + set + CommitEdit == the panel).
+  mj::Material* mat = sdk::Find<mj::Material>(*ctx.tree, "red");
+  CHECK(mat != nullptr);
+  if (mat) {
+    ctx.BeginEdit();
+    mat->rgba = std::array<float, 4>{0.0f, 1.0f, 0.0f, 1.0f};  // -> green
+    ctx.CommitEdit("edit rgba");
+  }
+  CHECK(ps::studio::RecompileTree(ctx) && ctx.compiled.ok());
+  const int id1 = mj_name2id(ctx.compiled.model.get(), mjOBJ_MATERIAL, "red");
+  CHECK(id1 >= 0);
+  CHECK(std::fabs(ctx.compiled.model->mat_rgba[4 * id1 + 0] - 0.0f) < 1e-5f);
+  CHECK(std::fabs(ctx.compiled.model->mat_rgba[4 * id1 + 1] - 1.0f) < 1e-5f);
+}
+
 int main() {
+  TestEditExistingMaterialRecompiles();
   TestMultiImportOneUndo();
   TestFolderImportGlob();
   TestBatchPrimitiveAdd();
