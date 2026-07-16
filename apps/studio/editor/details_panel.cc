@@ -388,34 +388,53 @@ bool DrawValue(EditorContext& ctx, const char* label, Inner& work,
   }
 }
 
+// The outcome of a field edit widget: `changed` is true on any frame the value
+// moved (so the caller can materialise it into the field live), `commit` is true
+// on the frame the gesture ends (one undo entry + one recompile). For plain drag/
+// text widgets the two coincide (ImGui holds the in-progress value); a ColorEdit
+// picker separates them -- see DrawColorArray.
+struct FieldEdit {
+  bool changed = false;
+  bool commit = false;
+  explicit operator bool() const { return changed || commit; }
+};
+
 // --- Colour swatch/picker -------------------------------------------------- //
 // A ColorEdit widget bound to a fixed 3/4-wide float or double array. ImGui only
 // edits floats, so a double-backed field round-trips through a float scratch.
 template <class X, std::size_t N>
-bool DrawColorArray(EditorContext& ctx, const char* label, std::array<X, N>& a) {
+FieldEdit DrawColorArray(EditorContext& ctx, const char* label,
+                         std::array<X, N>& a) {
   static_assert(N == 3 || N == 4, "color array is rgb(3) or rgba(4)");
   float tmp[4] = {0, 0, 0, 1};
   for (std::size_t i = 0; i < N; ++i) tmp[i] = static_cast<float>(a[i]);
   ImGui::SetNextItemWidth(kFieldWidth * 2.2f);
   const ImGuiColorEditFlags flags =
       ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf;
-  if (N == 4) {
-    ImGui::ColorEdit4(label, tmp, flags);
-  } else {
-    ImGui::ColorEdit3(label, tmp, ImGuiColorEditFlags_None);
-  }
-  const bool commit = GestureShouldCommit(ctx);
-  if (commit) {
+  const bool changed =
+      (N == 4) ? ImGui::ColorEdit4(label, tmp, flags)
+               : ImGui::ColorEdit3(label, tmp, ImGuiColorEditFlags_None);
+  // ColorEdit's popup does not re-apply its pick on the deactivation (commit)
+  // frame, and the caller re-seeds `work` from the field every frame, so
+  // committing on release alone writes the ORIGINAL value back ("snap back").
+  // Report `changed` so the caller materialises the picked value live (surviving
+  // the re-seed); still `commit` once, on release, for the undo entry + recompile.
+  if (ImGui::IsItemActivated()) EditBegin(ctx);
+  const bool commit = ImGui::IsItemDeactivatedAfterEdit();
+  if (ImGui::IsItemDeactivated() && !commit) EditCancel(ctx);
+  if (changed || commit) {
     for (std::size_t i = 0; i < N; ++i) a[i] = static_cast<X>(tmp[i]);
   }
-  return commit;
+  return {changed, commit};
 }
 
 // Draw a field's value, preferring a colour picker for recognised rgb(a) fields
-// (falls back to the generic type-driven DrawValue for everything else).
+// (falls back to the generic type-driven DrawValue for everything else). For the
+// non-colour widgets `changed` and `commit` coincide (the value is only read back
+// on commit), so their edit reports {c, c}.
 template <class Inner>
-bool DrawFieldValue(EditorContext& ctx, const reflect::FieldDescriptor& fd,
-                    const char* label, Inner& work, int arity_min) {
+FieldEdit DrawFieldValue(EditorContext& ctx, const reflect::FieldDescriptor& fd,
+                         const char* label, Inner& work, int arity_min) {
   if constexpr (is_std_array<Inner>::value) {
     using X = typename is_std_array<Inner>::elem;
     if constexpr (std::is_floating_point_v<X> &&
@@ -428,7 +447,8 @@ bool DrawFieldValue(EditorContext& ctx, const reflect::FieldDescriptor& fd,
       }
     }
   }
-  return DrawValue(ctx, label, work, arity_min);
+  const bool c = DrawValue(ctx, label, work, arity_min);
+  return {c, c};
 }
 
 // --- Field rows (presence-aware) ------------------------------------------- //
@@ -489,7 +509,12 @@ void RowOptional(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
   Inner work = SeedValue<Inner>(authored, slot, clsF, fullF);
   {
     Grayed g(!authored);
-    if (DrawFieldValue(ctx, fd, label.c_str(), work, fd.arity_min)) {
+    const FieldEdit e = DrawFieldValue(ctx, fd, label.c_str(), work, fd.arity_min);
+    // Materialise on any change so a multi-frame gesture (e.g. a colour picker,
+    // whose value the caller would otherwise re-seed away each frame) is not lost;
+    // record the undo entry + recompile once, on commit.
+    if (e.changed) slot = work;
+    if (e.commit) {
       slot = std::move(work);
       EditCommit(ctx, std::string("edit ") + std::string(fd.name));
     }
@@ -514,7 +539,9 @@ void RowRequired(EditorContext& ctx, const reflect::FieldDescriptor& fd, int id,
   ImGui::SameLine(kLabelColumn);
   Inner work = slot;
   const std::string label = RowLabel(fd);
-  if (DrawFieldValue(ctx, fd, label.c_str(), work, fd.arity_min)) {
+  const FieldEdit e = DrawFieldValue(ctx, fd, label.c_str(), work, fd.arity_min);
+  if (e.changed) slot = work;
+  if (e.commit) {
     slot = std::move(work);
     EditCommit(ctx, std::string("edit ") + std::string(fd.name));
   }
