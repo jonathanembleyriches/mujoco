@@ -45,27 +45,82 @@ MuJoCo Studio's plugin interfaces.
 
 ## Build & test
 
-Python tooling uses [uv](https://docs.astral.sh/uv/). MuJoCo is consumed prebuilt via the
-`MUJOCO_ROOT` CMake cache variable (headers + `mujoco.lib`/`mujoco.dll` + source tree for
-lifted-code verification).
+### Prerequisites (all platforms)
 
-```
+- **CMake ≥ 3.20** and **Ninja** (or any generator).
+- A **C++20 compiler**: MSVC 2022 (Windows), GCC ≥ 11 or Clang ≥ 14 (Linux), Apple Clang
+  (Xcode ≥ 14, macOS).
+- **[uv](https://docs.astral.sh/uv/)** for the Python toolchain (parser, emitters, test driver).
+- **MuJoCo ≥ 3.10**, built/installed for your platform, pointed at by the `MUJOCO_ROOT` CMake
+  cache variable. `MUJOCO_ROOT` must contain `include/mujoco/`, the import library
+  (`lib/…/mujoco.{lib,so,dylib}`) + runtime, and the `build/_deps/` tree MuJoCo produced (the
+  native compiler links MuJoCo's own `qhull`, `tinyobjloader`, and `lodepng` static libs from
+  there). On this project MuJoCo is the copy vendored in the UnrealRoboticsLab plugin; on Linux/
+  macOS point `MUJOCO_ROOT` at your own MuJoCo source+build tree.
+
+The commands below use Ninja (identical on every OS). On Windows run them from a
+**Developer shell** (`vcvars64.bat`, or a "x64 Native Tools" prompt) so `cl` is on `PATH`.
+
+### Python toolchain + full test suite (cross-platform, identical)
+
+```sh
 uv sync
-uv run pytest                                  # full Python suite incl. corpus gates
-
-cmake -S cpp -B cpp/build -G "Visual Studio 17 2022"
-cmake --build cpp/build --config Release
-ctest --test-dir cpp/build -C Release          # object model, IO, validate, bridge, native, SDK
-
-cmake -S apps/studio -B apps/studio/build -G "Visual Studio 17 2022"
-cmake --build apps/studio/build --config Release
-apps/studio/build/Release/protospec_studio.exe <model.xml>
-
-cmake -S cpp/python -B cpp/python/build        # pybind11 module (see TRYME.md)
+uv run pytest            # generator, corpus differential, native ratchet, bridge, studio smoke
 ```
 
-Regeneration entry points (both `--check`-reproducible, CI-gated):
-`uv run python -m protospec_gen.emit` and `uv run python tools/bootstrap/draft_schema.py`.
+### C++ library + tests
+
+```sh
+# Windows: run inside a vcvars64 developer shell.  Linux/macOS: a plain shell.
+cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DMUJOCO_ROOT=/path/to/mujoco
+cmake --build cpp/build
+ctest --test-dir cpp/build --output-on-failure   # object model, IO, validate, bridge, native, SDK
+```
+
+(Windows alternative generator: `-G "Visual Studio 17 2022"`, then add `--config Release` to the
+build/ctest commands.)
+
+### Python module (pybind11)
+
+```sh
+cmake -S cpp/python -B cpp/python/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DMUJOCO_ROOT=/path/to/mujoco
+cmake --build cpp/python/build
+```
+
+Then `import protospec` — see **[TRYME.md](TRYME.md)** for the load → edit → compile → step →
+save session (paths in TRYME are Windows; the Python API is identical on every OS).
+
+### Studio (the interactive editor)
+
+Two hosts consume one editor source (`apps/studio/`):
+
+- **Standalone shell** — SDL2 + classic OpenGL renderer, the CI/test surface. Builds anywhere:
+
+  ```sh
+  cmake -S apps/studio -B apps/studio/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DMUJOCO_ROOT=/path/to/mujoco
+  cmake --build apps/studio/build
+  ctest --test-dir apps/studio/build --output-on-failure    # 8 windowless batteries
+  ./apps/studio/build/protospec_studio "/path/to/model.xml"  # .exe on Windows
+  ```
+
+- **Real MuJoCo Studio (Filament)** — the full-featured app, on the `studio` branch of the
+  MuJoCo fork; it compiles this repo's editor live via `PROTOSPEC_ROOT`. Because it builds
+  Filament, it follows **MuJoCo's own per-platform build requirements** (Windows: Ninja + MSVC
+  only — the VS generator trips Filament's resource codegen; Linux/macOS: the toolchains MuJoCo
+  documents). Exact commands, flags, and the run/self-screenshot recipe are in
+  **[docs/studio_build.md](docs/studio_build.md)**.
+
+  Quote model paths that contain spaces: `--model_file="…/humanoid.xml"`.
+
+### Regeneration (CI-gated, `--check`-reproducible on every OS)
+
+```sh
+uv run python -m protospec_gen.emit          # regenerate cpp/generated + cpp/python/generated
+uv run python tools/bootstrap/draft_schema.py  # regenerate schema/mujoco.spec from snapshots
+```
 
 ## Documents
 
