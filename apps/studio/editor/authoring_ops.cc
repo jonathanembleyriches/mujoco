@@ -19,6 +19,7 @@
 #include "compile.h"
 #include "editor/editor_ops.h"
 #include "editor/transform_math.h"
+#include "protospec/attach.h"  // sdk::Duplicate / sdk::Reparent (public verbs)
 #include "protospec/builders.h"
 #include "protospec/detail.h"
 #include "protospec/refs.h"
@@ -595,77 +596,9 @@ std::uint64_t AddDefaultClassOp(EditorContext& ctx, const std::string& name) {
 
 namespace {
 
-// Insert a fresh-serial deep clone of the element at `target` immediately after
-// it in its owning list. The concrete element type is recovered inside the Visit
-// hook (whose instantiations already exist), so mj::Clone is the only per-type
-// code -- no whole-model walk is instantiated per type.
-struct Duplicator {
-  const void* target;
-  std::uint64_t* new_serial;
-  bool* done;
-
-  template <class U>
-  void field(int, const char*, U&) {}
-
-  template <class C>
-  void child(int, const char*, C& list) {
-    if (*done) return;
-    for (std::size_t i = 0; i < list.size(); ++i) {
-      if (list[i] && static_cast<const void*>(list[i].get()) == target) {
-        auto clone = mj::Clone(*list[i]);
-        *new_serial = clone->serial;
-        list.insert(list.begin() + i + 1, std::move(clone));
-        *done = true;
-        return;
-      }
-    }
-    for (auto& p : list) {
-      if (*done) return;
-      if (p) {
-        Duplicator d{target, new_serial, done};
-        mj::Visit(*p, d);
-      }
-    }
-  }
-
-  template <class C>
-  void union_child(int, const char*, C& list) {
-    if (*done) return;
-    for (std::size_t i = 0; i < list.size(); ++i) {
-      bool match = false;
-      std::visit(
-          [&](auto& p) {
-            if (p && static_cast<const void*>(p.get()) == target) match = true;
-          },
-          list[i].node);
-      if (match) {
-        typename C::value_type node;
-        std::visit(
-            [&](auto& p) {
-              auto clone = mj::Clone(*p);
-              *new_serial = clone->serial;
-              node.node = std::move(clone);
-            },
-            list[i].node);
-        list.insert(list.begin() + i + 1, std::move(node));
-        *done = true;
-        return;
-      }
-    }
-    for (auto& item : list) {
-      if (*done) return;
-      std::visit(
-          [&](auto& p) {
-            if (p) {
-              Duplicator d{target, new_serial, done};
-              mj::Visit(*p, d);
-            }
-          },
-          item.node);
-    }
-  }
-};
-
+// A type-erased element pointer (or nullptr) by creation serial. Used to resolve
+// the target/parent of a structural op before handing it to a runtime-pointer SDK
+// verb.
 const void* FindPtrBySerial(mj::Model& model, std::uint64_t serial) {
   const void* out = nullptr;
   sdk_detail::WalkModelAll(model, [&](auto& e) {
@@ -679,85 +612,19 @@ const void* FindPtrBySerial(mj::Model& model, std::uint64_t serial) {
   return out;
 }
 
-// Uniquely rename every named element of the freshly-cloned subtree rooted at
-// `root_serial` and remap the clone's INTERNAL typed references to the new names;
-// references pointing outside the clone are untouched. All bookkeeping runs
-// through generic-lambda walks (one Walker instantiation each), never a per-type
-// templated SDK op with an embedded walk.
-void RemapClonedSubtree(mj::Model& model, std::uint64_t root_serial) {
-  const void* root = FindPtrBySerial(model, root_serial);
-  if (!root) return;
-
-  sdk::ParentMap pm(model);
-  auto in_sub = [&](const void* p) -> bool {
-    for (const void* q = p; q;) {
-      if (q == root) return true;
-      const sdk::ParentMap::Node* n = pm.Lookup(q);
-      if (!n) break;
-      q = n->parent;
-    }
-    return false;
-  };
-
-  struct SubElem {
-    mj::ElementType type;
-    std::string name;
-    std::function<void(const std::string&)> set;
-  };
-  std::vector<SubElem> sub;
-  std::map<int, std::unordered_set<std::string>> reserved;  // outside names
+// The creation serial of the element at `ptr` (sdk::Duplicate returns the clone's
+// pointer; the editor selects by serial), or 0.
+std::uint64_t SerialOfPtr(mj::Model& model, const void* ptr) {
+  std::uint64_t out = 0;
   sdk_detail::WalkModelAll(model, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model>) {
-      const std::string* nm = sdk_detail::NameOf(e);
-      if (!nm) return;
-      const mj::ElementType t = mj::element_type_of<E>::value;
-      if (in_sub(&e)) {
-        auto* ep = &e;
-        sub.push_back({t, *nm, [ep](const std::string& s) {
-                         sdk_detail::SetName(*ep, s);
-                       }});
-      } else {
-        reserved[CategoryId(t)].insert(*nm);
+      if constexpr (requires { e.serial; }) {
+        if (!out && static_cast<const void*>(&e) == ptr) out = e.serial;
       }
     }
   });
-
-  struct Ren {
-    mj::ElementType type;
-    std::string oldn;
-    std::string newn;
-  };
-  std::vector<Ren> renamed;
-  for (auto& se : sub) {
-    const int c = CategoryId(se.type);
-    std::string cand = se.name;
-    for (int k = 1; reserved[c].count(cand); ++k)
-      cand = se.name + "_" + std::to_string(k);
-    reserved[c].insert(cand);
-    if (cand != se.name) {
-      renamed.push_back({se.type, se.name, cand});
-      se.set(cand);
-    }
-  }
-  if (renamed.empty()) return;
-
-  sdk_detail::WalkModelAll(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if (!in_sub(&e)) return;
-      sdk_detail::ScanRefs(
-          e, [&](int, const char*, std::string& rn,
-                 const std::vector<mj::ElementType>& tgts) {
-            for (const Ren& r : renamed) {
-              if (r.oldn == rn && sdk_detail::Contains(tgts, r.type)) {
-                rn = r.newn;
-                break;
-              }
-            }
-          });
-    }
-  });
+  return out;
 }
 
 }  // namespace
@@ -768,15 +635,14 @@ std::uint64_t DuplicateOp(EditorContext& ctx, std::uint64_t serial) {
   if (!target) return 0;
 
   ctx.BeginEdit();
-  std::uint64_t new_serial = 0;
-  bool done = false;
-  Duplicator d{target, &new_serial, &done};
-  mj::Visit(*ctx.tree, d);
-  if (!done || new_serial == 0) {
+  // The public runtime-pointer SDK verb: deep-clone as the next sibling with fresh
+  // serials, re-unique names, and remap the clone's internal refs.
+  void* clone = sdk::Duplicate(*ctx.tree, target);
+  const std::uint64_t new_serial = clone ? SerialOfPtr(*ctx.tree, clone) : 0;
+  if (new_serial == 0) {
     ctx.CancelEdit();
     return 0;
   }
-  RemapClonedSubtree(*ctx.tree, new_serial);
   ctx.CommitEdit("Duplicate");
   SelectBySerial(ctx, new_serial);
   return new_serial;
@@ -786,55 +652,20 @@ std::uint64_t DuplicateOp(EditorContext& ctx, std::uint64_t serial) {
 
 namespace {
 
-bool FindBodyChild(std::vector<mj::BodyChildAny>& sub, const void* target,
-                   std::vector<mj::BodyChildAny>** out_list, std::size_t* out_i) {
-  for (std::size_t i = 0; i < sub.size(); ++i) {
-    bool match = false;
-    std::visit(
-        [&](auto& up) {
-          if (up && static_cast<const void*>(up.get()) == target) match = true;
-        },
-        sub[i].node);
-    if (match) {
-      *out_list = &sub;
-      *out_i = i;
-      return true;
+// Write the authored local pose L (pos + quat) onto the element at `elem` (still
+// valid after sdk::Reparent's move, which relocates the owning unique_ptr but not
+// the element object). The keep-world-pose fixup the SDK deliberately leaves to
+// the compile-aware caller.
+void SetElemLocalPose(mj::Model& tree, const void* elem, const Rigid& L) {
+  sdk_detail::WalkModelAll(tree, [&](auto& e) {
+    if (static_cast<const void*>(&e) != elem) return;
+    if constexpr (requires { e.pos; }) {
+      e.pos = std::array<double, 3>{L.pos[0], L.pos[1], L.pos[2]};
     }
-    bool rec = false;
-    std::visit(
-        [&](auto& up) {
-          using T = std::decay_t<decltype(*up)>;
-          if constexpr (std::is_same_v<T, mj::Body> ||
-                        std::is_same_v<T, mj::Frame>) {
-            if (up && FindBodyChild(up->subtree, target, out_list, out_i))
-              rec = true;
-          }
-        },
-        sub[i].node);
-    if (rec) return true;
-  }
-  return false;
-}
-
-bool FindBodyChildInModel(mj::Model& tree, const void* target,
-                          std::vector<mj::BodyChildAny>** out_list,
-                          std::size_t* out_i) {
-  for (auto& w : tree.worldbody) {
-    if (w && FindBodyChild(w->subtree, target, out_list, out_i)) return true;
-  }
-  return false;
-}
-
-void CollectSubtreePtrs(mj::BodyChildAny& node,
-                        std::unordered_set<const void*>& out) {
-  std::visit(
-      [&](auto& up) {
-        if (up)
-          sdk_detail::WalkTree(*up, [&](auto& e) {
-            out.insert(static_cast<const void*>(&e));
-          });
-      },
-      node.node);
+    if constexpr (requires { e.quat; }) {
+      e.quat = std::array<double, 4>{L.quat[0], L.quat[1], L.quat[2], L.quat[3]};
+    }
+  });
 }
 
 }  // namespace
@@ -857,23 +688,8 @@ ReparentResult ReparentOp(EditorContext& ctx, std::uint64_t elem_serial,
     r.error = "target is not a body or frame";
     return r;
   }
-  std::vector<mj::BodyChildAny>* list = nullptr;
-  std::size_t idx = 0;
-  if (!FindBodyChildInModel(*ctx.tree, elem, &list, &idx)) {
-    r.error = "element is not a movable body-context child";
-    return r;
-  }
-
-  // Cycle rejection: the target container must not be the moved element itself
-  // nor anything inside its subtree.
-  {
-    std::unordered_set<const void*> subptrs;
-    CollectSubtreePtrs((*list)[idx], subptrs);
-    if (subptrs.count(pc.ptr())) {
-      r.error = "cannot reparent into its own subtree";
-      return r;
-    }
-  }
+  void* new_parent = pc.body ? static_cast<void*>(pc.body)
+                             : static_cast<void*>(pc.frame);
 
   // Capture the pre-move authored world pose of the element and of the new parent
   // (a forwarded qpos0 mjData off the last good compile). Both come from the tree
@@ -893,11 +709,14 @@ ReparentResult ReparentOp(EditorContext& ctx, std::uint64_t elem_serial,
   }
 
   ctx.BeginEdit();
-  mj::BodyChildAny moved = std::move((*list)[idx]);
-  list->erase(list->begin() + idx);
-  std::vector<mj::BodyChildAny>& dst = pc.subtree();
-  dst.push_back(std::move(moved));
-  mj::BodyChildAny& reattached = dst.back();
+  // The public runtime-pointer SDK verb: pure-tree move (element keeps its
+  // authored local pose; the SDK rejects cycles / non-container targets).
+  sdk::ReparentResult sr = sdk::Reparent(*ctx.tree, elem, new_parent);
+  if (!sr.ok) {
+    ctx.CancelEdit();
+    r.error = sr.reason;
+    return r;
+  }
 
   if (keep_world_pose && have_pose) {
     Rigid W;
@@ -909,18 +728,7 @@ ReparentResult ReparentOp(EditorContext& ctx, std::uint64_t elem_serial,
       for (int i = 0; i < 3; ++i) Pn.pos[i] = wp.anchor[i];
     }
     const Rigid L = Compose(Invert(Pn), W);
-    std::visit(
-        [&](auto& up) {
-          if (!up) return;
-          if constexpr (requires { up->pos; }) {
-            up->pos = std::array<double, 3>{L.pos[0], L.pos[1], L.pos[2]};
-          }
-          if constexpr (requires { up->quat; }) {
-            up->quat = std::array<double, 4>{L.quat[0], L.quat[1], L.quat[2],
-                                             L.quat[3]};
-          }
-        },
-        reattached.node);
+    SetElemLocalPose(*ctx.tree, elem, L);
   }
 
   ctx.CommitEdit("Reparent");

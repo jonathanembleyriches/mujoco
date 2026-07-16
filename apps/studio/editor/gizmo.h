@@ -11,11 +11,13 @@
 #define PS_STUDIO_EDITOR_GIZMO_H_
 
 #include <cstdint>
+#include <optional>
 
 #include "editor/editor_context.h"
 #include "editor/gizmo_math.h"
 #include "editor/transform_math.h"
 #include "platform/ux/ps_plugin_ext.h"
+#include "pose.h"  // ps::mjcf::PosePatch / ApplyPosePatch (the drag fast path)
 
 namespace ps::studio {
 
@@ -79,6 +81,14 @@ class GizmoController {
   double grab_hit_[3] = {0, 0, 0};   // world plane-hit at grab
   double grab_angle_ = 0;        // reference angle for rotation
   double gizmo_size_ = 1;        // world length of the gizmo at grab
+
+  // Pose-patch fast path (deliverable 1): for a pure Translate/Rotate drag of a
+  // bound Body/Geom/Site/Camera/Light, captured at grab. Each drag frame patches
+  // the live mjModel pose field + mj_kinematics instead of recompiling; the drag
+  // release does one real Compile (via CommitEdit) to reconcile. Empty => the
+  // element is unpatchable (joint, fromto-authored, a light being rotated, or
+  // unbound), so the drag falls back to the per-frame recompile preview.
+  std::optional<ps::mjcf::PosePatch> pose_patch_;
 };
 
 }  // namespace ps::studio

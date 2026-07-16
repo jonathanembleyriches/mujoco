@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <mujoco/mujoco.h>
+
 #include <imgui.h>
 
 namespace ps::studio {
@@ -294,6 +296,27 @@ void GizmoController::Begin(EditorContext& ctx, const ViewportInput& in,
       break;
   }
   if (ctx.gizmo.tool == GizmoTool::Scale) scale_base_ = BuildScaleBase(*ctx.tree, drag_serial_);
+
+  // Capture the pose-patch for the drag fast path (deliverable 1): a pure
+  // Translate/Rotate drag of a bound Body/Geom/Site/Camera/Light patches the live
+  // mjModel each frame instead of recompiling. Excluded (fall back to recompile):
+  // joints (patched via jnt_pos/axis, a separate concern), fromto-authored
+  // geoms/sites (their compiled pose is derived from the endpoints, not pos/quat,
+  // so the pos/quat patch would not move them), and a light being rotated
+  // (ApplyPosePatch moves light_pos, not light_dir). Any element with no captured
+  // PosePatch (unbound / unsupported family) also falls back.
+  pose_patch_.reset();
+  const GizmoTool tool = ctx.gizmo.tool;
+  const bool pose_tool =
+      tool == GizmoTool::Translate || tool == GizmoTool::Rotate;
+  const bool light_rotate =
+      frame_.type == mj::ElementType::Light && tool == GizmoTool::Rotate;
+  if (pose_tool && !joint_mode_ && !frame_.is_fromto && !light_rotate &&
+      ctx.tree) {
+    if (SpatialRef ref = FindSpatial(*ctx.tree, drag_serial_)) {
+      pose_patch_ = ctx.compiled.binding.PosePatchFor(ref.ptr);
+    }
+  }
 }
 
 void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
@@ -421,6 +444,30 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       break;
   }
   ctx.dirty = true;
+
+  // Fast path: patch the live mjModel pose field + mj_kinematics, no recompile.
+  // The authored tree was already edited above (DR-S1), so the on-release Compile
+  // reconciles from ground truth. Any patch failure falls back to a recompile so
+  // behaviour is never worse than the debounced-recompile preview.
+  if (pose_patch_) {
+    mjModel* m = ctx.compiled.model.get();
+    mjData* d = const_cast<mjData*>(in.data);  // host-owned; const only in the input
+    if (m != nullptr && d != nullptr && m == in.model) {
+      const Rigid L = EffectiveLocalPose(*ctx.tree, drag_serial_);
+      mj::RigidPose Lnew;
+      for (int i = 0; i < 3; ++i) Lnew.pos[i] = L.pos[i];
+      for (int i = 0; i < 4; ++i) Lnew.quat[i] = L.quat[i];
+      if (mj::ApplyPosePatch(m, *pose_patch_, Lnew)) {
+        // A free/ball body's rest pose lives in qpos0 (just reseeded): copy it
+        // into qpos so mj_kinematics moves the body from the new rest pose.
+        if (pose_patch_->reseed_qposadr >= 0) {
+          mju_copy(d->qpos, m->qpos0, m->nq);
+        }
+        mj_kinematics(m, d);
+        return;
+      }
+    }
+  }
   ctx.RequestRecompile();
 }
 

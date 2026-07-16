@@ -109,6 +109,15 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
                          const mj::Binding& binding, mj::Model& tree,
                          std::uint64_t serial);
 
+// The materialised authored local pose L (pos + quat) of the spatial element with
+// `serial` (Effective resolves a class-inherited pos/orient), or identity when the
+// serial does not resolve. This is the L_new the pose-patch fast path (deliverable
+// 1) re-applies each drag frame after ApplyTranslate/ApplyRotate has written it
+// into the tree -- it deliberately reads the authored pos/quat, so it is only
+// valid for elements whose compiled pose is a function of pos/quat (NOT
+// fromto-authored geoms/sites, whose compiled pose is derived from the endpoints).
+Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial);
+
 // Apply a cumulative world-space translation `world_delta` (since grab) onto the
 // element's authored pos, per the delta rule. Writes (materialises) pos; leaves
 // orient untouched (its authored form is preserved).

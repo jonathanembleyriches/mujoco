@@ -27,7 +27,27 @@ namespace io = ps::mjcf::io;
 namespace validate = ps::mjcf::validate;
 namespace reflect = ps::mjcf::reflect;
 namespace mj = ps::mjcf;
+namespace sdk = ps::sdk;
 namespace sdk_detail = ps::sdk::detail;
+
+// A type-erased element pointer by creation serial in an arbitrary model (the
+// live tree or a probe clone), or nullptr. FindBySerial(ctx, ...) resolves the
+// live tree; this resolves any model, as PreviewDeleteReferrers needs on its
+// serial-preserving clone.
+static const void* FindPtrInModel(const mj::Model& model, std::uint64_t serial) {
+  const void* out = nullptr;
+  if (serial == 0) return out;
+  sdk_detail::WalkModelAll(model, [&](const auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if (out) return;
+    if constexpr (!std::is_same_v<E, mj::Model>) {
+      if constexpr (requires { e.serial; }) {
+        if (e.serial == serial) out = &e;
+      }
+    }
+  });
+  return out;
+}
 
 // See editor_ops.h. Only the trailing path segment (the offending element) is
 // consulted; unnamed elements ("tag[#idx]") return none.
@@ -312,148 +332,29 @@ bool SelectBySerial(EditorContext& ctx, std::uint64_t serial) {
   return true;
 }
 
-// NOTE ON COMPILE COST. The SDK's sdk::Rename / sdk::DeleteRecursive are
-// templated on the element's static type, and each embeds a whole-model walk. A
-// serial is only known at runtime, so dispatching those templates through the
-// generic tree walk would instantiate them for every one of the ~142 element
-// types, and each instantiation re-instantiates the model walk -- a ~142x142
-// fan-out that made this TU take minutes. The rename/delete referrer work is
-// really keyed on the target's runtime ElementType and name, not its static
-// type, so we drive it directly off the SDK's *runtime* helpers (RemoveByPtr,
-// ScanRefs, ClearRefs, ParentMap) plus one trivial per-type SetName. Same
-// behavior, a handful of walk instantiations instead of hundreds.
-
 int RenameBySerial(EditorContext& ctx, std::uint64_t serial,
                    const std::string& new_name) {
   if (!ctx.tree) {
     return -1;
   }
-  bool found = false;
-  std::string old_name;
-  mj::ElementType etype = mj::ElementType::Model;
-  std::function<void()> set_name;  // trivial SetName<E> for the matched type only
-  sdk_detail::WalkModelAll(*ctx.tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (found) {
-      return;
-    }
-    if constexpr (requires { e.serial; }) {
-      if (e.serial == serial) {
-        found = true;
-        etype = mj::element_type_of<E>::value;
-        if (const std::string* nm = sdk_detail::NameOf(e)) {
-          old_name = *nm;
-        }
-        auto* ep = &e;
-        set_name = [ep, &new_name] { sdk_detail::SetName(*ep, new_name); };
-      }
-    }
-  });
-  if (!found) {
+  ElementRef ref = FindBySerial(ctx, serial);
+  if (!ref) {
     return -1;
   }
-  if (old_name == new_name) {
-    return 0;
-  }
-
-  int updated = 0;
-  sdk_detail::WalkModelAll(*ctx.tree, [&](auto& other) {
-    sdk_detail::ScanRefs(other, [&](int, const char*, std::string& rn,
-                                    const std::vector<mj::ElementType>& tgts) {
-      if (rn == old_name && sdk_detail::Contains(tgts, etype)) {
-        rn = new_name;
-        ++updated;
-      }
-    });
-  });
-  set_name();
-  return updated;
+  // The public runtime-pointer SDK verb: rename + rewrite every typed referrer.
+  return sdk::Rename(*ctx.tree, ref.ptr, new_name);
 }
 
 namespace {
 
-// Every element pointer on `p`'s root-to-ancestor chain includes `root` when `p`
-// is in `root`'s subtree (root included).
-bool InSubtree(const ps::sdk::ParentMap& pm, const void* root, const void* p) {
-  for (const void* q = p; q != nullptr;) {
-    if (q == root) {
-      return true;
-    }
-    const ps::sdk::ParentMap::Node* n = pm.Lookup(q);
-    if (!n) {
-      break;
-    }
-    q = n->parent;
-  }
-  return false;
-}
-
-struct DeleteOutcome {
-  bool found = false;
-  bool removed = false;
-  std::vector<std::string> dangling;
-};
-
-// Runtime-typed subtree delete with referrer reporting/cascade. Mirrors
-// sdk::DeleteRecursive but keyed on the runtime ElementType (see the compile-cost
-// note above): locate the target, gather its subtree's names via a ParentMap,
-// remove it by pointer, then scan/optionally clear the references it orphaned.
-DeleteOutcome DeleteCore(mj::Model& model, std::uint64_t serial, bool cascade) {
-  DeleteOutcome out;
-
-  const void* target = nullptr;
-  sdk_detail::WalkModelAll(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (target) {
-      return;
-    }
-    if constexpr (requires { e.serial; }) {
-      if constexpr (!std::is_same_v<E, mj::Model>) {
-        if (e.serial == serial) {
-          target = &e;
-          out.found = true;
-        }
-      }
-    }
-  });
-  if (!target) {
-    return out;
-  }
-
-  ps::sdk::ParentMap pm(model);
-  std::vector<sdk_detail::NameType> deleted;
-  sdk_detail::WalkModelAll(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (InSubtree(pm, target, &e)) {
-      if (const std::string* nm = sdk_detail::NameOf(e)) {
-        deleted.push_back({*nm, mj::element_type_of<E>::value});
-      }
-    }
-  });
-
-  out.removed = sdk_detail::RemoveByPtr(model, target);
-  if (!out.removed) {
-    return out;
-  }
-
-  // Referrers inside the removed subtree are gone; the scan only sees survivors.
-  ps::sdk::ParentMap after(model);
-  sdk_detail::WalkModelAll(model, [&](auto& other) {
-    const sdk_detail::Handle h = sdk_detail::MakeHandle(other);
-    sdk_detail::ScanRefs(other, [&](int, const char* fname, std::string& rn,
-                                    const std::vector<mj::ElementType>& tgts) {
-      if (sdk_detail::IsDeleted(deleted, rn, tgts)) {
-        out.dangling.push_back(after.PathToPtr(h.ptr) + "." + fname + " -> '" +
-                               rn + "'");
-      }
-    });
-  });
-
-  if (cascade && !out.dangling.empty()) {
-    sdk_detail::WalkModelAll(model, [&](auto& other) {
-      sdk_detail::ClearRefs cr{&deleted};
-      mj::Visit(other, cr);
-    });
+// Render sdk::DeleteSubtree's dangling referrers as the confirm modal's
+// "path.field -> 'name'" lines (the shape the Hierarchy panel and tests expect).
+std::vector<std::string> RenderDangling(
+    const std::vector<sdk::Referrer>& dangling) {
+  std::vector<std::string> out;
+  out.reserve(dangling.size());
+  for (const sdk::Referrer& r : dangling) {
+    out.push_back(r.path + "." + r.field + " -> '" + r.refname + "'");
   }
   return out;
 }
@@ -466,10 +367,15 @@ DeleteResult DeleteBySerial(EditorContext& ctx, std::uint64_t serial,
   if (!ctx.tree) {
     return out;
   }
-  DeleteOutcome o = DeleteCore(*ctx.tree, serial, cascade);
-  out.found = o.found;
-  out.removed = o.removed;
-  out.dangling = std::move(o.dangling);
+  ElementRef ref = FindBySerial(ctx, serial);
+  out.found = static_cast<bool>(ref);
+  if (!ref) {
+    return out;
+  }
+  // The public runtime-pointer SDK verb: remove the subtree, report/clear refs.
+  sdk::DeleteReport rep = sdk::DeleteSubtree(*ctx.tree, ref.ptr, cascade);
+  out.removed = rep.removed;
+  out.dangling = RenderDangling(rep.dangling);
   return out;
 }
 
@@ -481,7 +387,12 @@ std::vector<std::string> PreviewDeleteReferrers(EditorContext& ctx,
   // Serial-preserving clone so `serial` resolves identically; the real tree is
   // never touched (no recompile, no undo entry).
   std::unique_ptr<mj::Model> probe = CloneWithSerials(*ctx.tree);
-  return DeleteCore(*probe, serial, /*cascade=*/false).dangling;
+  const void* target = FindPtrInModel(*probe, serial);
+  if (!target) {
+    return {};
+  }
+  return RenderDangling(
+      sdk::DeleteSubtree(*probe, target, /*cascade=*/false).dangling);
 }
 
 bool Undo(EditorContext& ctx) {

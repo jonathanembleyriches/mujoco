@@ -100,6 +100,7 @@ set(PROTOSPEC_SRC
   ${CPP_ROOT}/validate/sizes.cc
   ${CPP_ROOT}/bridge/compile.cc
   ${CPP_ROOT}/bridge/binding.cc
+  ${CPP_ROOT}/bridge/pose.cc
   ${CPP_ROOT}/compile/native.cc
   ${CPP_ROOT}/compile/build.cc
   ${CPP_ROOT}/compile/lifted/make_model.cc

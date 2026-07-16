@@ -343,6 +343,28 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
   }
 }
 
+Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial) {
+  SpatialRef ref = FindSpatial(tree, serial);
+  if (!ref) return {};
+  const OrientContext oc = ReadOrientContext(tree);
+  switch (ref.type) {
+    case mj::ElementType::Body:
+      return MaterializeLocal(tree, *static_cast<mj::Body*>(ref.ptr), oc);
+    case mj::ElementType::Geom:
+      return MaterializeLocal(tree, *static_cast<mj::Geom*>(ref.ptr), oc);
+    case mj::ElementType::Site:
+      return MaterializeLocal(tree, *static_cast<mj::Site*>(ref.ptr), oc);
+    case mj::ElementType::Camera:
+      return MaterializeLocal(tree, *static_cast<mj::Camera*>(ref.ptr), oc);
+    case mj::ElementType::Light:
+      return MaterializeLocal(tree, *static_cast<mj::Light*>(ref.ptr), oc);
+    case mj::ElementType::Frame:
+      return MaterializeLocal(tree, *static_cast<mj::Frame*>(ref.ptr), oc);
+    default:
+      return {};
+  }
+}
+
 // --- Delta application ---------------------------------------------------- //
 
 template <class E>

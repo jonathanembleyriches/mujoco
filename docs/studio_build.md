@@ -68,8 +68,12 @@ C:\Users\jonat\Documents\mujoco-studio\build_ps\bin\mujoco_studio.exe ^
   C:\Users\jonat\Documents\mujoco-studio\model\humanoid\humanoid.xml
 ```
 
-The Hierarchy / Details / Assets / Diagnostics panels dock open by default. After a
-load or a drag, the Diagnostics panel logs the compile path, e.g.
+Only the Hierarchy and Details panels dock open by default (plus the central
+Viewport) -- the two-panel layout. Assets folds into the Hierarchy (its asset
+section's right-click and the panel-header "+ Asset" button create materials /
+textures / import meshes); Diagnostics folds into the status-bar error chip
+(click it to reveal the log). Both remain toggleable from the Plugins/View menu.
+After a load or a drag, the Diagnostics log records the compile path, e.g.
 `... ok  path=native  nq=27  nbody=14`. `path=native` means the model took the fast
 native compiler (no XML round-trip); large or unsupported-feature models fall back
 to `path=xml`.

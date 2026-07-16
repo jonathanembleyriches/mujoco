@@ -411,6 +411,23 @@ void App::StatusBarGui() {
     ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1), "|  %s",
                        editor_->status_toast.message.c_str());
   }
+  // Diagnostics error chip (deliverable 3): Diagnostics is no longer a standing
+  // panel; a red count chip appears here whenever diagnostics hold errors, and
+  // clicking it reveals + focuses the Diagnostics panel (ServiceDiagnosticsReveal
+  // re-activates it from the viewport hook).
+  if (editor_) {
+    const int errors = DiagnosticErrorCount(editor_->diagnostics);
+    if (errors > 0) {
+      ImGui::SameLine();
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.15f, 0.13f, 1.0f));
+      if (ImGui::SmallButton(
+              (std::to_string(errors) + (errors == 1 ? " error" : " errors"))
+                  .c_str())) {
+        editor_->focus_diagnostics_request = true;
+      }
+      ImGui::PopStyleColor();
+    }
+  }
 }
 
 void App::BuildGui() {

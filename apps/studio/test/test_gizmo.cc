@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@
 #include "editor/joint_overlay.h"
 #include "editor/transform_math.h"
 #include "mjcf.h"
+#include "pose.h"
 #include "protospec/traversal.h"
 #include "types.h"
 
@@ -742,6 +744,103 @@ static void TestScaleMapping() {
 }
 
 // ------------------------------------------------------------------------- //
+// Pose-patch drag fast path (deliverable 1): a Translate/Rotate drag patches the
+// LIVE mjModel + mj_kinematics each frame instead of recompiling; the compiled
+// world pose tracks the delta with NO recompile, and one Compile on release
+// reconciles to the same pose. Drives the exact core path the gizmo runs.
+// ------------------------------------------------------------------------- //
+static void TestPosePatchDragTracksXpos() {
+  // A plain box geom (pos-authored, not fromto) on a body: the patchable case.
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="b" pos="1 2 0.5" euler="0 0 90">
+        <geom name="g" type="box" size="0.1 0.1 0.1" pos="0.3 0 0"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  CHECK(s.compiled.ok());
+  const std::uint64_t g = SerialOf<mj::Geom>(*s.tree, "g");
+  const mj::Geom* gp = ps::sdk::Find<mj::Geom>(*s.tree, "g");
+  CHECK(g != 0 && gp != nullptr);
+
+  double before[3];
+  CHECK(WorldPosOf(s, g, before));
+
+  // Capture the pose-patch (what GizmoController::Begin does at grab).
+  std::optional<mj::PosePatch> patch = s.compiled.binding.PosePatchFor(gp);
+  CHECK(patch.has_value());  // a bound non-fromto geom is patchable
+
+  // Simulate a drag: apply the delta to the tree, then patch the live model.
+  DragFrame f = BuildDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, g);
+  const double D[3] = {0.5, -0.25, 0.1};
+  ApplyTranslate(*s.tree, g, f, D);
+
+  const Rigid L = EffectiveLocalPose(*s.tree, g);
+  mj::RigidPose Lnew;
+  for (int i = 0; i < 3; ++i) Lnew.pos[i] = L.pos[i];
+  for (int i = 0; i < 4; ++i) Lnew.quat[i] = L.quat[i];
+  CHECK(mj::ApplyPosePatch(s.compiled.model.get(), *patch, Lnew));
+  mj_kinematics(s.compiled.model.get(), s.data);
+
+  // The compiled world pos moved by exactly D -- WITHOUT a recompile.
+  double patched[3];
+  CHECK(WorldPosOf(s, g, patched));
+  for (int i = 0; i < 3; ++i) CHECK_NEAR(patched[i], before[i] + D[i]);
+
+  // On release, one real Compile reconciles to the same pose (no drift).
+  CHECK(s.Recompile());
+  double reconciled[3];
+  CHECK(WorldPosOf(s, g, reconciled));
+  for (int i = 0; i < 3; ++i) CHECK_NEAR(reconciled[i], patched[i]);
+}
+
+// A free-jointed body: patching body_pos alone does not move it (its rest pose is
+// driven by qpos0), so ApplyPosePatch reseeds qpos0 and the fast path copies it
+// into qpos. The compiled body world pos must then track the drag delta.
+static void TestPosePatchDragFreeBodyReseed() {
+  const char* xml = R"(
+  <mujoco>
+    <worldbody>
+      <body name="fb" pos="0.5 0 1">
+        <freejoint name="fj"/>
+        <geom name="gf" type="sphere" size="0.1"/>
+      </body>
+    </worldbody>
+  </mujoco>)";
+  Scene s(xml);
+  CHECK(s.compiled.ok());
+  const std::uint64_t b = SerialOf<mj::Body>(*s.tree, "fb");
+  const mj::Body* bp = ps::sdk::Find<mj::Body>(*s.tree, "fb");
+  CHECK(b != 0 && bp != nullptr);
+
+  double before[3];
+  CHECK(WorldPosOf(s, b, before));
+
+  std::optional<mj::PosePatch> patch = s.compiled.binding.PosePatchFor(bp);
+  CHECK(patch.has_value());
+  CHECK(patch->reseed_qposadr >= 0 && patch->reseed_width == 7);
+
+  DragFrame f = BuildDragFrame(s.m(), s.data, s.compiled.binding, *s.tree, b);
+  const double D[3] = {0.4, 0.2, -0.3};
+  ApplyTranslate(*s.tree, b, f, D);
+
+  const Rigid L = EffectiveLocalPose(*s.tree, b);
+  mj::RigidPose Lnew;
+  for (int i = 0; i < 3; ++i) Lnew.pos[i] = L.pos[i];
+  for (int i = 0; i < 4; ++i) Lnew.quat[i] = L.quat[i];
+  CHECK(mj::ApplyPosePatch(s.compiled.model.get(), *patch, Lnew));
+  mju_copy(s.data->qpos, s.compiled.model.get()->qpos0,
+           s.compiled.model.get()->nq);
+  mj_kinematics(s.compiled.model.get(), s.data);
+
+  double patched[3];
+  CHECK(WorldPosOf(s, b, patched));
+  for (int i = 0; i < 3; ++i) CHECK_NEAR(patched[i], before[i] + D[i]);
+}
+
+// ------------------------------------------------------------------------- //
 // Gizmo projection + hit-testing math against a fixed camera fixture.
 // ------------------------------------------------------------------------- //
 static ViewProj FixtureCamera() {
@@ -1005,6 +1104,8 @@ int main() {
   TestLocalVsWorldTranslate();
   TestClassInheritedPoseMaterialize();
   TestScaleMapping();
+  TestPosePatchDragTracksXpos();
+  TestPosePatchDragFreeBodyReseed();
   TestGizmoProjection();
   TestGizmoHitTests();
 

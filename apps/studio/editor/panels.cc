@@ -475,8 +475,13 @@ static void RegisterKey(const char* name, int chord,
 }
 
 void RegisterEditorPanels(EditorContext& ctx) {
-  RegisterGuiPanel("Assets", AssetsUpdate, true, ctx);
-  RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, true, ctx);
+  // Two-panel default (deliverable 3): only Hierarchy + Details stand open (plus
+  // the central Viewport). Assets folds into the Hierarchy's asset section /
+  // "+ Asset" creation; Diagnostics folds into the status-bar error chip (click
+  // brings this panel forward). Both stay registered so the Plugins/View menu can
+  // still toggle them for power users -- they just no longer dock open by default.
+  RegisterGuiPanel("Assets", AssetsUpdate, false, ctx);
+  RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, false, ctx);
   RegisterGuiPanel("File", FileMenuUpdate, false, ctx);
   RegisterGuiPanel("+ Add", AddMenuUpdate, false, ctx);
 

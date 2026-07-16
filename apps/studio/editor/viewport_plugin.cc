@@ -301,10 +301,24 @@ void ServiceFocus(EditorContext& ctx, const ViewportGuiPlugin::Context& vc) {
   }
 }
 
+// Diagnostics is no longer a standing panel (deliverable 3): it folds into the
+// status-bar error chip. Because the panel now defaults hidden, a chip click
+// (which sets focus_diagnostics_request) must first re-activate it, else its
+// self-focus in DiagnosticsUpdate never runs. Done here in the always-drawn
+// viewport hook so it works under every host without touching host code; the
+// request is left set for DiagnosticsUpdate to consume (SetWindowFocus + clear).
+void ServiceDiagnosticsReveal(EditorContext& ctx) {
+  if (!ctx.focus_diagnostics_request) return;
+  ForEachPlugin<GuiPlugin>([](GuiPlugin* p) {
+    if (p->name && std::string(p->name) == "Diagnostics") p->active = true;
+  });
+}
+
 void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   ViewportEditor* ve = static_cast<ViewportEditor*>(self->data);
   ve->gizmo.Draw(*ve->ctx, vc);
   ServiceFocus(*ve->ctx, vc);
+  ServiceDiagnosticsReveal(*ve->ctx);
   DrawDropMenu(ve);
 }
 

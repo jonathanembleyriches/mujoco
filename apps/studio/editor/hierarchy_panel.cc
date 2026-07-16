@@ -88,6 +88,20 @@ void DrawAddChildMenu(EditorContext& ctx, std::uint64_t parent) {
   ImGui::EndMenu();
 }
 
+// The Assets-section creation verbs (folded in from the retired Assets panel):
+// instant-create a default material/texture -- named uniquely, edited in Details,
+// no modal -- and request the host's mesh-import dialog. Shared by the Assets
+// section's right-click and the panel-header "+ Asset" button (the latter works
+// even before any asset exists, when the Assets section is not yet present).
+void DrawNewAssetMenu(EditorContext& ctx) {
+  if (ImGui::MenuItem("New Material")) CreateMaterialOp(ctx, MaterialSpec{});
+  if (ImGui::MenuItem("New Texture")) CreateTextureOp(ctx, TextureSpec{});
+  ImGui::Separator();
+  if (ImGui::MenuItem("Import Mesh(es)...")) {
+    ctx.file_dialog.Request(FileDialogState::Kind::ImportMeshes, ctx.base_dir);
+  }
+}
+
 bool IsContainerNode(const HierNode& n) {
   return n.type == mj::ElementType::Body || n.type == mj::ElementType::Frame;
 }
@@ -150,6 +164,23 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
   }
   if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
     DuplicateOp(ctx, node.serial);
+  }
+  // Gizmo tool selection as a right-click verb (mirrors the Q/W/E/R hotkeys), so
+  // the transform tools live on the element, not only the toolbar.
+  if (ImGui::BeginMenu("Transform")) {
+    if (ImGui::MenuItem("Select", "Q", ctx.gizmo.tool == GizmoTool::Select)) {
+      ctx.gizmo.tool = GizmoTool::Select;
+    }
+    if (ImGui::MenuItem("Move", "W", ctx.gizmo.tool == GizmoTool::Translate)) {
+      ctx.gizmo.tool = GizmoTool::Translate;
+    }
+    if (ImGui::MenuItem("Rotate", "E", ctx.gizmo.tool == GizmoTool::Rotate)) {
+      ctx.gizmo.tool = GizmoTool::Rotate;
+    }
+    if (ImGui::MenuItem("Scale", "R", ctx.gizmo.tool == GizmoTool::Scale)) {
+      ctx.gizmo.tool = GizmoTool::Scale;
+    }
+    ImGui::EndMenu();
   }
   if (IsContainerNode(node)) {
     DrawAddChildMenu(ctx, node.serial);
@@ -224,6 +255,14 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     if (node.tag == std::string("Body Tree") &&
         ImGui::BeginPopupContextItem("##bodytree_add")) {
       DrawAddChildMenu(ctx, 0);
+      ImGui::EndPopup();
+    }
+    // The Assets header folds the old Assets panel's creation in: instant-create
+    // (a default material/texture the user then edits in Details, no modal) and
+    // the mesh-import dialog request.
+    if (node.tag == std::string("Assets") &&
+        ImGui::BeginPopupContextItem("##assets_add")) {
+      DrawNewAssetMenu(ctx);
       ImGui::EndPopup();
     }
     // The Defaults header adds a new default class.
@@ -372,6 +411,15 @@ void HierarchyUpdate(GuiPlugin* self) {
   if (ImGui::Button("+ Class") && !st.new_class.empty()) {
     AddDefaultClassOp(*c, st.new_class);
     st.new_class.clear();
+  }
+  // "+ Asset" folds the retired Assets panel's creation into the Hierarchy; it is
+  // always available (the Assets section only appears once an asset exists, so a
+  // section-only right-click could not bootstrap the first one).
+  ImGui::SameLine();
+  if (ImGui::Button("+ Asset")) ImGui::OpenPopup("##new_asset_hdr");
+  if (ImGui::BeginPopup("##new_asset_hdr")) {
+    DrawNewAssetMenu(*c);
+    ImGui::EndPopup();
   }
   ImGui::Separator();
 
