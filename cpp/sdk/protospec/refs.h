@@ -66,6 +66,38 @@ void ScanRefs(E& e, OnRef&& on) {
 
 }  // namespace detail
 
+// --- Reference assignment (DR-8) ------------------------------------------ //
+// Every typed cross-reference in the model is stored as `opt<Ref<T>>` -- a name
+// string with a phantom target type, never a tree pointer. These set or clear
+// that field without the consumer having to spell `ps::Ref<T>(...)` or know the
+// opt/Ref storage shape. An empty name clears the field (unauthored); otherwise
+// it names `name`. No lookup is done here (that is Resolve's job); assigning a
+// name that resolves to nothing is a validation concern, not an error here.
+
+template <class T>
+void SetRef(ps::opt<ps::Ref<T>>& field, std::string_view name) {
+  if (name.empty())
+    field.reset();
+  else
+    field = ps::Ref<T>(std::string(name));
+}
+
+// Point a reference at a concrete element by its authored name. Returns false
+// (leaving the field untouched) when the target has no usable name -- an unnamed
+// element cannot be referred to in MJCF.
+template <class T, class E>
+bool SetRef(ps::opt<ps::Ref<T>>& field, const E& target) {
+  const std::string* nm = detail::NameOf(target);
+  if (!nm || nm->empty()) return false;
+  field = ps::Ref<T>(*nm);
+  return true;
+}
+
+template <class T>
+void ClearRef(ps::opt<ps::Ref<T>>& field) {
+  field.reset();
+}
+
 // --- Resolve -------------------------------------------------------------- //
 
 // The element a reference names, as a type-erased handle, or a null handle when

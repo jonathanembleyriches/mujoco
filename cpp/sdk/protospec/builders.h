@@ -14,6 +14,7 @@
 #ifndef PROTOSPEC_SDK_BUILDERS_H
 #define PROTOSPEC_SDK_BUILDERS_H
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -290,6 +291,78 @@ inline mj::Default& AddDefault(mj::Model& model, const std::string& name) {
   auto d = std::make_unique<mj::Default>();
   d->dclass = name;
   return detail::PushOwned(RootDefault(model).subclasses, std::move(d));
+}
+
+// --- Primitive sizing ----------------------------------------------------- //
+
+// Stamp a compilable default `size` onto a primitive geom from its type: a
+// size-0 geom is a compile error for every non-mesh primitive, so `AddGeom`
+// (which authors only what you pass, DR-1) leaves it unset and this fills it.
+// Only `size` is written -- no other IDL default is stamped. Mesh/hfield/sdf
+// geoms take their extent from the referenced asset and are left untouched.
+inline void SeedPrimitiveSize(mj::Geom& g) {
+  using V = ps::InlineVec<double, 3>;
+  switch (g.type.value_or(mj::GeomType::sphere)) {
+    case mj::GeomType::sphere: g.size = V{0.1}; break;
+    case mj::GeomType::capsule: g.size = V{0.05, 0.1}; break;
+    case mj::GeomType::cylinder: g.size = V{0.05, 0.1}; break;
+    case mj::GeomType::ellipsoid: g.size = V{0.1, 0.1, 0.1}; break;
+    case mj::GeomType::box: g.size = V{0.1, 0.1, 0.1}; break;
+    case mj::GeomType::plane: g.size = V{1, 1, 0.1}; break;
+    default: break;  // mesh / hfield / sdf: geometry comes from the asset
+  }
+}
+
+// Add a geom already carrying a compilable size for its primitive type -- the
+// one-call "give me a box I can simulate" a bare AddGeom deliberately does not.
+template <class Parent>
+mj::Geom& AddPrimitive(Parent& parent, mj::GeomType type,
+                       const std::string& name = "") {
+  mj::Geom& g = AddGeom(parent, type, name);
+  SeedPrimitiveSize(g);
+  return g;
+}
+
+// --- Appearance: material layers + texture sources ------------------------ //
+
+// A material binds textures through an ordered <layer> list (one texture per
+// role). These author that list without the consumer touching the raw owned-ptr
+// vector or spelling ps::Ref by hand.
+inline mj::MaterialLayer& AddMaterialLayer(mj::Material& mat,
+                                           mj::TexRole role = mj::TexRole::rgb,
+                                           const std::string& texture = "") {
+  auto layer = std::make_unique<mj::MaterialLayer>();
+  layer->role = role;
+  if (!texture.empty()) layer->texture = ps::Ref<mj::Texture>(texture);
+  return detail::PushOwned(mat.layers, std::move(layer));
+}
+
+inline void SetLayerTexture(mj::MaterialLayer& layer,
+                            const std::string& texture) {
+  if (texture.empty())
+    layer.texture.reset();
+  else
+    layer.texture = ps::Ref<mj::Texture>(texture);
+}
+
+inline void SetLayerRole(mj::MaterialLayer& layer, mj::TexRole role) {
+  layer.role = role;
+}
+
+inline bool RemoveMaterialLayer(mj::Material& mat, std::size_t index) {
+  if (index >= mat.layers.size()) return false;
+  mat.layers.erase(mat.layers.begin() + static_cast<std::ptrdiff_t>(index));
+  return true;
+}
+
+// Point a texture element at an on-disk file, or at a procedural builtin. The
+// two spellings share one variant field (TextureSource); these pick the arm.
+inline void SetTextureFile(mj::Texture& tex, const std::string& file) {
+  tex.source = mj::TextureSource{mj::TexFile{file}};
+}
+
+inline void SetTextureBuiltin(mj::Texture& tex, mj::TextureBuiltin builtin) {
+  tex.source = mj::TextureSource{builtin};
 }
 
 }  // namespace ps::sdk

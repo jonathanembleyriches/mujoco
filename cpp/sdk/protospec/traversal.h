@@ -8,7 +8,9 @@
 
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "protospec/detail.h"
@@ -18,6 +20,46 @@
 namespace ps::sdk {
 
 namespace mj = ps::mjcf;
+
+// --- Element identity ----------------------------------------------------- //
+// Uniform name / type access over any element, so a consumer never reaches into
+// ps::sdk::detail for the basics. `Name` returns the authored name (a Default's
+// identity is its dclass), or nullptr for the nameless (Replicate, Config, ...).
+
+template <class E>
+const std::string* Name(const E& e) {
+  return detail::NameOf(e);
+}
+
+// Set (create) an element's name field; a no-op for nameless element types.
+template <class E>
+void SetName(E& e, const std::string& name) {
+  detail::SetName(e, name);
+}
+
+// The runtime element-type tag of a concrete element type.
+template <class E>
+mj::ElementType TypeOf(const E&) {
+  return mj::element_type_of<std::decay_t<E>>::value;
+}
+
+// --- Element walks -------------------------------------------------------- //
+// Invoke `fn(element&)` for `root` and every element beneath it, document order.
+template <class E, class Fn>
+void WalkSubtree(E& root, Fn&& fn) {
+  detail::WalkTree(root, std::forward<Fn>(fn));
+}
+
+// Invoke `fn(element&)` for every element in the model, the <default> class tree
+// included. Const overload walks a const Model.
+template <class Fn>
+void WalkModel(mj::Model& model, Fn&& fn) {
+  detail::WalkModelAll(model, std::forward<Fn>(fn));
+}
+template <class Fn>
+void WalkModel(const mj::Model& model, Fn&& fn) {
+  detail::WalkModelAll(model, std::forward<Fn>(fn));
+}
 
 // A parent lookup + path index over a Model, built once and queried many times.
 // Construction is a single whole-tree walk; every element (including class

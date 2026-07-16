@@ -283,6 +283,26 @@ else()
 endif()
 add_test(NAME protospec_sdk_tests COMMAND protospec_sdk_tests)
 
+# Public-API surface test: includes ONLY the curated <protospec/...> umbrella
+# headers (never a generated / io / bridge / validate / sdk-detail header) and
+# drives the full load -> edit -> validate -> compile -> step -> save path.
+# Compiling it is the guarantee that the public surface is self-sufficient -- a
+# consumer needs nothing internal. Gated on the bridge (it steps a real mjModel).
+if(TARGET protospec_bridge)
+  add_executable(protospec_public_api_tests test/test_public_api.cc)
+  target_include_directories(protospec_public_api_tests PRIVATE ${MUJOCO_INCLUDE_DIR})
+  target_link_libraries(protospec_public_api_tests PRIVATE
+    protospec_bridge protospec_validate protospec_sdk protospec_sdk_io
+    "${MUJOCO_IMPORT_LIB}")
+  if(MSVC)
+    target_compile_options(protospec_public_api_tests PRIVATE /W4 /permissive- /bigobj)
+  else()
+    target_compile_options(protospec_public_api_tests PRIVATE -Wall -Wextra)
+  endif()
+  ps_copy_mujoco_dll(protospec_public_api_tests)
+  add_test(NAME protospec_public_api_tests COMMAND protospec_public_api_tests)
+endif()
+
 # --------------------------------------------------------------------------- #
 # Native-compiler harness + tests (impl-plan NC0). Placed after the harness    #
 # subdirectory so model_diff_lib exists. Guarded on both the bridge and the    #
