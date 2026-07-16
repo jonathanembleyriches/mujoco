@@ -72,6 +72,7 @@ add_library(protospec_core STATIC
   ${PROTOSPEC_CPP}/validate/sizes.cc
   ${PROTOSPEC_CPP}/bridge/compile.cc
   ${PROTOSPEC_CPP}/bridge/binding.cc
+  ${PROTOSPEC_CPP}/bridge/pose.cc
   ${PROTOSPEC_CPP}/compile/native.cc
   ${PROTOSPEC_CPP}/compile/build.cc
   ${PROTOSPEC_CPP}/compile/lifted/make_model.cc
