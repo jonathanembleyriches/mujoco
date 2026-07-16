@@ -15,7 +15,7 @@
 #include "editor/authoring_ops.h"
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
-#include "editor/plugins.h"
+#include "host/shell.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
 

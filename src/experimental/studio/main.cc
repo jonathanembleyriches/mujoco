@@ -33,6 +33,7 @@
 
 #ifdef MUJOCO_STUDIO_PROTOSPEC
 #include "editor/plugins.h"
+#include "host/shell.h"
 #endif
 
 ABSL_FLAG(int, window_width, 1400, "Window width");
@@ -148,6 +149,7 @@ int main(int argc, char** argv, char** envp) {
   // The editor plugin cluster shares one context that must outlive the loop.
   static ps::studio::EditorContext protospec_editor_context;
   ps::studio::RegisterEditorPlugins(protospec_editor_context);
+  ps::studio::RegisterEditorShell(protospec_editor_context);
 #endif
 
   const int width = absl::GetFlag(FLAGS_window_width);

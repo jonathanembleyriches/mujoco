@@ -12,10 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ProtoSpec editor for MuJoCo Studio. The object model / IO / validation /
-# compile bridge sources are compiled directly from the ProtoSpec repository
-# (PROTOSPEC_ROOT); the editor plugin cluster in this directory registers
-# against the platform plugin registry.
+# ProtoSpec editor for MuJoCo Studio.
+#
+# There is ONE source of truth for the editor cluster: the ProtoSpec repository
+# at PROTOSPEC_ROOT. This fork does NOT hold a copy of the editor sources. It
+# compiles them live from ${PROTOSPEC_ROOT}/apps/studio/editor together with the
+# ProtoSpec object-model / IO / validate / compile-bridge core from
+# ${PROTOSPEC_ROOT}/cpp. The only sources that live here are genuinely host-side
+# glue: the platform/ux plugin-API shims (which map the ps::studio plugin names
+# onto the real mujoco::platform registry) and host/shell.cc (the SE4 File/Edit
+# menu, transform toolbar, and Play/Stop bridge, which bind to host-only plugin
+# types the standalone apps/studio host does not have).
+#
+# The editor's own test batteries live and run with that single source, in the
+# standalone apps/studio build (the CI / ASan surface); this fork does not
+# duplicate them.
 
 set(PROTOSPEC_ROOT "" CACHE PATH "Root of the ProtoSpec repository")
 if(NOT EXISTS "${PROTOSPEC_ROOT}/cpp/include")
@@ -24,12 +35,28 @@ if(NOT EXISTS "${PROTOSPEC_ROOT}/cpp/include")
 endif()
 set(PROTOSPEC_CPP "${PROTOSPEC_ROOT}/cpp")
 
+# The editor cluster single source. A separate cache var so the two roots can be
+# split later if the studio tree ever moves out of the core repo.
+set(PROTOSPEC_STUDIO_ROOT "${PROTOSPEC_ROOT}/apps/studio" CACHE PATH
+    "Root of the ProtoSpec Studio editor cluster (single source)")
+if(NOT EXISTS "${PROTOSPEC_STUDIO_ROOT}/editor/plugins.h")
+  message(FATAL_ERROR
+    "PROTOSPEC_STUDIO_ROOT does not contain the editor cluster: "
+    "${PROTOSPEC_STUDIO_ROOT}")
+endif()
+set(PROTOSPEC_EDITOR "${PROTOSPEC_STUDIO_ROOT}/editor")
+
 include(FetchContent)
 FetchContent_GetProperties(qhull)
 FetchContent_GetProperties(tinyobjloader)
+FetchContent_GetProperties(lodepng)
+FetchContent_GetProperties(marchingcubecpp)
 FetchContent_GetProperties(dear_imgui)
 
 # --- ProtoSpec core: generated object model + IO + validation + bridge ------ #
+# The source list mirrors the standalone apps/studio core exactly, so the fork
+# carries the full native compiler + lifted asset pipeline (texture / builtin
+# mesh / marching cube) rather than the reduced set the frozen snapshot held.
 file(GLOB PROTOSPEC_GENERATED_SRC CONFIGURE_DEPENDS
      "${PROTOSPEC_CPP}/generated/*.cc")
 
@@ -50,7 +77,13 @@ add_library(protospec_core STATIC
   ${PROTOSPEC_CPP}/compile/lifted/make_model.cc
   ${PROTOSPEC_CPP}/compile/lifted/mjuu_util.cc
   ${PROTOSPEC_CPP}/compile/lifted/mesh_pipeline.cc
+  ${PROTOSPEC_CPP}/compile/lifted/image_pipeline.cc
+  ${PROTOSPEC_CPP}/compile/lifted/builtin_mesh.cc
+  ${PROTOSPEC_CPP}/compile/lifted/marching_cube.cc
   ${PROTOSPEC_CPP}/third_party/tinyxml2/tinyxml2.cpp
+  # lodepng (PNG decode for the texture wave). MuJoCo keeps its own copy internal
+  # to mujoco.dll (not exported), so a private copy here does not clash at link.
+  ${lodepng_SOURCE_DIR}/lodepng.cpp
 )
 
 target_include_directories(protospec_core PUBLIC
@@ -69,6 +102,8 @@ target_include_directories(protospec_core PUBLIC
 target_include_directories(protospec_core PRIVATE
   ${qhull_SOURCE_DIR}/src
   ${tinyobjloader_SOURCE_DIR}
+  ${lodepng_SOURCE_DIR}
+  ${marchingcubecpp_SOURCE_DIR}
 )
 target_link_libraries(protospec_core PUBLIC
   mujoco::mujoco
@@ -79,28 +114,36 @@ if(MSVC)
   target_compile_options(protospec_core PRIVATE /bigobj)
 endif()
 
-# --- Editor plugin cluster --------------------------------------------------- #
+# --- Editor plugin cluster (compiled live from the single source) ----------- #
+# The editor .cc live in the ProtoSpec repo; host/shell.cc is the only fork-side
+# source in this library.
 add_library(protospec_editor STATIC
-  editor/asset_import.cc
-  editor/authoring_ops.cc
-  editor/details_panel.cc
-  editor/editor_ops.cc
-  editor/gizmo.cc
-  editor/gizmo_math.cc
-  editor/hierarchy_icons.cc
-  editor/hierarchy_model.cc
-  editor/hierarchy_panel.cc
-  editor/joint_overlay.cc
-  editor/panels.cc
-  editor/protospec_editor.cc
-  editor/shell.cc
-  editor/transform_math.cc
-  editor/undo.cc
-  editor/viewport_plugin.cc
+  ${PROTOSPEC_EDITOR}/asset_import.cc
+  ${PROTOSPEC_EDITOR}/authoring_ops.cc
+  ${PROTOSPEC_EDITOR}/details_panel.cc
+  ${PROTOSPEC_EDITOR}/editor_ops.cc
+  ${PROTOSPEC_EDITOR}/gizmo.cc
+  ${PROTOSPEC_EDITOR}/gizmo_math.cc
+  ${PROTOSPEC_EDITOR}/hierarchy_icons.cc
+  ${PROTOSPEC_EDITOR}/hierarchy_model.cc
+  ${PROTOSPEC_EDITOR}/hierarchy_panel.cc
+  ${PROTOSPEC_EDITOR}/joint_overlay.cc
+  ${PROTOSPEC_EDITOR}/panels.cc
+  ${PROTOSPEC_EDITOR}/protospec_editor.cc
+  ${PROTOSPEC_EDITOR}/transform_math.cc
+  ${PROTOSPEC_EDITOR}/undo.cc
+  ${PROTOSPEC_EDITOR}/viewport_plugin.cc
+  host/shell.cc
 )
 
+# Include order matters: this fork directory is searched FIRST so the platform
+# plugin-API shims here (platform/ux/plugin.h, ps_plugin_ext.h) win over the
+# standalone struct definitions of the same relative path in the studio root.
+# The studio root then supplies the editor/*.h headers, and the Studio src tree
+# supplies the real experimental/platform/ux headers the shims forward to.
 target_include_directories(protospec_editor PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${PROTOSPEC_STUDIO_ROOT}
   ${PROJECT_SOURCE_DIR}/src
 )
 target_include_directories(protospec_editor PRIVATE
@@ -116,106 +159,6 @@ if(MSVC)
 endif()
 
 add_library(mujoco::protospec_editor ALIAS protospec_editor)
-
-# --- Windowless editor tests (own mains, no GUI) ----------------------------- #
-enable_testing()
-
-function(protospec_add_test NAME)
-  add_executable(${NAME} ${ARGN})
-  target_include_directories(${NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-  target_link_libraries(${NAME} PRIVATE protospec_core)
-  if(MSVC)
-    target_compile_options(${NAME} PRIVATE /bigobj)
-  endif()
-  add_test(NAME ${NAME} COMMAND ${NAME})
-  set_target_properties(${NAME} PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-  )
-endfunction()
-
-protospec_add_test(protospec_studio_tests
-  test/test_studio.cc
-  editor/editor_ops.cc
-  editor/undo.cc
-  editor/hierarchy_model.cc
-  editor/hierarchy_icons.cc
-)
-protospec_add_test(protospec_studio_gizmo_tests
-  test/test_gizmo.cc
-  editor/transform_math.cc
-  editor/gizmo_math.cc
-  editor/joint_overlay.cc
-  editor/editor_ops.cc
-  editor/undo.cc
-)
-protospec_add_test(protospec_studio_movability_tests
-  test/test_movability.cc
-  editor/transform_math.cc
-  editor/undo.cc
-)
-protospec_add_test(protospec_studio_details_tests
-  test/test_details.cc
-)
-protospec_add_test(protospec_studio_authoring_tests
-  test/test_authoring.cc
-  editor/authoring_ops.cc
-  editor/asset_import.cc
-  editor/editor_ops.cc
-  editor/undo.cc
-  editor/transform_math.cc
-)
-protospec_add_test(protospec_studio_se5_tests
-  test/test_se5_assets.cc
-  editor/authoring_ops.cc
-  editor/asset_import.cc
-  editor/editor_ops.cc
-  editor/undo.cc
-  editor/transform_math.cc
-)
-protospec_add_test(protospec_studio_host_tests
-  test/test_host.cc
-  editor/authoring_ops.cc
-  editor/asset_import.cc
-  editor/editor_ops.cc
-  editor/undo.cc
-  editor/transform_math.cc
-)
-
-# --- Host-UI tests (headless ImGui, no window) ------------------------------- #
-# G2 key-routing gate + G3 pick / gizmo priority run the real plugin vtables over
-# a headless ImGui context. They compile the viewport/gizmo sources directly and
-# supply their own minimal plugin registry, so they need dear_imgui but not the
-# SDL/Filament platform library.
-add_executable(protospec_studio_hostui_tests
-  test/test_hostui.cc
-  editor/viewport_plugin.cc
-  editor/gizmo.cc
-  editor/gizmo_math.cc
-  editor/transform_math.cc
-  editor/joint_overlay.cc
-  editor/editor_ops.cc
-  editor/authoring_ops.cc
-  editor/asset_import.cc
-  editor/undo.cc
-)
-target_include_directories(protospec_studio_hostui_tests PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${PROJECT_SOURCE_DIR}/src
-  ${dear_imgui_SOURCE_DIR}/misc/cpp
-)
-target_link_libraries(protospec_studio_hostui_tests PRIVATE
-  protospec_core
-  dear_imgui
-)
-set_target_properties(protospec_studio_hostui_tests PROPERTIES
-  CXX_STANDARD 20
-  CXX_STANDARD_REQUIRED ON
-)
-if(MSVC)
-  target_compile_options(protospec_studio_hostui_tests PRIVATE /bigobj)
-endif()
-add_test(NAME protospec_studio_hostui_tests COMMAND protospec_studio_hostui_tests)
 
 set_target_properties(protospec_core protospec_editor PROPERTIES
   CXX_STANDARD 20
