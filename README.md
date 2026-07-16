@@ -1,5 +1,16 @@
 # ProtoSpec
 
+## Where things live (fork `jonathanembleyriches/mujoco`)
+
+- **`main` / `protospec`** — this standalone library repo (identical; `main` is the default).
+  Everything under `C:\Users\jonat\Documents\protospec`.
+- **`studio`** — MuJoCo Studio (real app + Filament) with the ProtoSpec editor integrated. This
+  is the interactive editor you run/test. It consumes the editor sources live from this repo
+  (`apps/studio/`) — no forked copy. Checkout: `C:\Users\jonat\Documents\mujoco-studio`; build
+  steps in `docs/studio_build.md`.
+
+---
+
 A single, clean object model for MuJoCo models. One IDL schema (`schema/mujoco.spec`) is the
 source of truth; generators emit the C++ types, serialization, reflection tables, and XML
 bindings. MJCF is a wire format handled by one IO module; models compile to `mjModel` through

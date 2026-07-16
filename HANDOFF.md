@@ -5,10 +5,31 @@ Thin index; the living state lives in the STATUS tables of the plan docs. Verify
 ```
 uv run pytest                                     # ~1660 passed
 ctest --test-dir cpp/build -C Release             # 6/6
-ctest --test-dir apps/studio/build -C Release     # 4/4
+ctest --test-dir apps/studio/build -C Release     # 8/8
 uv run python -m protospec_gen.emit --check
 uv run python tools/lift_registry.py check
 ```
+
+## ProtoSpec Studio (the MuJoCo Studio fork)
+
+One source for the editor: `apps/studio/editor/` + `apps/studio/test/`. Two hosts
+consume it — no copies:
+
+- **Standalone** `apps/studio/` — thin SDL2 + classic-renderer host. Builds the
+  editor and the 8 test batteries; this is the CI / ASan surface.
+- **Fork** `mujoco-studio` (branch `studio`) — the real MuJoCo Studio app (Filament).
+  Compiles the editor + ProtoSpec core live from this repo via `PROTOSPEC_ROOT`
+  (the live repo, not a snapshot). It keeps only host glue: the `platform/ux` plugin
+  shims and `host/shell.{cc,h}` (the SE4 File/Edit menu + toolbar + Play/Stop bridge,
+  which bind to Studio-only plugin types the standalone host lacks). The error-chip
+  is rendered host-side; the editor cluster exposes the `DiagnosticErrorCount`
+  predicate it reads.
+
+Build dir: `C:\Users\jonat\Documents\mujoco-studio\build_ps`
+(`PROTOSPEC_ROOT=C:/Users/jonat/Documents/protospec`). Exact commands, run, and
+self-screenshot in `docs/studio_build.md`. On the live core, humanoid.xml takes the
+fast native compile path (`path=native`); verify with
+`cpp/build/Release/ps_compile.exe <model.xml>` -> `"path_taken": "native"`.
 
 ## SDK save surface (cpp/sdk/protospec/save.h)
 
