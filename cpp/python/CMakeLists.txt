@@ -66,6 +66,18 @@ set(MUJOCO_ROOT
 set(MUJOCO_INCLUDE_DIR "${MUJOCO_ROOT}/include")
 set(MUJOCO_IMPORT_LIB  "${MUJOCO_ROOT}/build/lib/Release/mujoco.lib")
 set(MUJOCO_DLL         "${MUJOCO_ROOT}/build/bin/Release/mujoco.dll")
+
+# NC3 asset-pipeline deps prebuilt alongside MuJoCo (same static libs MuJoCo
+# links): qhull (convex hull) + tinyobjloader (OBJ) are pulled by the lifted mesh
+# pipeline; lodepng (PNG) by the image pipeline. Their symbols are internal to
+# mujoco.dll, so our own copies do not clash at link.
+set(MUJOCO_DEPS "${MUJOCO_ROOT}/build/_deps")
+set(QHULL_INCLUDE_DIR "${MUJOCO_DEPS}/qhull-src/src")
+set(QHULL_LIB         "${MUJOCO_ROOT}/build/lib/Release/qhullstatic_r.lib")
+set(TINYOBJ_INCLUDE_DIR "${MUJOCO_DEPS}/tinyobjloader-src")
+set(TINYOBJ_LIB         "${MUJOCO_ROOT}/build/lib/Release/tinyobjloader.lib")
+set(LODEPNG_INCLUDE_DIR "${MUJOCO_DEPS}/lodepng-src")
+set(LODEPNG_LIB         "${MUJOCO_ROOT}/build/lib/Release/lodepng.lib")
 if(NOT EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h")
   message(FATAL_ERROR "MuJoCo headers not found under ${MUJOCO_INCLUDE_DIR}; set -DMUJOCO_ROOT=...")
 endif()
@@ -83,6 +95,7 @@ set(PROTOSPEC_SRC
   ${CPP_ROOT}/generated/keywords.cc
   ${CPP_ROOT}/generated/defaults.cc
   ${CPP_ROOT}/generated/xml_binding.cc
+  ${CPP_ROOT}/core/resolve.cc
   ${CPP_ROOT}/io/numeric.cc
   ${CPP_ROOT}/io/include.cc
   ${CPP_ROOT}/io/defaults.cc
@@ -93,7 +106,13 @@ set(PROTOSPEC_SRC
   ${CPP_ROOT}/bridge/compile.cc
   ${CPP_ROOT}/bridge/binding.cc
   ${CPP_ROOT}/compile/native.cc
+  ${CPP_ROOT}/compile/build.cc
   ${CPP_ROOT}/compile/lifted/make_model.cc
+  ${CPP_ROOT}/compile/lifted/mjuu_util.cc
+  ${CPP_ROOT}/compile/lifted/mesh_pipeline.cc
+  ${CPP_ROOT}/compile/lifted/marching_cube.cc
+  ${CPP_ROOT}/compile/lifted/builtin_mesh.cc
+  ${CPP_ROOT}/compile/lifted/image_pipeline.cc
   ${CPP_ROOT}/third_party/tinyxml2/tinyxml2.cpp
 )
 
@@ -106,18 +125,24 @@ pybind11_add_module(protospec
 target_include_directories(protospec PRIVATE
   ${CPP_ROOT}/include
   ${CPP_ROOT}/generated
+  ${CPP_ROOT}/core
   ${CPP_ROOT}/io
   ${CPP_ROOT}/validate
   ${CPP_ROOT}/bridge
   ${CPP_ROOT}/compile
   ${CPP_ROOT}/compile/lifted
   ${CPP_ROOT}/sdk
+  ${CPP_ROOT}/sdk/protospec
   ${CPP_ROOT}/third_party/tinyxml2
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${MUJOCO_INCLUDE_DIR}
+  ${QHULL_INCLUDE_DIR}
+  ${TINYOBJ_INCLUDE_DIR}
+  ${LODEPNG_INCLUDE_DIR}
 )
 
-target_link_libraries(protospec PRIVATE "${MUJOCO_IMPORT_LIB}")
+target_link_libraries(protospec PRIVATE "${MUJOCO_IMPORT_LIB}"
+                      "${QHULL_LIB}" "${TINYOBJ_LIB}" "${LODEPNG_LIB}")
 
 if(MSVC)
   # The generated binding TUs instantiate thousands of templates: /bigobj is

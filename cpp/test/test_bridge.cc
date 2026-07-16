@@ -501,12 +501,6 @@ static void TestPosePatchFrameNested() {
   mj_kinematics(m, d);
   // geom_xpos matches A ∘ L_new ∘ B composed independently (body at identity).
   RigidPose expect = Compose(Compose(pp->prefix, L_new), pp->suffix);
-  std::printf("DBG frame: A.pos=%g %g %g A.q=%g %g %g %g\n", pp->prefix.pos[0],pp->prefix.pos[1],pp->prefix.pos[2], pp->prefix.quat[0],pp->prefix.quat[1],pp->prefix.quat[2],pp->prefix.quat[3]);
-  std::printf("DBG frame: B.pos=%g %g %g B.q=%g %g %g %g\n", pp->suffix.pos[0],pp->suffix.pos[1],pp->suffix.pos[2], pp->suffix.quat[0],pp->suffix.quat[1],pp->suffix.quat[2],pp->suffix.quat[3]);
-  std::printf("DBG frame: gid=%d geom_pos=%g %g %g  geom_xpos=%g %g %g  expect=%g %g %g  x0=%g %g %g\n", gid, m->geom_pos[3*gid],m->geom_pos[3*gid+1],m->geom_pos[3*gid+2], d->geom_xpos[3*gid],d->geom_xpos[3*gid+1],d->geom_xpos[3*gid+2], expect.pos[0],expect.pos[1],expect.pos[2], x0[0],x0[1],x0[2]);
-  std::printf("DBG frame: geom_sameframe=%d geom_bodyid=%d nbody=%d body_sameframe=%d\n", m->geom_sameframe[gid], m->geom_bodyid[gid], m->nbody, m->body_sameframe[m->geom_bodyid[gid]]);
-  mj_forward(m, d);
-  std::printf("DBG frame after mj_forward: geom_xpos=%g %g %g\n", d->geom_xpos[3*gid],d->geom_xpos[3*gid+1],d->geom_xpos[3*gid+2]);
   for (int i = 0; i < 3; ++i) CHECK(Near(d->geom_xpos[3 * gid + i], expect.pos[i]));
   // A 90deg-Z frame maps a +x local delta to a +y world move (A is in play).
   CHECK(Near(d->geom_xpos[3 * gid + 1] - x0[1], delta[0]));

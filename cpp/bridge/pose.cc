@@ -201,14 +201,12 @@ std::optional<PosePatch> Binding::PosePatchFor(const void* elem) const {
   p.id = e.id;
   p.prefix = ReconstructPrefix(*model_, elem);
   const RigidPose L = LocalOf(*model_, e.etype, elem);
-  const RigidPose F = ReadField(m_, e.objtype, e.id);
-  // B = (A ∘ L)^-1 ∘ F -- the residual suffix. Computed once here; a drag only
-  // ever composes A ∘ L_new ∘ B forward (never inverts B), which is exactly
-  // correct for mesh geoms (DR-S6).
-  p.suffix = Compose(Invert(Compose(p.prefix, L)), F);
 
   // A free/ball-jointed body's rest pose at qpos0 is driven by qpos, not by
-  // body_pos alone, so record the qpos slice ApplyPosePatch must reseed.
+  // body_pos alone: MuJoCo seeds qpos0 from the body's initial pose and (for a
+  // free joint) zeros body_pos. So record the qpos slice ApplyPosePatch must
+  // reseed, and read the compiled field FROM qpos0 for a free body.
+  RigidPose F = ReadField(m_, e.objtype, e.id);
   if (e.objtype == mjOBJ_BODY) {
     const int nj = m_->body_jntnum[e.id];
     const int adr = m_->body_jntadr[e.id];
@@ -217,15 +215,25 @@ std::optional<PosePatch> Binding::PosePatchFor(const void* elem) const {
       if (m_->jnt_type[j] == mjJNT_FREE) {
         p.reseed_qposadr = m_->jnt_qposadr[j];
         p.reseed_width = 7;
+        const mjtNum* q0 = m_->qpos0 + p.reseed_qposadr;
+        for (int i = 0; i < 3; ++i) F.pos[i] = q0[i];
+        for (int i = 0; i < 4; ++i) F.quat[i] = q0[3 + i];
         break;
       }
       if (m_->jnt_type[j] == mjJNT_BALL) {
         p.reseed_qposadr = m_->jnt_qposadr[j];
-        p.reseed_width = 4;
+        p.reseed_width = 4;  // ball rotates about body_pos; quat lives in qpos0
+        const mjtNum* q0 = m_->qpos0 + p.reseed_qposadr;
+        for (int i = 0; i < 4; ++i) F.quat[i] = q0[i];
         break;
       }
     }
   }
+
+  // B = (A ∘ L)^-1 ∘ F -- the residual suffix. Computed once here; a drag only
+  // ever composes A ∘ L_new ∘ B forward (never inverts B), which is exactly
+  // correct for mesh geoms (DR-S6).
+  p.suffix = Compose(Invert(Compose(p.prefix, L)), F);
   return p;
 }
 
@@ -238,12 +246,30 @@ bool ApplyPosePatch(mjModel* m, const PosePatch& p, const RigidPose& L_new) {
   mjtNum* pos = nullptr;
   mjtNum* quat = nullptr;
   switch (p.objtype) {
-    case mjOBJ_BODY:   pos = m->body_pos + 3 * p.id; quat = m->body_quat + 4 * p.id; break;
-    case mjOBJ_GEOM:   pos = m->geom_pos + 3 * p.id; quat = m->geom_quat + 4 * p.id; break;
-    case mjOBJ_SITE:   pos = m->site_pos + 3 * p.id; quat = m->site_quat + 4 * p.id; break;
-    case mjOBJ_CAMERA: pos = m->cam_pos  + 3 * p.id; quat = m->cam_quat  + 4 * p.id; break;
-    case mjOBJ_LIGHT:  pos = m->light_pos + 3 * p.id; break;  // dir kept as-is
-    default: return false;
+    case mjOBJ_BODY:
+      pos = m->body_pos + 3 * p.id;
+      quat = m->body_quat + 4 * p.id;
+      m->body_sameframe[p.id] = 0;  // force mj_kinematics to recompose from body_pos
+      break;
+    case mjOBJ_GEOM:
+      pos = m->geom_pos + 3 * p.id;
+      quat = m->geom_quat + 4 * p.id;
+      m->geom_sameframe[p.id] = 0;  // clear the frame-coincidence shortcut
+      break;
+    case mjOBJ_SITE:
+      pos = m->site_pos + 3 * p.id;
+      quat = m->site_quat + 4 * p.id;
+      m->site_sameframe[p.id] = 0;
+      break;
+    case mjOBJ_CAMERA:
+      pos = m->cam_pos + 3 * p.id;
+      quat = m->cam_quat + 4 * p.id;
+      break;
+    case mjOBJ_LIGHT:
+      pos = m->light_pos + 3 * p.id;  // dir kept as-is
+      break;
+    default:
+      return false;
   }
   if (pos)
     for (int i = 0; i < 3; ++i) pos[i] = F.pos[i];

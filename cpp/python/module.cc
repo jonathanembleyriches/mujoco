@@ -364,7 +364,7 @@ pyb::dict ReportToDict(const ps::mjcf::CompileReport& r) {
   return out;
 }
 
-std::unique_ptr<PyCompiled> Compile(pyb::object model, pyb::object base_dir) {
+std::unique_ptr<PyCompiled> CompileModel(pyb::object model, pyb::object base_dir) {
   ps::mjcf::Model& m = model.cast<ps::mjcf::Model&>();
   ps::mjcf::Compiled c = ps::mjcf::Compile(m, MakeOptions(base_dir));
   if (!c.ok()) {
@@ -381,7 +381,7 @@ std::unique_ptr<PyCompiled> Compile(pyb::object model, pyb::object base_dir) {
   return std::make_unique<PyCompiled>(std::move(c), d, std::move(model));
 }
 
-std::unique_ptr<PyCompiled> Recompile(pyb::object model, PyCompiled& prev,
+std::unique_ptr<PyCompiled> RecompileModel(pyb::object model, PyCompiled& prev,
                                      bool keep_state, pyb::object base_dir) {
   ps::mjcf::Model& m = model.cast<ps::mjcf::Model&>();
   ps::mjcf::CompileOptions opts = MakeOptions(base_dir);
@@ -393,7 +393,7 @@ std::unique_ptr<PyCompiled> Recompile(pyb::object model, PyCompiled& prev,
     mj_forward(c.model.get(), nd);
     return std::make_unique<PyCompiled>(std::move(c), nd, std::move(model));
   }
-  return Compile(std::move(model), base_dir);
+  return CompileModel(std::move(model), base_dir);
 }
 
 int ResolveBody(const mjModel* m, pyb::handle body) {
@@ -451,7 +451,7 @@ void Augment(pyb::class_<ps::mjcf::Model>& c) {
   c.def(
       "compile",
       [](pyb::object self, pyb::object base_dir) {
-        return Compile(self, base_dir);
+        return CompileModel(self, base_dir);
       },
       pyb::arg("base_dir") = pyb::none(),
       "Compile this model to an mjModel + Binding + sim surface.");
@@ -571,9 +571,10 @@ PYBIND11_MODULE(protospec, m) {
   m.def("validate", &Validate, pyb::arg("model"), pyb::arg("tiers") = pyb::none(),
         "Validate a Model; returns a list of diagnostic dicts "
         "(tier/severity/message/file/line/path).");
-  m.def("compile", &Compile, pyb::arg("model"), pyb::arg("base_dir") = pyb::none(),
+  m.def("compile", &ps::py::CompileModel, pyb::arg("model"),
+        pyb::arg("base_dir") = pyb::none(),
         "Compile a Model to an mjModel + Binding + sim surface.");
-  m.def("recompile", &Recompile, pyb::arg("model"), pyb::arg("prev"),
+  m.def("recompile", &ps::py::RecompileModel, pyb::arg("model"), pyb::arg("prev"),
         pyb::arg("keep_state") = true, pyb::arg("base_dir") = pyb::none(),
         "Recompile after a structural edit, migrating simulation state.");
 

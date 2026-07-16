@@ -20,7 +20,7 @@ types from the implementation headers; the implementation headers are internal.
 | `protospec/reflect.h` | Runtime reflection (`ps::mjcf::reflect::*`) + the generic `ps::mjcf::Visit` hook, for schema-driven tooling | `protospec` |
 | `protospec/io.h` | MJCF read/write: `ps::mjcf::io::{ParseMjcfFile, ParseMjcfString, WriteMjcf, ParseResult, Diagnostic}` | `protospec_io` |
 | `protospec/validate.h` | `ps::mjcf::validate::{Validate, Diagnostic, Tier, Severity, TierMask, kAllTiers, ...}` | `protospec_validate` |
-| `protospec/compile.h` | MuJoCo compile bridge: `ps::mjcf::bridge::{Compile, Recompile, CompileToXml, Compiled, Binding, CompileOptions, VfsAsset, CompileReport, CompilePath}` | `protospec_bridge` (+ MuJoCo) |
+| `protospec/compile.h` | MuJoCo compile: `ps::mjcf::{Compile, Recompile, CompileToXml, Compiled, Binding, CompileOptions, VfsAsset, CompileReport, CompilePath}` + the pose-patch API `ps::mjcf::{RigidPose, PosePatch, ApplyPosePatch, Compose, Invert}` | `protospec_bridge` (+ MuJoCo) |
 | `protospec/sdk.h` | Ergonomic authoring (`ps::sdk::*`): builders, traversal, refs, default classes, attach | `protospec_sdk` |
 | `protospec/save.h` | Model persistence: `ps::sdk::{Save, SaveAs, ExternalizeAssets, ModelAssetDir, InMemoryAsset}` | `protospec_sdk_io` |
 | `protospec/protospec.h` | All of the above in one include (links the whole library + MuJoCo) | all |
@@ -34,15 +34,17 @@ resolve as `protospec/<name>.h`.
 | Namespace | Contents |
 | --- | --- |
 | `ps` | Schema-independent runtime core: `opt`, `Ref`, `InlineVec`, `SourceLoc`, container helpers |
-| `ps::mjcf` | The generated object model — every element type, enum, union wrapper, variant alias, `ElementType`, `element_type_of`, and the value ops `Clone` / `ApplyDefault` / `ToMjcf` / `FromMjcf` / `Visit` |
+| `ps::mjcf` | The generated object model — every element type, enum, union wrapper, variant alias, `ElementType`, `element_type_of`, the value ops `Clone` / `ApplyDefault` / `ToMjcf` / `FromMjcf` / `Visit` — **and** the MuJoCo compile surface (`Compile`, `Recompile`, `Compiled`, `Binding`, `CompileOptions`, `CompileReport`, `PosePatch`, `ApplyPosePatch`, ...). One namespace for the whole model + compile product |
 | `ps::mjcf::reflect` | Runtime schema reflection (descriptors, `Describe`, field/child/union metadata) |
 | `ps::mjcf::io` | MJCF parse / write |
 | `ps::mjcf::validate` | Three-tier validation |
-| `ps::mjcf::bridge` | Compile to MuJoCo (`mjModel` + `Binding`) |
 | `ps::sdk` | The ergonomic authoring layer over `ps::mjcf` |
 
-Nested `detail` namespaces (`ps::mjcf::bridge::detail`, `ps::sdk::detail`, ...)
-and the internal headers below are **not** public.
+The compile bridge is **not** a consumer-facing namespace: it is written as
+`ps::mjcf::Compile` / `ps::mjcf::Binding`, never `ps::mjcf::bridge::...`. `cpp/bridge`
+and `cpp/compile` are the implementation directories behind it, not a namespace a
+consumer names. Nested `detail` namespaces (`ps::mjcf::detail`, `ps::sdk::detail`,
+...) and the internal headers below are **not** public.
 
 ## Hello world (public headers only)
 
@@ -59,9 +61,8 @@ is exactly what `cpp/test/test_public_api.cc` compiles and runs.
 #include "protospec/compile.h"
 
 namespace io = ps::mjcf::io;
-namespace bridge = ps::mjcf::bridge;
 namespace sdk = ps::sdk;
-namespace mj = ps::mjcf;
+namespace mj = ps::mjcf;   // Compile / Binding / Compiled live here too
 
 int main() {
   // 1. LOAD
@@ -84,7 +85,7 @@ int main() {
     if (d.severity == ps::mjcf::validate::Severity::Error) return 2;
 
   // 4. COMPILE
-  bridge::Compiled compiled = bridge::Compile(model);
+  mj::Compiled compiled = mj::Compile(model);
   if (!compiled.ok()) return 3;
 
   // 5. STEP (your engine, your mjData)
@@ -116,8 +117,9 @@ The include graph makes the boundary unambiguous: if it is not a
   whole-tree walk, name access, ref scan, handles). Its useful primitives are
   now re-exported as public `ps::sdk` verbs (see below).
 - **Bridge internals** — `binding.h`'s `detail::BindingBuilder`, `report.h`'s
-  `detail::`. `Binding`, `Compiled`, `CompileReport`, and `Diagnostic` are
-  public via `protospec/compile.h`.
+  `detail::`. `Binding`, `Compiled`, `CompileReport`, `Diagnostic`, `PosePatch`,
+  and `ApplyPosePatch` are public (in `ps::mjcf`) via `protospec/compile.h`. The
+  `bridge`/`compile` names are directory paths, not a consumer namespace.
 
 ## SDK affordances (closing the "reach past the SDK" gaps)
 
@@ -142,32 +144,90 @@ for them:
   `sdk::SetTextureFile(tex, path)`, `sdk::SetTextureBuiltin(tex, builtin)` — the
   material/texture/layer authoring the editor previously kept as its own private
   mutator library.
+- **Runtime-typed structural edits** (refs / attach): `sdk::Rename(model, elem*,
+  name)`, `sdk::DeleteSubtree(model, elem*, cascade)`, `sdk::Duplicate(model,
+  elem*)`, `sdk::Reparent(model, elem*, newParent*)` — keyed on a runtime element
+  pointer (not the `<E>` template), so a consumer that resolves elements
+  dynamically (pick / serial / path) never pays the ~140x template-instantiation
+  compile cost or reimplements the referrer bookkeeping. See the section below.
 
 Already present and sufficient (the editor simply had not adopted them):
 `sdk::ForEachOfType<T>(model, fn)` covers "enumerate every material / element of
 a type"; `sdk::Find<T>`, `sdk::ParentMap`, `sdk::Resolve`/`ResolveTo`,
 `sdk::FindReferrers`, `sdk::Attach`/`AttachModel`, `sdk::Effective`.
 
-## Remaining sharp edges (follow-up)
+## Runtime-typed structural edits (`ps::sdk`)
 
-These consumer needs still lack a clean public verb and are flagged for a later
-pass:
+The four edits below are keyed on a **runtime element pointer** (any element you
+hold in the tree you compiled), not on the element's static type. The `<E>`
+templates (`Rename<E>`, `DeleteRecursive<E>`) still exist, but instantiating them
+across all ~140 families — each embedding a whole-model walk — is a ~140x140
+compile blow-up, so the runtime-pointer forms are the supported API for anything
+that resolves an element dynamically (pick / serial / path). One model walk
+recovers the element's `ElementType` and drives the same referrer bookkeeping.
 
-1. **Runtime-typed rename / delete.** `sdk::Rename<E>` and
-   `sdk::DeleteRecursive<E>` exist and work, but are per-element-type templates;
-   instantiating them across all ~140 families is a heavy compile cost, so the
-   editor reimplements them from `ps::sdk::detail`. Fix: add non-template
-   `Rename` / `DeleteSubtree` variants keyed on `ElementType` + element pointer.
-2. **Duplicate.** No `sdk::Duplicate(model, elem)` (deep-clone next to the
-   original, re-unique names, remap internal refs). `attach.h` does the
-   namespaced-splice half; a same-model duplicate verb should join it.
-3. **Reparent / move.** No `sdk::MoveSubtree(model, elem, newParent)` for the
-   pure-tree relink (unlink from the owning union list, splice under a new body).
-   Keep-world-pose recomputation stays an application concern.
-4. **Binding id → world pose helpers.** Consumers map a tree element to its
-   `mjModel` id via `Binding` then read `mjData`/`mjModel` arrays by hand; a thin
-   pose-accessor layer over `Binding` would remove the last raw-MuJoCo reach in
-   gizmo/overlay code.
+- `int sdk::Rename(Model&, const void* elem, const std::string& newname)` —
+  rename + rewrite every typed referrer atomically. Returns referrers updated, or
+  `-1` if `elem` is not in the model.
+- `DeleteReport sdk::DeleteSubtree(Model&, const void* elem, bool cascade=false)`
+  — remove the subtree; `report.dangling` lists every reference left pointing at
+  nothing (with its path). `cascade` clears them; otherwise the caller resolves.
+- `void* sdk::Duplicate(Model&, const void* elem)` — deep-clone the subtree as
+  the next sibling with fresh serials (generated `Clone`), re-unique the clone's
+  names, remap refs **internal** to the clone to the new names, and preserve refs
+  pointing outside. Returns the clone's root (its `ElementType` matches `elem`).
+- `ReparentResult sdk::Reparent(Model&, const void* elem, void* newParent)` —
+  pure-tree move of a body-context child to a new container (Body / Frame /
+  `nullptr` = world). Rejects cycles and non-container targets. **No pose fixup**:
+  the element keeps its authored local pose (its world pose changes with the new
+  parent). Pose-preserving reparent is a compile-aware concern that stays with
+  the bridge / editor — the SDK is a pure tree library and does not compute a
+  compiled parent world pose.
+
+## Moving a compiled element without recompiling (`PosePatch`)
+
+A gizmo drag should not re-run the compiler every frame (a single mesh geom
+already costs ~18 ms; large models 30–600 ms — see
+`docs/drag_perf_investigation.md`). The compiled pose field of every spatial
+element factors as `field = A ∘ L_authored ∘ B`, where the baked frames `A`
+(enclosing `<frame>` chain, and for an align-free free joint the inverse-inertial
+frame) and `B` (mesh/fit recentering; a body's free-joint inertial fold) are
+**constant** across a pose-only edit. So a pose drag captures `A` and `B` once and
+writes `A ∘ L_new ∘ B` into `mjModel` — no recompile:
+
+```cpp
+// mjData d is at qpos0 (mj_resetData). `elem` is a tree Body/Geom/Site/Camera/Light.
+if (auto pp = compiled.binding.PosePatchFor(elem)) {   // std::optional<PosePatch>
+  mj::RigidPose L_new = /* the new authored local pose (pos[3], quat[4]) */;
+  mj::ApplyPosePatch(compiled.model.get(), *pp, L_new); // writes A ∘ L_new ∘ B
+  mj_kinematics(compiled.model.get(), d);               // (mj_resetData first for a
+                                                        //  free/ball body: it reseeds
+                                                        //  qpos0). No recompile.
+} else {
+  /* unpatchable element: fall back to a full Recompile */
+}
+```
+
+`PosePatchFor` is compile-path agnostic: it reconstructs `A` from the tree, reads
+`L` via `sdk::Effective` (so a class-inherited pose resolves exactly as the
+compiler saw it), and captures `B` as the residual `(A ∘ L)^-1 ∘ field` read back
+from `mjModel` — a single inverse done **once** at capture. `ApplyPosePatch` only
+ever composes `A ∘ L_new ∘ B` forward; it never inverts `B`, which is precisely
+why the read-back-and-invert approach that "behaves weirdly for mesh geoms"
+(DR-S6) is avoided. `ApplyPosePatch` also clears the element's `sameframe`
+optimisation flag (so `mj_kinematics` recomposes from the patched field) and, for
+a free/ball-jointed body, reseeds `model->qpos0` (whose rest pose drives the body,
+not `body_pos`). `mj::RigidPose` + `mj::Compose` / `mj::Invert` are public so a
+caller can build `L_new`. On drag release, do one real `Compile` to reconcile any
+second-order effects.
+
+**Live paths / remaining sharp edge.** `A`/`B` capture is live via tree + `mjModel`
+reconstruction, which covers both the native and XML compile paths (the current
+bridge is XML-path only). The one case not reconstructed is the align-free
+free-joint **inverse-inertial prefix** on a child geom (`A` omits it); such
+align-free-body child geoms fall outside the exact-`A` capture and should recompile
+until that term is added. Light **orientation** patching (`light_dir`) is likewise
+deferred — `PosePatch` moves a light's position; its direction is left as authored.
 
 ## Consumers and build wiring
 
@@ -182,6 +242,9 @@ Four independent builds consume this surface; all stay green:
 
 The umbrella headers reach their implementation headers by **repo-relative path**
 (`../../generated/...`, `../../io/...`, etc.), so they work identically under
-every one of these builds without new `-I` entries. No implementation header was
-moved or renamed; the surface is additive, so every existing consumer keeps
-building unchanged.
+every one of these builds without new `-I` entries.
+
+The compile surface was hoisted from `ps::mjcf::bridge` up to `ps::mjcf` as a real
+rename (no compatibility aliases): the definitions in `cpp/bridge` and every caller
+across `cpp/**`, `cpp/python`, `apps/studio`, and the fork were updated in lockstep,
+so `ps::mjcf::bridge` no longer exists anywhere. `ps::mjcf::Compile` is the name.

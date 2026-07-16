@@ -125,7 +125,38 @@ int main() {
   for (int i = 0; i < 10; ++i) mj_step(m, d);
   CHECK(d->time > 0.0);
   CHECK(std::isfinite(d->qpos[2]));  // box height stayed finite under gravity
+
+  // --- 5b. POSE PATCH (move a compiled element, no recompile) ------------- //
+  // Capture the geom's pose patch, shift its authored local pose +0.5 in y, and
+  // apply it; after mj_kinematics the geom's world pose has moved by exactly the
+  // delta (the baked frames A/B are re-applied, never inverted).
+  mj_resetData(m, d);
+  mj_kinematics(m, d);
+  const int gid2 = *compiled.binding.Id(g);
+  const double gy0 = d->geom_xpos[3 * gid2 + 1];
+  if (auto pp = compiled.binding.PosePatchFor(g)) {
+    mj::RigidPose L_new;          // authored geom local (origin) + 0.5 in y
+    L_new.pos[1] = 0.5;
+    CHECK(mj::ApplyPosePatch(m, *pp, L_new));
+    mj_kinematics(m, d);
+    CHECK(std::fabs((d->geom_xpos[3 * gid2 + 1] - gy0) - 0.5) < 1e-9);
+  } else {
+    CHECK(false);  // a bound spatial geom must yield a pose patch
+  }
   mj_deleteData(d);
+
+  // --- 5c. STRUCTURAL SDK VERBS (public, runtime-typed) ------------------- //
+  // Duplicate / Rename / Reparent / DeleteSubtree keyed on runtime pointers --
+  // the binding is a snapshot, so these follow the compile (they invalidate it).
+  auto* box_copy = static_cast<mj::Body*>(sdk::Duplicate(model, &box));
+  CHECK(box_copy != nullptr);
+  CHECK(sdk::Find<mj::Body>(model, "box_1") == box_copy);  // re-uniqued name
+  CHECK(sdk::Rename(model, box_copy, "box_copy") >= 0);    // runtime rename
+  CHECK(sdk::Find<mj::Body>(model, "box_copy") == box_copy);
+  CHECK(sdk::Reparent(model, box_copy, &world).ok);        // pure-tree move
+  auto del = sdk::DeleteSubtree(model, box_copy, /*cascade=*/true);
+  CHECK(del.removed);
+  CHECK(sdk::Find<mj::Body>(model, "box_copy") == nullptr);
 
   // --- 6. SAVE + reload --------------------------------------------------- //
   std::filesystem::path out =
