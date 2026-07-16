@@ -34,7 +34,6 @@
 #include "types.h"
 
 namespace mj = ps::mjcf;
-namespace bridge = ps::mjcf::bridge;
 using namespace ps::studio;
 
 // The plugin structs and RegisterPlugin/ForEachPlugin live in ps::studio here
@@ -69,9 +68,9 @@ static T* PluginNamed(const char* name) {
 static mjData* LoadInto(EditorContext& ctx, const char* xml) {
   mj::io::ParseResult r = mj::io::ParseMjcfString(xml, "hostui_test");
   ctx.tree = std::move(r.model);
-  bridge::CompileOptions opts;
-  opts.path = bridge::CompilePath::Auto;
-  ctx.compiled = bridge::Compile(*ctx.tree, opts);
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::Auto;
+  ctx.compiled = mj::Compile(*ctx.tree, opts);
   if (!ctx.compiled.ok()) return nullptr;
   mjData* d = mj_makeData(ctx.compiled.model.get());
   mj_resetData(ctx.compiled.model.get(), d);

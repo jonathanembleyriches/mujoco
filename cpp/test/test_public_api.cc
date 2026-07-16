@@ -28,7 +28,6 @@
 #include "protospec/save.h"
 
 namespace io = ps::mjcf::io;
-namespace bridge = ps::mjcf::bridge;
 namespace validate = ps::mjcf::validate;
 namespace sdk = ps::sdk;
 namespace mj = ps::mjcf;
@@ -105,7 +104,7 @@ int main() {
   CHECK(errors == 0);
 
   // --- 4. COMPILE --------------------------------------------------------- //
-  bridge::Compiled compiled = bridge::Compile(model);
+  mj::Compiled compiled = mj::Compile(model);
   CHECK(compiled.ok());
   if (!compiled.ok()) {
     for (const auto& e : compiled.report.errors)

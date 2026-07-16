@@ -26,15 +26,17 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
+#include "pose.h"
 #include "types.h"
 
 struct mjModel_;
 typedef struct mjModel_ mjModel;
 
-namespace ps::mjcf::bridge {
+namespace ps::mjcf {
 
 namespace detail {
 class BindingBuilder;
@@ -87,6 +89,18 @@ class Binding {
   // reachable only by name in the XML path. glob supports '*' and '?'.
   std::vector<int> Find(int objtype, std::string_view glob) const;
 
+  // The pose-patch descriptor for a spatial element (Body/Geom/Site/Camera/
+  // Light), or nullopt when the element is unbound or not a patchable spatial
+  // family. Captures the baked frames A and B so a gizmo drag can move the
+  // element by writing A ∘ L_new ∘ B into mjModel (ApplyPosePatch) instead of
+  // recompiling. See pose.h. The pointer form is canonical; the reference
+  // overload forwards to it (excluded for pointer args so they take the void*).
+  std::optional<PosePatch> PosePatchFor(const void* elem) const;
+  template <class E, std::enable_if_t<!std::is_pointer_v<E>, int> = 0>
+  std::optional<PosePatch> PosePatchFor(const E& e) const {
+    return PosePatchFor(static_cast<const void*>(&e));
+  }
+
   // --- Internal iteration (used by Recompile state migration + diagnostics) - //
   // One recorded element and where it landed. id < 0 == unbound. `name` is the
   // effective compile-XML name (authored, or the auto-generated reserved name);
@@ -133,6 +147,6 @@ class BindingBuilder {
 
 }  // namespace detail
 
-}  // namespace ps::mjcf::bridge
+}  // namespace ps::mjcf
 
 #endif  // PROTOSPEC_BRIDGE_BINDING_H

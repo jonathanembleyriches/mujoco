@@ -29,7 +29,7 @@
 
 #include "protospec/sdk.h"
 #include "mjcf.h"       // ps::mjcf::io  (ParseMjcf*, WriteMjcf)
-#include "compile.h"    // ps::mjcf::bridge (Compile, Recompile, CompileOptions)
+#include "compile.h"    // ps::mjcf (Compile, Recompile, CompileOptions)
 #include "validate.h"   // ps::mjcf::validate (Validate)
 
 namespace pyb = pybind11;
@@ -38,7 +38,6 @@ namespace ps::py {
 namespace {
 
 namespace io = ps::mjcf::io;
-namespace bridge = ps::mjcf::bridge;
 namespace validate = ps::mjcf::validate;
 
 // Raised (as a ValueError subclass) when a document is well-formed but uses
@@ -167,11 +166,11 @@ namespace {
 // --- Compiled: mjModel + Binding + minimal sim surface -------------------- //
 
 struct PyCompiled {
-  bridge::Compiled c;
+  ps::mjcf::Compiled c;
   mjData* d = nullptr;
   pyb::object model_keepalive;  // keeps the Python Model (and its tree) alive
 
-  PyCompiled(bridge::Compiled&& compiled, mjData* data, pyb::object model)
+  PyCompiled(ps::mjcf::Compiled&& compiled, mjData* data, pyb::object model)
       : c(std::move(compiled)), d(data), model_keepalive(std::move(model)) {}
   PyCompiled(const PyCompiled&) = delete;
   PyCompiled& operator=(const PyCompiled&) = delete;
@@ -198,7 +197,7 @@ pyb::array_t<double> ViewOf(pyb::object self, double* ptr, int n) {
 // --- Binding wrapper ------------------------------------------------------ //
 
 struct PyBinding {
-  const bridge::Binding* b = nullptr;
+  const ps::mjcf::Binding* b = nullptr;
   const mjModel* m = nullptr;
 
   // serial -> (objtype, id); built once from the binding entries.
@@ -345,18 +344,18 @@ pyb::list Validate(pyb::handle model, pyb::object tiers) {
 
 // --- Compile / recompile -------------------------------------------------- //
 
-bridge::CompileOptions MakeOptions(pyb::object base_dir) {
-  bridge::CompileOptions opts;
+ps::mjcf::CompileOptions MakeOptions(pyb::object base_dir) {
+  ps::mjcf::CompileOptions opts;
   if (!base_dir.is_none()) opts.base_dir = base_dir.cast<std::string>();
   return opts;
 }
 
-pyb::dict ReportToDict(const bridge::CompileReport& r) {
+pyb::dict ReportToDict(const ps::mjcf::CompileReport& r) {
   pyb::dict out;
   out["ok"] = r.ok();
   out["path_taken"] =
-      r.taken == bridge::CompilePath::XmlPath ? "xml"
-      : r.taken == bridge::CompilePath::NativePath ? "native" : "auto";
+      r.taken == ps::mjcf::CompilePath::XmlPath ? "xml"
+      : r.taken == ps::mjcf::CompilePath::NativePath ? "native" : "auto";
   pyb::list errs, warns;
   for (const auto& e : r.errors) errs.append(e.Render());
   for (const auto& w : r.warnings) warns.append(w.Render());
@@ -367,7 +366,7 @@ pyb::dict ReportToDict(const bridge::CompileReport& r) {
 
 std::unique_ptr<PyCompiled> Compile(pyb::object model, pyb::object base_dir) {
   ps::mjcf::Model& m = model.cast<ps::mjcf::Model&>();
-  bridge::Compiled c = bridge::Compile(m, MakeOptions(base_dir));
+  ps::mjcf::Compiled c = ps::mjcf::Compile(m, MakeOptions(base_dir));
   if (!c.ok()) {
     std::string msg;
     for (const auto& e : c.report.errors) {
@@ -385,10 +384,10 @@ std::unique_ptr<PyCompiled> Compile(pyb::object model, pyb::object base_dir) {
 std::unique_ptr<PyCompiled> Recompile(pyb::object model, PyCompiled& prev,
                                      bool keep_state, pyb::object base_dir) {
   ps::mjcf::Model& m = model.cast<ps::mjcf::Model&>();
-  bridge::CompileOptions opts = MakeOptions(base_dir);
+  ps::mjcf::CompileOptions opts = MakeOptions(base_dir);
   if (keep_state) {
     mjData* nd = nullptr;
-    bridge::Compiled c = bridge::Recompile(m, prev.c, prev.d, &nd, opts);
+    ps::mjcf::Compiled c = ps::mjcf::Recompile(m, prev.c, prev.d, &nd, opts);
     if (!c.ok()) throw pyb::value_error("recompile failed");
     if (!nd) nd = mj_makeData(c.model.get());
     mj_forward(c.model.get(), nd);

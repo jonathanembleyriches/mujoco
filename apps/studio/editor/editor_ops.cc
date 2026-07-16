@@ -25,7 +25,6 @@ namespace ps::studio {
 
 namespace io = ps::mjcf::io;
 namespace validate = ps::mjcf::validate;
-namespace bridge = ps::mjcf::bridge;
 namespace reflect = ps::mjcf::reflect;
 namespace mj = ps::mjcf;
 namespace sdk_detail = ps::sdk::detail;
@@ -67,9 +66,9 @@ std::optional<std::uint64_t> SerialForValidatePath(const mj::Model& tree,
 
 // Fold a bridge compile Diagnostic into a Diagnostics-panel entry: severity
 // mapped, the pass tag kept inline, SourceLoc carried through when known.
-static DiagEntry FromCompileDiagnostic(const bridge::Diagnostic& d) {
+static DiagEntry FromCompileDiagnostic(const mj::Diagnostic& d) {
   DiagEntry e;
-  e.severity = d.severity == bridge::Diagnostic::Severity::Error
+  e.severity = d.severity == mj::Diagnostic::Severity::Error
                    ? DiagEntry::Severity::Error
                    : DiagEntry::Severity::Warning;
   e.message = d.pass.empty() ? d.message : ("[" + d.pass + "] " + d.message);
@@ -79,13 +78,13 @@ static DiagEntry FromCompileDiagnostic(const bridge::Diagnostic& d) {
   return e;
 }
 
-static const char* CompilePathName(bridge::CompilePath p) {
+static const char* CompilePathName(mj::CompilePath p) {
   switch (p) {
-    case bridge::CompilePath::XmlPath:
+    case mj::CompilePath::XmlPath:
       return "xml";
-    case bridge::CompilePath::NativePath:
+    case mj::CompilePath::NativePath:
       return "native";
-    case bridge::CompilePath::Auto:
+    case mj::CompilePath::Auto:
       return "auto";
   }
   return "?";
@@ -95,8 +94,8 @@ static const char* CompilePathName(bridge::CompilePath p) {
 // on success. Shared by LoadModel and RecompileTree. Logs warnings/errors and
 // leaves the prior good artifact untouched on failure.
 static bool CompileCurrent(EditorContext& ctx, const char* what) {
-  bridge::CompileOptions opts;
-  opts.path = bridge::CompilePath::Auto;
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::Auto;
   if (!ctx.base_dir.empty()) {
     opts.base_dir = ctx.base_dir;
   }
@@ -104,13 +103,13 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
   // compile VFS on every recompile until Save externalizes them.
   opts.vfs_assets = ctx.vfs_assets;
 
-  bridge::Compiled compiled = bridge::Compile(*ctx.tree, opts);
-  for (const bridge::Diagnostic& w : compiled.report.warnings) {
+  mj::Compiled compiled = mj::Compile(*ctx.tree, opts);
+  for (const mj::Diagnostic& w : compiled.report.warnings) {
     ctx.Diagnose(FromCompileDiagnostic(w));
   }
   if (!compiled.ok()) {
     ctx.Log(std::string(what) + " FAILED:");
-    for (const bridge::Diagnostic& e : compiled.report.errors) {
+    for (const mj::Diagnostic& e : compiled.report.errors) {
       ctx.Diagnose(FromCompileDiagnostic(e));
     }
     ctx.status_line = std::string(what) + " failed (last good model kept)";
@@ -170,7 +169,7 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
 
   // Adopt the tree first so CompileCurrent can use the recorded base_dir.
   std::unique_ptr<mj::Model> prev_tree = std::move(ctx.tree);
-  bridge::Compiled prev_compiled = std::move(ctx.compiled);
+  mj::Compiled prev_compiled = std::move(ctx.compiled);
   ctx.tree = std::move(parsed.model);
   ctx.base_dir = parent.empty() ? std::string() : parent.string();
   ctx.dirty = false;
@@ -231,7 +230,7 @@ bool SaveModel(EditorContext& ctx, const std::string& path) {
 
 PickResolution ResolvePick(EditorContext& ctx, int geom_id, int body_id) {
   PickResolution r;
-  const bridge::Binding& b = ctx.compiled.binding;
+  const mj::Binding& b = ctx.compiled.binding;
 
   const mj::Geom* g = geom_id >= 0 ? b.GeomAt(geom_id) : nullptr;
   if (g) {

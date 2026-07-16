@@ -7,15 +7,14 @@
 namespace ps::studio {
 
 namespace mj = ps::mjcf;
-namespace bridge = ps::mjcf::bridge;
 
 // The compiled body id that owns the selected element, or -1. Bodies map to
 // themselves; a joint/geom/site/camera/light maps to its parent body.
 static int BodyOfSelection(const mjModel* m,
-                           const bridge::Binding& binding,
+                           const mj::Binding& binding,
                            std::uint64_t selected_serial) {
   if (selected_serial == 0) return -1;
-  for (const bridge::Binding::Entry& e : binding.entries()) {
+  for (const mj::Binding::Entry& e : binding.entries()) {
     if (e.serial != selected_serial || e.id < 0) continue;
     switch (e.etype) {
       case mj::ElementType::Body:
@@ -39,8 +38,8 @@ static int BodyOfSelection(const mjModel* m,
 }
 
 // The tree serial bound to compiled joint id `jid`, or 0.
-static std::uint64_t SerialOfJoint(const bridge::Binding& binding, int jid) {
-  for (const bridge::Binding::Entry& e : binding.entries()) {
+static std::uint64_t SerialOfJoint(const mj::Binding& binding, int jid) {
+  for (const mj::Binding::Entry& e : binding.entries()) {
     if (e.id == jid && (e.etype == mj::ElementType::Joint ||
                         e.etype == mj::ElementType::FreeJoint)) {
       return e.serial;
@@ -50,7 +49,7 @@ static std::uint64_t SerialOfJoint(const bridge::Binding& binding, int jid) {
 }
 
 std::vector<JointVis> CollectJointVis(const mjModel* m, const mjData* d,
-                                      const bridge::Binding& binding,
+                                      const mj::Binding& binding,
                                       std::uint64_t selected_serial,
                                       bool show_all) {
   std::vector<JointVis> out;

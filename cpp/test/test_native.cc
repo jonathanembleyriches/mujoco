@@ -31,10 +31,10 @@
 #include "visit.h"
 
 using namespace ps::mjcf;
-using ps::mjcf::bridge::Compile;
-using ps::mjcf::bridge::CompileOptions;
-using ps::mjcf::bridge::CompilePath;
-using ps::mjcf::bridge::Compiled;
+using ps::mjcf::Compile;
+using ps::mjcf::CompileOptions;
+using ps::mjcf::CompilePath;
+using ps::mjcf::Compiled;
 
 static int g_failed = 0;
 static int g_checks = 0;
@@ -909,7 +909,7 @@ static void CheckFlexcompBitIdentical(const char* label, const char* xml) {
   if (!model) { CHECK(false); return; }
   CompileOptions native;
   native.path = CompilePath::NativePath;
-  std::vector<bridge::Diagnostic> diags;
+  std::vector<ps::mjcf::Diagnostic> diags;
   mjModel* nat = compile::BuildNativeModel(*model, native, diags);
   Compiled xmlc = Compile(*model, [] {
     CompileOptions o;

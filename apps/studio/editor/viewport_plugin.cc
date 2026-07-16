@@ -29,7 +29,6 @@
 namespace ps::studio {
 namespace {
 
-namespace bridge = ps::mjcf::bridge;
 namespace mj = ps::mjcf;
 
 // Everything the viewport plugin cluster shares: the editor context, the gizmo,
@@ -264,9 +263,9 @@ void DrawDropMenu(ViewportEditor* ve) {
 
 // World position of the element bound to `serial`, from the compiled data.
 bool WorldPosOfSerial(const mjModel* m, const mjData* d,
-                      const bridge::Binding& binding, std::uint64_t serial,
+                      const mj::Binding& binding, std::uint64_t serial,
                       double out[3]) {
-  for (const bridge::Binding::Entry& e : binding.entries()) {
+  for (const mj::Binding::Entry& e : binding.entries()) {
     if (e.serial != serial || e.id < 0) continue;
     const double* src = nullptr;
     switch (e.etype) {
@@ -471,10 +470,10 @@ void OnOverlay(OverlayPlugin* self, const mjModel* m, const mjData* d,
   if (!ctx->tree || ctx->compiled.model.get() != m) return;
   DrawJointOverlays(ctx, m, d, s);
   if (ctx->selected_serial == 0) return;
-  const bridge::Binding& b = ctx->compiled.binding;
+  const mj::Binding& b = ctx->compiled.binding;
   const float rgba[4] = {1.0f, 0.85f, 0.1f, 1.0f};
 
-  for (const bridge::Binding::Entry& e : b.entries()) {
+  for (const mj::Binding::Entry& e : b.entries()) {
     if (e.serial != ctx->selected_serial || e.id < 0) continue;
     if (e.etype == mj::ElementType::Geom) {
       const int gid = e.id;

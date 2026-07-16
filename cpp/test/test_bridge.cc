@@ -22,12 +22,12 @@
 #include "visit.h"
 
 using namespace ps::mjcf;
-using ps::mjcf::bridge::Binding;
-using ps::mjcf::bridge::Compile;
-using ps::mjcf::bridge::CompileOptions;
-using ps::mjcf::bridge::CompilePath;
-using ps::mjcf::bridge::Compiled;
-using ps::mjcf::bridge::Recompile;
+using ps::mjcf::Binding;
+using ps::mjcf::Compile;
+using ps::mjcf::CompileOptions;
+using ps::mjcf::CompilePath;
+using ps::mjcf::Compiled;
+using ps::mjcf::Recompile;
 
 static int g_failed = 0;
 static int g_checks = 0;
@@ -322,12 +322,206 @@ static void TestRecompileStateMigration() {
   mj_deleteData(d0);
 }
 
+// First element of type T directly under any container with a `subtree` (Body
+// or Frame); the generated union subtree holds Body/Geom/Site/... nodes.
+template <class T, class P>
+static const T* FirstIn(const P& parent) {
+  for (const auto& item : parent.subtree)
+    if (auto* p = std::get_if<std::unique_ptr<T>>(&item.node)) return p->get();
+  return nullptr;
+}
+
+// --- Pose-patch: move a compiled element without recompiling -------------- //
+
+// DR-S6 correctness proof at the library level. A mesh geom's compiled pose
+// bakes the mesh recentering frame B into geom_pos. Capturing the PosePatch and
+// re-applying A ∘ L_new ∘ B (never inverting B) must move geom_xpos by exactly
+// the intended local delta -- the read-back-and-invert approach corrupts this.
+static void TestPosePatchMeshGeom() {
+  // A tetrahedron whose vertices are NOT centred on the origin, so MuJoCo
+  // recenters it: mesh_pos/mesh_quat (folded into geom_pos) are non-identity.
+  static const char* kMesh =
+      "<mujoco>\n"
+      "  <asset>\n"
+      "    <mesh name='tet' vertex='0 0 0  2 0 0  0 2 0  0 0 2'/>\n"
+      "  </asset>\n"
+      "  <worldbody>\n"
+      "    <body name='b'>\n"
+      "      <geom name='g' type='mesh' mesh='tet' pos='0.3 0 0'"
+      " quat='0.9238795 0 0 0.3826834'/>\n"
+      "    </body>\n"
+      "  </worldbody>\n"
+      "</mujoco>";
+  auto model = ParseOrDie(kMesh);
+  CHECK(model != nullptr);
+  if (!model) return;
+  Compiled c = Compile(*model);
+  CHECK(c.ok());
+  if (!c.ok()) {
+    for (const auto& e : c.report.errors) std::printf("  %s\n", e.Render().c_str());
+    return;
+  }
+  mjModel* m = c.model.get();
+
+  const Body* b = FirstOf<Body>(*World(*model));
+  const Geom* g = b ? FirstIn<Geom>(*b) : nullptr;
+  CHECK(g != nullptr);
+  if (!g) return;
+
+  auto pp = c.binding.PosePatchFor(*g);
+  CHECK(pp.has_value());
+  if (!pp) return;
+  CHECK(pp->objtype == mjOBJ_GEOM);
+  // The mesh recentering really is baked in (otherwise the proof is vacuous):
+  // the suffix B is non-identity.
+  const double bnorm = std::sqrt(pp->suffix.pos[0] * pp->suffix.pos[0] +
+                                 pp->suffix.pos[1] * pp->suffix.pos[1] +
+                                 pp->suffix.pos[2] * pp->suffix.pos[2]);
+  CHECK(bnorm > 1e-2);
+
+  const int gid = *c.binding.Id(*g);
+  mjData* d = mj_makeData(m);
+  mj_kinematics(m, d);
+  double x0[3] = {d->geom_xpos[3 * gid], d->geom_xpos[3 * gid + 1],
+                  d->geom_xpos[3 * gid + 2]};
+
+  // L_new = the authored local pose, translated by delta (same orientation).
+  const double delta[3] = {0.1, -0.2, 0.05};
+  RigidPose L_new;
+  for (int i = 0; i < 3; ++i) L_new.pos[i] = (*g->pos)[i] + delta[i];
+  for (int i = 0; i < 4; ++i) L_new.quat[i] = (*g->quat)[i];
+
+  CHECK(ApplyPosePatch(m, *pp, L_new));
+  mj_kinematics(m, d);
+  // geom_xpos moved by EXACTLY the local delta (body/frame identity): B was
+  // re-applied, not inverted, so the mesh recentering term cancels in the delta.
+  for (int i = 0; i < 3; ++i)
+    CHECK(Near(d->geom_xpos[3 * gid + i] - x0[i], delta[i]));
+  mj_deleteData(d);
+}
+
+// Free-jointed body: the rest pose at qpos0 is driven by qpos, so ApplyPosePatch
+// must reseed qpos0 (reseed_width 7) for the patch to move the body.
+static void TestPosePatchFreeBody() {
+  static const char* kFree =
+      "<mujoco>\n"
+      "  <worldbody>\n"
+      "    <body name='fb' pos='0 0 1'>\n"
+      "      <freejoint/>\n"
+      "      <geom name='fg' type='box' size='0.1 0.1 0.1'/>\n"
+      "    </body>\n"
+      "  </worldbody>\n"
+      "</mujoco>";
+  auto model = ParseOrDie(kFree);
+  CHECK(model != nullptr);
+  if (!model) return;
+  Compiled c = Compile(*model);
+  CHECK(c.ok());
+  if (!c.ok()) return;
+  mjModel* m = c.model.get();
+
+  const Body* fb = FirstOf<Body>(*World(*model));
+  const Geom* fg = fb ? FirstIn<Geom>(*fb) : nullptr;
+  CHECK(fb && fg);
+  if (!fb || !fg) return;
+
+  auto pp = c.binding.PosePatchFor(*fb);
+  CHECK(pp.has_value());
+  if (!pp) return;
+  CHECK(pp->objtype == mjOBJ_BODY);
+  CHECK(pp->reseed_width == 7 && pp->reseed_qposadr >= 0);  // free-joint reseed
+
+  const int gid = *c.binding.Id(*fg);
+  mjData* d = mj_makeData(m);
+  mj_resetData(m, d);
+  mj_kinematics(m, d);
+  double x0[3] = {d->geom_xpos[3 * gid], d->geom_xpos[3 * gid + 1],
+                  d->geom_xpos[3 * gid + 2]};
+
+  const double delta[3] = {0.4, -0.3, 0.2};
+  RigidPose L_new;  // body authored pos + delta, identity orientation
+  for (int i = 0; i < 3; ++i) L_new.pos[i] = (*fb->pos)[i] + delta[i];
+
+  CHECK(ApplyPosePatch(m, *pp, L_new));
+  mj_resetData(m, d);  // qpos <- reseeded qpos0
+  mj_kinematics(m, d);
+  for (int i = 0; i < 3; ++i)
+    CHECK(Near(d->geom_xpos[3 * gid + i] - x0[i], delta[i]));
+  mj_deleteData(d);
+}
+
+// Frame-nested geom: the enclosing <frame> is flattened into geom_pos as the
+// prefix A. PosePatchFor must reconstruct A from the tree, and ApplyPosePatch
+// must re-compose it, so a local edit maps through the frame.
+static void TestPosePatchFrameNested() {
+  static const char* kFrame =
+      "<mujoco>\n"
+      "  <worldbody>\n"
+      "    <body name='fb2'>\n"
+      "      <frame pos='0.5 0 0' quat='0.7071068 0 0 0.7071068'>\n"
+      "        <geom name='fg2' type='box' size='0.1 0.1 0.1' pos='0.2 0 0'/>\n"
+      "      </frame>\n"
+      "    </body>\n"
+      "  </worldbody>\n"
+      "</mujoco>";
+  auto model = ParseOrDie(kFrame);
+  CHECK(model != nullptr);
+  if (!model) return;
+  Compiled c = Compile(*model);
+  CHECK(c.ok());
+  if (!c.ok()) return;
+  mjModel* m = c.model.get();
+
+  const Body* fb2 = FirstOf<Body>(*World(*model));
+  const Frame* frame = fb2 ? FirstIn<Frame>(*fb2) : nullptr;
+  const Geom* g = frame ? FirstIn<Geom>(*frame) : nullptr;
+  CHECK(fb2 && frame && g);
+  if (!g || !frame) return;
+
+  auto pp = c.binding.PosePatchFor(*g);
+  CHECK(pp.has_value());
+  if (!pp) return;
+  // The prefix A equals the authored frame pose (reconstructed from the tree).
+  for (int i = 0; i < 3; ++i) CHECK(Near(pp->prefix.pos[i], (*frame->pos)[i]));
+  for (int i = 0; i < 4; ++i) CHECK(Near(pp->prefix.quat[i], (*frame->quat)[i]));
+
+  const int gid = *c.binding.Id(*g);
+  mjData* d = mj_makeData(m);
+  mj_kinematics(m, d);
+  double x0[3] = {d->geom_xpos[3 * gid], d->geom_xpos[3 * gid + 1],
+                  d->geom_xpos[3 * gid + 2]};
+
+  const double delta[3] = {0.15, 0.0, 0.0};
+  RigidPose L_new;
+  for (int i = 0; i < 3; ++i) L_new.pos[i] = (*g->pos)[i] + delta[i];
+  for (int i = 0; i < 4; ++i)
+    L_new.quat[i] = g->quat ? (*g->quat)[i] : (i == 0 ? 1.0 : 0.0);
+
+  CHECK(ApplyPosePatch(m, *pp, L_new));
+  mj_kinematics(m, d);
+  // geom_xpos matches A ∘ L_new ∘ B composed independently (body at identity).
+  RigidPose expect = Compose(Compose(pp->prefix, L_new), pp->suffix);
+  std::printf("DBG frame: A.pos=%g %g %g A.q=%g %g %g %g\n", pp->prefix.pos[0],pp->prefix.pos[1],pp->prefix.pos[2], pp->prefix.quat[0],pp->prefix.quat[1],pp->prefix.quat[2],pp->prefix.quat[3]);
+  std::printf("DBG frame: B.pos=%g %g %g B.q=%g %g %g %g\n", pp->suffix.pos[0],pp->suffix.pos[1],pp->suffix.pos[2], pp->suffix.quat[0],pp->suffix.quat[1],pp->suffix.quat[2],pp->suffix.quat[3]);
+  std::printf("DBG frame: gid=%d geom_pos=%g %g %g  geom_xpos=%g %g %g  expect=%g %g %g  x0=%g %g %g\n", gid, m->geom_pos[3*gid],m->geom_pos[3*gid+1],m->geom_pos[3*gid+2], d->geom_xpos[3*gid],d->geom_xpos[3*gid+1],d->geom_xpos[3*gid+2], expect.pos[0],expect.pos[1],expect.pos[2], x0[0],x0[1],x0[2]);
+  std::printf("DBG frame: geom_sameframe=%d geom_bodyid=%d nbody=%d body_sameframe=%d\n", m->geom_sameframe[gid], m->geom_bodyid[gid], m->nbody, m->body_sameframe[m->geom_bodyid[gid]]);
+  mj_forward(m, d);
+  std::printf("DBG frame after mj_forward: geom_xpos=%g %g %g\n", d->geom_xpos[3*gid],d->geom_xpos[3*gid+1],d->geom_xpos[3*gid+2]);
+  for (int i = 0; i < 3; ++i) CHECK(Near(d->geom_xpos[3 * gid + i], expect.pos[i]));
+  // A 90deg-Z frame maps a +x local delta to a +y world move (A is in play).
+  CHECK(Near(d->geom_xpos[3 * gid + 1] - x0[1], delta[0]));
+  mj_deleteData(d);
+}
+
 int main() {
   TestCompileStepAndBinding();
   TestAutoNaming();
   TestPurityGate();
   TestNativePathRejected();
   TestRecompileStateMigration();
+  TestPosePatchMeshGeom();
+  TestPosePatchFreeBody();
+  TestPosePatchFrameNested();
 
   std::printf("%d checks, %d failed\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

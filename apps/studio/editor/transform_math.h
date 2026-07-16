@@ -106,7 +106,7 @@ struct DragFrame {
 // qpos0) and the authored frame chain, and L_authored from the tree (Effective
 // for class-inherited pos/orient). `data` must be reset to qpos0 and forwarded.
 DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
-                         const mj::bridge::Binding& binding, mj::Model& tree,
+                         const mj::Binding& binding, mj::Model& tree,
                          std::uint64_t serial);
 
 // Apply a cumulative world-space translation `world_delta` (since grab) onto the
@@ -183,7 +183,7 @@ struct JointDragFrame {
   double world_axis[3] = {0, 0, 1};     // P.quat . axis (unit, for drawing)
 };
 JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
-                                   const mj::bridge::Binding& binding,
+                                   const mj::Binding& binding,
                                    mj::Model& tree, std::uint64_t serial);
 
 // Move the joint's authored anchor by a cumulative world-space translation.

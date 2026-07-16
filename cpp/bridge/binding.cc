@@ -12,7 +12,7 @@
 
 #include "reflect.h"
 
-namespace ps::mjcf::bridge {
+namespace ps::mjcf {
 namespace {
 
 // Structural (non-union) families: element type -> mjtObj. Union members are
@@ -271,4 +271,4 @@ std::vector<int> Binding::Find(int objtype, std::string_view glob) const {
   return out;
 }
 
-}  // namespace ps::mjcf::bridge
+}  // namespace ps::mjcf

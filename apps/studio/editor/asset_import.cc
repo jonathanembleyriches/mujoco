@@ -24,7 +24,6 @@ namespace ps::studio {
 
 namespace mj = ps::mjcf;
 namespace sdk = ps::sdk;
-namespace bridge = ps::mjcf::bridge;
 namespace fs = std::filesystem;
 
 namespace {
@@ -97,7 +96,7 @@ OneMeshResult AddOneMesh(EditorContext& ctx, mj::Model& tree,
     }
   } else {
     // Unsaved model: register the bytes in the compile VFS (basename-matched).
-    ctx.vfs_assets.push_back(bridge::VfsAsset{basename, std::move(bytes)});
+    ctx.vfs_assets.push_back(mj::VfsAsset{basename, std::move(bytes)});
     r.vfs = true;
   }
 
@@ -242,7 +241,7 @@ void ExternalizeVfsAssets(EditorContext& ctx, const std::string& xml_path) {
   }
   std::error_code ec;
   fs::create_directories(destdir, ec);
-  for (const bridge::VfsAsset& a : ctx.vfs_assets) {
+  for (const mj::VfsAsset& a : ctx.vfs_assets) {
     const fs::path dest = destdir / a.name;
     std::ofstream out(dest, std::ios::binary);
     if (out) {

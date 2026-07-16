@@ -40,7 +40,7 @@ struct JointVis {
 // joint/geom/site/camera/light). `selected_serial` marks the highlighted joint.
 // Empty when nothing relevant is selected and `show_all` is false.
 std::vector<JointVis> CollectJointVis(const mjModel* m, const mjData* d,
-                                      const ps::mjcf::bridge::Binding& binding,
+                                      const ps::mjcf::Binding& binding,
                                       std::uint64_t selected_serial,
                                       bool show_all);
 

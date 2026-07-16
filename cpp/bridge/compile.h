@@ -30,7 +30,7 @@ typedef struct mjModel_ mjModel;
 struct mjData_;
 typedef struct mjData_ mjData;
 
-namespace ps::mjcf::bridge {
+namespace ps::mjcf {
 
 // An in-memory asset injected into the compile VFS (mesh/texture/hfield bytes).
 // `name` is matched by MuJoCo case-insensitively on its basename, so it should
@@ -108,6 +108,6 @@ std::string CompileToXml(const Model& m, const CompileOptions& opts = {});
 Compiled Recompile(const Model& m, const Compiled& prev, const mjData* d,
                    mjData** out_data, const CompileOptions& opts = {});
 
-}  // namespace ps::mjcf::bridge
+}  // namespace ps::mjcf
 
 #endif  // PROTOSPEC_BRIDGE_COMPILE_H

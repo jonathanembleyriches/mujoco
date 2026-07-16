@@ -53,8 +53,8 @@ std::string JsonEscape(const std::string& s) {
   return o;
 }
 
-std::string PathName(ps::mjcf::bridge::CompilePath p) {
-  using P = ps::mjcf::bridge::CompilePath;
+std::string PathName(ps::mjcf::CompilePath p) {
+  using P = ps::mjcf::CompilePath;
   switch (p) {
     case P::Auto: return "auto";
     case P::XmlPath: return "xml";
@@ -100,17 +100,16 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  namespace bridge = ps::mjcf::bridge;
 
-  bridge::CompileOptions opt_xml;
-  opt_xml.path = bridge::CompilePath::XmlPath;
+  ps::mjcf::CompileOptions opt_xml;
+  opt_xml.path = ps::mjcf::CompilePath::XmlPath;
   opt_xml.base_dir = base_dir;
-  bridge::Compiled leg_b = bridge::Compile(*parsed.model, opt_xml);
+  ps::mjcf::Compiled leg_b = ps::mjcf::Compile(*parsed.model, opt_xml);
 
-  bridge::CompileOptions opt_native;
-  opt_native.path = bridge::CompilePath::NativePath;
+  ps::mjcf::CompileOptions opt_native;
+  opt_native.path = ps::mjcf::CompilePath::NativePath;
   opt_native.base_dir = base_dir;
-  bridge::Compiled leg_c = bridge::Compile(*parsed.model, opt_native);
+  ps::mjcf::Compiled leg_c = ps::mjcf::Compile(*parsed.model, opt_native);
 
   const bool xml_ok = leg_b.model != nullptr && leg_b.report.ok();
   const bool native_supported = leg_c.model != nullptr && leg_c.report.ok();

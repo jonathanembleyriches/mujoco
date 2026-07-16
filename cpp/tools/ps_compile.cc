@@ -43,8 +43,8 @@ std::string JsonEscape(const std::string& s) {
   return o;
 }
 
-std::string PathName(ps::mjcf::bridge::CompilePath p) {
-  using P = ps::mjcf::bridge::CompilePath;
+std::string PathName(ps::mjcf::CompilePath p) {
+  using P = ps::mjcf::CompilePath;
   switch (p) {
     case P::Auto: return "auto";
     case P::XmlPath: return "xml";
@@ -103,17 +103,17 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  ps::mjcf::bridge::CompileOptions opts;
+  ps::mjcf::CompileOptions opts;
   opts.base_dir = base_dir;
 
   if (emit_xml) {
-    std::string xml = ps::mjcf::bridge::CompileToXml(*parsed.model, opts);
+    std::string xml = ps::mjcf::CompileToXml(*parsed.model, opts);
     std::fwrite(xml.data(), 1, xml.size(), stdout);
     return 0;
   }
 
-  ps::mjcf::bridge::Compiled c =
-      ps::mjcf::bridge::Compile(*parsed.model, opts);
+  ps::mjcf::Compiled c =
+      ps::mjcf::Compile(*parsed.model, opts);
 
   // Binding coverage + id cross-check.
   int bindable_total = 0, bound = 0, authored_total = 0, authored_bound = 0;

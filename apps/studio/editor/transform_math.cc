@@ -182,7 +182,7 @@ static Rigid BodyWorldPose(const mjData* data, int body_id) {
 // and the element (outermost frame first). Frames are absent from mjModel, so
 // their poses come from the tree.
 static Rigid ComputeParentPose(const mjData* data,
-                               const mj::bridge::Binding& binding,
+                               const mj::Binding& binding,
                                const sdk::ParentMap& pm, const OrientContext& oc,
                                const void* elem_ptr) {
   std::vector<const mj::Frame*> frames;  // innermost first
@@ -281,7 +281,7 @@ static bool EffectiveFromTo(mj::Model& tree, E& e, double from[3],
 
 template <class E>
 static DragFrame BuildFor(mj::Model& tree, const mjData* data,
-                          const mj::bridge::Binding& binding,
+                          const mj::Binding& binding,
                           const sdk::ParentMap& pm, const OrientContext& oc,
                           E& e) {
   DragFrame f;
@@ -311,7 +311,7 @@ static DragFrame BuildFor(mj::Model& tree, const mjData* data,
 }
 
 DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
-                         const mj::bridge::Binding& binding, mj::Model& tree,
+                         const mj::Binding& binding, mj::Model& tree,
                          std::uint64_t serial) {
   (void)model;
   DragFrame f;
@@ -651,7 +651,7 @@ bool IsJointSerial(mj::Model& tree, std::uint64_t serial) {
 }
 
 JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
-                                   const mj::bridge::Binding& binding,
+                                   const mj::Binding& binding,
                                    mj::Model& tree, std::uint64_t serial) {
   (void)model;
   JointDragFrame f;

@@ -179,10 +179,9 @@ static void TestPickResolvesToElement(EditorContext& ctx) {
   if (!ctx.model_ready || !ctx.compiled.model) {
     return;  // humanoid not loaded (corpus absent)
   }
-  namespace bridge = ps::mjcf::bridge;
 
   int geoms_checked = 0;
-  for (const bridge::Binding::Entry& e : ctx.compiled.binding.entries()) {
+  for (const mj::Binding::Entry& e : ctx.compiled.binding.entries()) {
     if (e.etype != ps::mjcf::ElementType::Geom || e.id < 0) {
       continue;
     }
@@ -199,7 +198,7 @@ static void TestPickResolvesToElement(EditorContext& ctx) {
   CHECK(geoms_checked > 0);
 
   // A body id resolves as a Body.
-  for (const bridge::Binding::Entry& e : ctx.compiled.binding.entries()) {
+  for (const mj::Binding::Entry& e : ctx.compiled.binding.entries()) {
     if (e.etype != ps::mjcf::ElementType::Body || e.id < 0) {
       continue;
     }

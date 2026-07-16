@@ -17,7 +17,7 @@
 #include <string_view>
 #include <vector>
 
-#include "compile.h"  // ps::mjcf::bridge::Compiled, ps::mjcf::bridge::VfsAsset
+#include "compile.h"  // ps::mjcf::Compiled, ps::mjcf::VfsAsset
 #include "editor/undo.h"
 #include "types.h"    // ps::Model
 
@@ -205,7 +205,7 @@ struct EditorContext {
   // The authored ProtoSpec tree (the single source of truth) and its last good
   // compiled artifact (owns mjModel + Binding + report).
   std::unique_ptr<ps::mjcf::Model> tree;
-  ps::mjcf::bridge::Compiled compiled;
+  ps::mjcf::Compiled compiled;
 
   // Deferred load slot, fed by the host (CLI arg / drag-drop).
   PendingLoad pending;
@@ -216,7 +216,7 @@ struct EditorContext {
   // In-memory assets (mesh/texture bytes) for models with no file on disk yet:
   // injected into every compile via CompileOptions.vfs_assets, and externalized
   // to disk on Save (asset_import.*). Cleared once written out.
-  std::vector<ps::mjcf::bridge::VfsAsset> vfs_assets;
+  std::vector<ps::mjcf::VfsAsset> vfs_assets;
 
   bool model_ready = false;  // a compiled model is available for the host
   bool fresh_load = false;   // one-shot: the last adopt was a file load, not a

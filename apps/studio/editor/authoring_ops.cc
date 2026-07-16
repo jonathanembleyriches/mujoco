@@ -32,7 +32,6 @@ namespace ps::studio {
 namespace mj = ps::mjcf;
 namespace sdk = ps::sdk;
 namespace sdk_detail = ps::sdk::detail;
-namespace bridge = ps::mjcf::bridge;
 namespace reflect = ps::mjcf::reflect;
 
 namespace {
@@ -947,7 +946,7 @@ std::unique_ptr<mj::Model> NewStarterModel() {
 
 bool NewModelOp(EditorContext& ctx) {
   std::unique_ptr<mj::Model> prev_tree = std::move(ctx.tree);
-  bridge::Compiled prev = std::move(ctx.compiled);
+  mj::Compiled prev = std::move(ctx.compiled);
   ctx.tree = NewStarterModel();
   ctx.base_dir.clear();
   ctx.vfs_assets.clear();

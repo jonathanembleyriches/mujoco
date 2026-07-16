@@ -666,6 +666,174 @@ static void TestSaveAsExternalizesAssets() {
   CHECK(fs::exists(out2));
 }
 
+// --- runtime-typed (pointer-keyed) rename / delete ------------------------ //
+static void TestRuntimeRenameDelete() {
+  // Rename keyed on a type-erased element pointer follows referrers just like
+  // the static-typed template, without instantiating it per element type.
+  {
+    auto m = BuildRobot();
+    Joint* hip = sdk::Find<Joint>(*m, "hip");
+    const void* p = hip;
+    int updated = sdk::Rename(*m, p, "hip2");
+    CHECK(updated == 2);  // act_hip + sens_hip followed
+    CHECK(hip->name.value() == "hip2");
+    CHECK(sdk::Find<Joint>(*m, "hip") == nullptr);
+    Position* act = sdk::Find<Position>(*m, "act_hip");
+    CHECK(act && act->joint->name == "hip2");
+    CHECK(sdk::Rename(*m, p, "hip2") == 0);  // same name: no-op
+    int not_in_model = 0;
+    CHECK(sdk::Rename(*m, &not_in_model, "x") == -1);  // unknown pointer
+  }
+
+  // DeleteSubtree reports dangling referrers and (with cascade) clears them.
+  {
+    auto m = BuildRobot();
+    Body* thigh = sdk::Find<Body>(*m, "thigh");
+    auto rep = sdk::DeleteSubtree(*m, static_cast<const void*>(thigh),
+                                  /*cascade=*/false);
+    CHECK(rep.removed && !rep.cascaded);
+    CHECK(rep.dangling.size() == 4);  // act_hip/knee + sens_hip/knee
+    CHECK(sdk::Find<Body>(*m, "thigh") == nullptr);
+    CHECK(sdk::Find<Joint>(*m, "knee") == nullptr);
+    Position* act = sdk::Find<Position>(*m, "act_hip");
+    CHECK(act && act->joint.has_value());  // not cascaded: still dangling
+
+    int not_in_model = 0;
+    auto rep2 = sdk::DeleteSubtree(*m, &not_in_model, false);
+    CHECK(!rep2.removed && rep2.dangling.empty());
+  }
+  {
+    auto m = BuildRobot();
+    Body* thigh = sdk::Find<Body>(*m, "thigh");
+    auto rep = sdk::DeleteSubtree(*m, static_cast<const void*>(thigh),
+                                  /*cascade=*/true);
+    CHECK(rep.removed && rep.cascaded && rep.dangling.size() == 4);
+    Position* act = sdk::Find<Position>(*m, "act_hip");
+    CHECK(act && !act->joint.has_value());  // cascade cleared the transmission
+    CHECK(sdk::FindReferrers(*m, "hip", ElementType::Joint).empty());
+  }
+}
+
+// --- Duplicate: deep clone as next sibling, re-uniqued + ref-remapped ------ //
+static void TestDuplicate() {
+  auto m = BuildRobot();
+  Body* thigh = sdk::Find<Body>(*m, "thigh");
+  CHECK(thigh != nullptr);
+  const std::uint64_t thigh_serial = thigh->serial;
+
+  auto* clone = static_cast<Body*>(sdk::Duplicate(*m, thigh));
+  CHECK(clone != nullptr);
+  CHECK(clone->serial != thigh_serial);  // fresh serials (generated Clone)
+
+  // The clone is the immediate next sibling of the original in the torso subtree.
+  Body* torso = sdk::Find<Body>(*m, "torso");
+  std::size_t bodies = 0, clone_idx = 0, thigh_idx = 0, idx = 0;
+  for (auto& item : torso->subtree) {
+    if (auto* p = std::get_if<std::unique_ptr<Body>>(&item.node)) {
+      if (p->get() == thigh) thigh_idx = idx;
+      if (p->get() == clone) clone_idx = idx;
+      ++bodies;
+    }
+    ++idx;
+  }
+  CHECK(bodies == 2);                    // thigh + its clone
+  CHECK(clone_idx == thigh_idx + 1);     // clone directly follows the original
+
+  // Names inside the clone are re-uniqued (the whole subtree), the originals kept.
+  CHECK(sdk::Find<Body>(*m, "thigh") == thigh);
+  CHECK(sdk::Find<Body>(*m, "thigh_1") == clone);
+  CHECK(sdk::Find<Joint>(*m, "hip") != nullptr);
+  CHECK(sdk::Find<Joint>(*m, "hip_1") != nullptr);   // cloned hip re-uniqued
+  CHECK(sdk::Find<Body>(*m, "shin_1") != nullptr);   // nested body re-uniqued
+  CHECK(sdk::Find<Geom>(*m, "shin_geom_1") != nullptr);
+
+  // A reference INTERNAL to the clone is remapped to the clone's new name;
+  // a reference OUT of the clone is preserved. The thigh_geom -> "steel"
+  // material ref points outside the clone, so the clone still names "steel".
+  Geom* clone_geom = sdk::Find<Geom>(*m, "thigh_geom_1");
+  CHECK(clone_geom && clone_geom->material.has_value() &&
+        clone_geom->material->name == "steel");  // external ref preserved
+
+  // Original actuators/sensors still name the ORIGINAL joints (refs outside the
+  // clone were not touched, and the clone's joints got fresh names).
+  Position* act = sdk::Find<Position>(*m, "act_hip");
+  CHECK(act && act->joint->name == "hip");
+
+  CHECK(sdk::Duplicate(*m, nullptr) == nullptr);  // unknown pointer
+}
+
+// --- Duplicate remaps an intra-subtree reference to the clone's new name --- //
+static void TestDuplicateInternalRef() {
+  auto m = std::make_unique<Model>();
+  m->model = "dup";
+  Body& world = sdk::World(*m);
+  Body& rig = sdk::AddBody(world, "rig");
+  Body& watched = sdk::AddBody(rig, "watched");
+  sdk::AddGeom(watched, GeomType::sphere, "ball");
+  Camera& eye = sdk::AddCamera(rig, "eye");
+  eye.target = ps::Ref<Body>("watched");  // internal: targets a body in the rig
+
+  auto* clone = static_cast<Body*>(sdk::Duplicate(*m, &rig));
+  CHECK(clone != nullptr);
+  CHECK(sdk::Find<Body>(*m, "rig_1") == clone);
+  Body* watched_1 = sdk::Find<Body>(*m, "watched_1");
+  Camera* eye_1 = sdk::Find<Camera>(*m, "eye_1");
+  CHECK(watched_1 != nullptr && eye_1 != nullptr);
+
+  // The clone's camera target was remapped to the clone's renamed body -- the
+  // reference is INTERNAL to the subtree, so it follows the re-unique.
+  CHECK(eye_1->target.has_value() && eye_1->target->name == "watched_1");
+  // The original camera still targets the original body (untouched).
+  CHECK(eye.target.has_value() && eye.target->name == "watched");
+
+  // Editing the clone does not touch the original (deep, independent copy).
+  clone->pos = std::array<double, 3>{1, 2, 3};
+  CHECK(!rig.pos.has_value());
+}
+
+// --- Reparent: pure-tree move, cycle/target rejection --------------------- //
+static void TestReparent() {
+  auto m = BuildRobot();
+  Body* torso = sdk::Find<Body>(*m, "torso");
+  Body* thigh = sdk::Find<Body>(*m, "thigh");
+  Body* shin = sdk::Find<Body>(*m, "shin");
+  CHECK(torso && thigh && shin);
+
+  // Move `shin` (currently under thigh) up to the world body.
+  Body& world = sdk::World(*m);
+  auto r = sdk::Reparent(*m, shin, &world);
+  CHECK(r.ok && r.reason.empty());
+  // shin is no longer under thigh; it is now a direct child of world.
+  bool shin_under_thigh = false, shin_under_world = false;
+  sdk::ForEachBody(*thigh, /*recursive=*/false,
+                   [&](Body& b) { if (&b == shin) shin_under_thigh = true; });
+  sdk::ForEachBody(world, /*recursive=*/false,
+                   [&](Body& b) { if (&b == shin) shin_under_world = true; });
+  CHECK(!shin_under_thigh);
+  CHECK(shin_under_world);
+  // Pure tree op: the moved element's authored local pose is left exactly as it
+  // was (no compile-aware world-pose fixup) -- shin authored no pos, still none.
+  CHECK(!shin->pos.has_value());
+
+  // Reject: reparent `torso` into its own descendant `thigh` (a cycle).
+  auto cyc = sdk::Reparent(*m, torso, thigh);
+  CHECK(!cyc.ok && !cyc.reason.empty());
+
+  // Reject: a non-body/frame target (a Geom is not a container).
+  Geom* g = sdk::Find<Geom>(*m, "thigh_geom");
+  auto bad = sdk::Reparent(*m, thigh, g);
+  CHECK(!bad.ok);
+
+  // Reject: an element that is not a body-context child (a model-level material).
+  Material* steel = sdk::Find<Material>(*m, "steel");
+  auto notmov = sdk::Reparent(*m, steel, &world);
+  CHECK(!notmov.ok);
+
+  // nullptr target == the world body: move thigh to world too.
+  auto r2 = sdk::Reparent(*m, thigh, nullptr);
+  CHECK(r2.ok);
+}
+
 int main() {
   TestBuilders();
   TestFixpoint();
@@ -675,6 +843,10 @@ int main() {
   TestResolveAndReferrers();
   TestRename();
   TestDelete();
+  TestRuntimeRenameDelete();
+  TestDuplicate();
+  TestDuplicateInternalRef();
+  TestReparent();
   TestEffectiveAndFlatten();
   TestExtractClass();
   TestMultiBlockDefaults();

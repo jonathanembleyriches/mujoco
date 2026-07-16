@@ -43,7 +43,6 @@
 #include "types.h"
 
 namespace mj = ps::mjcf;
-namespace bridge = ps::mjcf::bridge;
 namespace sdkd = ps::sdk::detail;
 using namespace ps::studio;
 
@@ -63,7 +62,7 @@ static int g_checks = 0;
 // A compiled snapshot of a tree (owns mjData at qpos0).
 // ------------------------------------------------------------------------- //
 struct Compiled {
-  bridge::Compiled c;
+  mj::Compiled c;
   mjData* d = nullptr;
   Compiled() = default;
   Compiled(const Compiled&) = delete;
@@ -86,10 +85,10 @@ struct Compiled {
 
 static Compiled CompileAt(mj::Model& tree, const std::string& base_dir) {
   Compiled out;
-  bridge::CompileOptions opts;
-  opts.path = bridge::CompilePath::Auto;
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::Auto;
   opts.base_dir = base_dir;
-  out.c = bridge::Compile(tree, opts);
+  out.c = mj::Compile(tree, opts);
   if (!out.c.ok()) return out;
   out.d = mj_makeData(out.c.model.get());
   mj_resetData(out.c.model.get(), out.d);
@@ -101,7 +100,7 @@ static Compiled CompileAt(mj::Model& tree, const std::string& base_dir) {
 // have one (body/geom/site/camera/light). Returns false when the serial has no
 // spatial compiled counterpart.
 static bool WorldPos(const Compiled& s, std::uint64_t serial, double out[3]) {
-  for (const bridge::Binding::Entry& e : s.c.binding.entries()) {
+  for (const mj::Binding::Entry& e : s.c.binding.entries()) {
     if (e.serial != serial || e.id < 0) continue;
     const mjData* d = s.d;
     switch (e.etype) {

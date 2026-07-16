@@ -209,10 +209,12 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
   add_library(protospec_bridge STATIC
     bridge/compile.cc
     bridge/binding.cc
+    bridge/pose.cc
   )
   target_include_directories(protospec_bridge
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/bridge
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/compile
+            ${CMAKE_CURRENT_SOURCE_DIR}/sdk
             ${MUJOCO_INCLUDE_DIR}
   )
   target_link_libraries(protospec_bridge PUBLIC protospec protospec_io protospec_compile

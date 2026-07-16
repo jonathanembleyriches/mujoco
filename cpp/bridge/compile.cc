@@ -19,7 +19,7 @@
 #include "reflect.h"
 #include "visit.h"
 
-namespace ps::mjcf::bridge {
+namespace ps::mjcf {
 
 void ModelDeleter::operator()(mjModel* m) const {
   if (m) mj_deleteModel(m);
@@ -483,4 +483,4 @@ Compiled Recompile(const Model& model, const Compiled& prev, const mjData* d,
   return next;
 }
 
-}  // namespace ps::mjcf::bridge
+}  // namespace ps::mjcf

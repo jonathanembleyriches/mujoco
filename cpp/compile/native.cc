@@ -1027,13 +1027,13 @@ void WalkToGraftNq(const std::vector<BodyChildAny>& sub, const void* graft,
 bool ImportChildKeyframes(const Model& child, const std::string& prefix,
                           const void* graft, Model& synth,
                           std::vector<KeyImport>& keyimports,
-                          std::vector<bridge::FallbackReason>& reasons,
+                          std::vector<ps::mjcf::FallbackReason>& reasons,
                           const ps::SourceLoc& loc) {
   for (const auto& kf : child.keyframes) {
     if (!kf) continue;
     for (const auto& k : kf->keys) {
       if (k && (k->qvel || k->act || k->ctrl || k->mpos || k->mquat)) {
-        bridge::FallbackReason r;
+        ps::mjcf::FallbackReason r;
         r.feature = "attach.keyframe_state";
         r.count = 1;
         r.first = loc;
@@ -1083,10 +1083,10 @@ const Model* LoadChild(
     const Attach& at, const std::string& base_dir,
     const std::unordered_map<std::string, const ModelAsset*>& modelassets,
     std::vector<std::unique_ptr<ps::mjcf::Model>>& store,
-    std::vector<bridge::FallbackReason>& reasons, const char*& why) {
+    std::vector<ps::mjcf::FallbackReason>& reasons, const char*& why) {
   auto fail = [&](const char* feature) -> const Model* {
     why = feature;
-    bridge::FallbackReason r;
+    ps::mjcf::FallbackReason r;
     r.feature = feature;
     r.count = 1;
     r.first = at.loc;
@@ -1119,9 +1119,9 @@ bool ExpandOneAttach(
     const std::unordered_map<std::string, const ModelAsset*>& modelassets,
     std::vector<std::unique_ptr<ps::mjcf::Model>>& store,
     std::vector<KeyImport>& keyimports,
-    std::vector<bridge::FallbackReason>& reasons) {
+    std::vector<ps::mjcf::FallbackReason>& reasons) {
   auto fail = [&](const char* feature) {
-    bridge::FallbackReason r;
+    ps::mjcf::FallbackReason r;
     r.feature = feature;
     r.count = 1;
     r.first = at.loc;
@@ -1191,7 +1191,7 @@ void ExpandAttachInSubtree(
     const std::unordered_map<std::string, const ModelAsset*>& modelassets,
     std::vector<std::unique_ptr<ps::mjcf::Model>>& store,
     std::vector<KeyImport>& keyimports,
-    std::vector<bridge::FallbackReason>& reasons) {
+    std::vector<ps::mjcf::FallbackReason>& reasons) {
   for (BodyChildAny& c : subtree) {
     switch (c.kind()) {
       case BodyChildAny::Kind::Body: {
@@ -1242,8 +1242,8 @@ bool ModelUsesAttach(const Model& m) {
 // the model authors no attach (caller compiles the original). Non-tractable
 // attaches populate `reasons`; the caller falls back without building.
 std::unique_ptr<Model> ExpandAttaches(const Model& m,
-                                      const bridge::CompileOptions& opts,
-                                      std::vector<bridge::FallbackReason>& reasons) {
+                                      const ps::mjcf::CompileOptions& opts,
+                                      std::vector<ps::mjcf::FallbackReason>& reasons) {
   if (!ModelUsesAttach(m)) return nullptr;
 
   std::unique_ptr<Model> synth = Clone(m);
@@ -1317,7 +1317,7 @@ std::unique_ptr<Model> ExpandAttaches(const Model& m,
         WalkToGraftNq(wb->subtree, ki.graft, offset, found, macro);
     // graft nq via a direct subtree scan of the located node handled below
     auto push_gate = [&](const char* feat) {
-      bridge::FallbackReason r;
+      ps::mjcf::FallbackReason r;
       r.feature = feat;
       r.count = 1;
       r.first = ki.key->loc;
@@ -1366,7 +1366,7 @@ std::unique_ptr<Model> ExpandAttaches(const Model& m,
   return synth;
 }
 
-std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
+std::vector<ps::mjcf::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   std::unordered_map<ElementType, FeatureUse> used;
   FeatureCollector collect(used);
   collect(m);
@@ -1456,9 +1456,9 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
     agg.count += use.count;
   }
 
-  std::vector<bridge::FallbackReason> out;
+  std::vector<ps::mjcf::FallbackReason> out;
   for (const auto& [key, use] : by_key) {
-    bridge::FallbackReason r;
+    ps::mjcf::FallbackReason r;
     r.feature = key;
     r.count = use.count;
     r.first = use.first;
@@ -1466,19 +1466,19 @@ std::vector<bridge::FallbackReason> CollectUnsupportedFeatures(const Model& m) {
   }
   // Deterministic order (map iteration is unspecified): sort by feature key.
   std::sort(out.begin(), out.end(),
-            [](const bridge::FallbackReason& a, const bridge::FallbackReason& b) {
+            [](const ps::mjcf::FallbackReason& a, const ps::mjcf::FallbackReason& b) {
               return a.feature < b.feature;
             });
   return out;
 }
 
-mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
-                       bridge::CompileReport& report) {
+mjModel* NativeCompile(const Model& m, const ps::mjcf::CompileOptions& opts,
+                       ps::mjcf::CompileReport& report) {
   (void)opts;
-  report.taken = bridge::CompilePath::NativePath;
+  report.taken = ps::mjcf::CompilePath::NativePath;
 
   // S0 gate: route or record fallback (CDR-2).
-  std::vector<bridge::FallbackReason> unsupported = CollectUnsupportedFeatures(m);
+  std::vector<ps::mjcf::FallbackReason> unsupported = CollectUnsupportedFeatures(m);
 
   // Every family admitted: expand <attach> (NC6b) then run the build pipeline.
   if (unsupported.empty()) {
@@ -1486,7 +1486,7 @@ mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
     // tractable attach (child needing asset import / default merge / keyframe
     // resize) routes here with an explicit attach.* reason; a model with no
     // attach yields synth == nullptr and compiles unchanged.
-    std::vector<bridge::FallbackReason> attach_reasons;
+    std::vector<ps::mjcf::FallbackReason> attach_reasons;
     std::unique_ptr<Model> synth = ExpandAttaches(m, opts, attach_reasons);
     if (!attach_reasons.empty()) {
       unsupported = std::move(attach_reasons);
@@ -1497,7 +1497,7 @@ mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
       if (synth) unsupported = CollectUnsupportedFeatures(*synth);
 
       if (unsupported.empty()) {
-        std::vector<bridge::Diagnostic> diags;
+        std::vector<ps::mjcf::Diagnostic> diags;
         mjModel* built = BuildNativeModel(build_m, opts, diags);
         if (built) {
           report.fallback_reasons.clear();
@@ -1506,7 +1506,7 @@ mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
         // A build failure on an admitted model is a native-compiler bug:
         // surface the diagnostics and fall back (Auto) / hard-error (forced).
         for (auto& d : diags) report.errors.push_back(std::move(d));
-        bridge::FallbackReason r;
+        ps::mjcf::FallbackReason r;
         r.feature = "native.build_failed";
         r.count = 1;
         unsupported.push_back(std::move(r));
@@ -1525,8 +1525,8 @@ mjModel* NativeCompile(const Model& m, const bridge::CompileOptions& opts,
     if (unsupported[i].count > 0)
       msg += "(x" + std::to_string(unsupported[i].count) + ")";
   }
-  bridge::Diagnostic d;
-  d.severity = bridge::Diagnostic::Severity::Error;
+  ps::mjcf::Diagnostic d;
+  d.severity = ps::mjcf::Diagnostic::Severity::Error;
   d.pass = "gate";
   d.message = std::move(msg);
   report.errors.push_back(std::move(d));

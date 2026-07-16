@@ -30,7 +30,6 @@
 #include "types.h"
 
 namespace mj = ps::mjcf;
-namespace bridge = ps::mjcf::bridge;
 using namespace ps::studio;
 
 static int g_failed = 0;
@@ -60,7 +59,7 @@ struct V3 {
 // A compiled scene the tests mutate + recompile.
 struct Scene {
   std::unique_ptr<mj::Model> tree;
-  bridge::Compiled compiled;
+  mj::Compiled compiled;
   mjData* data = nullptr;
 
   explicit Scene(const char* xml) {
@@ -80,9 +79,9 @@ struct Scene {
       mj_deleteData(data);
       data = nullptr;
     }
-    bridge::CompileOptions opts;
-    opts.path = bridge::CompilePath::Auto;
-    compiled = bridge::Compile(*tree, opts);
+    mj::CompileOptions opts;
+    opts.path = mj::CompilePath::Auto;
+    compiled = mj::Compile(*tree, opts);
     if (!compiled.ok()) {
       std::printf("compile failed:\n");
       for (const auto& e : compiled.report.errors)
@@ -99,7 +98,7 @@ struct Scene {
 
 // The compiled world position of the element with `serial`, via the Binding.
 static bool WorldPosOf(const Scene& s, std::uint64_t serial, double out[3]) {
-  for (const bridge::Binding::Entry& e : s.compiled.binding.entries()) {
+  for (const mj::Binding::Entry& e : s.compiled.binding.entries()) {
     if (e.serial != serial || e.id < 0) continue;
     const mjData* d = s.data;
     switch (e.etype) {
@@ -121,7 +120,7 @@ static bool WorldPosOf(const Scene& s, std::uint64_t serial, double out[3]) {
 
 // The compiled world orientation (quat) of a geom, from geom_xmat.
 static bool WorldQuatOfGeom(const Scene& s, std::uint64_t serial, double q[4]) {
-  for (const bridge::Binding::Entry& e : s.compiled.binding.entries()) {
+  for (const mj::Binding::Entry& e : s.compiled.binding.entries()) {
     if (e.serial != serial || e.id < 0 || e.etype != mj::ElementType::Geom)
       continue;
     mjtNum quat[4];
@@ -140,7 +139,7 @@ static std::uint64_t SerialOf(mj::Model& m, const char* name) {
 
 // The compiled joint id for a serial, via the Binding.
 static int JointIdOf(const Scene& s, std::uint64_t serial) {
-  for (const bridge::Binding::Entry& e : s.compiled.binding.entries()) {
+  for (const mj::Binding::Entry& e : s.compiled.binding.entries()) {
     if (e.serial == serial && e.id >= 0 &&
         (e.etype == mj::ElementType::Joint ||
          e.etype == mj::ElementType::FreeJoint)) {
@@ -854,9 +853,9 @@ static void TestGestureUndoGranularity() {
   Scene s(xml);
   EditorContext ctx;
   ctx.tree = std::move(s.tree);
-  bridge::CompileOptions opts;
-  opts.path = bridge::CompilePath::Auto;
-  ctx.compiled = bridge::Compile(*ctx.tree, opts);
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::Auto;
+  ctx.compiled = mj::Compile(*ctx.tree, opts);
   CHECK(ctx.compiled.ok());
   mjData* d = mj_makeData(ctx.compiled.model.get());
   mj_resetData(ctx.compiled.model.get(), d);
@@ -923,17 +922,17 @@ static PerfResult MeasureRecompile(const std::string& path, int n) {
   if (!std::filesystem::exists(path)) return out;
   mj::io::ParseResult r = mj::io::ParseMjcfFile(path);
   if (!r.ok()) return out;
-  bridge::CompileOptions opts;
-  opts.path = bridge::CompilePath::Auto;
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::Auto;
   opts.base_dir = std::filesystem::path(path).parent_path().string();
-  bridge::Compiled warm = bridge::Compile(*r.model, opts);
+  mj::Compiled warm = mj::Compile(*r.model, opts);
   if (!warm.ok()) return out;
   out.nbody = warm.model->nbody;
   std::vector<double> samples;
   samples.reserve(n);
   for (int i = 0; i < n; ++i) {
     auto t0 = std::chrono::steady_clock::now();
-    bridge::Compiled c = bridge::Compile(*r.model, opts);
+    mj::Compiled c = mj::Compile(*r.model, opts);
     auto t1 = std::chrono::steady_clock::now();
     if (!c.ok()) return out;
     samples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());

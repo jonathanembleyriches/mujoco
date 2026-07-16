@@ -17,7 +17,7 @@
 
 #include "protospec/core.h"
 
-namespace ps::mjcf::bridge {
+namespace ps::mjcf {
 
 namespace detail {
 inline std::string RenderLoc(const ps::SourceLoc& loc) {
@@ -77,6 +77,6 @@ struct CompileReport {
   bool ok() const { return errors.empty(); }
 };
 
-}  // namespace ps::mjcf::bridge
+}  // namespace ps::mjcf
 
 #endif  // PROTOSPEC_BRIDGE_REPORT_H

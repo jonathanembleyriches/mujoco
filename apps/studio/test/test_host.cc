@@ -37,7 +37,6 @@
 #include "validate.h"
 
 namespace mj = ps::mjcf;
-namespace bridge = ps::mjcf::bridge;
 using namespace ps::studio;
 
 static int g_failed = 0;
