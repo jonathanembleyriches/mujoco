@@ -45,3 +45,4 @@ wasm/**/dist/
 
 build_ps/
 build_ps_*.log
+.mujoco.ini
