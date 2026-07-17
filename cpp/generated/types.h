@@ -701,7 +701,7 @@ struct Actuatorfrc {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<std::string> actuator = {};
+  ps::opt<ps::Ref<ActuatorAny>> actuator = {};
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
@@ -715,7 +715,7 @@ struct Actuatorpos {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<std::string> actuator = {};
+  ps::opt<ps::Ref<ActuatorAny>> actuator = {};
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
@@ -729,7 +729,7 @@ struct Actuatorvel {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<std::string> actuator = {};
+  ps::opt<ps::Ref<ActuatorAny>> actuator = {};
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
@@ -923,7 +923,7 @@ struct CompositeGeom {
   ps::opt<int32_t> group = {};
   ps::opt<int32_t> priority = {};
   ps::opt<ps::InlineVec<double, 3>> size = {};
-  ps::opt<std::string> material = {};
+  ps::opt<ps::Ref<Material>> material = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<ps::InlineVec<double, 3>> friction = {};
   ps::opt<double> mass = {};
@@ -962,7 +962,7 @@ struct CompositeSite {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<int32_t> group = {};
   ps::opt<ps::InlineVec<double, 3>> size = {};
-  ps::opt<std::string> material = {};
+  ps::opt<ps::Ref<Material>> material = {};
   ps::opt<std::array<float, 4>> rgba = {};
 };
 
@@ -970,7 +970,7 @@ struct CompositeSkin {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<bool> texcoord = {};
-  ps::opt<std::string> material = {};
+  ps::opt<ps::Ref<Material>> material = {};
   ps::opt<int32_t> group = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<float> inflate = {};
@@ -1320,7 +1320,7 @@ struct Flex {
   ps::opt<int32_t> group = {};
   ps::opt<int32_t> dim = {};
   ps::opt<double> radius = {};
-  ps::opt<std::string> material = {};
+  ps::opt<ps::Ref<Material>> material = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<bool> flatskin = {};
   ps::opt<std::string> body = {};
@@ -1392,7 +1392,7 @@ struct Flexcomp {
   ps::opt<std::vector<double>> point = {};
   ps::opt<std::vector<int32_t>> element = {};
   ps::opt<std::vector<float>> texcoord = {};
-  ps::opt<std::string> material = {};
+  ps::opt<ps::Ref<Material>> material = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<bool> flatskin = {};
   ps::opt<std::array<double, 3>> pos = {};
@@ -2366,7 +2366,7 @@ struct Skin {
 struct SkinBone {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
-  ps::opt<std::string> body = {};
+  ps::opt<ps::Ref<Body>> body = {};
   ps::opt<std::array<double, 3>> bindpos = {};
   ps::opt<std::array<double, 4>> bindquat = {};
   ps::opt<std::vector<int32_t>> vertid = {};
@@ -2427,7 +2427,7 @@ struct Subtreeangmom {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<std::string> body = {};
+  ps::opt<ps::Ref<Body>> body = {};
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
@@ -2441,7 +2441,7 @@ struct Subtreecom {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<std::string> body = {};
+  ps::opt<ps::Ref<Body>> body = {};
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};
@@ -2455,7 +2455,7 @@ struct Subtreelinvel {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<std::string> name = {};
-  ps::opt<std::string> body = {};
+  ps::opt<ps::Ref<Body>> body = {};
   ps::opt<int32_t> nsample = {};
   ps::opt<InterpType> interp = {};
   ps::opt<double> delay = {};

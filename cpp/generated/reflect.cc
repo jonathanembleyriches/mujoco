@@ -100,7 +100,7 @@ constexpr ChildDescriptor kChildren_ActuatorPlugin[] = {
 
 constexpr FieldDescriptor kFields_Actuatorfrc[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "element name"},
-    {"actuator", "actuator", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"actuator", "actuator", "ActuatorAny", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, ""},
     {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, ""},
     {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, ""},
@@ -112,7 +112,7 @@ constexpr FieldDescriptor kFields_Actuatorfrc[] = {
 
 constexpr FieldDescriptor kFields_Actuatorpos[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "element name"},
-    {"actuator", "actuator", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"actuator", "actuator", "ActuatorAny", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, ""},
     {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, ""},
     {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, ""},
@@ -124,7 +124,7 @@ constexpr FieldDescriptor kFields_Actuatorpos[] = {
 
 constexpr FieldDescriptor kFields_Actuatorvel[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "element name"},
-    {"actuator", "actuator", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"actuator", "actuator", "ActuatorAny", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, ""},
     {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, ""},
     {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, ""},
@@ -300,7 +300,7 @@ constexpr FieldDescriptor kFields_CompositeGeom[] = {
     {"group", "group", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "group"},
     {"priority", "priority", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "contact priority"},
     {"size", "size", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false, "type-specific size"},
-    {"material", "material", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "name of material"},
+    {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "name of material"},
     {"rgba", "rgba", "float", FieldKind::Float, ArityKind::Fixed, 4, 4, true, true, "rgba when material is omitted"},
     {"friction", "friction", "double", FieldKind::Double, ArityKind::Range, 1, 3, true, true, "one-sided friction coefficients: slide, roll, spin"},
     {"mass", "mass", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "used to compute density"},
@@ -335,13 +335,13 @@ constexpr FieldDescriptor kFields_CompositeJoint[] = {
 constexpr FieldDescriptor kFields_CompositeSite[] = {
     {"group", "group", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "group"},
     {"size", "size", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, true, "geom size"},
-    {"material", "material", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "name of material"},
+    {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "name of material"},
     {"rgba", "rgba", "float", FieldKind::Float, ArityKind::Fixed, 4, 4, true, true, "rgba when material is omitted"},
 };
 
 constexpr FieldDescriptor kFields_CompositeSkin[] = {
     {"texcoord", "texcoord", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false, "emit skin texture coordinates"},
-    {"material", "material", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "name of material used for rendering"},
+    {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "name of material used for rendering"},
     {"group", "group", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "group for visualization"},
     {"rgba", "rgba", "float", FieldKind::Float, ArityKind::Fixed, 4, 4, true, true, "rgba when material is omitted"},
     {"inflate", "inflate", "float", FieldKind::Float, ArityKind::Scalar, 0, 0, true, false, "inflate in normal direction"},
@@ -649,7 +649,7 @@ constexpr FieldDescriptor kFields_Flex[] = {
     {"group", "group", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "group for visualization"},
     {"dim", "dim", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, true, "element dimensionality"},
     {"radius", "radius", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, true, "radius around primitive element"},
-    {"material", "material", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "name of material used for rendering"},
+    {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "name of material used for rendering"},
     {"rgba", "rgba", "float", FieldKind::Float, ArityKind::Fixed, 4, 4, true, true, "rgba when material is omitted"},
     {"flatskin", "flatskin", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false, "render flex skin with flat shading"},
     {"body", "body", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
@@ -715,7 +715,7 @@ constexpr FieldDescriptor kFields_Flexcomp[] = {
     {"point", "point", "double", FieldKind::Double, ArityKind::Unbounded, 0, 0, true, false, ""},
     {"element", "element", "int32", FieldKind::Int32, ArityKind::Unbounded, 0, 0, true, false, "element connectivity"},
     {"texcoord", "texcoord", "float", FieldKind::Float, ArityKind::Unbounded, 0, 0, true, false, "vertex texture coordinates"},
-    {"material", "material", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "name of material used for rendering"},
+    {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "name of material used for rendering"},
     {"rgba", "rgba", "float", FieldKind::Float, ArityKind::Fixed, 4, 4, true, true, "rgba when material is omitted"},
     {"flatskin", "flatskin", "bool", FieldKind::Bool, ArityKind::Scalar, 0, 0, true, false, "render flex skin with flat shading"},
     {"pos", "pos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false, ""},
@@ -1593,7 +1593,7 @@ constexpr ChildDescriptor kChildren_Skin[] = {
 };
 
 constexpr FieldDescriptor kFields_SkinBone[] = {
-    {"body", "body", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"body", "body", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"bindpos", "bindpos", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false, ""},
     {"bindquat", "bindquat", "double", FieldKind::Double, ArityKind::Fixed, 4, 4, true, false, ""},
     {"vertid", "vertid", "int32", FieldKind::Int32, ArityKind::Unbounded, 0, 0, true, false, ""},
@@ -1646,7 +1646,7 @@ constexpr FieldDescriptor kFields_Statistic[] = {
 
 constexpr FieldDescriptor kFields_Subtreeangmom[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "element name"},
-    {"body", "body", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"body", "body", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, ""},
     {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, ""},
     {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, ""},
@@ -1658,7 +1658,7 @@ constexpr FieldDescriptor kFields_Subtreeangmom[] = {
 
 constexpr FieldDescriptor kFields_Subtreecom[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "element name"},
-    {"body", "body", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"body", "body", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, ""},
     {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, ""},
     {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, ""},
@@ -1670,7 +1670,7 @@ constexpr FieldDescriptor kFields_Subtreecom[] = {
 
 constexpr FieldDescriptor kFields_Subtreelinvel[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "element name"},
-    {"body", "body", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, ""},
+    {"body", "body", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, ""},
     {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, ""},
     {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, ""},
     {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, ""},

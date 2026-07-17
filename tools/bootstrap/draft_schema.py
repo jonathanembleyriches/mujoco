@@ -350,6 +350,32 @@ REFS = {
     ("ActuatorPlugin", "instance"): "PluginInstance",
     ("SensorPlugin", "instance"): "PluginInstance",
     ("Attach", "model"): "ModelAsset",
+    # Rendering material references, same as Geom/Site/Mesh/Skin above -- these
+    # were simply absent, leaving the schema inconsistent (a Flex's `material`
+    # named a Material but typed as a bare string).
+    ("CompositeSkin", "material"): "Material",
+    ("CompositeGeom", "material"): "Material",
+    ("CompositeSite", "material"): "Material",
+    ("Flexcomp", "material"): "Material",
+    ("Flex", "material"): "Material",
+    # Sensors that measure an actuator, by name.
+    ("Actuatorpos", "actuator"): "ActuatorAny",
+    ("Actuatorvel", "actuator"): "ActuatorAny",
+    ("Actuatorfrc", "actuator"): "ActuatorAny",
+    # Sensors that measure a body subtree, by name. ActuatorGeneral/Adhesion
+    # already typed their `body`; these three did not.
+    ("Subtreecom", "body"): "Body",
+    ("Subtreelinvel", "body"): "Body",
+    ("Subtreeangmom", "body"): "Body",
+    # <bone body="..."> names a body of this model.
+    ("SkinBone", "body"): "Body",
+    # NOT here, deliberately:
+    #   ("Attach", "body") names a body inside the *referenced model asset*, not
+    #     this model -- ref<Body> would resolve against the local tree and be
+    #     wrong. It needs a ref-into-another-model concept.
+    #   ("Flex", "body") is a space-separated LIST of body names, not one ref.
+    #   sensor objtype/objname pairs carry the target type in a sibling
+    #     attribute; Ref<T>'s phantom type cannot express a runtime type.
 }
 # material's `material` attr does not exist; the Site.material placeholder above
 # is corrected here to keep the table declarative and free of ordering hazards.

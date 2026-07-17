@@ -100,7 +100,7 @@ constexpr ChildBinding kChildren_ActuatorPlugin[] = {
 
 constexpr AttrBinding kAttrs_Actuatorfrc[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"actuator", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"actuator", "ActuatorAny", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"nsample", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"interp", "InterpType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"delay", "double", 4, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -112,7 +112,7 @@ constexpr AttrBinding kAttrs_Actuatorfrc[] = {
 
 constexpr AttrBinding kAttrs_Actuatorpos[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"actuator", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"actuator", "ActuatorAny", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"nsample", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"interp", "InterpType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"delay", "double", 4, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -124,7 +124,7 @@ constexpr AttrBinding kAttrs_Actuatorpos[] = {
 
 constexpr AttrBinding kAttrs_Actuatorvel[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"actuator", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"actuator", "ActuatorAny", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"nsample", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"interp", "InterpType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"delay", "double", 4, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -312,7 +312,7 @@ constexpr AttrBinding kAttrs_CompositeGeom[] = {
     {"group", "int32", 4, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"priority", "int32", 5, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"size", "double", 6, FieldKind::Double, ArityKind::Range, 0, 3, false, false, false, false},
-    {"material", "string", 7, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"material", "Material", 7, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"rgba", "float", 8, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
     {"friction", "double", 9, FieldKind::Double, ArityKind::Range, 1, 3, false, false, false, false},
     {"mass", "double", 10, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -347,13 +347,13 @@ constexpr AttrBinding kAttrs_CompositeJoint[] = {
 constexpr AttrBinding kAttrs_CompositeSite[] = {
     {"group", "int32", 0, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"size", "double", 1, FieldKind::Double, ArityKind::Range, 0, 3, false, false, false, false},
-    {"material", "string", 2, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"material", "Material", 2, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"rgba", "float", 3, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
 };
 
 constexpr AttrBinding kAttrs_CompositeSkin[] = {
     {"texcoord", "bool", 0, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"material", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"material", "Material", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"group", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"rgba", "float", 3, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
     {"inflate", "float", 4, FieldKind::Float, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -664,7 +664,7 @@ constexpr AttrBinding kAttrs_Flex[] = {
     {"group", "int32", 1, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"dim", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"radius", "double", 3, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"material", "string", 4, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"material", "Material", 4, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"rgba", "float", 5, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
     {"flatskin", "bool", 6, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"body", "string", 7, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -730,7 +730,7 @@ constexpr AttrBinding kAttrs_Flexcomp[] = {
     {"point", "double", 14, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, false},
     {"element", "int32", 15, FieldKind::Int32, ArityKind::Unbounded, 0, 0, false, false, false, false},
     {"texcoord", "float", 16, FieldKind::Float, ArityKind::Unbounded, 0, 0, false, false, false, false},
-    {"material", "string", 17, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"material", "Material", 17, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"rgba", "float", 18, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
     {"flatskin", "bool", 19, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"pos", "double", 20, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
@@ -1660,7 +1660,7 @@ constexpr ChildBinding kChildren_Skin[] = {
 };
 
 constexpr AttrBinding kAttrs_SkinBone[] = {
-    {"body", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"body", "Body", 0, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"bindpos", "double", 1, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
     {"bindquat", "double", 2, FieldKind::Double, ArityKind::Fixed, 4, 4, false, false, false, false},
     {"vertid", "int32", 3, FieldKind::Int32, ArityKind::Unbounded, 0, 0, false, false, false, false},
@@ -1713,7 +1713,7 @@ constexpr AttrBinding kAttrs_Statistic[] = {
 
 constexpr AttrBinding kAttrs_Subtreeangmom[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"body", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"body", "Body", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"nsample", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"interp", "InterpType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"delay", "double", 4, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -1725,7 +1725,7 @@ constexpr AttrBinding kAttrs_Subtreeangmom[] = {
 
 constexpr AttrBinding kAttrs_Subtreecom[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"body", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"body", "Body", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"nsample", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"interp", "InterpType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"delay", "double", 4, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
@@ -1737,7 +1737,7 @@ constexpr AttrBinding kAttrs_Subtreecom[] = {
 
 constexpr AttrBinding kAttrs_Subtreelinvel[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"body", "string", 1, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, false},
+    {"body", "Body", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"nsample", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"interp", "InterpType", 3, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"delay", "double", 4, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},

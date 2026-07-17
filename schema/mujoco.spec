@@ -845,7 +845,7 @@ element Skin {
 }
 
 element SkinBone (xml="bone") {
-  body       : string
+  body       : ref<Body>
   bindpos    : double[3]
   bindquat   : double[4]
   vertid     : int32[]
@@ -1087,7 +1087,7 @@ element CompositeJoint (xml="joint") {
 
 element CompositeSkin (xml="skin") {
   texcoord : bool   # emit skin texture coordinates
-  material : string   # name of material used for rendering
+  material : ref<Material>   # name of material used for rendering
   group    : int32   # group for visualization
   rgba     : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   inflate  : float   # inflate in normal direction
@@ -1102,7 +1102,7 @@ element CompositeGeom (xml="geom") {
   group       : int32   # group
   priority    : int32   # contact priority
   size        : double[0..3]   # type-specific size
-  material    : string   # name of material
+  material    : ref<Material>   # name of material
   rgba        : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   friction    : double[1..3] = {1, 0.005, 0.0001}   # one-sided friction coefficients: slide, roll, spin
   mass        : double   # used to compute density
@@ -1117,7 +1117,7 @@ element CompositeGeom (xml="geom") {
 element CompositeSite (xml="site") {
   group    : int32   # group
   size     : double[0..3] = {0.005, 0.005, 0.005}   # geom size
-  material : string   # name of material
+  material : ref<Material>   # name of material
   rgba     : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
 }
 
@@ -1139,7 +1139,7 @@ element Flexcomp {
   point      : double[]
   element    : int32[]   # element connectivity
   texcoord   : float[]   # vertex texture coordinates
-  material   : string   # name of material used for rendering
+  material   : ref<Material>   # name of material used for rendering
   rgba       : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   flatskin   : bool   # render flex skin with flat shading
   pos        : double[3]
@@ -1202,7 +1202,7 @@ element Flex {
   group        : int32   # group for visualization
   dim          : int32 = 2   # element dimensionality
   radius       : double = 0.005   # radius around primitive element
-  material     : string   # name of material used for rendering
+  material     : ref<Material>   # name of material used for rendering
   rgba         : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   flatskin     : bool   # render flex skin with flat shading
   body         : string
@@ -1892,7 +1892,7 @@ element Tendonvel {
 
 element Actuatorpos {
   name     : string   # element name
-  actuator : string
+  actuator : ref<ActuatorAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -1904,7 +1904,7 @@ element Actuatorpos {
 
 element Actuatorvel {
   name     : string   # element name
-  actuator : string
+  actuator : ref<ActuatorAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -1916,7 +1916,7 @@ element Actuatorvel {
 
 element Actuatorfrc {
   name     : string   # element name
-  actuator : string
+  actuator : ref<ActuatorAny>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2179,7 +2179,7 @@ element Frameangacc {
 
 element Subtreecom {
   name     : string   # element name
-  body     : string
+  body     : ref<Body>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2191,7 +2191,7 @@ element Subtreecom {
 
 element Subtreelinvel {
   name     : string   # element name
-  body     : string
+  body     : ref<Body>
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2203,7 +2203,7 @@ element Subtreelinvel {
 
 element Subtreeangmom {
   name     : string   # element name
-  body     : string
+  body     : ref<Body>
   nsample  : int32
   interp   : InterpType
   delay    : double
