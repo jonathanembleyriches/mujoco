@@ -270,6 +270,20 @@ bool SaveModel(EditorContext& ctx, const std::string& path) {
   if (!ctx.tree) {
     return false;
   }
+  // A multi-layer model saves as its stack -- one file per layer, written back
+  // to each layer's own location -- never as a flattened single document (that
+  // silently destroyed the include structure the stack was loaded from).
+  if (ctx.layers.size() > 1) {
+    std::string err;
+    if (!SaveLayeredMjcf(ctx, path, &err)) {
+      ctx.Log("save FAILED: " + err);
+      ctx.status_line = "save failed";
+      return false;
+    }
+    ctx.source_path = path;
+    ctx.dirty = false;
+    return true;
+  }
   const std::string mjcf = io::WriteMjcf(*ctx.tree);
   std::ofstream out(path, std::ios::binary);
   if (!out) {

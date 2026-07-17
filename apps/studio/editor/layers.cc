@@ -588,7 +588,9 @@ xt::XMLElement* CloneWithTags(const xt::XMLElement* src, xt::XMLDocument& doc,
 // One output file of the export: a fragment document rooted <mujocoinclude>.
 struct ExportFile {
   std::string key;       // owning layer key
-  std::string filename;  // basename, as it appears in <include>
+  std::string filename;  // basename (export naming; kept for logs)
+  std::string abs_path;      // where the file is written
+  std::string include_attr;  // what the <include file="..."> says
   bool top_level = false;  // referenced from the root document
   std::unique_ptr<xt::XMLDocument> doc;
   xt::XMLElement* root = nullptr;
@@ -600,6 +602,15 @@ struct ExportState {
   std::vector<std::unique_ptr<ExportFile>> files;
   std::unordered_map<std::string, int> regions;  // key -> files created so far
   std::unordered_set<std::string> used_names;    // filename collision guard
+
+  // Save-in-place mode: a file-backed layer's primary file is ITS OWN path
+  // (the layer key), not a slug beside the root -- saving writes each layer
+  // back to the file it came from. An authored (layer://) layer is assigned
+  // a slug file beside the root on first save and `assigned` records it so the
+  // caller can retag the layer as file-backed. Export mode keeps slug naming.
+  bool in_place = false;
+  std::string root_dir;
+  std::unordered_map<std::string, std::string> assigned;  // layer:// -> abs path
 
   const std::string& TagOf(const xt::XMLElement* e) const {
     static const std::string kEmpty;
@@ -623,6 +634,30 @@ struct ExportState {
     auto f = std::make_unique<ExportFile>();
     f->key = key;
     f->filename = fn;
+    if (in_place) {
+      constexpr std::string_view kScheme = "layer://";
+      const bool file_backed = key.rfind(kScheme, 0) != 0;
+      if (file_backed && region == 1) {
+        f->abs_path = key;  // the layer's own file: write back where it came from
+      } else if (file_backed) {
+        // Extra disjoint region of a file-backed layer: beside its primary.
+        std::filesystem::path k(key);
+        f->abs_path = (k.parent_path() /
+                       (k.stem().string() + "." + std::to_string(region) + ".xml"))
+                          .string();
+      } else {
+        // Authored layer: assign a real file beside the root on first save.
+        f->abs_path = (std::filesystem::path(root_dir) / fn).string();
+        if (region == 1) assigned[key] = f->abs_path;
+      }
+      std::error_code ec;
+      const std::filesystem::path rel =
+          std::filesystem::relative(f->abs_path, root_dir, ec);
+      f->include_attr = (ec || rel.empty()) ? f->abs_path : rel.string();
+    } else {
+      f->abs_path = (std::filesystem::path(root_dir) / fn).string();
+      f->include_attr = fn;
+    }
     f->doc = std::make_unique<xt::XMLDocument>();
     f->root = f->doc->NewElement("mujocoinclude");
     f->doc->InsertEndChild(f->root);
@@ -707,25 +742,31 @@ bool WriteTextFile(const std::string& path, const std::string& text,
 
 }  // namespace
 
-bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
-                       std::string* error) {
+// Shared core of Export (slug files beside the root, disabled layers pruned)
+// and Save-in-place (each layer back to its own file, EVERYTHING written --
+// enable/disable is compile state, not file state; a save must never drop an
+// authored layer's file because it happened to be toggled off).
+static bool WriteStack(EditorContext& ctx, const std::string& root_path,
+                       bool in_place, std::string* error) {
   if (!ctx.tree || ctx.layers.empty()) {
     if (error) *error = "no model loaded";
     return false;
   }
 
-  // Disabled layers are not written: prune them from a serial-preserving clone
-  // (the authored tree is never touched by an export).
   mj::Model* src = ctx.tree.get();
   std::unique_ptr<mj::Model> pruned;
-  std::unordered_set<std::string> drop;
-  for (const Layer& l : ctx.layers) {
-    if (!l.enabled) drop.insert(l.key);
-  }
-  if (!drop.empty()) {
-    pruned = CloneWithSerials(*ctx.tree);
-    PruneKeys(*pruned, drop);
-    src = pruned.get();
+  if (!in_place) {
+    // Disabled layers are not exported: prune them from a serial-preserving
+    // clone (the authored tree is never touched).
+    std::unordered_set<std::string> drop;
+    for (const Layer& l : ctx.layers) {
+      if (!l.enabled) drop.insert(l.key);
+    }
+    if (!drop.empty()) {
+      pruned = CloneWithSerials(*ctx.tree);
+      PruneKeys(*pruned, drop);
+      src = pruned.get();
+    }
   }
 
   // Serialize -> reparse -> tag the DOM by layer.
@@ -749,6 +790,8 @@ bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
   ExportState st;
   st.ctx = &ctx;
   st.tags = &tags;
+  st.in_place = in_place;
+  st.root_dir = dir.string();
   st.used_names.insert(root_base);
 
   // Top-level sections: each goes to its own layer's primary file (grouped by
@@ -792,7 +835,7 @@ bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
     for (auto& f : st.files) {
       if (f->top_level && f->key == l.key) {
         xt::XMLElement* inc = main.NewElement("include");
-        inc->SetAttribute("file", f->filename.c_str());
+        inc->SetAttribute("file", f->include_attr.c_str());
         mroot->InsertEndChild(inc);
         f->top_level = false;  // consumed
       }
@@ -801,7 +844,7 @@ bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
   for (auto& f : st.files) {
     if (f->top_level) {
       xt::XMLElement* inc = main.NewElement("include");
-      inc->SetAttribute("file", f->filename.c_str());
+      inc->SetAttribute("file", f->include_attr.c_str());
       mroot->InsertEndChild(inc);
       f->top_level = false;
     }
@@ -821,17 +864,47 @@ bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
   for (auto& f : st.files) {
     xt::XMLPrinter pr;
     f->doc->Print(&pr);
-    outs.push_back({(dir / f->filename).string(), pr.CStr()});
+    outs.push_back({f->abs_path, pr.CStr()});
   }
   for (const Out& o : outs) {
     if (!WriteTextFile(o.path, o.text, error)) return false;
   }
 
-  ctx.Log("exported layered stack: " + root_path + " (+" +
-          std::to_string(st.files.size()) + " layer files)");
-  ctx.status_line = "exported " + std::to_string(st.files.size()) +
-                    " layer files -> " + root_path;
+  if (in_place) {
+    // First save of an authored layer assigns its file: retag its elements and
+    // the layer itself so it is file-backed from here on (and future saves go
+    // to the same place). Keys changed, so the graph recomputes.
+    if (!st.assigned.empty()) {
+      for (const auto& [old_key, new_path] : st.assigned) {
+        ForEachElement(*ctx.tree, [&](auto& e) {
+          if (e.loc.file == old_key) e.loc.file = new_path;
+        });
+        const int li = LayerIndexForKey(ctx, old_key);
+        if (li >= 0) ctx.layers[li].key = new_path;
+      }
+      RecomputeLayerGraph(ctx);
+    }
+    ctx.Log("saved layered stack: " + root_path + " (+" +
+            std::to_string(st.files.size()) + " layer files, in place)");
+    ctx.status_line = "saved " + std::to_string(st.files.size()) +
+                      " layer files (in place)";
+  } else {
+    ctx.Log("exported layered stack: " + root_path + " (+" +
+            std::to_string(st.files.size()) + " layer files)");
+    ctx.status_line = "exported " + std::to_string(st.files.size()) +
+                      " layer files -> " + root_path;
+  }
   return true;
+}
+
+bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
+                       std::string* error) {
+  return WriteStack(ctx, root_path, /*in_place=*/false, error);
+}
+
+bool SaveLayeredMjcf(EditorContext& ctx, const std::string& root_path,
+                     std::string* error) {
+  return WriteStack(ctx, root_path, /*in_place=*/true, error);
 }
 
 }  // namespace ps::studio

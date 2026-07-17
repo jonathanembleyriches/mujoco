@@ -135,6 +135,14 @@ void MoveLayer(EditorContext& ctx, int index, int delta);
 bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
                        std::string* error);
 
+// Save the stack IN PLACE: each file-backed layer writes back to its own file
+// (its key), an authored layer is assigned <root dir>/<slug>.xml on first save
+// (and retagged file-backed), and `root_path` gets the root <include> document.
+// Unlike Export, disabled layers ARE written -- enable/disable is compile
+// state, not file state. SaveModel dispatches here for multi-layer models.
+bool SaveLayeredMjcf(EditorContext& ctx, const std::string& root_path,
+                     std::string* error);
+
 }  // namespace ps::studio
 
 #endif  // PS_STUDIO_EDITOR_LAYERS_H_

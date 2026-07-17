@@ -778,7 +778,13 @@ bool NewModelOp(EditorContext& ctx) {
   ctx.source_name = "untitled";
   ctx.source_path.clear();
   ctx.history.Clear();
-  ctx.recompile_requested = false;
+  // The HOST adopts a model only through the model-source poll, and the poll
+  // only hands one over when a recompile is serviced. The trial compile above
+  // proved the starter tree good, but clearing the flag here left the host on
+  // its previous model -- or, from an empty start, on no model at all (a
+  // permanently blank viewport after File > New). Leave the request up so the
+  // next poll recompiles and the host adopts.
+  ctx.recompile_requested = true;
   ctx.fresh_load = true;
   ctx.selected_serial = 0;
   ctx.selected_desc.clear();
