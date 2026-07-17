@@ -223,8 +223,7 @@ bool OnMouse(ViewportPlugin* self, const ViewportInput& in) {
   }
   if (rrelease && ve->press_r_set) {
     const float dx = in.x - ve->press_rx, dy = in.y - ve->press_ry;
-    if ((dx * dx + dy * dy) < (0.006f * 0.006f) &&
-        ctx.mode == EditorMode::Edit) {
+    if ((dx * dx + dy * dy) < (0.006f * 0.006f) && ctx.CanEdit()) {
       ComputeDropPoint(in, ve->drop_point);
       ve->drop_pending = true;
     }
@@ -316,6 +315,13 @@ void ServiceDiagnosticsReveal(EditorContext& ctx) {
 
 void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   ViewportEditor* ve = static_cast<ViewportEditor*>(self->data);
+
+  // The host hands us what physics is doing every frame; latch it for the
+  // panels, which have no other view of it (the host owns the live mjData).
+  // This is the frame's authority for CanEdit().
+  ve->ctx->sim_paused = vc.edit_mode;
+  ve->ctx->sim_time = vc.data ? vc.data->time : 0.0;
+
   ve->gizmo.Draw(*ve->ctx, vc);
   ServiceFocus(*ve->ctx, vc);
   ServiceDiagnosticsReveal(*ve->ctx);
@@ -590,7 +596,7 @@ void RegisterViewportEditor(EditorContext& ctx) {
   RegisterKey("Delete", ImGuiKey_Delete,
               [](KeyHandlerPlugin* s) {
                 EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
-                if (c.selected_serial == 0) return;
+                if (c.selected_serial == 0 || !c.CanEdit()) return;
                 // Route through the SE1a referrer-confirm flow: the panels layer
                 // owns the modal, so request it via the shared context.
                 c.delete_request_serial = c.selected_serial;
@@ -598,7 +604,9 @@ void RegisterViewportEditor(EditorContext& ctx) {
   RegisterKey("Duplicate", ImGuiMod_Ctrl | ImGuiKey_D,
               [](KeyHandlerPlugin* s) {
                 EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
-                if (c.selected_serial != 0) DuplicateOp(c, c.selected_serial);
+                if (c.selected_serial != 0 && c.CanEdit()) {
+                  DuplicateOp(c, c.selected_serial);
+                }
               }, ve);
 }
 

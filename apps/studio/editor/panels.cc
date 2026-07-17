@@ -487,10 +487,16 @@ void RegisterEditorPanels(EditorContext& ctx) {
 
   RegisterKey(
       "Undo", ImGuiMod_Ctrl | ImGuiKey_Z,
-      [](KeyHandlerPlugin* self) { Undo(*Ctx(self->data)); }, ctx);
+      [](KeyHandlerPlugin* self) {
+        EditorContext* c = Ctx(self->data);
+        if (c->CanEdit()) Undo(*c);
+      }, ctx);
   RegisterKey(
       "Redo", ImGuiMod_Ctrl | ImGuiKey_Y,
-      [](KeyHandlerPlugin* self) { Redo(*Ctx(self->data)); }, ctx);
+      [](KeyHandlerPlugin* self) {
+        EditorContext* c = Ctx(self->data);
+        if (c->CanEdit()) Redo(*c);
+      }, ctx);
   RegisterKey(
       "Save", ImGuiMod_Ctrl | ImGuiKey_S,
       [](KeyHandlerPlugin* self) {

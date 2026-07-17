@@ -253,6 +253,14 @@ struct EditorContext {
   // mode; the viewport/gizmo plugins read it (gizmos render only in Edit mode).
   EditorMode mode = EditorMode::Edit;
   bool play_paused = false;           // ⏸ within Play mode
+
+  // What physics is actually doing, latched each frame from the host's
+  // ViewportGuiPlugin::Context (the host owns run/pause and the live mjData;
+  // `mode` alone does not track it -- Space and the host's StepControl widget
+  // move the pause state without telling the editor).
+  bool sim_paused = true;             // host has physics paused
+  double sim_time = 0.0;              // live mjData time; 0 == the reset state
+
   GizmoSettings gizmo;
   bool gizmo_active = false;           // a gizmo drag is in progress (host reads
                                       // this so Esc cancels the drag, not exit)
@@ -278,6 +286,15 @@ struct EditorContext {
   }
 
   void ClearDiagnostics() { diagnostics.clear(); }
+
+  // Whether the model may be authored right now: a compiled model exists,
+  // physics is paused, and the sim has not advanced since load/Stop. Editing a
+  // model out from under a sim that has already moved would author against a
+  // pose the tree does not describe, so Play -- and a Play merely paused
+  // mid-fall -- are both closed. Stop resets to qpos0 and reopens it.
+  bool CanEdit() const {
+    return model_ready && sim_paused && sim_time == 0.0;
+  }
 
   // --- Editor commit contract (SE1b codes against these exact signatures) --- //
   //

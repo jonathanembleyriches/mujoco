@@ -541,7 +541,7 @@ void GizmoController::Cancel(EditorContext& ctx) {
 
 bool GizmoController::HandleMouse(EditorContext& ctx, const ViewportInput& in) {
   ctx.gizmo_active = dragging_;
-  const bool eligible = ctx.mode == EditorMode::Edit && ctx.tree &&
+  const bool eligible = ctx.CanEdit() && ctx.tree &&
                         in.model == ctx.compiled.model.get() && in.data &&
                         ctx.selected_serial != 0 &&
                         ctx.gizmo.tool != GizmoTool::Select;

@@ -362,10 +362,12 @@ void App::ToolBarGui() {
 
   if (!editor_) return;
 
-  // Transform tools + Local/World + snap (deliverable 2). Only meaningful in Edit.
+  // Transform tools + Local/World + snap (deliverable 2). Authoring only: they
+  // close outside the reset pose, matching the gizmos they drive.
   ImGui::SameLine();
   ImGui::TextDisabled("|");
   ImGui::SameLine();
+  ImGui::BeginDisabled(!editor_->CanEdit());
   GizmoSettings& g = editor_->gizmo;
   struct ToolBtn { const char* label; GizmoTool tool; };
   const ToolBtn tools[] = {{"Select (Q)", GizmoTool::Select},
@@ -390,6 +392,7 @@ void App::ToolBarGui() {
   ImGui::Checkbox("Snap", &g.snap);
   ImGui::SameLine();
   if (ImGui::Button("Snap...")) ImGui::OpenPopup("snap_settings");
+  ImGui::EndDisabled();
   if (ImGui::BeginPopup("snap_settings")) {
     ImGui::TextDisabled("Snap increments");
     ImGui::InputDouble("move (m)", &g.snap_translate, 0.01, 0.1, "%.3f");

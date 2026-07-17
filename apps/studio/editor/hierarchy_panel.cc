@@ -226,6 +226,7 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
 // the panel's keep-world-pose toggle (cycles / invalid kinds are rejected there).
 void DrawReparentDragDrop(EditorContext& ctx, const HierNode& node,
                           const HierUiState& st) {
+  if (!ctx.CanEdit()) return;  // reparenting is an edit like any other
   if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
     const std::uint64_t s = node.serial;
     ImGui::SetDragDropPayload("PS_ELEMENT", &s, sizeof(s));
@@ -254,7 +255,9 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     // The Body Tree header adds world-parented (top-level) elements.
     if (node.tag == std::string("Body Tree") &&
         ImGui::BeginPopupContextItem("##bodytree_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
       DrawAddChildMenu(ctx, 0);
+      ImGui::EndDisabled();
       ImGui::EndPopup();
     }
     // The Assets header folds the old Assets panel's creation in: instant-create
@@ -262,13 +265,16 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     // the mesh-import dialog request.
     if (node.tag == std::string("Assets") &&
         ImGui::BeginPopupContextItem("##assets_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
       DrawNewAssetMenu(ctx);
+      ImGui::EndDisabled();
       ImGui::EndPopup();
     }
     // The Defaults header adds a new default class.
     if (node.tag == std::string("Defaults") &&
         ImGui::BeginPopupContextItem("##defaults_add")) {
       static std::string cls;
+      ImGui::BeginDisabled(!ctx.CanEdit());
       ImGui::SetNextItemWidth(160);
       ImGui::InputTextWithHint("##newclass", "class name", &cls);
       ImGui::SameLine();
@@ -277,6 +283,7 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
         cls.clear();
         ImGui::CloseCurrentPopup();
       }
+      ImGui::EndDisabled();
       ImGui::EndPopup();
     }
     if (open) {
@@ -334,7 +341,9 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
                            node.serial, {}});
   }
   if (ImGui::BeginPopupContextItem()) {
+    ImGui::BeginDisabled(!ctx.CanEdit());
     DrawContextMenu(ctx, node, st);
+    ImGui::EndDisabled();
     ImGui::EndPopup();
   }
 
@@ -403,6 +412,11 @@ void HierarchyUpdate(GuiPlugin* self) {
   }
   ImGui::Checkbox("Keep world pose on reparent", &st.keep_world_pose);
 
+  // Authoring affordances close outside the reset pose; browsing, filtering and
+  // selection stay live so the hierarchy remains readable during a sim.
+  const bool editable = c->CanEdit();
+  ImGui::BeginDisabled(!editable);
+
   // New Default class (also reachable via the Defaults section context menu, but
   // kept here so it works before any class exists / the section is present).
   ImGui::SetNextItemWidth(140);
@@ -417,9 +431,13 @@ void HierarchyUpdate(GuiPlugin* self) {
   // section-only right-click could not bootstrap the first one).
   ImGui::SameLine();
   if (ImGui::Button("+ Asset")) ImGui::OpenPopup("##new_asset_hdr");
+  ImGui::EndDisabled();
   if (ImGui::BeginPopup("##new_asset_hdr")) {
     DrawNewAssetMenu(*c);
     ImGui::EndPopup();
+  }
+  if (!editable) {
+    ImGui::TextDisabled("Simulation running or advanced -- press Stop to edit.");
   }
   ImGui::Separator();
 

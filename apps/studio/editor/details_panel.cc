@@ -779,7 +779,16 @@ void DetailsUpdate(GuiPlugin* self) {
     }
   });
   if (render) {
+    // Authoring is only legal at the reset pose; the fields stay readable but
+    // go visibly dead rather than silently ignoring input.
+    const bool editable = c->CanEdit();
+    if (!editable) {
+      ImGui::TextDisabled("Simulation running or advanced -- press Stop to edit.");
+      ImGui::Separator();
+    }
+    ImGui::BeginDisabled(!editable);
     render();
+    ImGui::EndDisabled();
   } else {
     ImGui::TextDisabled("Selected element is not in the current model.");
   }
