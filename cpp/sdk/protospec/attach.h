@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <variant>
 #include <vector>
@@ -38,6 +39,8 @@ namespace mj = ps::mjcf;
 
 struct AttachResult {
   mj::Body* attached = nullptr;         // the grafted clone, when ok
+                                        // (AttachModel: the last body grafted,
+                                        // null when the source had none)
   bool ok = false;                      // false when a collision blocked it
   std::vector<std::string> collisions;  // "type:name" clashes with the host
 };
@@ -73,14 +76,35 @@ inline void PrefixSubtree(mj::Body& clone, const std::string& prefix) {
   });
 }
 
-inline std::string Key(mj::ElementType t, const std::string& name) {
-  return std::to_string(static_cast<int>(t)) + ':' + name;
+// MuJoCo names are unique within an object *category*, not per element type.
+// Most element types are their own category; the spelling families share one
+// namespace each: the two joint spellings, the two tendon spellings, and every
+// actuator / sensor / equality spelling. Collision checks and clone re-uniquing
+// key on the category so e.g. a FreeJoint "j" does collide with a Joint "j".
+inline bool InUnionNamespace(std::string_view union_name, mj::ElementType t) {
+  const mj::reflect::UnionDescriptor& u = mj::reflect::DescribeUnion(union_name);
+  for (std::size_t i = 0; i < u.member_count; ++i)
+    if (u.members[i] == t) return true;
+  return false;
 }
 
-// Every (type,name) an element of the host already uses.
+inline int NameCategory(mj::ElementType t) {
+  if (t == mj::ElementType::Joint || t == mj::ElementType::FreeJoint) return -1;
+  if (t == mj::ElementType::Spatial || t == mj::ElementType::Fixed) return -2;
+  if (InUnionNamespace("ActuatorAny", t)) return -3;
+  if (InUnionNamespace("SensorAny", t)) return -4;
+  if (InUnionNamespace("EqualityAny", t)) return -5;
+  return static_cast<int>(t);
+}
+
+inline std::string Key(mj::ElementType t, const std::string& name) {
+  return std::to_string(NameCategory(t)) + ':' + name;
+}
+
+// Every (category,name) an element of the host already uses.
 inline std::unordered_set<std::string> HostNames(const mj::Model& model) {
   std::unordered_set<std::string> names;
-  WalkModelAll(const_cast<mj::Model&>(model), [&](auto& e) {
+  WalkModelAll(model, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if (const std::string* nm = NameOf(e))
       names.insert(Key(mj::element_type_of<E>::value, *nm));
@@ -178,14 +202,6 @@ inline AttachResult AttachModel(mj::Model& model, mj::Body& parent,
 // --- Duplicate (same-model deep clone) ------------------------------------ //
 
 namespace detail {
-
-// MuJoCo names are unique within an object category. Every element type is its
-// own category except the two joint spellings, which share one (so a duplicated
-// joint does not collide with a free joint of the same name and vice versa).
-inline int NameCategory(mj::ElementType t) {
-  if (t == mj::ElementType::Joint || t == mj::ElementType::FreeJoint) return -1;
-  return static_cast<int>(t);
-}
 
 // Insert a fresh-serial deep clone of the element at `target` immediately after
 // it in its owning child/union list, and report the clone's (stable heap)

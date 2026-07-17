@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -327,6 +328,11 @@ inline std::vector<mj::ElementType> DynRefTargetTypes(std::string_view keyword) 
   if (keyword == "tendon")
     return {mj::ElementType::Spatial, mj::ElementType::Fixed};
   if (keyword == "actuator") return RefTargetTypes<mj::ActuatorAny>();
+  if (keyword == "sensor") {
+    const mj::reflect::UnionDescriptor& u =
+        mj::reflect::DescribeUnion("SensorAny");
+    return {u.members, u.members + u.member_count};
+  }
   if (keyword == "numeric") return {mj::ElementType::Numeric};
   if (keyword == "text") return {mj::ElementType::Text};
   if (keyword == "tuple") return {mj::ElementType::Tuple};

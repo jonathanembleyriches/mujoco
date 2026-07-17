@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -335,13 +336,19 @@ inline void FlattenDefaults(mj::Model& model) {
 namespace detail {
 
 // For each field authored identically across every element, move that value
-// into the class element and clear it on each source element.
+// into the class element and clear it on each source element. Identity fields
+// are exempt: `name` names the element (referrers depend on it) and `dclass`
+// is the class link itself (rewritten by ExtractClass to point at the new
+// class) -- neither may migrate into the class partial, where MJCF forbids
+// them.
 template <class T>
 struct ExtractVisitor {
   const std::vector<T*>* elems;
   template <class U>
-  void field(int id, const char*, U& clsField) {
+  void field(int id, const char* fname, U& clsField) {
     if constexpr (is_opt<U>::value) {
+      const std::string_view f(fname);
+      if (f == "name" || f == "dclass") return;
       const U* first = nullptr;
       bool all_equal = !elems->empty();
       for (T* e : *elems) {

@@ -2,7 +2,8 @@
 //
 // The tree stores no parent pointers (DR-2), so upward queries build a parent
 // map on demand. Downward queries (Find, ForEach*) are direct walks over the
-// generated Visit hook. All of it is read-only: nothing here mutates the model.
+// generated Visit hook. Everything here is a query except SetName, which
+// writes a single field; structural edits live in the sibling headers.
 #ifndef PROTOSPEC_SDK_TRAVERSAL_H
 #define PROTOSPEC_SDK_TRAVERSAL_H
 
@@ -156,7 +157,7 @@ class ParentMap {
   template <class E>
   void Record(const E& e, const void* self) {
     Rec rec{this, self};
-    mj::Visit(const_cast<E&>(e), rec);
+    mj::Visit(e, rec);
   }
 
   template <class E>
