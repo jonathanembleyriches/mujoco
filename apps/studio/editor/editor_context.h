@@ -201,11 +201,58 @@ struct GizmoSettings {
   double snap_scale = 0.05;       // scale-factor increment
 };
 
+// One composition layer: a whole ProtoSpec of its own, from a file or authored
+// from scratch. Enabled layers compose (in list order) into the single model
+// that compiles -- the USD idiom, minus the composition arcs: a background, a
+// lighting rig and a foreground can be authored and toggled independently.
+//
+// Because MJCF is name-referential and composition yields ONE model, references
+// cross layers for free: a geom's material="mug" binds to whichever enabled
+// layer defines that material. The corollary is that disabling the layer which
+// defined it leaves the reference dangling, and the compile says so.
+struct Layer {
+  std::string name;
+  std::string path;    // source MJCF, empty for an authored layer
+  bool enabled = true;
+
+  // The layer's tree -- EXCEPT for the active layer, whose tree lives in
+  // EditorContext::tree so every panel, op and undo step keeps editing
+  // `ctx.tree` without knowing layers exist. Null exactly when active.
+  std::unique_ptr<ps::mjcf::Model> tree;
+};
+
 struct EditorContext {
   // The authored ProtoSpec tree (the single source of truth) and its last good
   // compiled artifact (owns mjModel + Binding + report).
+  //
+  // With layers, `tree` is the ACTIVE layer's tree: the edit target. What
+  // compiles is `composed` -- every enabled layer merged.
   std::unique_ptr<ps::mjcf::Model> tree;
   ps::mjcf::Compiled compiled;
+
+  // The merged model the artifact above was compiled from. Held because
+  // Binding keys on element pointers: it would dangle the moment this died.
+  std::unique_ptr<ps::mjcf::Model> composed;
+
+  std::vector<Layer> layers;
+  int active_layer = 0;
+
+  // The tree of layer `i`; the active layer's lives in `tree`.
+  ps::mjcf::Model* LayerTree(int i) {
+    if (i < 0 || i >= static_cast<int>(layers.size())) return nullptr;
+    return i == active_layer ? tree.get() : layers[i].tree.get();
+  }
+
+  // Move the edit target. The outgoing tree returns to its slot and the
+  // incoming one takes over `tree`, so the invariant (active slot null) holds.
+  void SetActiveLayer(int i) {
+    if (i == active_layer || i < 0 || i >= static_cast<int>(layers.size())) {
+      return;
+    }
+    layers[active_layer].tree = std::move(tree);
+    tree = std::move(layers[i].tree);
+    active_layer = i;
+  }
 
   // Deferred load slot, fed by the host (CLI arg / drag-drop).
   PendingLoad pending;

@@ -1,6 +1,7 @@
 // ProtoSpec Studio editor operations (ps::studio, ours). See editor_ops.h.
 
 #include "editor/editor_ops.h"
+#include "editor/layers.h"
 
 #include <filesystem>
 #include <fstream>
@@ -123,7 +124,15 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
   // compile VFS on every recompile until Save externalizes them.
   opts.vfs_assets = ctx.vfs_assets;
 
-  mj::Compiled compiled = mj::Compile(*ctx.tree, opts);
+  // What compiles is every enabled layer merged, not the edit target alone.
+  // With one layer this IS ctx.tree; the composed model is held on the context
+  // because Binding keys on element pointers into whatever we compiled.
+  mj::Model* to_compile = BuildComposed(ctx);
+  if (!to_compile) {
+    ctx.status_line = std::string(what) + " skipped (no enabled layer)";
+    return false;
+  }
+  mj::Compiled compiled = mj::Compile(*to_compile, opts);
   for (const mj::Diagnostic& w : compiled.report.warnings) {
     ctx.Diagnose(FromCompileDiagnostic(w));
   }
@@ -190,14 +199,22 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
   // Adopt the tree first so CompileCurrent can use the recorded base_dir.
   std::unique_ptr<mj::Model> prev_tree = std::move(ctx.tree);
   mj::Compiled prev_compiled = std::move(ctx.compiled);
+  std::vector<Layer> prev_layers = std::move(ctx.layers);
+  const int prev_active = ctx.active_layer;
   ctx.tree = std::move(parsed.model);
   ctx.base_dir = parent.empty() ? std::string() : parent.string();
   ctx.dirty = false;
+
+  // A load replaces the whole stack: the file becomes the one layer. Must
+  // precede the compile, which composes whatever `layers` says.
+  ResetLayers(ctx, fpath.stem().string(), fpath.string());
 
   if (!CompileCurrent(ctx, "compiled")) {
     // Roll back to the previous good state (DR-S1: a failed load changes nothing).
     ctx.tree = std::move(prev_tree);
     ctx.compiled = std::move(prev_compiled);
+    ctx.layers = std::move(prev_layers);
+    ctx.active_layer = prev_active;
     return false;
   }
 

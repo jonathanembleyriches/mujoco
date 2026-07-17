@@ -15,6 +15,7 @@
 #include "editor/authoring_ops.h"
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
+#include "editor/layers.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 
@@ -191,6 +192,107 @@ static void ImportMeshControl(EditorContext* c) {
   }
   ImGui::EndDisabled();
   if (!import_status.empty()) ImGui::TextWrapped("%s", import_status.c_str());
+}
+
+// Layers: the composition stack. Each row is a whole ProtoSpec; the enabled ones
+// merge, in this order, into the model that compiles. Exactly one row is the
+// edit target -- every panel and op authors that layer's tree.
+static void LayersUpdate(GuiPlugin* self) {
+  EditorContext* c = Ctx(self->data);
+  static std::string load_path;
+  static std::string export_path;
+  static std::string status;
+
+  ImGui::TextDisabled("Composition stack -- enabled layers merge top to bottom");
+  ImGui::Separator();
+
+  if (c->layers.empty()) {
+    ImGui::TextDisabled("No model loaded.");
+    return;
+  }
+
+  int remove_idx = -1, move_idx = -1, move_delta = 0, activate = -1;
+
+  if (ImGui::BeginTable("##layers", 5,
+                        ImGuiTableFlags_SizingFixedFit |
+                            ImGuiTableFlags_RowBg)) {
+    ImGui::TableSetupColumn("on");
+    ImGui::TableSetupColumn("layer", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("edit");
+    ImGui::TableSetupColumn("order");
+    ImGui::TableSetupColumn("");
+    ImGui::TableHeadersRow();
+
+    for (int i = 0; i < static_cast<int>(c->layers.size()); ++i) {
+      Layer& l = c->layers[i];
+      ImGui::PushID(i);
+      ImGui::TableNextRow();
+
+      ImGui::TableNextColumn();
+      if (ImGui::Checkbox("##on", &l.enabled)) c->RequestRecompile();
+      ImGui::SetItemTooltip("%s", "Compose this layer into the model");
+
+      ImGui::TableNextColumn();
+      ImGui::TextUnformatted(l.name.c_str());
+      if (!l.path.empty()) ImGui::SetItemTooltip("%s", l.path.c_str());
+
+      // The edit target. Radio rather than a toggle: the stack always has
+      // exactly one, and its tree is the one `ctx.tree` holds.
+      ImGui::TableNextColumn();
+      if (ImGui::RadioButton("##active", c->active_layer == i)) activate = i;
+      ImGui::SetItemTooltip("%s", "Author into this layer");
+
+      ImGui::TableNextColumn();
+      ImGui::BeginDisabled(i == 0);
+      if (ImGui::SmallButton("^")) { move_idx = i; move_delta = -1; }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::BeginDisabled(i + 1 >= static_cast<int>(c->layers.size()));
+      if (ImGui::SmallButton("v")) { move_idx = i; move_delta = 1; }
+      ImGui::EndDisabled();
+
+      ImGui::TableNextColumn();
+      ImGui::BeginDisabled(c->layers.size() <= 1);
+      if (ImGui::SmallButton("x")) remove_idx = i;
+      ImGui::EndDisabled();
+      ImGui::PopID();
+    }
+    ImGui::EndTable();
+  }
+
+  // Apply after the loop: each of these mutates the vector being drawn.
+  if (activate >= 0) c->SetActiveLayer(activate);
+  if (move_idx >= 0) MoveLayer(*c, move_idx, move_delta);
+  if (remove_idx >= 0) RemoveLayer(*c, remove_idx);
+
+  ImGui::Separator();
+  if (ImGui::Button("+ Layer")) AddEmptyLayer(*c, "");
+  ImGui::SetItemTooltip("%s", "Add an empty layer and author into it");
+
+  ImGui::SetNextItemWidth(240);
+  ImGui::InputTextWithHint("##layerpath", "path to MJCF to add as a layer",
+                           &load_path);
+  ImGui::SameLine();
+  if (ImGui::Button("Add") && !load_path.empty()) {
+    std::string err;
+    status = AddLayerFromFile(*c, load_path, &err)
+                 ? ("added layer '" + load_path + "'")
+                 : ("add failed: " + err);
+    if (err.empty()) load_path.clear();
+  }
+
+  ImGui::Separator();
+  ImGui::TextDisabled("Export: a root <include> document + one file per layer");
+  ImGui::SetNextItemWidth(240);
+  ImGui::InputTextWithHint("##exportpath", "path to write (.xml)", &export_path);
+  ImGui::SameLine();
+  if (ImGui::Button("Export") && !export_path.empty()) {
+    std::string err;
+    status = ExportLayeredMjcf(*c, export_path, &err)
+                 ? ("exported -> " + export_path)
+                 : ("export failed: " + err);
+  }
+  if (!status.empty()) ImGui::TextWrapped("%s", status.c_str());
 }
 
 // Assets: meshes / textures / materials, with creation + a browsable swatch list.
@@ -480,6 +582,7 @@ void RegisterEditorPanels(EditorContext& ctx) {
   // "+ Asset" creation; Diagnostics folds into the status-bar error chip (click
   // brings this panel forward). Both stay registered so the Plugins/View menu can
   // still toggle them for power users -- they just no longer dock open by default.
+  RegisterGuiPanel("Layers", LayersUpdate, true, ctx);
   RegisterGuiPanel("Assets", AssetsUpdate, false, ctx);
   RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, false, ctx);
   RegisterGuiPanel("File", FileMenuUpdate, false, ctx);

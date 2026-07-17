@@ -157,6 +157,7 @@ add_library(protospec_studio_shell STATIC
   editor/gizmo.cc
   editor/gizmo_math.cc
   editor/joint_overlay.cc
+  editor/layers.cc
   editor/transform_math.cc
   # SE1b (generated Details panel) adds its source here:
   editor/details_panel.cc

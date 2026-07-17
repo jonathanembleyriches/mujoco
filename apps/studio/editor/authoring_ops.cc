@@ -18,6 +18,7 @@
 
 #include "compile.h"
 #include "editor/editor_ops.h"
+#include "editor/layers.h"
 #include "editor/transform_math.h"
 #include "protospec/attach.h"  // sdk::Duplicate / sdk::Reparent (public verbs)
 #include "protospec/builders.h"
@@ -755,12 +756,17 @@ std::unique_ptr<mj::Model> NewStarterModel() {
 bool NewModelOp(EditorContext& ctx) {
   std::unique_ptr<mj::Model> prev_tree = std::move(ctx.tree);
   mj::Compiled prev = std::move(ctx.compiled);
+  std::vector<Layer> prev_layers = std::move(ctx.layers);
+  const int prev_active = ctx.active_layer;
   ctx.tree = NewStarterModel();
   ctx.base_dir.clear();
   ctx.vfs_assets.clear();
+  ResetLayers(ctx, "base", "");  // a new scene starts as a single layer
   if (!RecompileTree(ctx)) {
     ctx.tree = std::move(prev_tree);
     ctx.compiled = std::move(prev);
+    ctx.layers = std::move(prev_layers);
+    ctx.active_layer = prev_active;
     return false;
   }
   ctx.source_name = "untitled";
