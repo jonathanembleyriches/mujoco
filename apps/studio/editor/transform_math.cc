@@ -765,6 +765,45 @@ void ApplyScaleMeshUniform(mj::Model& tree, std::uint64_t serial,
   WritePos(*static_cast<mj::Geom*>(ref.ptr), np);
 }
 
+void ApplyScaleMeshNonUniform(mj::Model& tree, std::uint64_t serial,
+                              const ScaleBase& base, const DragFrame& f,
+                              const mj::Binding& binding,
+                              const double factor[3]) {
+  if (!base.valid || !base.is_mesh) return;
+  double fx[3];
+  for (int i = 0; i < 3; ++i) fx[i] = factor[i] < 1e-3 ? 1e-3 : factor[i];
+
+  mj::Mesh* mesh = nullptr;
+  sdkd::WalkModelAll(tree, [&](auto& x) {
+    using X = std::decay_t<decltype(x)>;
+    if constexpr (std::is_same_v<X, mj::Mesh>) {
+      if (!mesh && x.serial == base.mesh_serial) mesh = &x;
+    }
+  });
+  if (!mesh) return;
+  mesh->scale = std::array<double, 3>{base.mesh_scale[0] * fx[0],
+                                      base.mesh_scale[1] * fx[1],
+                                      base.mesh_scale[2] * fx[2]};
+
+  // Hold the grab-time visible centre using the MEASURED current B (see the
+  // header). Falls back to no compensation when the element is not patchable
+  // (e.g. a pruned-layer compile clone owns the binding pointers).
+  SpatialRef ref = FindSpatial(tree, serial);
+  if (!ref || ref.type != mj::ElementType::Geom) return;
+  auto patch = binding.PosePatchFor(ref.ptr);
+  if (!patch) return;
+  double c0[3], rb0[3], rbc[3], np[3];
+  QuatRotate(f.local.quat, f.suffix.pos, rb0);
+  const double bcur[3] = {patch->suffix.pos[0], patch->suffix.pos[1],
+                          patch->suffix.pos[2]};
+  QuatRotate(f.local.quat, bcur, rbc);
+  for (int i = 0; i < 3; ++i) {
+    c0[i] = f.local.pos[i] + rb0[i];
+    np[i] = c0[i] - rbc[i];
+  }
+  WritePos(*static_cast<mj::Geom*>(ref.ptr), np);
+}
+
 // ========================================================================== //
 // Joint rigging (SE4). Deliberately kept in its own block so a later upstream
 // transform_math sync merges cleanly: none of the generic FindSpatial /

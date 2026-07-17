@@ -55,6 +55,9 @@ void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
       c->recompile_requested = false;
       c->apply_edits = false;
       if (RecompileTree(*c)) {
+        // Exact-centre fixup for a mesh-scale drag: measured against THIS
+        // fresh compile; may request one more recompile, then goes idle.
+        ServiceMeshScaleFixup(*c);
         out->model = c->compiled.model.get();
         return true;
       }

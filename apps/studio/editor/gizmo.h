@@ -63,6 +63,7 @@ class GizmoController {
   // (returns false when the element is not live-patchable, so the caller
   // recompiles). LivePatchJoint handles the joint anchor/axis case.
   bool LivePatch(EditorContext& ctx, const ViewportInput& in);
+  void ArmMeshScaleFixup(EditorContext& ctx);
   bool LivePatchJoint(EditorContext& ctx, mjModel* m, mjData* d);
   void Cancel(EditorContext& ctx);
 

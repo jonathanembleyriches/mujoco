@@ -49,6 +49,14 @@ bool ShouldServiceRecompile(const EditorContext& ctx);
 // success. Returns false and logs on I/O failure.
 bool SaveModel(EditorContext& ctx, const std::string& path);
 
+// Service the one-shot mesh-scale centre fixup (EditorContext.mesh_fix_*):
+// after a successful recompile, re-measure the geom's baked recentering and
+// rewrite its authored pos so the visible centre matches the grab-time centre
+// exactly. Requests one more recompile when it changed anything; clears the
+// slot when converged (or no longer applicable). Called from the model-source
+// poll right after a recompile is adopted.
+void ServiceMeshScaleFixup(EditorContext& ctx);
+
 // The element a pick resolved to, via Binding reverse lookup.
 struct PickResolution {
   bool hit = false;

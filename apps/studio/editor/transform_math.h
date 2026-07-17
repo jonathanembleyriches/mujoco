@@ -190,6 +190,19 @@ void ApplyScaleMeshUniform(mj::Model& tree, std::uint64_t serial,
                            const ScaleBase& base, const DragFrame& f,
                            double factor);
 
+// NON-uniform mesh scale. The principal-axes part of the recentering (B.quat)
+// has no closed form under non-uniform scale -- it depends on the scaled
+// vertex distribution -- so B cannot be predicted, only MEASURED: this op
+// scales the asset per axis and compensates the geom's pos using the CURRENT
+// compiled binding's B (one recompile behind during a drag; the drag loop
+// recompiles per frame, so the correction converges, and the post-release
+// fixup in editor_ops makes the final pose exact). `factor` is per SOURCE
+// axis, relative to the grab-time mesh scale.
+void ApplyScaleMeshNonUniform(mj::Model& tree, std::uint64_t serial,
+                              const ScaleBase& base, const DragFrame& f,
+                              const mj::Binding& binding,
+                              const double factor[3]);
+
 // Apply cumulative per-axis `factor` to the grab-time size (or, for a mesh geom,
 // to the referenced mesh asset's scale -- a model-wide change the caller should
 // warn about). Writes the geom/site size (or mesh scale).

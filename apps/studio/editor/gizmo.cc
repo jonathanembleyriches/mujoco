@@ -67,6 +67,21 @@ void AxisDirs(const DragFrame& f, bool local, double ax[3][3]) {
   }
 }
 
+// Scale acts along the SOURCE mesh axes for a mesh geom (mesh.scale multiplies
+// source-frame vertices). Those appear in world as P . L -- WITHOUT the baked
+// principal-axes rotation B that the display frame's world_quat carries; using
+// world_quat would draw handles the applied scale does not follow.
+void ScaleAxisDirs(const DragFrame& f, double ax[3][3]) {
+  if (!f.is_mesh) {
+    AxisDirs(f, /*local=*/true, ax);
+    return;
+  }
+  double q[4];
+  QuatMul(f.parent.quat, f.local.quat, q);
+  const double e[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  for (int i = 0; i < 3; ++i) QuatRotate(q, e[i], ax[i]);
+}
+
 double Snap(double v, double step, bool on) {
   return (on && step > 0) ? std::round(v / step) * step : v;
 }
@@ -213,7 +228,7 @@ static GizmoHandle HitTest(const DragFrame& f, const GizmoSettings& g,
       return best;
     }
     case GizmoTool::Scale: {
-      AxisDirs(f, /*local=*/true, ax);  // scale is always object-local
+      ScaleAxisDirs(f, ax);  // object-local; SOURCE axes for a mesh geom
       Px c = ToPix(vp, f.anchor, m);
       if (c.visible && Dist2(mouse, c.p) < tol2 * 1.6)
         return {HandleKind::ScaleUniform, 0};
@@ -240,8 +255,11 @@ void GizmoController::Begin(EditorContext& ctx, const ViewportInput& in,
   gizmo_size_ = WorldSizeForPixels(vp, frame_.anchor, kGizmoPixels, m.h);
 
   double ax[3][3];
-  const bool local = (ctx.gizmo.tool == GizmoTool::Scale) || !ctx.gizmo.world_space;
-  AxisDirs(frame_, local, ax);
+  if (ctx.gizmo.tool == GizmoTool::Scale) {
+    ScaleAxisDirs(frame_, ax);
+  } else {
+    AxisDirs(frame_, !ctx.gizmo.world_space, ax);
+  }
 
   double ro[3], rd[3];
   ScreenToRay(vp, in.x, in.y, ro, rd);
@@ -319,13 +337,29 @@ void GizmoController::Begin(EditorContext& ctx, const ViewportInput& in,
   }
 }
 
+// Arm the post-compile centre fixup for a mesh-scale drag: the grab-time
+// visible centre (parent frame) and authored local quat are what
+// ServiceMeshScaleFixup (editor_ops.cc) needs to re-pin the centre exactly.
+void GizmoController::ArmMeshScaleFixup(EditorContext& ctx) {
+  double rb[3];
+  QuatRotate(frame_.local.quat, frame_.suffix.pos, rb);
+  ctx.mesh_fix_serial = drag_serial_;
+  for (int i = 0; i < 3; ++i) {
+    ctx.mesh_fix_centre[i] = frame_.local.pos[i] + rb[i];
+  }
+  for (int i = 0; i < 4; ++i) ctx.mesh_fix_lquat[i] = frame_.local.quat[i];
+}
+
 void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
                                  const ViewProj& vp) {
   if (drag_serial_ != ctx.selected_serial) return;
   const GizmoSettings& g = ctx.gizmo;
   double ax[3][3];
-  const bool local = (g.tool == GizmoTool::Scale) || !g.world_space;
-  AxisDirs(frame_, local, ax);
+  if (g.tool == GizmoTool::Scale) {
+    ScaleAxisDirs(frame_, ax);
+  } else {
+    AxisDirs(frame_, !g.world_space, ax);
+  }
   double ro[3], rd[3];
   ScreenToRay(vp, in.x, in.y, ro, rd);
 
@@ -422,12 +456,18 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       f = Snap(f, g.snap_scale, g.snap);
       if (f < 1e-3) f = 1e-3;
       if (scale_base_.is_mesh) {
-        // Mesh scale is UNIFORM whatever handle was grabbed: a non-uniform
-        // mesh scale changes the principal axes and the in-place compensation
-        // (visible centre held fixed) is no longer sound.
-        ApplyScaleMeshUniform(*ctx.tree, drag_serial_, scale_base_, frame_, f);
+        // Per-axis mesh scale, along the SOURCE axes the handles draw. The
+        // principal-axes part of the recentering is MEASURED from the last
+        // compile (no closed form under non-uniform scale); the one-shot
+        // fixup armed below re-pins the centre exactly once the final
+        // compile lands.
+        double factor[3] = {1, 1, 1};
+        factor[grabbed_.axis] = f;
+        ApplyScaleMeshNonUniform(*ctx.tree, drag_serial_, scale_base_, frame_,
+                                 ctx.compiled.binding, factor);
+        ArmMeshScaleFixup(ctx);
         ctx.status_toast.Post(
-            "gizmo: uniform mesh scale (affects ALL users of the mesh)",
+            "gizmo: mesh scale (affects ALL users of the mesh)",
             StatusToast::Kind::Warning, ImGui::GetTime());
         break;
       }
@@ -442,6 +482,7 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       if (f < 1e-3) f = 1e-3;
       if (scale_base_.is_mesh) {
         ApplyScaleMeshUniform(*ctx.tree, drag_serial_, scale_base_, frame_, f);
+        ArmMeshScaleFixup(ctx);
         ctx.status_toast.Post(
             "gizmo: uniform mesh scale (affects ALL users of the mesh)",
             StatusToast::Kind::Warning, ImGui::GetTime());
@@ -718,8 +759,11 @@ void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context&
   };
 
   if (g.tool == GizmoTool::Translate || g.tool == GizmoTool::Scale) {
-    const bool local = (g.tool == GizmoTool::Scale) || !g.world_space;
-    AxisDirs(f, local, ax);
+    if (g.tool == GizmoTool::Scale) {
+      ScaleAxisDirs(f, ax);
+    } else {
+      AxisDirs(f, !g.world_space, ax);
+    }
     // Axes.
     for (int i = 0; i < 3; ++i) {
       double tip[3];

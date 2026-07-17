@@ -334,6 +334,16 @@ struct EditorContext {
   bool sim_paused = true;             // host has physics paused
   double sim_time = 0.0;              // live mjData time; 0 == the reset state
 
+  // One-shot post-compile correction after a NON-uniform mesh-scale drag: the
+  // principal-axes part of the mesh recentering can only be MEASURED from a
+  // compile, so the drag corrects one frame behind; this slot re-pins the
+  // geom's visible centre exactly once the final compile lands (serviced in
+  // the model-source poll; editor_ops.cc ServiceMeshScaleFixup). serial == 0
+  // means idle.
+  std::uint64_t mesh_fix_serial = 0;
+  double mesh_fix_centre[3] = {0, 0, 0};  // grab centre, PARENT frame
+  double mesh_fix_lquat[4] = {1, 0, 0, 0};  // grab-time authored local quat
+
   GizmoSettings gizmo;
   bool gizmo_active = false;           // a gizmo drag is in progress (host reads
                                       // this so Esc cancels the drag, not exit)

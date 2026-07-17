@@ -2,6 +2,7 @@
 
 #include "editor/editor_ops.h"
 #include "editor/layers.h"
+#include "editor/transform_math.h"
 
 #include <filesystem>
 #include <fstream>
@@ -264,6 +265,37 @@ bool RecompileTree(EditorContext& ctx) {
 bool ShouldServiceRecompile(const EditorContext& ctx) {
   return (ctx.recompile_requested || ctx.apply_edits) &&
          (ctx.apply_edits || ctx.mode == EditorMode::Edit);
+}
+
+void ServiceMeshScaleFixup(EditorContext& ctx) {
+  if (ctx.mesh_fix_serial == 0 || !ctx.tree || !ctx.compiled.ok()) return;
+  SpatialRef ref = FindSpatial(*ctx.tree, ctx.mesh_fix_serial);
+  if (!ref || ref.type != mj::ElementType::Geom) {
+    ctx.mesh_fix_serial = 0;
+    return;
+  }
+  auto patch = ctx.compiled.binding.PosePatchFor(ref.ptr);
+  if (!patch) {  // e.g. a pruned-layer clone owns the binding pointers
+    ctx.mesh_fix_serial = 0;
+    return;
+  }
+  double rbc[3], np[3];
+  const double bcur[3] = {patch->suffix.pos[0], patch->suffix.pos[1],
+                          patch->suffix.pos[2]};
+  QuatRotate(ctx.mesh_fix_lquat, bcur, rbc);
+  for (int i = 0; i < 3; ++i) np[i] = ctx.mesh_fix_centre[i] - rbc[i];
+
+  mj::Geom* g = static_cast<mj::Geom*>(ref.ptr);
+  const std::array<double, 3> cur =
+      g->pos ? *g->pos : std::array<double, 3>{0, 0, 0};
+  const double delta = std::abs(np[0] - cur[0]) + std::abs(np[1] - cur[1]) +
+                       std::abs(np[2] - cur[2]);
+  if (delta > 1e-12) {
+    g->pos = std::array<double, 3>{np[0], np[1], np[2]};
+    ctx.RequestRecompile();
+  } else {
+    ctx.mesh_fix_serial = 0;  // converged
+  }
 }
 
 bool SaveModel(EditorContext& ctx, const std::string& path) {
