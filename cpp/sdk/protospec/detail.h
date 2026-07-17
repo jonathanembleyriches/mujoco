@@ -56,6 +56,20 @@ struct opt_ref<ps::opt<ps::Ref<T>>> {
   using target = T;
 };
 
+// True when U is `opt<std::vector<Ref<Target>>>` -- the storage shape of a
+// reference LIST (`ref<T>[]`, one space-separated attribute of names, e.g.
+// <flex body="b1 b2">). Everything that scans refs generically handles both
+// shapes: one name per list entry.
+template <class U>
+struct opt_ref_list {
+  static constexpr bool value = false;
+};
+template <class T>
+struct opt_ref_list<ps::opt<std::vector<ps::Ref<T>>>> {
+  static constexpr bool value = true;
+  using target = T;
+};
+
 // --- Whole-tree walk ------------------------------------------------------ //
 // Visits `root`, then every element nested beneath it in document order, in a
 // single generic traversal. `fn` is a callable accepting `auto& element` (its
@@ -266,12 +280,20 @@ Handle MakeHandle(const E& e) {
 
 // --- Reference target types ----------------------------------------------- //
 // The element types a `Ref<Target>` can name. Every ref names a single element
-// type except `Ref<TendonAny>`, whose target is a union of the two tendon
-// spellings (Spatial, Fixed).
+// type except the union targets: `Ref<TendonAny>` (the two tendon spellings)
+// and `Ref<ActuatorAny>` (every actuator spelling -- one MuJoCo actuator
+// namespace).
 template <class Target>
 inline std::vector<mj::ElementType> RefTargetTypes() {
   if constexpr (std::is_same_v<Target, mj::TendonAny>) {
     return {mj::ElementType::Spatial, mj::ElementType::Fixed};
+  } else if constexpr (std::is_same_v<Target, mj::ActuatorAny>) {
+    return {mj::ElementType::ActuatorGeneral, mj::ElementType::Motor,
+            mj::ElementType::Position,        mj::ElementType::Velocity,
+            mj::ElementType::IntVelocity,     mj::ElementType::Damper,
+            mj::ElementType::Cylinder,        mj::ElementType::Muscle,
+            mj::ElementType::Adhesion,        mj::ElementType::DcMotor,
+            mj::ElementType::ActuatorPlugin};
   } else {
     return {mj::element_type_of<Target>::value};
   }

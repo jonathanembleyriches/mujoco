@@ -363,6 +363,27 @@ bool DrawValue(EditorContext& ctx, const char* label, Inner& work,
     using X = typename is_std_vector<Inner>::elem;
     if constexpr (std::is_enum_v<X>) {
       return DrawEnumSet(ctx, work);
+    } else if constexpr (sdkd::is_ref<X>::value) {
+      // ref<T>[] (e.g. a flex's body list): one ref combo per entry, +/- to
+      // grow/shrink -- the vector row's shape with DrawRef as the cell.
+      bool commit = false;
+      if (ImGui::SmallButton("-") && !work.empty()) {
+        work.pop_back();
+        commit = InstantShouldCommit(ctx, true) || commit;
+      }
+      ImGui::SameLine();
+      if (ImGui::SmallButton("+")) {
+        work.push_back(X{});
+        commit = InstantShouldCommit(ctx, true) || commit;
+      }
+      ImGui::SameLine();
+      ImGui::TextDisabled("(%zu)", work.size());
+      for (std::size_t i = 0; i < work.size(); ++i) {
+        ImGui::PushID(static_cast<int>(i));
+        commit = DrawRef(ctx, "##entry", work[i]) || commit;
+        ImGui::PopID();
+      }
+      return commit;
     } else {
       bool commit = false;
       if (ImGui::SmallButton("-") && !work.empty()) {

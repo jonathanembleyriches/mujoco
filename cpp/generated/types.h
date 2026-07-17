@@ -1323,12 +1323,12 @@ struct Flex {
   ps::opt<ps::Ref<Material>> material = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<bool> flatskin = {};
-  ps::opt<std::string> body = {};
+  ps::opt<std::vector<ps::Ref<Body>>> body = {};
   ps::opt<std::vector<double>> vertex = {};
   ps::opt<std::vector<int32_t>> element = {};
   ps::opt<std::vector<float>> texcoord = {};
   ps::opt<std::vector<int32_t>> elemtexcoord = {};
-  ps::opt<std::string> node = {};
+  ps::opt<std::vector<ps::Ref<Body>>> node = {};
   ps::opt<std::array<int32_t, 3>> cellcount = {};
   ps::opt<FlexDof> dof = {};
   std::vector<std::unique_ptr<FlexContact>> flexContacts;

@@ -677,6 +677,15 @@ class Reader {
       std::sort(vals.begin(), vals.end());
       out = std::move(vals);
       return true;
+    } else if constexpr (is_ref<S>::value) {
+      // ref<T>[]: a space-separated list of element names (<flex body="b1 b2">).
+      // A name cannot contain whitespace on this wire, so tokenizing is exact.
+      std::vector<S> vals;
+      for (std::string_view tok : num::Tokens(text)) {
+        vals.push_back(S{std::string(tok)});
+      }
+      out = std::move(vals);
+      return true;
     } else {
       auto toks = num::Tokens(text);
       std::vector<S> vals(toks.size());

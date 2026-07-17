@@ -2959,13 +2959,11 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
   if (force_flatskin) flex->flatskin = true;
   else if (fc.flatskin) flex->flatskin = *fc.flatskin;
 
-  // vertbody -> body="a b c ..."
-  std::string bodies_str;
-  for (std::size_t i = 0; i < vertbody.size(); ++i) {
-    if (i) bodies_str += ' ';
-    bodies_str += vertbody[i];
-  }
-  flex->body = bodies_str;
+  // vertbody -> the flex's body ref list (body="a b c ..." on the wire)
+  std::vector<ps::Ref<Body>> bodies;
+  bodies.reserve(vertbody.size());
+  for (const std::string& b : vertbody) bodies.emplace_back(b);
+  flex->body = std::move(bodies);
   flex->element = g.element;
   if (!g.texcoord.empty()) flex->texcoord = g.texcoord;
   if (!elemtexcoord.empty()) flex->elemtexcoord = elemtexcoord;
@@ -2974,12 +2972,10 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
   // cellcount is the FE cell count. Node local offsets flow out-of-band (only
   // saved when not centered, Make :779).
   if (interpolated) {
-    std::string node_str;
-    for (std::size_t i = 0; i < nodebody.size(); ++i) {
-      if (i) node_str += ' ';
-      node_str += nodebody[i];
-    }
-    flex->node = node_str;
+    std::vector<ps::Ref<Body>> nodes;
+    nodes.reserve(nodebody.size());
+    for (const std::string& b : nodebody) nodes.emplace_back(b);
+    flex->node = std::move(nodes);
     flex->dof = dof;
     flex->cellcount = std::array<int32_t, 3>{cc[0], cc[1], cc[2]};
     if (!centered) out_node_local = node_local;
@@ -2989,7 +2985,7 @@ std::unique_ptr<Flex> ExpandFlexcompInto(const Flexcomp& fc,
   // including the rigid case (all points on the parent). Rigid then collapses
   // vertbody to the single parent name (Make :519).
   if (!centered || interpolated) flex->vertex = g.point;
-  if (rigid) flex->body = parent_name;
+  if (rigid) flex->body = std::vector<ps::Ref<Body>>{ps::Ref<Body>{parent_name}};
 
   // contact / edge / elasticity children carry over from the flexcomp def
   if (!fc.flexContacts.empty() && fc.flexContacts.front())
@@ -5409,11 +5405,11 @@ CSensor SensorCompile(const Model& model, const SensorAny& any,
   };
   auto actuator_sensor = [&](auto& e, int t) {
     cs.type = t; cs.objtype = mjOBJ_ACTUATOR;
-    if (e.actuator) objname = *e.actuator;
+    if (e.actuator) objname = e.actuator->name;
   };
   auto body_sensor = [&](auto& e, int t) {
     cs.type = t; cs.objtype = mjOBJ_BODY;
-    if (e.body) objname = *e.body;
+    if (e.body) objname = e.body->name;
   };
   // distance/normal/fromto: exactly one of geom1/body1 (obj) and geom2/body2
   // (ref); objtype/reftype follow which attr was authored (reader semantics).
@@ -6741,7 +6737,7 @@ bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
     if (eff->face) out.face = *eff->face;
     for (const auto& b : eff->bones) {
       if (!b) continue;
-      bonename.push_back(b->body ? *b->body : std::string());
+      bonename.push_back(b->body ? b->body->name : std::string());
       if (b->bindpos) for (int k = 0; k < 3; ++k)
         out.bindpos.push_back(static_cast<float>((*b->bindpos)[k]));
       if (b->bindquat) for (int k = 0; k < 4; ++k)
@@ -8765,7 +8761,7 @@ bool FlexCompile(const Flex& fl, const std::vector<CBody>& cbs,
   out.group = fl.group ? *fl.group : 0;
   out.flatskin = fl.flatskin && *fl.flatskin;
   if (fl.rgba) for (int k = 0; k < 4; ++k) out.rgba[k] = (*fl.rgba)[k];
-  out.material_name = fl.material ? *fl.material : std::string();
+  out.material_name = fl.material ? fl.material->name : std::string();
   out.has_strain_eq = has_strain_eq;
   if (fl.cellcount)
     for (int k = 0; k < 3; ++k) out.cellcount[k] = (*fl.cellcount)[k];
@@ -8776,8 +8772,9 @@ bool FlexCompile(const Flex& fl, const std::vector<CBody>& cbs,
     else out.order = 0;
   }
   // nodebody name list (the flex "node" attribute is body names, not positions).
-  std::vector<std::string> nodebody =
-      SplitWhitespace(fl.node ? *fl.node : std::string());
+  std::vector<std::string> nodebody;
+  if (fl.node)
+    for (const auto& r : *fl.node) nodebody.push_back(r.name);
   out.interpolated = !nodebody.empty();
   out.node = node_local;
   out.cell_empty = cell_empty;
@@ -8821,8 +8818,9 @@ bool FlexCompile(const Flex& fl, const std::vector<CBody>& cbs,
   }
 
   const int dim = out.dim;
-  std::vector<std::string> vertbody =
-      SplitWhitespace(fl.body ? *fl.body : std::string());
+  std::vector<std::string> vertbody;
+  if (fl.body)
+    for (const auto& r : *fl.body) vertbody.push_back(r.name);
   if (fl.vertex) out.vert = *fl.vertex;
   if (fl.element) out.elem = *fl.element;
   if (fl.texcoord) out.texcoord = *fl.texcoord;

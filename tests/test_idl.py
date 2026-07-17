@@ -145,6 +145,39 @@ def test_arity_forms():
     assert "arity" not in fields["mode"]["type"]
 
 
+def test_ref_list_form():
+    # ``ref<T>[]``: an ordered reference list, one space-separated attribute of
+    # names on the wire. Only the unbounded form exists for refs.
+    schema = parse_spec(
+        'mujoco_version "3.10.0"\n'
+        "element Body { name : string }\n"
+        "element Flex {\n"
+        "  body : ref<Body>[]\n"
+        "  material : ref<Body>\n"
+        "}"
+    )
+    j = schema.to_json()
+    flex = next(e for e in j["elements"] if e["name"] == "Flex")
+    fields = {f["name"]: f for f in flex["fields"]}
+    assert fields["body"]["type"]["kind"] == "ref"
+    assert fields["body"]["type"]["target"] == "Body"
+    assert fields["body"]["type"]["arity"] == {"kind": "unbounded"}
+    # A scalar ref has no arity key (pins to_json shape and the round-trip).
+    assert "arity" not in fields["material"]["type"]
+    assert Schema.from_json(j).to_json() == j
+
+
+def test_ref_list_rejects_sized_arity():
+    exc = _expect_error(
+        'mujoco_version "3.10.0"\n'
+        "element Body { name : string }\n"
+        "element E {\n"
+        "  b : ref<Body>[3]\n"
+        "}"
+    )
+    assert exc.line == 4
+
+
 def test_defaults_kinds():
     j = _load("arity").to_json()
     fields = {f["name"]: f for f in j["elements"][0]["fields"]}

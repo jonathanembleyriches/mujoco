@@ -587,6 +587,10 @@ class RefNameCollector {
       using DT = std::decay_t<T>;
       if constexpr (ps::sdk::detail::opt_ref<DT>::value) {
         if (v && !v->name.empty()) c->out_.insert(v->name);
+      } else if constexpr (ps::sdk::detail::opt_ref_list<DT>::value) {
+        if (v)
+          for (const auto& r : *v)
+            if (!r.name.empty()) c->out_.insert(r.name);
       } else if constexpr (ps::sdk::detail::is_ref<DT>::value) {
         if (!v.name.empty()) c->out_.insert(v.name);
       }

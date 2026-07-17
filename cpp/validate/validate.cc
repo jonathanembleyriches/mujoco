@@ -167,6 +167,9 @@ template <> struct RefNs<Mesh> { static constexpr Ns value = Ns::Mesh; };
 template <> struct RefNs<Hfield> { static constexpr Ns value = Ns::Hfield; };
 template <> struct RefNs<Flex> { static constexpr Ns value = Ns::Flex; };
 template <> struct RefNs<TendonAny> { static constexpr Ns value = Ns::Tendon; };
+template <> struct RefNs<ActuatorAny> {
+  static constexpr Ns value = Ns::Actuator;
+};
 template <> struct RefNs<PluginInstance> {
   static constexpr Ns value = Ns::PluginInstance;
 };
@@ -477,6 +480,22 @@ void CheckInner(Ctx& ctx, const FieldDescriptor& fd, const V& v,
           if (ToMjcf(x).empty()) {
             ctx.Emit(Tier::Structural, Severity::Error,
                      "illegal enum value in '" + std::string(fd.name) + "'",
+                     loc);
+          }
+        }
+      }
+    } else if constexpr (is_ref<E>::value) {
+      // ref<T>[]: every entry resolves independently, same conditions as a
+      // scalar ref (referential tier, outside <default>, no macro expansion).
+      if ((ctx.tiers & kTierReferential) && !ctx.in_default &&
+          !ctx.has_macros) {
+        constexpr Ns ns = RefNs<typename is_ref<E>::target>::value;
+        for (const auto& r : v) {
+          if (!r.empty() && !ctx.Resolvable(ns, r.name)) {
+            ctx.Emit(Tier::Referential, Severity::Error,
+                     "unresolved reference '" + r.name + "' in '" +
+                         std::string(fd.name) + "' (no such " +
+                         std::string(NsLabel(ns)) + ")",
                      loc);
           }
         }

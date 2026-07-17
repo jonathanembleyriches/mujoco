@@ -51,6 +51,13 @@ struct RefScan {
       using Tgt = typename opt_ref<D>::target;
       if (v.has_value() && !v->name.empty())
         (*on)(id, name, v->name, RefTargetTypes<Tgt>());
+    } else if constexpr (opt_ref_list<D>::value) {
+      // A ref list is one callback per entry; the mutable string& means the
+      // rename fixup rewrites list entries exactly like scalar refs.
+      using Tgt = typename opt_ref_list<D>::target;
+      if (v.has_value())
+        for (auto& r : *v)
+          if (!r.name.empty()) (*on)(id, name, r.name, RefTargetTypes<Tgt>());
     }
   }
   template <class C>
@@ -281,6 +288,18 @@ struct ClearRefs {
       if (v.has_value() && !v->name.empty() &&
           IsDeleted(*deleted, v->name, RefTargetTypes<Tgt>())) {
         v.reset();
+      }
+    } else if constexpr (opt_ref_list<D>::value) {
+      // Drop only the deleted names from a ref list; an emptied list resets to
+      // unauthored so the attribute disappears from the written MJCF.
+      using Tgt = typename opt_ref_list<D>::target;
+      if (v.has_value()) {
+        auto& list = *v;
+        std::erase_if(list, [&](const auto& r) {
+          return !r.name.empty() &&
+                 IsDeleted(*deleted, r.name, RefTargetTypes<Tgt>());
+        });
+        if (list.empty()) v.reset();
       }
     }
   }

@@ -1205,12 +1205,12 @@ element Flex {
   material     : ref<Material>   # name of material used for rendering
   rgba         : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   flatskin     : bool   # render flex skin with flat shading
-  body         : string
+  body         : ref<Body>[]
   vertex       : double[]   # vertex positions
   element      : int32[]   # element connectivity
   texcoord     : float[]   # vertex texture coordinates
   elemtexcoord : int32[]   # element texture coordinates
-  node         : string   # node body names
+  node         : ref<Body>[]   # node body names
   cellcount    : int32[3] = {1, 1, 1}   # grid cell count for finite cell method
   dof          : FlexDof
   children flexContacts : FlexContact ?

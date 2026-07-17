@@ -182,6 +182,8 @@ def value_type(t: dict) -> str:
             return f"ps::InlineVec<{base}, {arity['max']}>"
         return f"std::vector<{base}>"
     if kind == "ref":
+        if t.get("arity") is not None:  # ref<T>[]: space-separated name list
+            return f"std::vector<ps::Ref<{t['target']}>>"
         return f"ps::Ref<{t['target']}>"
     if kind == "variant":
         return t["target"]

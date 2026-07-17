@@ -52,6 +52,10 @@ struct RefPrefixer {
     using D = std::decay_t<U>;
     if constexpr (opt_ref<D>::value) {
       if (v.has_value() && !v->name.empty()) v->name = *prefix + v->name;
+    } else if constexpr (opt_ref_list<D>::value) {
+      if (v.has_value())
+        for (auto& r : *v)
+          if (!r.name.empty()) r.name = *prefix + r.name;
     }
   }
   template <class C>

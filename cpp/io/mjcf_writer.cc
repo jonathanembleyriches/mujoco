@@ -121,7 +121,15 @@ std::optional<std::string> FormatValue(const Inner& v, bool keyword_set) {
   } else if constexpr (is_vector<Inner>::value) {
     if (v.empty()) return std::nullopt;
     using S = typename Inner::value_type;
-    if constexpr (std::is_enum_v<S>) {
+    if constexpr (is_ref<S>::value) {
+      // ref<T>[]: names joined by single spaces (the wire form they came from).
+      std::string out;
+      for (std::size_t i = 0; i < v.size(); ++i) {
+        if (i) out += ' ';
+        out += Escape(v[i].name);
+      }
+      return out;
+    } else if constexpr (std::is_enum_v<S>) {
       std::string out;
       for (std::size_t i = 0; i < v.size(); ++i) {
         if (i) out += ' ';

@@ -25,7 +25,7 @@ resolved conservatively and noted):
     child      := "children" NAME ":" NAME cardinality             # NAME: element | union
     field      := NAME ":" type annots? default? comment?
     type       := prim ("[" INT "]" | "[" INT ".." INT "]" | "[]")?
-                | "ref" "<" NAME ">" | "variant" NAME | NAME "[]"? # ref<NAME>: element | union
+                | "ref" "<" NAME ">" "[]"? | "variant" NAME | NAME "[]"? # ref<NAME>: element | union
     annots     := "(" (key ("=" value)?),* ")"
     default    := "=" (literal | NAME | "{" literal,* "}")
 
@@ -226,6 +226,8 @@ class TypeRef:
                 d["arity"] = self.arity
         elif self.kind in ("ref", "variant"):
             d["target"] = self.target
+            if self.kind == "ref" and self.arity is not None:
+                d["arity"] = self.arity
         elif self.kind == "named":
             d["name"] = self.name
             if self.arity is not None:
@@ -991,8 +993,17 @@ class _Parser:
             self._expect_punct("<")
             target = self._expect_name("an element name inside ref<>")
             self._expect_punct(">")
+            # ``ref<T>[]``: an ordered list of references, serialized as one
+            # space-separated attribute of names (e.g. <flex body="b1 b2">).
+            # Only the unbounded form -- a sized ref array has no MJCF analogue.
+            arity = None
+            if self._check("PUNCT", "["):
+                self._advance()
+                self._expect_punct("]")
+                arity = {"kind": "unbounded"}
             return TypeRef(
-                kind="ref", line=tok.line, col=tok.col, target=target.value
+                kind="ref", line=tok.line, col=tok.col, target=target.value,
+                arity=arity,
             )
         if tok.value == "variant":
             self._advance()
