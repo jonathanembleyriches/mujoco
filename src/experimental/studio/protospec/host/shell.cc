@@ -15,6 +15,7 @@
 #include "editor/authoring_ops.h"
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
+#include "editor/layers.h"
 #include "host/shell.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
@@ -172,7 +173,10 @@ void DrawEditMenu(EditorContext* c) {
     Redo(*c);
   }
   ImGui::Separator();
-  const bool has_sel = editable && c->selected_serial != 0;
+  // Mutating an existing element also obeys the layer edit scope (layers.h):
+  // a selection owned by an inactive layer greys these out.
+  const bool has_sel = editable && c->selected_serial != 0 &&
+                       SerialInActiveLayer(*c, c->selected_serial);
   if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, has_sel)) {
     DuplicateOp(*c, c->selected_serial);
   }
