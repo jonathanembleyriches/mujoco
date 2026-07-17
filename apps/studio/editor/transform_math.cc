@@ -229,6 +229,14 @@ static Rigid ComputeParentPose(const mjData* data,
 // Materialise an element's authored local pose (Effective fills a class-inherited
 // pos/orient for the default families; Body/Frame default to origin/identity;
 // Light carries pos but no orient, so its local rotation is identity).
+//
+// pos and quat resolve INDEPENDENTLY: authored wins, else the class-effective
+// value. They must not be coupled -- the old form consulted Effective only when
+// pos was unset, so the first translate of an element with a class-inherited
+// orientation (pos becomes authored) silently dropped the class quat to
+// identity, and the live drag preview snapped by the class rotation. This is
+// also the convention PosePatchFor's B capture uses (pose.cc EffectiveLocal);
+// the two sides composing A . L . B must agree on what L is.
 template <class E>
 static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
   Rigid L;
@@ -236,13 +244,16 @@ static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
   std::array<double, 3> pos{0, 0, 0};
   ps::opt<std::array<double, 4>> quat;
   if constexpr (requires { e.quat; }) quat = e.quat;
-  if (e.pos) {
-    pos = *e.pos;
-  } else if constexpr (sdk::HasDefaultFamily<E>::value) {
-    std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
-    if (eff->pos) pos = *eff->pos;
-    if constexpr (requires { e.quat; }) {
-      if (!quat) quat = eff->quat;
+  if (e.pos) pos = *e.pos;
+  if constexpr (sdk::HasDefaultFamily<E>::value) {
+    bool need_eff = !e.pos;
+    if constexpr (requires { e.quat; }) need_eff = need_eff || !quat;
+    if (need_eff) {
+      std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
+      if (!e.pos && eff->pos) pos = *eff->pos;
+      if constexpr (requires { e.quat; }) {
+        if (!quat) quat = eff->quat;
+      }
     }
   }
   L.pos[0] = pos[0];
@@ -280,8 +291,8 @@ static bool EffectiveFromTo(mj::Model& tree, E& e, double from[3],
 }
 
 template <class E>
-static DragFrame BuildFor(mj::Model& tree, const mjData* data,
-                          const mj::Binding& binding,
+static DragFrame BuildFor(mj::Model& tree, const mjModel* model,
+                          const mjData* data, const mj::Binding& binding,
                           const sdk::ParentMap& pm, const OrientContext& oc,
                           E& e) {
   DragFrame f;
@@ -300,20 +311,37 @@ static DragFrame BuildFor(mj::Model& tree, const mjData* data,
                      f.from[2] - f.to[2]};
     for (int i = 0; i < 3; ++i) f.local.pos[i] = 0.5 * (f.from[i] + f.to[i]);
     Z2Quat(f.local.quat, vec);
+  } else {
+    // B, the baked residual suffix (mesh/fit recentering). The element's
+    // visible centre is P . L . B; anchoring on P . L put every unposed mesh
+    // part's gizmo at the body origin. fromto keeps its own convention: there
+    // the LivePatch residual trick already owns the suffix.
+    if (auto patch = binding.PosePatchFor(e)) {
+      for (int i = 0; i < 4; ++i) f.suffix.quat[i] = patch->suffix.quat[i];
+      for (int i = 0; i < 3; ++i) f.suffix.pos[i] = patch->suffix.pos[i];
+    }
+    if constexpr (std::is_same_v<E, mj::Geom>) {
+      if (model) {
+        if (auto id = binding.Id(e)) {
+          f.is_mesh = model->geom_type[*id] == mjGEOM_MESH;
+        }
+      }
+    }
   }
 
-  // anchor = P . L (world frame origin);  world_quat = P.quat . L.quat.
+  // anchor = P . L . B (the visible centre);  world_quat follows the same
+  // composition so local-axis modes act on the axes the user can see.
+  const Rigid lb = f.is_fromto ? f.local : Compose(f.local, f.suffix);
   double rl[3];
-  QuatRotate(f.parent.quat, f.local.pos, rl);
+  QuatRotate(f.parent.quat, lb.pos, rl);
   for (int i = 0; i < 3; ++i) f.anchor[i] = f.parent.pos[i] + rl[i];
-  QuatMul(f.parent.quat, f.local.quat, f.world_quat);
+  QuatMul(f.parent.quat, lb.quat, f.world_quat);
   return f;
 }
 
 DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
                          const mj::Binding& binding, mj::Model& tree,
                          std::uint64_t serial) {
-  (void)model;
   DragFrame f;
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref || !data) return f;
@@ -321,22 +349,22 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
   sdk::ParentMap pm(tree);
   switch (ref.type) {
     case mj::ElementType::Body:
-      return BuildFor(tree, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, pm, oc,
                       *static_cast<mj::Body*>(ref.ptr));
     case mj::ElementType::Geom:
-      return BuildFor(tree, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, pm, oc,
                       *static_cast<mj::Geom*>(ref.ptr));
     case mj::ElementType::Site:
-      return BuildFor(tree, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, pm, oc,
                       *static_cast<mj::Site*>(ref.ptr));
     case mj::ElementType::Camera:
-      return BuildFor(tree, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, pm, oc,
                       *static_cast<mj::Camera*>(ref.ptr));
     case mj::ElementType::Light:
-      return BuildFor(tree, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, pm, oc,
                       *static_cast<mj::Light*>(ref.ptr));
     case mj::ElementType::Frame:
-      return BuildFor(tree, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, pm, oc,
                       *static_cast<mj::Frame*>(ref.ptr));
     default:
       return f;
@@ -490,13 +518,31 @@ static void RotateElem(E& e, const DragFrame& f, const double axis[3],
     }
   }
   if constexpr (requires { e.quat; }) {
-    // L_new.quat = conj(P.quat) . qD . P.quat . L_base.quat  (pos unchanged: the
-    // pivot is the element's own frame origin).
+    // L_new.quat = conj(P.quat) . qD . P.quat . L_base.quat.
     double t1[4], t2[4], t3[4];
     QuatMul(f.parent.quat, f.local.quat, t1);
     QuatMul(qd, t1, t2);
     QuatMul(pq, t2, t3);
     WriteQuat(e, t3);
+
+    // Pivot on the VISIBLE centre (L . B), not the authored frame origin. For a
+    // suffix-free element the two coincide and pos stays untouched (the old
+    // guarantee). For a mesh geom the compiler bakes a recentering offset B, so
+    // holding pos while rotating L makes the mesh ORBIT its authored origin;
+    // keeping the anchor fixed instead means solving
+    //   L_new.pos + R(L_new.quat) . B.pos  ==  L.pos + R(L.quat) . B.pos.
+    const bool has_suffix =
+        std::abs(f.suffix.pos[0]) + std::abs(f.suffix.pos[1]) +
+            std::abs(f.suffix.pos[2]) + std::abs(1.0 - f.suffix.quat[0]) >
+        1e-12;
+    if (has_suffix) {
+      double c[3], rb_old[3], rb_new[3];
+      QuatRotate(f.local.quat, f.suffix.pos, rb_old);
+      for (int i = 0; i < 3; ++i) c[i] = f.local.pos[i] + rb_old[i];
+      QuatRotate(t3, f.suffix.pos, rb_new);
+      double np[3] = {c[0] - rb_new[0], c[1] - rb_new[1], c[2] - rb_new[2]};
+      WritePos(e, np);
+    }
   } else if constexpr (requires { e.dir; }) {
     // A light has no orientation; rotate its authored direction vector by the
     // conjugated world delta (same delta rule, applied to a direction).

@@ -88,7 +88,16 @@ struct DragFrame {
   mj::ElementType type = mj::ElementType::Model;
   Rigid parent;                 // P: parent world pose at qpos0
   Rigid local;                  // L_authored (materialised) at grab
-  double anchor[3] = {0, 0, 0}; // world pos of the element's frame origin
+
+  // B: the residual suffix the compiler bakes to the RIGHT of L (mesh/fit
+  // recentering; identity for primitives). The element visibly sits at
+  // P . L . B, NOT P . L -- so the anchor below includes it, and RotateElem
+  // pivots about it (otherwise a mesh geom orbits its authored origin, which
+  // for an unposed mesh part is the body origin, nowhere near the mesh).
+  Rigid suffix;
+  bool is_mesh = false;         // compiled geom type is mjGEOM_MESH
+
+  double anchor[3] = {0, 0, 0}; // world pos of the element's VISIBLE centre (P.L.B)
   double world_quat[4] = {1, 0, 0, 0};  // element world orientation (for local-axis modes)
 
   // fromto-authored geom/site (capsule/cylinder/box/ellipsoid limbs): when a
@@ -133,9 +142,11 @@ void ApplyTranslate(mj::Model& tree, std::uint64_t serial, const DragFrame& f,
                     const double world_delta[3]);
 
 // Apply a cumulative world-space rotation of `angle` (radians) about unit world
-// `axis`, pivoting on the element's frame origin. Writes orient as a quat
-// (resolved decision #1); pos is provably unchanged (the pivot is the origin) so
-// it is left as authored.
+// `axis`, pivoting on the element's VISIBLE centre (P.L.B -- the gizmo anchor).
+// Writes orient as a quat (resolved decision #1). For a suffix-free element the
+// pivot coincides with the frame origin and pos is provably unchanged; for a
+// mesh geom pos is rewritten so the mesh spins in place instead of orbiting its
+// authored origin.
 void ApplyRotate(mj::Model& tree, std::uint64_t serial, const DragFrame& f,
                  const double axis[3], double angle);
 
