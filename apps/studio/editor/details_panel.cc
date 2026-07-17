@@ -11,6 +11,7 @@
 #include "editor/details_panel.h"
 
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -764,17 +765,22 @@ void DetailsUpdate(GuiPlugin* self) {
     ImGui::TextDisabled("Click an element in the viewport or Hierarchy.");
     return;
   }
-  bool found = false;
+  // Rendering an element edits the tree the walk is iterating: a cancelled
+  // gesture restores a snapshot over `tree`, and the layer rows add/remove
+  // children. Both free memory the walk still holds. Locate the element here
+  // and render it once the traversal has finished.
+  std::function<void()> render;
   sdkd::WalkModelAll(*c->tree, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model> && requires { e.serial; }) {
-      if (!found && e.serial == c->selected_serial) {
-        found = true;
-        RenderElement(*c, e);
+      if (!render && e.serial == c->selected_serial) {
+        render = [c, &e] { RenderElement(*c, e); };
       }
     }
   });
-  if (!found) {
+  if (render) {
+    render();
+  } else {
     ImGui::TextDisabled("Selected element is not in the current model.");
   }
 }
