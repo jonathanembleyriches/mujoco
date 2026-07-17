@@ -3,6 +3,7 @@
 
 #include "make_model.h"
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>

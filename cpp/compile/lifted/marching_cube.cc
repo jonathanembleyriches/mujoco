@@ -6,5 +6,10 @@
 // once (every other includer of marching_cube.h sees declarations only). Kept as
 // a thin wrapper so the vendored header stays byte-identical to upstream for the
 // drift gate. Provenance: snapshots/lifted_code.json (MC::marching_cube).
+// MC.h's impl body names uint64_t without including <cstdint>; MSVC's STL pulls it
+// in transitively, libstdc++ does not. Included here rather than in the header,
+// which must stay byte-identical to upstream.
+#include <cstdint>
+
 #define MC_IMPLEM_ENABLE
 #include "marching_cube.h"
