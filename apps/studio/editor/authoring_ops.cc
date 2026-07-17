@@ -756,16 +756,22 @@ std::unique_ptr<mj::Model> NewStarterModel() {
 bool NewModelOp(EditorContext& ctx) {
   std::unique_ptr<mj::Model> prev_tree = std::move(ctx.tree);
   mj::Compiled prev = std::move(ctx.compiled);
+  std::unique_ptr<mj::Model> prev_compile_tree = std::move(ctx.compile_tree);
   std::vector<Layer> prev_layers = std::move(ctx.layers);
+  LayerGraph prev_graph = std::move(ctx.layer_graph);
   const int prev_active = ctx.active_layer;
   ctx.tree = NewStarterModel();
   ctx.base_dir.clear();
   ctx.vfs_assets.clear();
-  ResetLayers(ctx, "base", "");  // a new scene starts as a single layer
+  // A new scene starts as one authored layer with no backing file: the starter
+  // elements carry no provenance, so the split stamps them "layer://base".
+  SplitLayersFromTree(ctx, "layer://base", "base");
   if (!RecompileTree(ctx)) {
     ctx.tree = std::move(prev_tree);
     ctx.compiled = std::move(prev);
+    ctx.compile_tree = std::move(prev_compile_tree);
     ctx.layers = std::move(prev_layers);
+    ctx.layer_graph = std::move(prev_graph);
     ctx.active_layer = prev_active;
     return false;
   }

@@ -194,16 +194,72 @@ static void ImportMeshControl(EditorContext* c) {
   if (!import_status.empty()) ImGui::TextWrapped("%s", import_status.c_str());
 }
 
-// Layers: the composition stack. Each row is a whole ProtoSpec; the enabled ones
-// merge, in this order, into the model that compiles. Exactly one row is the
-// edit target -- every panel and op authors that layer's tree.
+// Layers: provenance tags over the ONE authored tree. A row is a distinct
+// loc.file key; enabled rows stay in the compile input, the active row is the
+// edit scope. Rows connected by cross-layer references render grouped, and a
+// depended-on layer's enable toggle locks while any enabled layer needs it.
+struct LayersUiState {
+  std::string load_path;
+  std::string export_path;
+  std::string status;
+  int confirm_remove = -1;   // layer index awaiting the delete-elements confirm
+  int confirm_count = 0;
+  bool open_confirm = false;
+};
+
+static void DrawLayerRow(EditorContext* c, int i, int& activate, int& move_idx,
+                         int& move_delta, int& remove_req) {
+  Layer& l = c->layers[i];
+  ImGui::PushID(i);
+
+  // Enabled toggle, locked while an enabled layer depends on this one.
+  const LayerLock lock = LayerLockInfo(*c, i);
+  ImGui::BeginDisabled(lock.locked);
+  if (ImGui::Checkbox("##on", &l.enabled)) c->RequestRecompile();
+  ImGui::EndDisabled();
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    if (lock.locked) {
+      ImGui::SetTooltip("Locked: %s depend%s on this layer\ne.g. %s",
+                        lock.dependents.c_str(),
+                        lock.dependents.find(',') == std::string::npos ? "s" : "",
+                        lock.example.c_str());
+    } else {
+      ImGui::SetTooltip("Include this layer in the compiled model");
+    }
+  }
+  ImGui::SameLine();
+
+  // The edit scope. Radio: exactly one layer is active.
+  if (ImGui::RadioButton("##active", c->active_layer == i)) activate = i;
+  ImGui::SetItemTooltip("%s", "Author into this layer (edit scope)");
+  ImGui::SameLine();
+
+  ImGui::TextUnformatted(l.name.c_str());
+  ImGui::SetItemTooltip("%s", l.key.c_str());
+
+  // Order / remove controls, right-aligned-ish.
+  ImGui::SameLine();
+  ImGui::BeginDisabled(i == 0);
+  if (ImGui::SmallButton("^")) { move_idx = i; move_delta = -1; }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(i + 1 >= static_cast<int>(c->layers.size()));
+  if (ImGui::SmallButton("v")) { move_idx = i; move_delta = 1; }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(c->layers.size() <= 1);
+  if (ImGui::SmallButton("x")) remove_req = i;
+  ImGui::EndDisabled();
+  ImGui::SetItemTooltip("%s", "Remove this layer (its elements are deleted)");
+
+  ImGui::PopID();
+}
+
 static void LayersUpdate(GuiPlugin* self) {
   EditorContext* c = Ctx(self->data);
-  static std::string load_path;
-  static std::string export_path;
-  static std::string status;
+  static LayersUiState st;
 
-  ImGui::TextDisabled("Composition stack -- enabled layers merge top to bottom");
+  ImGui::TextDisabled("Layers -- provenance tags over one tree");
   ImGui::Separator();
 
   if (c->layers.empty()) {
@@ -211,88 +267,114 @@ static void LayersUpdate(GuiPlugin* self) {
     return;
   }
 
-  int remove_idx = -1, move_idx = -1, move_delta = 0, activate = -1;
+  const int n = static_cast<int>(c->layers.size());
+  int activate = -1, move_idx = -1, move_delta = 0, remove_req = -1;
 
-  if (ImGui::BeginTable("##layers", 5,
-                        ImGuiTableFlags_SizingFixedFit |
-                            ImGuiTableFlags_RowBg)) {
-    ImGui::TableSetupColumn("on");
-    ImGui::TableSetupColumn("layer", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("edit");
-    ImGui::TableSetupColumn("order");
-    ImGui::TableSetupColumn("");
-    ImGui::TableHeadersRow();
-
-    for (int i = 0; i < static_cast<int>(c->layers.size()); ++i) {
-      Layer& l = c->layers[i];
-      ImGui::PushID(i);
-      ImGui::TableNextRow();
-
-      ImGui::TableNextColumn();
-      if (ImGui::Checkbox("##on", &l.enabled)) c->RequestRecompile();
-      ImGui::SetItemTooltip("%s", "Compose this layer into the model");
-
-      ImGui::TableNextColumn();
-      ImGui::TextUnformatted(l.name.c_str());
-      if (!l.path.empty()) ImGui::SetItemTooltip("%s", l.path.c_str());
-
-      // The edit target. Radio rather than a toggle: the stack always has
-      // exactly one, and its tree is the one `ctx.tree` holds.
-      ImGui::TableNextColumn();
-      if (ImGui::RadioButton("##active", c->active_layer == i)) activate = i;
-      ImGui::SetItemTooltip("%s", "Author into this layer");
-
-      ImGui::TableNextColumn();
-      ImGui::BeginDisabled(i == 0);
-      if (ImGui::SmallButton("^")) { move_idx = i; move_delta = -1; }
-      ImGui::EndDisabled();
-      ImGui::SameLine();
-      ImGui::BeginDisabled(i + 1 >= static_cast<int>(c->layers.size()));
-      if (ImGui::SmallButton("v")) { move_idx = i; move_delta = 1; }
-      ImGui::EndDisabled();
-
-      ImGui::TableNextColumn();
-      ImGui::BeginDisabled(c->layers.size() <= 1);
-      if (ImGui::SmallButton("x")) remove_idx = i;
-      ImGui::EndDisabled();
-      ImGui::PopID();
+  // Grouped rendering: layers connected by dependency edges draw together
+  // inside a frame; independents draw standalone. Display order is preserved
+  // inside and across groups (a group sits where its first member sits).
+  const std::vector<int>& comp = c->layer_graph.group;
+  const bool comp_ok = static_cast<int>(comp.size()) == n;
+  std::vector<bool> drawn(n, false);
+  for (int i = 0; i < n; ++i) {
+    if (drawn[i]) continue;
+    std::vector<int> members{i};
+    if (comp_ok) {
+      for (int j = i + 1; j < n; ++j) {
+        if (comp[j] == comp[i]) members.push_back(j);
+      }
     }
-    ImGui::EndTable();
+    if (members.size() > 1) {
+      ImGui::PushStyleColor(ImGuiCol_ChildBg,
+                            ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+      ImGui::BeginChild(ImGui::GetID(("##group" + std::to_string(i)).c_str()),
+                        ImVec2(0, 0),
+                        ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
+      ImGui::TextDisabled("linked by references");
+      for (int m : members) {
+        DrawLayerRow(c, m, activate, move_idx, move_delta, remove_req);
+        drawn[m] = true;
+      }
+      ImGui::EndChild();
+      ImGui::PopStyleColor();
+    } else {
+      DrawLayerRow(c, i, activate, move_idx, move_delta, remove_req);
+      drawn[i] = true;
+    }
   }
 
   // Apply after the loop: each of these mutates the vector being drawn.
   if (activate >= 0) c->SetActiveLayer(activate);
   if (move_idx >= 0) MoveLayer(*c, move_idx, move_delta);
-  if (remove_idx >= 0) RemoveLayer(*c, remove_idx);
+  if (remove_req >= 0) {
+    const int count = CountLayerElements(*c, remove_req);
+    if (count == 0) {
+      RemoveLayer(*c, remove_req, /*delete_elements=*/false);
+    } else {
+      st.confirm_remove = remove_req;
+      st.confirm_count = count;
+      st.open_confirm = true;
+    }
+  }
+
+  // Non-empty layer removal deletes its ELEMENTS from the tree: confirm it.
+  if (st.open_confirm) {
+    ImGui::OpenPopup("Remove layer?##layers");
+    st.open_confirm = false;
+  }
+  if (ImGui::BeginPopupModal("Remove layer?##layers", nullptr,
+                             ImGuiWindowFlags_AlwaysAutoResize)) {
+    const bool valid = st.confirm_remove >= 0 &&
+                       st.confirm_remove < static_cast<int>(c->layers.size());
+    ImGui::Text("Remove layer '%s'?",
+                valid ? c->layers[st.confirm_remove].name.c_str() : "?");
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                       "Its %d element(s) will be DELETED from the model.",
+                       st.confirm_count);
+    ImGui::Separator();
+    if (ImGui::Button("Delete elements and remove") && valid) {
+      RemoveLayer(*c, st.confirm_remove, /*delete_elements=*/true);
+      st.confirm_remove = -1;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+      st.confirm_remove = -1;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
 
   ImGui::Separator();
   if (ImGui::Button("+ Layer")) AddEmptyLayer(*c, "");
-  ImGui::SetItemTooltip("%s", "Add an empty layer and author into it");
+  ImGui::SetItemTooltip("%s",
+                        "Add an empty authored layer and make it the edit scope");
 
   ImGui::SetNextItemWidth(240);
   ImGui::InputTextWithHint("##layerpath", "path to MJCF to add as a layer",
-                           &load_path);
+                           &st.load_path);
   ImGui::SameLine();
-  if (ImGui::Button("Add") && !load_path.empty()) {
+  if (ImGui::Button("Add") && !st.load_path.empty()) {
     std::string err;
-    status = AddLayerFromFile(*c, load_path, &err)
-                 ? ("added layer '" + load_path + "'")
-                 : ("add failed: " + err);
-    if (err.empty()) load_path.clear();
+    st.status = AddLayerFromFile(*c, st.load_path, &err)
+                    ? ("added layer '" + st.load_path + "'")
+                    : ("add failed: " + err);
+    if (err.empty()) st.load_path.clear();
   }
 
   ImGui::Separator();
-  ImGui::TextDisabled("Export: a root <include> document + one file per layer");
+  ImGui::TextDisabled("Export: root <include> document + one file per layer");
   ImGui::SetNextItemWidth(240);
-  ImGui::InputTextWithHint("##exportpath", "path to write (.xml)", &export_path);
+  ImGui::InputTextWithHint("##exportpath", "path to write (.xml)",
+                           &st.export_path);
   ImGui::SameLine();
-  if (ImGui::Button("Export") && !export_path.empty()) {
+  if (ImGui::Button("Export") && !st.export_path.empty()) {
     std::string err;
-    status = ExportLayeredMjcf(*c, export_path, &err)
-                 ? ("exported -> " + export_path)
-                 : ("export failed: " + err);
+    st.status = ExportLayeredMjcf(*c, st.export_path, &err)
+                    ? ("exported -> " + st.export_path)
+                    : ("export failed: " + err);
   }
-  if (!status.empty()) ImGui::TextWrapped("%s", status.c_str());
+  if (!st.status.empty()) ImGui::TextWrapped("%s", st.status.c_str());
 }
 
 // Assets: meshes / textures / materials, with creation + a browsable swatch list.

@@ -198,6 +198,7 @@ enable_testing()
 add_executable(protospec_studio_tests
   test/test_studio.cc
   editor/editor_ops.cc
+  editor/layers.cc
   editor/undo.cc
   editor/hierarchy_icons.cc
   editor/hierarchy_model.cc
@@ -228,6 +229,7 @@ add_executable(protospec_studio_gizmo_tests
   editor/gizmo_math.cc
   editor/joint_overlay.cc
   editor/editor_ops.cc
+  editor/layers.cc
   editor/undo.cc
 )
 target_link_libraries(protospec_studio_gizmo_tests PRIVATE
@@ -283,6 +285,7 @@ add_executable(protospec_studio_host_tests
   editor/authoring_ops.cc
   editor/asset_import.cc
   editor/editor_ops.cc
+  editor/layers.cc
   editor/undo.cc
   editor/transform_math.cc
 )
@@ -364,6 +367,7 @@ add_executable(protospec_studio_authoring_tests
   editor/authoring_ops.cc
   editor/asset_import.cc
   editor/editor_ops.cc
+  editor/layers.cc
   editor/undo.cc
   editor/transform_math.cc
 )
@@ -390,6 +394,7 @@ add_executable(protospec_studio_se5_tests
   editor/authoring_ops.cc
   editor/asset_import.cc
   editor/editor_ops.cc
+  editor/layers.cc
   editor/undo.cc
   editor/transform_math.cc
 )

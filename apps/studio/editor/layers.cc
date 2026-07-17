@@ -1,33 +1,146 @@
-// ProtoSpec Studio: layer composition (ps::studio, ours). See layers.h.
+// ProtoSpec Studio: layers as provenance tags (ps::studio, ours). See layers.h.
 
 #include "editor/layers.h"
 
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <string_view>
+#include <memory>
+#include <set>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "tinyxml2.h"
+
+#include "editor/editor_ops.h"
 #include "editor/undo.h"
 #include "mjcf.h"
 #include "protospec/detail.h"
+#include "protospec/refs.h"
 #include "reflect.h"
-#include "protospec/traversal.h"
 #include "types.h"
+#include "visit.h"
 
 namespace ps::studio {
 namespace {
 
 namespace mj = ps::mjcf;
 namespace io = ps::mjcf::io;
+namespace reflect = ps::mjcf::reflect;
 namespace sdkd = ps::sdk::detail;
+namespace xt = tinyxml2;
 
-// Move every element out of `src` onto the end of `dst`. The sections are flat
-// vectors of owned elements, so a merge is a concatenation per section -- MJCF
-// permits repeated <asset>/<worldbody>/<default> blocks, and the writer and the
-// native compiler both take them as one.
+// Visit every element of the tree EXCEPT the Model root (the root is the
+// document, not a layer member: its loc names whichever file happened to open
+// the stack and must never partition, prune, or gate anything).
+template <class Fn>
+void ForEachElement(mj::Model& m, Fn&& fn) {
+  sdkd::WalkModelAll(m, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model>) {
+      fn(e);
+    }
+  });
+}
+
+std::string StemOf(const std::string& path) {
+  std::filesystem::path p(path);
+  const std::string stem = p.stem().string();
+  return stem.empty() ? path : stem;
+}
+
+// Display name for a key: "layer://x" -> "x", a path -> its stem.
+std::string DisplayNameForKey(const std::string& key) {
+  constexpr std::string_view kScheme = "layer://";
+  if (key.rfind(kScheme, 0) == 0) return key.substr(kScheme.size());
+  return StemOf(key);
+}
+
+// A filename-safe token from a layer name ("my layer!" -> "my_layer").
+std::string Slug(const std::string& s, int fallback_index) {
+  std::string out;
+  for (char ch : s) {
+    if (std::isalnum(static_cast<unsigned char>(ch))) {
+      out += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    } else if (!out.empty() && out.back() != '_') {
+      out += '_';
+    }
+  }
+  while (!out.empty() && out.back() == '_') out.pop_back();
+  return out.empty() ? ("layer" + std::to_string(fallback_index)) : out;
+}
+
+// Stamp every element with an empty loc.file to `key`. This is how in-editor
+// authored elements join a layer: the compile seam runs it with the ACTIVE
+// layer's key right after every CommitEdit (BuildCompileModel), so no
+// authoring op needs to know layers exist.
+void StampEmptyLoc(mj::Model& m, const std::string& key) {
+  ForEachElement(m, [&](auto& e) {
+    if (e.loc.file.empty()) e.loc.file = key;
+  });
+}
+
+// Remove every element whose loc.file is in `drop`, subtrees included
+// (removing a body removes everything under it -- correct and expected).
+struct LayerPruner {
+  const std::unordered_set<std::string>* drop;
+
+  template <class U>
+  void field(int, const char*, U&) {}
+
+  template <class T>
+  void child(int, const char*, std::vector<std::unique_ptr<T>>& list) {
+    std::erase_if(list, [&](const std::unique_ptr<T>& p) {
+      return p && drop->count(p->loc.file) > 0;
+    });
+    for (auto& p : list) {
+      if (p) {
+        LayerPruner sub{drop};
+        mj::Visit(*p, sub);
+      }
+    }
+  }
+
+  template <class U>
+  void union_child(int, const char*, std::vector<U>& list) {
+    std::erase_if(list, [&](const U& item) {
+      bool rm = false;
+      std::visit(
+          [&](const auto& p) {
+            if (p && drop->count(p->loc.file) > 0) rm = true;
+          },
+          item.node);
+      return rm;
+    });
+    for (auto& item : list) {
+      std::visit(
+          [&](auto& p) {
+            if (p) {
+              LayerPruner sub{drop};
+              mj::Visit(*p, sub);
+            }
+          },
+          item.node);
+    }
+  }
+};
+
+void PruneKeys(mj::Model& m, const std::unordered_set<std::string>& drop) {
+  LayerPruner pr{&drop};
+  mj::Visit(m, pr);
+}
+
+// Move every top-level element of `src` onto the end of `dst`, per section
+// (MJCF permits repeated <asset>/<worldbody>/... blocks). Used by the
+// add-layer-from-file graft; the moved elements keep their parse provenance,
+// which is exactly what makes them a layer.
 template <class T>
 void AppendAll(std::vector<std::unique_ptr<T>>& dst,
                std::vector<std::unique_ptr<T>>& src) {
@@ -55,145 +168,233 @@ void MergeInto(mj::Model& dst, mj::Model& src) {
   AppendAll(dst.keyframes, src.keyframes);
 }
 
-// Every (type, name) a layer's tree claims, with a readable label per key.
-void CollectNames(mj::Model& m,
-                  std::unordered_map<std::string, std::string>& out) {
-  sdkd::WalkModelAll(m, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      const std::string* nm = sdkd::NameOf(e);
-      if (!nm || nm->empty()) return;
-      constexpr mj::ElementType kType = mj::element_type_of<E>::value;
-      out.emplace(std::to_string(static_cast<int>(kType)) + ':' + *nm,
-                  std::string(mj::reflect::Describe(kType).name) + " '" + *nm +
-                      "'");
-    }
-  });
-}
-
-std::string StemOf(const std::string& path) {
-  std::error_code ec;
-  std::filesystem::path p(path);
-  const std::string stem = p.stem().string();
-  return stem.empty() ? path : stem;
-}
-
 }  // namespace
 
-ComposeResult ComposeLayers(EditorContext& ctx) {
-  ComposeResult out;
-  out.model = std::make_unique<mj::Model>();
+// --- Partition / lookup ---------------------------------------------------- //
 
-  // key -> the layer that claimed it first, for conflict reporting.
-  std::unordered_map<std::string, std::string> claimed_by;
-  std::unordered_map<std::string, std::string> labels;
-
+int LayerIndexForKey(const EditorContext& ctx, const std::string& key) {
   for (int i = 0; i < static_cast<int>(ctx.layers.size()); ++i) {
-    if (!ctx.layers[i].enabled) continue;
-    mj::Model* src = ctx.LayerTree(i);
-    if (!src) continue;
-
-    std::unordered_map<std::string, std::string> names;
-    CollectNames(*src, names);
-    for (const auto& [key, label] : names) {
-      auto it = claimed_by.find(key);
-      if (it != claimed_by.end()) {
-        out.conflicts.push_back({label, it->second, ctx.layers[i].name});
-      } else {
-        claimed_by.emplace(key, ctx.layers[i].name);
-      }
-    }
-
-    // Serials must survive: a pick on the composed model reports the serial of
-    // the element it hit, and that has to name the authored element.
-    std::unique_ptr<mj::Model> clone = CloneWithSerials(*src);
-    if (!out.model->model && clone->model) out.model->model = clone->model;
-    MergeInto(*out.model, *clone);
-    ++out.layers_used;
-  }
-  return out;
-}
-
-ps::mjcf::Model* BuildComposed(EditorContext& ctx) {
-  if (ctx.layers.empty()) return ctx.tree.get();
-
-  // A lone enabled layer is its own composition; skip the clone so the common
-  // single-layer case compiles the authored tree directly (and a gizmo drag
-  // does not pay for a whole-model clone every frame).
-  int enabled = 0, only = -1;
-  for (int i = 0; i < static_cast<int>(ctx.layers.size()); ++i) {
-    if (ctx.layers[i].enabled) {
-      ++enabled;
-      only = i;
-    }
-  }
-  if (enabled == 1) {
-    ctx.composed.reset();
-    return ctx.LayerTree(only);
-  }
-  if (enabled == 0) {
-    ctx.Diagnose(DiagEntry{DiagEntry::Severity::Warning,
-                           "[layers] every layer is disabled -- nothing to compile",
-                           {},
-                           {}});
-    ctx.composed.reset();
-    return nullptr;
-  }
-
-  ComposeResult r = ComposeLayers(ctx);
-  for (const LayerConflict& c : r.conflicts) {
-    ctx.Diagnose(DiagEntry{DiagEntry::Severity::Error,
-                           "[layers] " + c.name + " is defined by both '" +
-                               c.first + "' and '" + c.second + "'",
-                           {},
-                           {}});
-  }
-  ctx.composed = std::move(r.model);
-  return ctx.composed.get();
-}
-
-int LayerOwningSerial(EditorContext& ctx, std::uint64_t serial) {
-  if (serial == 0) return -1;
-  for (int i = 0; i < static_cast<int>(ctx.layers.size()); ++i) {
-    mj::Model* t = ctx.LayerTree(i);
-    if (!t) continue;
-    bool found = false;
-    sdkd::WalkModelAll(*t, [&](auto& e) {
-      using E = std::decay_t<decltype(e)>;
-      if constexpr (!std::is_same_v<E, mj::Model> && requires { e.serial; }) {
-        if (!found && e.serial == serial) found = true;
-      }
-    });
-    if (found) return i;
+    if (ctx.layers[i].key == key) return i;
   }
   return -1;
 }
 
-void ResetLayers(EditorContext& ctx, const std::string& name,
-                 const std::string& path) {
+void SplitLayersFromTree(EditorContext& ctx, const std::string& root_key,
+                         const std::string& root_name) {
   ctx.layers.clear();
+  ctx.layer_graph = LayerGraph{};
   ctx.active_layer = 0;
-  Layer base;
-  base.name = name.empty() ? "base" : name;
-  base.path = path;
-  base.enabled = true;
-  base.tree = nullptr;  // the active layer's tree lives in ctx.tree
-  ctx.layers.push_back(std::move(base));
+  if (!ctx.tree) return;
+
+  // Programmatically built elements (no provenance) belong to the root layer.
+  StampEmptyLoc(*ctx.tree, root_key);
+
+  // Distinct keys in first-appearance (document) order.
+  std::vector<std::string> keys;
+  ForEachElement(*ctx.tree, [&](auto& e) {
+    const std::string& k = e.loc.file;
+    for (const std::string& seen : keys) {
+      if (seen == k) return;
+    }
+    keys.push_back(k);
+  });
+  if (keys.empty()) keys.push_back(root_key);  // empty model: one root layer
+
+  for (const std::string& k : keys) {
+    Layer l;
+    l.key = k;
+    l.name = (k == root_key && !root_name.empty()) ? root_name
+                                                   : DisplayNameForKey(k);
+    l.enabled = true;
+    ctx.layers.push_back(std::move(l));
+  }
+  const int root_idx = LayerIndexForKey(ctx, root_key);
+  ctx.active_layer = root_idx >= 0 ? root_idx : 0;
+  RecomputeLayerGraph(ctx);
 }
 
+void ReconcileLayers(EditorContext& ctx) {
+  if (!ctx.tree) return;
+  bool changed = false;
+  ForEachElement(*ctx.tree, [&](auto& e) {
+    const std::string& k = e.loc.file;
+    if (k.empty() || LayerIndexForKey(ctx, k) >= 0) return;
+    Layer l;
+    l.key = k;
+    l.name = DisplayNameForKey(k);
+    l.enabled = true;
+    ctx.layers.push_back(std::move(l));
+    changed = true;
+  });
+  if (changed) RecomputeLayerGraph(ctx);
+}
+
+int LayerOfSerial(EditorContext& ctx, std::uint64_t serial) {
+  if (!ctx.tree || serial == 0) return -1;
+  std::string key;
+  bool found = false;
+  ForEachElement(*ctx.tree, [&](auto& e) {
+    if (!found && e.serial == serial) {
+      key = e.loc.file;
+      found = true;
+    }
+  });
+  if (!found) return -1;
+  return LayerIndexForKey(ctx, key);
+}
+
+bool SerialInActiveLayer(EditorContext& ctx, std::uint64_t serial) {
+  if (ctx.layers.size() <= 1) return true;  // degenerate case: no gating
+  const int li = LayerOfSerial(ctx, serial);
+  return li < 0 || li == ctx.active_layer;  // fail open on bookkeeping gaps
+}
+
+int CountLayerElements(EditorContext& ctx, int index) {
+  if (!ctx.tree || index < 0 || index >= static_cast<int>(ctx.layers.size())) {
+    return 0;
+  }
+  const std::string& key = ctx.layers[index].key;
+  int count = 0;
+  ForEachElement(*ctx.tree, [&](auto& e) {
+    if (e.loc.file == key) ++count;
+  });
+  return count;
+}
+
+// --- Compile seam ---------------------------------------------------------- //
+
+ps::mjcf::Model* BuildCompileModel(
+    EditorContext& ctx, std::unique_ptr<ps::mjcf::Model>* out_pruned) {
+  out_pruned->reset();
+  if (!ctx.tree) return nullptr;
+
+  // Housekeeping at the one seam every tree change passes through: new
+  // elements join the active layer, unseen keys get rows, and the dependency
+  // graph refreshes (per recompile, never per frame).
+  if (const std::string* key = ctx.ActiveLayerKey()) {
+    StampEmptyLoc(*ctx.tree, *key);
+  }
+  ReconcileLayers(ctx);
+  RecomputeLayerGraph(ctx);
+
+  std::unordered_set<std::string> drop;
+  for (const Layer& l : ctx.layers) {
+    if (!l.enabled) drop.insert(l.key);
+  }
+  if (drop.empty()) return ctx.tree.get();  // common case: no clone
+
+  std::unique_ptr<mj::Model> clone = CloneWithSerials(*ctx.tree);
+  PruneKeys(*clone, drop);
+  *out_pruned = std::move(clone);
+  return out_pruned->get();
+}
+
+void RecomputeLayerGraph(EditorContext& ctx) {
+  LayerGraph g;
+  const int n = static_cast<int>(ctx.layers.size());
+  g.group.assign(n, 0);
+  for (int i = 0; i < n; ++i) g.group[i] = i;
+
+  if (ctx.tree && n > 1) {
+    // Index every named element: name -> [(type, layer)].
+    struct Named {
+      mj::ElementType type;
+      int layer;
+    };
+    std::unordered_map<std::string, std::vector<Named>> named;
+    ForEachElement(*ctx.tree, [&](auto& e) {
+      using E = std::decay_t<decltype(e)>;
+      const std::string* nm = sdkd::NameOf(e);
+      if (nm && !nm->empty()) {
+        named[*nm].push_back({mj::element_type_of<E>::value,
+                              LayerIndexForKey(ctx, e.loc.file)});
+      }
+    });
+
+    // Every authored reference (typed scalar, ref<T>[] entry, dynamic
+    // target_from) that resolves across layers is an edge; one example kept
+    // per (from, to) pair.
+    std::set<std::pair<int, int>> seen;
+    ForEachElement(*ctx.tree, [&](auto& e) {
+      using E = std::decay_t<decltype(e)>;
+      const int a = LayerIndexForKey(ctx, e.loc.file);
+      if (a < 0) return;
+      sdkd::ScanRefs(
+          e, [&](int, const char* fname, const std::string& rn,
+                 const std::vector<mj::ElementType>& tgts) {
+            auto it = named.find(rn);
+            if (it == named.end()) return;
+            for (const Named& cand : it->second) {
+              if (cand.layer < 0 || cand.layer == a) continue;
+              if (!sdkd::Contains(tgts, cand.type)) continue;
+              if (!seen.insert({a, cand.layer}).second) continue;
+              std::string who = std::string(
+                  reflect::Describe(mj::element_type_of<E>::value).name);
+              if (const std::string* enm = sdkd::NameOf(e)) {
+                if (!enm->empty()) who += " '" + *enm + "'";
+              }
+              g.edges.push_back(
+                  {a, cand.layer, who + "." + fname + " -> '" + rn + "'"});
+            }
+          });
+    });
+
+    // Connected components over the undirected edges (union-find).
+    std::vector<int> parent(n);
+    for (int i = 0; i < n; ++i) parent[i] = i;
+    std::function<int(int)> find = [&](int x) {
+      while (parent[x] != x) x = parent[x] = parent[parent[x]];
+      return x;
+    };
+    for (const LayerEdge& e : g.edges) {
+      const int ra = find(e.from), rb = find(e.to);
+      if (ra != rb) parent[ra] = rb;
+    }
+    for (int i = 0; i < n; ++i) g.group[i] = find(i);
+  }
+
+  ctx.layer_graph = std::move(g);
+}
+
+LayerLock LayerLockInfo(const EditorContext& ctx, int index) {
+  LayerLock out;
+  for (const LayerEdge& e : ctx.layer_graph.edges) {
+    if (e.to != index || e.from == index) continue;
+    if (e.from < 0 || e.from >= static_cast<int>(ctx.layers.size())) continue;
+    if (!ctx.layers[e.from].enabled) continue;  // a disabled dependent unlocks
+    out.locked = true;
+    if (!out.dependents.empty()) out.dependents += ", ";
+    out.dependents += "'" + ctx.layers[e.from].name + "'";
+    if (out.example.empty()) out.example = e.example;
+  }
+  return out;
+}
+
+// --- Layer list ops -------------------------------------------------------- //
+
 void AddEmptyLayer(EditorContext& ctx, const std::string& name) {
+  const std::string base =
+      name.empty() ? ("layer " + std::to_string(ctx.layers.size() + 1)) : name;
+  std::string key = "layer://" + Slug(base, static_cast<int>(ctx.layers.size()));
+  for (int k = 2; LayerIndexForKey(ctx, key) >= 0; ++k) {
+    key = "layer://" + Slug(base, static_cast<int>(ctx.layers.size())) + "_" +
+          std::to_string(k);
+  }
   Layer l;
-  l.name = name.empty() ? ("layer " + std::to_string(ctx.layers.size() + 1))
-                        : name;
+  l.name = base;
+  l.key = key;
   l.enabled = true;
-  l.tree = std::make_unique<mj::Model>();
   ctx.layers.push_back(std::move(l));
   ctx.SetActiveLayer(static_cast<int>(ctx.layers.size()) - 1);
-  ctx.RequestRecompile();
+  RecomputeLayerGraph(ctx);
 }
 
 bool AddLayerFromFile(EditorContext& ctx, const std::string& path,
                       std::string* error) {
+  if (!ctx.tree) {
+    if (error) *error = "no model loaded";
+    return false;
+  }
   io::ParseResult parsed = io::ParseMjcfFile(path);
   for (const io::Diagnostic& w : parsed.warnings) {
     DiagEntry e{DiagEntry::Severity::Warning, "[layer parse] " + w.message, {}, {}};
@@ -212,49 +413,240 @@ bool AddLayerFromFile(EditorContext& ctx, const std::string& path,
     return false;
   }
 
-  Layer l;
-  l.name = StemOf(path);
-  l.path = path;
-  l.enabled = true;
-  l.tree = std::move(parsed.model);
-  ctx.layers.push_back(std::move(l));
+  // Graft: the parsed elements keep their provenance (the file itself, plus
+  // one key per file its own <include>s spliced in), so ReconcileLayers turns
+  // them into layer rows with no re-tagging. One undo step.
+  ctx.BeginEdit();
+  MergeInto(*ctx.tree, *parsed.model);
+  ctx.CommitEdit("Add layer '" + StemOf(path) + "'");
+  ReconcileLayers(ctx);
+  const int idx = LayerIndexForKey(ctx, path);
+  if (idx >= 0) ctx.SetActiveLayer(idx);
+  ctx.Log("added layer from file: " + path);
+  return true;
+}
+
+bool RemoveLayer(EditorContext& ctx, int index, bool delete_elements) {
+  const int n = static_cast<int>(ctx.layers.size());
+  if (index < 0 || index >= n || n <= 1) return false;  // keep the last layer
+
+  const int count = CountLayerElements(ctx, index);
+  if (count > 0) {
+    if (!delete_elements) return false;
+    ctx.BeginEdit();
+    PruneKeys(*ctx.tree, {ctx.layers[index].key});
+    ctx.CommitEdit("Remove layer '" + ctx.layers[index].name + "'");
+    // The selection may have gone with the layer; re-resolve (clears if gone).
+    SelectBySerial(ctx, ctx.selected_serial);
+  }
+
+  ctx.layers.erase(ctx.layers.begin() + index);
+  if (ctx.active_layer >= static_cast<int>(ctx.layers.size())) {
+    ctx.active_layer = static_cast<int>(ctx.layers.size()) - 1;
+  } else if (ctx.active_layer > index) {
+    --ctx.active_layer;
+  }
+  RecomputeLayerGraph(ctx);
   ctx.RequestRecompile();
   return true;
 }
 
-void RemoveLayer(EditorContext& ctx, int index) {
+void MoveLayer(EditorContext& ctx, int index, int delta) {
   const int n = static_cast<int>(ctx.layers.size());
-  if (index < 0 || index >= n || n <= 1) return;  // never drop the last layer
-
-  // Removing the edit target hands `tree` to whichever layer becomes active,
-  // so the invariant survives.
-  if (index == ctx.active_layer) {
-    const int next = index == 0 ? 1 : index - 1;
-    ctx.SetActiveLayer(next);
+  const int to = index + delta;
+  if (index < 0 || index >= n || to < 0 || to >= n) return;
+  std::swap(ctx.layers[index], ctx.layers[to]);
+  if (ctx.active_layer == index) {
+    ctx.active_layer = to;
+  } else if (ctx.active_layer == to) {
+    ctx.active_layer = index;
   }
-  ctx.layers.erase(ctx.layers.begin() + index);
-  if (ctx.active_layer > index) --ctx.active_layer;
-  ctx.RequestRecompile();
+  RecomputeLayerGraph(ctx);  // graph indexes layers by position
 }
+
+// --- Export ---------------------------------------------------------------- //
+//
+// Mechanism: serialize the (pruned) tree with WriteMjcf, reparse that
+// deterministic output with tinyxml2, then walk the ProtoSpec tree and the DOM
+// in lockstep (the writer emits exactly one XML element per tree element, in
+// Visit order) tagging every DOM node with its element's layer key. DOM
+// surgery then extracts foreign-tagged subtrees into fragment documents,
+// replacing them with <include> elements.
 
 namespace {
 
-// A filename-safe token from a layer name ("my layer!" -> "my_layer").
-std::string Slug(const std::string& s, int fallback_index) {
-  std::string out;
-  for (char ch : s) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) {
-      out += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    } else if (!out.empty() && out.back() != '_') {
-      out += '_';
+// Children of `e` in writer emission order (the same Visit order the writer's
+// child/union_child hooks append them in).
+template <class Fn>
+struct EmitChildVisitor {
+  Fn* fn;
+  template <class U>
+  void field(int, const char*, U&) {}
+  template <class T>
+  void child(int, const char*, std::vector<std::unique_ptr<T>>& list) {
+    for (auto& p : list) {
+      if (p) (*fn)(*p);
     }
   }
-  while (!out.empty() && out.back() == '_') out.pop_back();
-  return out.empty() ? ("layer" + std::to_string(fallback_index)) : out;
+  template <class U>
+  void union_child(int, const char*, std::vector<U>& list) {
+    for (auto& item : list) {
+      std::visit([&](auto& p) { if (p) (*fn)(*p); }, item.node);
+    }
+  }
+};
+
+using DomTags = std::unordered_map<const xt::XMLElement*, std::string>;
+
+// Tag every DOM element with its tree counterpart's layer key. Returns false
+// on any structural mismatch (defensive: WriteMjcf and this walk share the
+// Visit order, so a mismatch means a writer change broke the invariant).
+template <class E>
+bool TagDomTree(E& e, xt::XMLElement* dom, DomTags& tags) {
+  if (!dom) return false;
+  tags[dom] = e.loc.file;
+  bool ok = true;
+  xt::XMLElement* c = dom->FirstChildElement();
+  auto rec = [&](auto& child) {
+    if (!ok) return;
+    if (!TagDomTree(child, c, tags)) {
+      ok = false;
+      return;
+    }
+    c = c->NextSiblingElement();
+  };
+  EmitChildVisitor<decltype(rec)> v{&rec};
+  mj::Visit(e, v);
+  return ok && c == nullptr;
 }
 
-bool WriteFile(const std::string& path, const std::string& text,
-               std::string* error) {
+// Deep-clone `src` into `doc`, copying the layer tags onto the clones.
+void CopyTags(const xt::XMLElement* src, const xt::XMLElement* clone,
+              DomTags& tags) {
+  auto it = tags.find(src);
+  if (it != tags.end()) tags[clone] = it->second;
+  const xt::XMLElement* sc = src->FirstChildElement();
+  const xt::XMLElement* cc = clone->FirstChildElement();
+  while (sc && cc) {
+    CopyTags(sc, cc, tags);
+    sc = sc->NextSiblingElement();
+    cc = cc->NextSiblingElement();
+  }
+}
+
+xt::XMLElement* CloneWithTags(const xt::XMLElement* src, xt::XMLDocument& doc,
+                              DomTags& tags) {
+  xt::XMLElement* clone = src->DeepClone(&doc)->ToElement();
+  if (clone) CopyTags(src, clone, tags);
+  return clone;
+}
+
+// One output file of the export: a fragment document rooted <mujocoinclude>.
+struct ExportFile {
+  std::string key;       // owning layer key
+  std::string filename;  // basename, as it appears in <include>
+  bool top_level = false;  // referenced from the root document
+  std::unique_ptr<xt::XMLDocument> doc;
+  xt::XMLElement* root = nullptr;
+};
+
+struct ExportState {
+  EditorContext* ctx;
+  DomTags* tags;
+  std::vector<std::unique_ptr<ExportFile>> files;
+  std::unordered_map<std::string, int> regions;  // key -> files created so far
+  std::unordered_set<std::string> used_names;    // filename collision guard
+
+  const std::string& TagOf(const xt::XMLElement* e) const {
+    static const std::string kEmpty;
+    auto it = tags->find(e);
+    return it == tags->end() ? kEmpty : it->second;
+  }
+
+  ExportFile& NewFileFor(const std::string& key) {
+    const int idx = LayerIndexForKey(*ctx, key);
+    const std::string base =
+        Slug(idx >= 0 ? ctx->layers[idx].name : DisplayNameForKey(key),
+             static_cast<int>(files.size()));
+    const int region = ++regions[key];
+    std::string fn =
+        region == 1 ? base + ".xml" : base + "." + std::to_string(region) + ".xml";
+    for (int k = 2; used_names.count(fn); ++k) {
+      fn = base + "_" + std::to_string(k) + ".xml";
+    }
+    used_names.insert(fn);
+
+    auto f = std::make_unique<ExportFile>();
+    f->key = key;
+    f->filename = fn;
+    f->doc = std::make_unique<xt::XMLDocument>();
+    f->root = f->doc->NewElement("mujocoinclude");
+    f->doc->InsertEndChild(f->root);
+    files.push_back(std::move(f));
+    return *files.back();
+  }
+
+  // The layer's primary file if one exists yet, else a fresh one.
+  ExportFile& FileFor(const std::string& key) {
+    for (auto& f : files) {
+      if (f->key == key) return *f;
+    }
+    return NewFileFor(key);
+  }
+};
+
+// Insert `node` into `parent` immediately before `before`.
+void InsertBefore(xt::XMLElement* parent, xt::XMLNode* node,
+                  xt::XMLElement* before) {
+  xt::XMLNode* prev = before->PreviousSibling();
+  if (prev) {
+    parent->InsertAfterChild(prev, node);
+  } else {
+    parent->InsertFirstChild(node);
+  }
+}
+
+// Extract foreign-tagged subtrees below `el` (owned by layer `owner`):
+// contiguous runs of children carrying another layer's key move into that
+// layer's file (a fresh fragment per disjoint region), replaced in place by an
+// <include> of it. Recurses into both the kept and the moved children.
+void ExtractForeign(xt::XMLElement* el, const std::string& owner,
+                    ExportState& st) {
+  std::vector<xt::XMLElement*> kids;
+  for (xt::XMLElement* c = el->FirstChildElement(); c;
+       c = c->NextSiblingElement()) {
+    kids.push_back(c);
+  }
+  std::size_t i = 0;
+  while (i < kids.size()) {
+    const std::string& k = st.TagOf(kids[i]);
+    if (k.empty() || k == owner) {
+      ExtractForeign(kids[i], owner, st);
+      ++i;
+      continue;
+    }
+    // A maximal run of same-foreign-key siblings becomes ONE fragment region.
+    std::size_t j = i;
+    while (j < kids.size() && st.TagOf(kids[j]) == k) ++j;
+
+    ExportFile& frag = st.NewFileFor(k);
+    std::vector<xt::XMLElement*> moved;
+    for (std::size_t t = i; t < j; ++t) {
+      xt::XMLElement* clone = CloneWithTags(kids[t], *frag.doc, *st.tags);
+      frag.root->InsertEndChild(clone);
+      moved.push_back(clone);
+    }
+    xt::XMLElement* inc = el->GetDocument()->NewElement("include");
+    inc->SetAttribute("file", frag.filename.c_str());
+    InsertBefore(el, inc, kids[i]);
+    for (std::size_t t = i; t < j; ++t) el->DeleteChild(kids[t]);
+    for (xt::XMLElement* m : moved) ExtractForeign(m, k, st);
+    i = j;
+  }
+}
+
+bool WriteTextFile(const std::string& path, const std::string& text,
+                   std::string* error) {
   std::ofstream out(path, std::ios::binary);
   if (!out) {
     if (error) *error = "cannot open " + path;
@@ -273,57 +665,129 @@ bool WriteFile(const std::string& path, const std::string& text,
 
 bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
                        std::string* error) {
-  std::filesystem::path root(root_path);
-  const std::string stem = root.stem().string();
-  const std::filesystem::path dir = root.parent_path();
-
-  // Collect first: a failure to serialize must not leave a half-written stack.
-  struct Part {
-    std::string file;  // basename, as it appears in the <include>
-    std::string mjcf;
-  };
-  std::vector<Part> parts;
-  for (int i = 0; i < static_cast<int>(ctx.layers.size()); ++i) {
-    if (!ctx.layers[i].enabled) continue;
-    mj::Model* t = ctx.LayerTree(i);
-    if (!t) continue;
-    parts.push_back({stem + "." + Slug(ctx.layers[i].name, i) + ".xml",
-                     io::WriteMjcf(*t)});
-  }
-  if (parts.empty()) {
-    if (error) *error = "no enabled layer to export";
+  if (!ctx.tree || ctx.layers.empty()) {
+    if (error) *error = "no model loaded";
     return false;
   }
 
-  std::string root_doc = "<mujoco model=\"" + stem + "\">\n";
-  for (const Part& p : parts) {
-    root_doc += "  <include file=\"" + p.file + "\"/>\n";
+  // Disabled layers are not written: prune them from a serial-preserving clone
+  // (the authored tree is never touched by an export).
+  mj::Model* src = ctx.tree.get();
+  std::unique_ptr<mj::Model> pruned;
+  std::unordered_set<std::string> drop;
+  for (const Layer& l : ctx.layers) {
+    if (!l.enabled) drop.insert(l.key);
   }
-  root_doc += "</mujoco>\n";
+  if (!drop.empty()) {
+    pruned = CloneWithSerials(*ctx.tree);
+    PruneKeys(*pruned, drop);
+    src = pruned.get();
+  }
 
-  for (const Part& p : parts) {
-    if (!WriteFile((dir / p.file).string(), p.mjcf, error)) return false;
+  // Serialize -> reparse -> tag the DOM by layer.
+  const std::string xml = io::WriteMjcf(*src);
+  xt::XMLDocument main;
+  if (main.Parse(xml.c_str(), xml.size()) != xt::XML_SUCCESS) {
+    if (error) *error = "internal: reparse of WriteMjcf output failed";
+    return false;
   }
-  if (!WriteFile(root_path, root_doc, error)) return false;
+  xt::XMLElement* mroot = main.RootElement();
+  DomTags tags;
+  if (!mroot || !TagDomTree(*src, mroot, tags)) {
+    if (error) *error = "internal: writer/DOM structure mismatch";
+    return false;
+  }
+
+  const std::filesystem::path root_fs(root_path);
+  const std::filesystem::path dir = root_fs.parent_path();
+  const std::string root_base = root_fs.filename().string();
+
+  ExportState st;
+  st.ctx = &ctx;
+  st.tags = &tags;
+  st.used_names.insert(root_base);
+
+  // Top-level sections: each goes to its own layer's primary file (grouped by
+  // layer, in tree order within a layer). The root document will hold one
+  // <include> per top-level file, in layer display order.
+  std::vector<xt::XMLElement*> top;
+  for (xt::XMLElement* c = mroot->FirstChildElement(); c;
+       c = c->NextSiblingElement()) {
+    top.push_back(c);
+  }
+  const std::string* active_key = ctx.ActiveLayerKey();
+  for (xt::XMLElement* c : top) {
+    std::string k = st.TagOf(c);
+    if (k.empty() && active_key) k = *active_key;  // defensive; stamped normally
+    ExportFile& f = st.FileFor(k);
+    f.top_level = true;
+    xt::XMLElement* clone = CloneWithTags(c, *f.doc, tags);
+    f.root->InsertEndChild(clone);
+    mroot->DeleteChild(c);
+  }
+  if (st.files.empty()) {
+    if (error) *error = "no enabled layer content to export";
+    return false;
+  }
+
+  // Nested extraction inside each top-level file (fragments append to
+  // st.files as they are discovered; index loop tolerates growth).
+  for (std::size_t fi = 0; fi < st.files.size(); ++fi) {
+    ExportFile& f = *st.files[fi];
+    std::vector<xt::XMLElement*> kids;
+    for (xt::XMLElement* c = f.root->FirstChildElement(); c;
+         c = c->NextSiblingElement()) {
+      kids.push_back(c);
+    }
+    for (xt::XMLElement* c : kids) ExtractForeign(c, f.key, st);
+  }
+
+  // Root document: the <mujoco> attrs plus the include lines, ordered by the
+  // layer display order (unknown keys, if any, trail in creation order).
+  for (const Layer& l : ctx.layers) {
+    for (auto& f : st.files) {
+      if (f->top_level && f->key == l.key) {
+        xt::XMLElement* inc = main.NewElement("include");
+        inc->SetAttribute("file", f->filename.c_str());
+        mroot->InsertEndChild(inc);
+        f->top_level = false;  // consumed
+      }
+    }
+  }
+  for (auto& f : st.files) {
+    if (f->top_level) {
+      xt::XMLElement* inc = main.NewElement("include");
+      inc->SetAttribute("file", f->filename.c_str());
+      mroot->InsertEndChild(inc);
+      f->top_level = false;
+    }
+  }
+
+  // Print everything first; write only when every document serialized.
+  struct Out {
+    std::string path;
+    std::string text;
+  };
+  std::vector<Out> outs;
+  {
+    xt::XMLPrinter pr;
+    main.Print(&pr);
+    outs.push_back({root_path, pr.CStr()});
+  }
+  for (auto& f : st.files) {
+    xt::XMLPrinter pr;
+    f->doc->Print(&pr);
+    outs.push_back({(dir / f->filename).string(), pr.CStr()});
+  }
+  for (const Out& o : outs) {
+    if (!WriteTextFile(o.path, o.text, error)) return false;
+  }
 
   ctx.Log("exported layered stack: " + root_path + " (+" +
-          std::to_string(parts.size()) + " layer files)");
-  ctx.status_line = "exported " + std::to_string(parts.size()) +
-                    " layers -> " + root_path;
+          std::to_string(st.files.size()) + " layer files)");
+  ctx.status_line = "exported " + std::to_string(st.files.size()) +
+                    " layer files -> " + root_path;
   return true;
-}
-
-void MoveLayer(EditorContext& ctx, int index, int delta) {
-  const int n = static_cast<int>(ctx.layers.size());
-  const int to = index + delta;
-  if (index < 0 || index >= n || to < 0 || to >= n) return;
-  std::swap(ctx.layers[index], ctx.layers[to]);
-  if (ctx.active_layer == index) {
-    ctx.active_layer = to;
-  } else if (ctx.active_layer == to) {
-    ctx.active_layer = index;
-  }
-  ctx.RequestRecompile();
 }
 
 }  // namespace ps::studio

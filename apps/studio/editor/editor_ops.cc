@@ -124,13 +124,33 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
   // compile VFS on every recompile until Save externalizes them.
   opts.vfs_assets = ctx.vfs_assets;
 
-  // What compiles is every enabled layer merged, not the edit target alone.
-  // With one layer this IS ctx.tree; the composed model is held on the context
-  // because Binding keys on element pointers into whatever we compiled.
-  mj::Model* to_compile = BuildComposed(ctx);
+  // The compile input: ctx.tree itself when every layer is enabled, else a
+  // serial-preserving clone with the disabled layers' elements pruned. The
+  // pruned clone is adopted into ctx.compile_tree only on SUCCESS, because the
+  // last good artifact's Binding keys on element pointers into whatever model
+  // it was compiled from -- that model must stay alive until replaced.
+  std::unique_ptr<mj::Model> pruned;
+  mj::Model* to_compile = BuildCompileModel(ctx, &pruned);
   if (!to_compile) {
-    ctx.status_line = std::string(what) + " skipped (no enabled layer)";
+    ctx.status_line = std::string(what) + " skipped (no model)";
     return false;
+  }
+  // Pruning a disabled layer can orphan references into it (a lock only sees
+  // declared refs; force-disabling or editing around it can still dangle).
+  // The native compiler tolerates some of those silently, so surface them
+  // honestly here: referential validation on the ACTUAL compile input.
+  if (pruned) {
+    for (const validate::Diagnostic& d :
+         validate::Validate(*to_compile, validate::kTierReferential)) {
+      DiagEntry e;
+      e.severity = d.severity == validate::Severity::Error
+                       ? DiagEntry::Severity::Error
+                       : DiagEntry::Severity::Warning;
+      e.message = "[layers] pruned-input validation: " + d.message +
+                  (d.path.empty() ? std::string() : ("  (" + d.path + ")"));
+      if (!d.loc.file.empty()) e.loc = d.loc;
+      ctx.Diagnose(std::move(e));
+    }
   }
   mj::Compiled compiled = mj::Compile(*to_compile, opts);
   for (const mj::Diagnostic& w : compiled.report.warnings) {
@@ -146,6 +166,7 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
   }
 
   ctx.compiled = std::move(compiled);
+  ctx.compile_tree = std::move(pruned);  // null when ctx.tree compiled directly
   ctx.model_ready = true;
 
   const mjModel* m = ctx.compiled.model.get();
@@ -199,21 +220,26 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
   // Adopt the tree first so CompileCurrent can use the recorded base_dir.
   std::unique_ptr<mj::Model> prev_tree = std::move(ctx.tree);
   mj::Compiled prev_compiled = std::move(ctx.compiled);
+  std::unique_ptr<mj::Model> prev_compile_tree = std::move(ctx.compile_tree);
   std::vector<Layer> prev_layers = std::move(ctx.layers);
+  LayerGraph prev_graph = std::move(ctx.layer_graph);
   const int prev_active = ctx.active_layer;
   ctx.tree = std::move(parsed.model);
   ctx.base_dir = parent.empty() ? std::string() : parent.string();
   ctx.dirty = false;
 
-  // A load replaces the whole stack: the file becomes the one layer. Must
-  // precede the compile, which composes whatever `layers` says.
-  ResetLayers(ctx, fpath.stem().string(), fpath.string());
+  // A load replaces the whole stack: partition the fresh tree by per-element
+  // provenance (loc.file), one layer per distinct file, all enabled. Must
+  // precede the compile, whose pruning consults `layers`.
+  SplitLayersFromTree(ctx, fpath.string(), fpath.stem().string());
 
   if (!CompileCurrent(ctx, "compiled")) {
     // Roll back to the previous good state (DR-S1: a failed load changes nothing).
     ctx.tree = std::move(prev_tree);
     ctx.compiled = std::move(prev_compiled);
+    ctx.compile_tree = std::move(prev_compile_tree);
     ctx.layers = std::move(prev_layers);
+    ctx.layer_graph = std::move(prev_graph);
     ctx.active_layer = prev_active;
     return false;
   }

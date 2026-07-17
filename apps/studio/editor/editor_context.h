@@ -201,57 +201,72 @@ struct GizmoSettings {
   double snap_scale = 0.05;       // scale-factor increment
 };
 
-// One composition layer: a whole ProtoSpec of its own, from a file or authored
-// from scratch. Enabled layers compose (in list order) into the single model
-// that compiles -- the USD idiom, minus the composition arcs: a background, a
-// lighting rig and a foreground can be authored and toggled independently.
+// One layer: a TAG plus flags, not a container. There is ONE authored tree
+// (EditorContext::tree); an element's layer IS its `loc.file` value (the
+// per-element provenance the reader stamps, through <include> expansion, DR-9).
+// A layer row simply names one distinct `loc.file` key. Layers authored in the
+// editor with no backing file use a synthetic "layer://<name>" key, stamped
+// into `loc.file` of elements created while that layer is active.
 //
-// Because MJCF is name-referential and composition yields ONE model, references
-// cross layers for free: a geom's material="mug" binds to whichever enabled
-// layer defines that material. The corollary is that disabling the layer which
-// defined it leaves the reference dangling, and the compile says so.
+// Because the tree is one model, references cross layers for free -- and a
+// layer can contribute children INSIDE another layer's body (the nested
+// <include> case): the spliced element simply carries its own file while
+// sitting in the foreign subtree. Disabling a layer prunes its elements from
+// the COMPILE INPUT only (see BuildCompileModel in layers.h); the authored
+// tree is never touched by a toggle.
 struct Layer {
-  std::string name;
-  std::string path;    // source MJCF, empty for an authored layer
+  std::string name;    // display name (file stem, or the authored name)
+  std::string key;     // the loc.file tag ("path/to/file.xml" or "layer://x")
   bool enabled = true;
+};
 
-  // The layer's tree -- EXCEPT for the active layer, whose tree lives in
-  // EditorContext::tree so every panel, op and undo step keeps editing
-  // `ctx.tree` without knowing layers exist. Null exactly when active.
-  std::unique_ptr<ps::mjcf::Model> tree;
+// One cross-layer reference edge: some element of layer `from` holds a
+// reference resolving to an element of layer `to` (from depends on to).
+struct LayerEdge {
+  int from = 0;
+  int to = 0;
+  std::string example;  // one readable instance: "geom 'floor'.material -> 'matA'"
+};
+
+// The layer dependency graph, recomputed at the compile seam (not per frame).
+// `group[i]` is the connected-component id of layer i over the undirected
+// edges: layers in the same component render grouped in the Layers panel.
+struct LayerGraph {
+  std::vector<LayerEdge> edges;
+  std::vector<int> group;
 };
 
 struct EditorContext {
   // The authored ProtoSpec tree (the single source of truth) and its last good
-  // compiled artifact (owns mjModel + Binding + report).
-  //
-  // With layers, `tree` is the ACTIVE layer's tree: the edit target. What
-  // compiles is `composed` -- every enabled layer merged.
+  // compiled artifact (owns mjModel + Binding + report). With layers, `tree`
+  // stays the ONE authored model; layers are provenance tags over it.
   std::unique_ptr<ps::mjcf::Model> tree;
   ps::mjcf::Compiled compiled;
 
-  // The merged model the artifact above was compiled from. Held because
-  // Binding keys on element pointers: it would dangle the moment this died.
-  std::unique_ptr<ps::mjcf::Model> composed;
+  // When any layer is disabled, the compile input is a serial-preserving clone
+  // of `tree` with the disabled layers' elements pruned. Held here because the
+  // Binding keys on element pointers into the compiled model's source: it
+  // would dangle the moment this died. Null when the last good compile ran on
+  // `tree` directly (every layer enabled -- the common case, no clone).
+  std::unique_ptr<ps::mjcf::Model> compile_tree;
 
   std::vector<Layer> layers;
-  int active_layer = 0;
+  int active_layer = 0;       // the edit scope: exactly one layer is active
+  LayerGraph layer_graph;     // cross-layer reference edges + visual groups
 
-  // The tree of layer `i`; the active layer's lives in `tree`.
-  ps::mjcf::Model* LayerTree(int i) {
-    if (i < 0 || i >= static_cast<int>(layers.size())) return nullptr;
-    return i == active_layer ? tree.get() : layers[i].tree.get();
+  // Switch the edit scope. Pure index move -- the tree is shared, so nothing
+  // shuttles; the active layer only decides which elements may be authored
+  // and which key new elements are stamped with.
+  void SetActiveLayer(int i) {
+    if (i >= 0 && i < static_cast<int>(layers.size())) active_layer = i;
   }
 
-  // Move the edit target. The outgoing tree returns to its slot and the
-  // incoming one takes over `tree`, so the invariant (active slot null) holds.
-  void SetActiveLayer(int i) {
-    if (i == active_layer || i < 0 || i >= static_cast<int>(layers.size())) {
-      return;
+  // The active layer's loc.file key, or null when no layers exist.
+  const std::string* ActiveLayerKey() const {
+    if (active_layer < 0 || active_layer >= static_cast<int>(layers.size())) {
+      return nullptr;
     }
-    layers[active_layer].tree = std::move(tree);
-    tree = std::move(layers[i].tree);
-    active_layer = i;
+    return &layers[active_layer].key;
   }
 
   // Deferred load slot, fed by the host (CLI arg / drag-drop).
