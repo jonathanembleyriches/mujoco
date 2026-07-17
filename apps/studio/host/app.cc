@@ -391,6 +391,12 @@ void App::ToolBarGui() {
   ImGui::SameLine();
   ImGui::Checkbox("Snap", &g.snap);
   ImGui::SameLine();
+  ImGui::Checkbox("Surf", &g.surf_snap);
+  ImGui::SetItemTooltip("%s",
+                        "Surface snap: Move drags glide on the surface under "
+                        "the cursor, resting the element on it (or hold Shift "
+                        "while dragging).\nEnd key: drop selection to ground.");
+  ImGui::SameLine();
   if (ImGui::Button("Snap...")) ImGui::OpenPopup("snap_settings");
   ImGui::EndDisabled();
   if (ImGui::BeginPopup("snap_settings")) {
@@ -398,6 +404,22 @@ void App::ToolBarGui() {
     ImGui::InputDouble("move (m)", &g.snap_translate, 0.01, 0.1, "%.3f");
     ImGui::InputDouble("rotate (deg)", &g.snap_rotate_deg, 1.0, 5.0, "%.1f");
     ImGui::InputDouble("scale", &g.snap_scale, 0.01, 0.05, "%.3f");
+    ImGui::Checkbox("absolute grid", &g.grid_absolute);
+    ImGui::SetItemTooltip("%s",
+                          "On: translate snapping rounds the element's "
+                          "parent-frame POSITION to multiples of the move "
+                          "increment.\nOff: the drag DISTANCE is rounded "
+                          "instead (relative), keeping any off-grid offset.");
+    ImGui::Separator();
+    ImGui::Checkbox("surface snap", &g.surf_snap);
+    ImGui::SetItemTooltip("%s",
+                          "Translate drags glide on the surface under the "
+                          "cursor (Shift+drag enables it for one drag).\n"
+                          "End key: drop the selection to the ground.");
+    ImGui::Checkbox("align to surface", &g.surf_align);
+    ImGui::SetItemTooltip("%s",
+                          "While surface-snapping, rotate the element's local "
+                          "+Z onto the surface normal.");
     ImGui::EndPopup();
   }
 }

@@ -21,6 +21,7 @@
 #include "editor/editor_ops.h"
 #include "editor/gizmo.h"
 #include "editor/gizmo_math.h"
+#include "editor/placement.h"
 #include "editor/joint_overlay.h"
 #include "editor/layers.h"
 #include "editor/plugins.h"
@@ -53,6 +54,13 @@ struct ViewportEditor {
   float press_rx = 0, press_ry = 0;
   bool drop_pending = false;
   double drop_point[3] = {0, 0, 0};
+
+  // Last-seen compiled snapshot pointers, latched every frame so key handlers
+  // (End = drop to ground) can raycast without a mouse event in flight. Only
+  // trusted after re-checking against ctx.compiled.model.
+  const mjModel* last_model = nullptr;
+  const mjData* last_data = nullptr;
+  const mjvOption* last_opt = nullptr;
 };
 
 // The world point under a screen ray: the nearest geom hit, else the ground
@@ -192,6 +200,9 @@ bool OnMouse(ViewportPlugin* self, const ViewportInput& in) {
       ctx.compiled.model.get() != in.model) {
     return false;
   }
+  ve->last_model = in.model;
+  ve->last_data = in.data;
+  ve->last_opt = in.vis_option;
 
   // The gizmo gets first crack (grab / drag); it consumes the mouse while active.
   const bool consumed = ve->gizmo.HandleMouse(ctx, in);
@@ -322,6 +333,14 @@ void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   // This is the frame's authority for CanEdit().
   ve->ctx->sim_paused = vc.edit_mode;
   ve->ctx->sim_time = vc.data ? vc.data->time : 0.0;
+
+  // Latch the compiled snapshot for key handlers (End = drop to ground); the
+  // draw hook runs every frame, mouse hooks only when the viewport has the
+  // mouse. vis_option is not part of this context, so the mouse latch owns it.
+  if (vc.model && vc.data && vc.model == ve->ctx->compiled.model.get()) {
+    ve->last_model = vc.model;
+    ve->last_data = vc.data;
+  }
 
   // Empty state: an actionable welcome instead of a dead drag-drop hint --
   // building from scratch (asset ingestion) starts HERE, so the two entry
@@ -621,6 +640,23 @@ void RegisterViewportEditor(EditorContext& ctx) {
                 if (c.selected_serial != 0 && c.CanEdit() &&
                     SerialInActiveLayer(c, c.selected_serial)) {
                   DuplicateOp(c, c.selected_serial);
+                }
+              }, ve);
+  RegisterKey("Drop To Ground", ImGuiKey_End,
+              [](KeyHandlerPlugin* s) {
+                ViewportEditor* ve = static_cast<ViewportEditor*>(s->data);
+                EditorContext& c = *ve->ctx;
+                if (!ViewportFocused() || c.selected_serial == 0 ||
+                    !c.CanEdit() ||
+                    !SerialInActiveLayer(c, c.selected_serial)) {
+                  return;
+                }
+                if (ve->last_model != c.compiled.model.get() || !ve->last_data)
+                  return;
+                if (DropToGroundOp(c, ve->last_data, ve->last_opt)) {
+                  c.status_toast.Post("drop to ground",
+                                      StatusToast::Kind::Info,
+                                      ImGui::GetTime());
                 }
               }, ve);
 }

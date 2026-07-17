@@ -159,6 +159,8 @@ add_library(protospec_studio_shell STATIC
   editor/joint_overlay.cc
   editor/layers.cc
   editor/transform_math.cc
+  # Placement suite: surface snapping / drop-to-ground / absolute grid.
+  editor/placement.cc
   # SE1b (generated Details panel) adds its source here:
   editor/details_panel.cc
   # SE3 authoring: add primitives, mesh import, duplicate, reparent, new model.

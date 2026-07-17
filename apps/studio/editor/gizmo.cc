@@ -83,7 +83,11 @@ void ScaleAxisDirs(const DragFrame& f, double ax[3][3]) {
 }
 
 double Snap(double v, double step, bool on) {
-  return (on && step > 0) ? std::round(v / step) * step : v;
+  // Relative increment snapping: the drag DELTA rounds to the step (the
+  // absolute-grid mode instead rounds the resulting parent-frame position;
+  // see AbsoluteGridDelta in placement.h). SnapIncrement is the shared,
+  // windowless-tested rounding formula.
+  return (on && step > 0) ? SnapIncrement(v, step) : v;
 }
 
 ImU32 AxisColor(int axis, bool hot) {
@@ -335,6 +339,16 @@ void GizmoController::Begin(EditorContext& ctx, const ViewportInput& in,
       pose_patch_ = ctx.compiled.binding.PosePatchFor(ref.ptr);
     }
   }
+
+  // Surface-snap support footprint (placement.h), captured once at grab: a
+  // pure translation leaves the element's relative geometry invariant, so the
+  // per-frame glide only re-projects this cache onto the hit surface normal.
+  surf_cache_ = SupportCache{};
+  if (tool == GizmoTool::Translate && !joint_mode_) {
+    surf_cache_ = BuildSupportCache(in.model, in.data, ctx.compiled.binding,
+                                    drag_serial_, frame_.anchor,
+                                    frame_.world_quat);
+  }
 }
 
 // Arm the post-compile centre fixup for a mesh-scale drag: the grab-time
@@ -363,14 +377,34 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
   double ro[3], rd[3];
   ScreenToRay(vp, in.x, in.y, ro, rd);
 
+  // Surface snap (placement.h): while enabled -- the "Surf" toolbar toggle or
+  // a held Shift -- a translate drag ignores the grabbed handle's constraint
+  // and glides the element along the surface under the cursor. Falls through
+  // to the normal constrained drag when nothing is under the cursor.
+  const bool translate_grab = grabbed_.kind == HandleKind::TransAxis ||
+                              grabbed_.kind == HandleKind::TransPlane ||
+                              grabbed_.kind == HandleKind::TransScreen;
+  if (translate_grab && !joint_mode_ && surf_cache_.valid &&
+      (g.surf_snap || ImGui::GetIO().KeyShift)) {
+    if (UpdateSurfaceGlide(ctx, in, ro, rd)) return;
+  }
+
   switch (grabbed_.kind) {
     case HandleKind::TransAxis: {
       double a0[3] = {ax[grabbed_.axis][0], ax[grabbed_.axis][1],
                       ax[grabbed_.axis][2]};
       double t;
       if (!ClosestPointOnLine(frame_.anchor, a0, ro, rd, &t)) return;
-      double dist = Snap(t - grab_axis_t_, g.snap_translate, g.snap);
-      double wd[3] = {a0[0] * dist, a0[1] * dist, a0[2] * dist};
+      double wd[3];
+      if (g.snap && g.grid_absolute && !joint_mode_) {
+        // Absolute grid: round the RESULTING parent-frame pos, not the delta.
+        const double dist = t - grab_axis_t_;
+        for (int k = 0; k < 3; ++k) wd[k] = a0[k] * dist;
+        AbsoluteGridDelta(frame_, g.snap_translate, wd);
+      } else {
+        const double dist = Snap(t - grab_axis_t_, g.snap_translate, g.snap);
+        for (int k = 0; k < 3; ++k) wd[k] = a0[k] * dist;
+      }
       if (joint_mode_)
         ApplyJointTranslate(*ctx.tree, drag_serial_, joint_frame_, wd);
       else
@@ -390,7 +424,10 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       if (!RayPlaneIntersect(ro, rd, frame_.anchor, n, &t, hit)) return;
       double wd[3] = {hit[0] - grab_hit_[0], hit[1] - grab_hit_[1],
                       hit[2] - grab_hit_[2]};
-      if (g.snap && grabbed_.kind == HandleKind::TransPlane) {
+      if (g.snap && g.grid_absolute && !joint_mode_) {
+        // Absolute grid: round the RESULTING parent-frame pos, not the delta.
+        AbsoluteGridDelta(frame_, g.snap_translate, wd);
+      } else if (g.snap && grabbed_.kind == HandleKind::TransPlane) {
         const int i = (grabbed_.axis + 1) % 3, j = (grabbed_.axis + 2) % 3;
         double di = wd[0]*ax[i][0]+wd[1]*ax[i][1]+wd[2]*ax[i][2];
         double dj = wd[0]*ax[j][0]+wd[1]*ax[j][1]+wd[2]*ax[j][2];
@@ -503,6 +540,68 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
   // never worse than the debounced-recompile preview.
   if (LivePatch(ctx, in)) return;
   ctx.RequestRecompile();
+}
+
+// Surface-snap translate (Unity/Unreal placement idiom): raycast from the
+// camera through the cursor -- excluding the dragged element's own body /
+// subtree -- and rest the element's support point (its aabb footprint,
+// captured at grab) on the hit surface. With "align to surface" on, the
+// element's local +Z is first rotated onto the surface normal via the
+// existing delta rule. v1 normals: exact for plane and box-face hits, world
+// +Z fallback for everything else (see placement.h).
+bool GizmoController::UpdateSurfaceGlide(EditorContext& ctx,
+                                         const ViewportInput& in,
+                                         const double ro[3],
+                                         const double rd[3]) {
+  const SurfaceHit sh =
+      RaycastPlacementSurface(in.model, in.data, in.vis_option, ro, rd,
+                              surf_cache_.exclude_body,
+                              surf_cache_.exclude_geom);
+  if (!sh.valid) return false;
+  const GizmoSettings& g = ctx.gizmo;
+
+  // Optional align-to-normal: compose the grab-time +Z -> normal rotation
+  // onto the authored quat (cumulative from the grab frame, so it is
+  // drift-free and undo/cancel restore the grab state).
+  double alignq[4] = {1, 0, 0, 0};
+  bool aligned = false;
+  if (g.surf_align) {
+    double axis[3], angle;
+    if (AlignZRotation(surf_cache_.world_z, sh.normal, axis, &angle)) {
+      ApplyRotate(*ctx.tree, drag_serial_, frame_, axis, angle);
+      QuatFromAxisAngle(axis, angle, alignq);
+      aligned = true;
+    }
+  }
+
+  const double so =
+      SupportOffset(surf_cache_, sh.normal, aligned ? alignq : nullptr);
+  double target[3];
+  SurfaceTargetAnchor(sh.pos, sh.normal, so, target);
+
+  if (aligned) {
+    // The rotation re-authored pos/endpoints (pivoting on the visible centre),
+    // so translate from the FRESH authored state to the absolute target.
+    DragFrame f2 = BuildDragFrame(in.model, in.data, ctx.compiled.binding,
+                                  *ctx.tree, drag_serial_);
+    if (f2.valid) {
+      const double wd[3] = {target[0] - f2.anchor[0], target[1] - f2.anchor[1],
+                            target[2] - f2.anchor[2]};
+      ApplyTranslate(*ctx.tree, drag_serial_, f2, wd);
+    }
+  } else {
+    const double wd[3] = {target[0] - frame_.anchor[0],
+                          target[1] - frame_.anchor[1],
+                          target[2] - frame_.anchor[2]};
+    ApplyTranslate(*ctx.tree, drag_serial_, frame_, wd);
+  }
+  ctx.dirty = true;
+  ctx.status_toast.Post(g.surf_align
+                            ? "surface snap: gliding (aligned to normal)"
+                            : "surface snap: gliding on surface",
+                        StatusToast::Kind::Info, ImGui::GetTime());
+  if (!LivePatch(ctx, in)) ctx.RequestRecompile();
+  return true;
 }
 
 // Patch the live compiled model to preview the current drag frame without

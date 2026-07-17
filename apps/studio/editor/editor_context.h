@@ -199,6 +199,17 @@ struct GizmoSettings {
   double snap_translate = 0.1;    // metres
   double snap_rotate_deg = 15.0;  // degrees
   double snap_scale = 0.05;       // scale-factor increment
+
+  // Placement suite (placement.h). All default OFF so stock behaviour is
+  // unchanged. surf_snap: translate drags glide on the surface under the
+  // cursor (the toolbar "Surf" toggle; holding Shift enables it transiently
+  // for one drag). surf_align: while surface-snapping, the element's local +Z
+  // is rotated onto the surface normal. grid_absolute: translate snapping
+  // rounds the RESULTING parent-frame position to multiples of snap_translate
+  // instead of rounding the drag delta (relative, the default).
+  bool surf_snap = false;
+  bool surf_align = false;
+  bool grid_absolute = false;
 };
 
 // One layer: a TAG plus flags, not a container. There is ONE authored tree

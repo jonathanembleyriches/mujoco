@@ -15,6 +15,7 @@
 
 #include "editor/editor_context.h"
 #include "editor/gizmo_math.h"
+#include "editor/placement.h"
 #include "editor/transform_math.h"
 #include "platform/ux/ps_plugin_ext.h"
 #include "pose.h"  // ps::mjcf::PosePatch / ApplyPosePatch (the drag fast path)
@@ -65,6 +66,11 @@ class GizmoController {
   bool LivePatch(EditorContext& ctx, const ViewportInput& in);
   void ArmMeshScaleFixup(EditorContext& ctx);
   bool LivePatchJoint(EditorContext& ctx, mjModel* m, mjData* d);
+  // Surface-snap translate (placement.h): glide the dragged element on the
+  // surface under the cursor. Returns false when no surface is hit (the caller
+  // falls back to the normal constrained translate).
+  bool UpdateSurfaceGlide(EditorContext& ctx, const ViewportInput& in,
+                          const double ro[3], const double rd[3]);
   void Cancel(EditorContext& ctx);
 
   bool prev_left_ = false;
@@ -74,6 +80,8 @@ class GizmoController {
 
   DragFrame frame_;        // captured at grab (translate/rotate)
   ScaleBase scale_base_;   // captured at grab (scale)
+  SupportCache surf_cache_;  // captured at grab (translate): the element's
+                             // support footprint for surface snapping
 
   // Joint rigging (SE4): when the selection is a joint, W translates its anchor
   // and E reorients its axis, applied through the separable joint functions in
