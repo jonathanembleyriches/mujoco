@@ -86,8 +86,9 @@ RigidPose EffectiveLocal(const Model& model, const E& e) {
 
 // A = the enclosing <frame> chain of `elem`, composed in body-local coordinates
 // (mjModel flattens frames away, folding them into the element's pos/quat as a
-// left prefix). Frames authored a pos/quat directly; class-inherited frame poses
-// are an accepted edge (matches the editor's frame handling).
+// left prefix). Raw field reads are exact here: MJCF defines no <frame> entry
+// in <default>, so a frame's own pos/quat is always authored, never
+// class-inherited.
 RigidPose ReconstructPrefix(const Model& model, const void* elem) {
   sdk::ParentMap pm(model);
   std::vector<const Frame*> frames;  // innermost first
@@ -202,10 +203,14 @@ std::optional<PosePatch> Binding::PosePatchFor(const void* elem) const {
   p.prefix = ReconstructPrefix(*model_, elem);
   const RigidPose L = LocalOf(*model_, e.etype, elem);
 
-  // A free/ball-jointed body's rest pose at qpos0 is driven by qpos, not by
-  // body_pos alone: MuJoCo seeds qpos0 from the body's initial pose and (for a
-  // free joint) zeros body_pos. So record the qpos slice ApplyPosePatch must
-  // reseed, and read the compiled field FROM qpos0 for a free body.
+  // A FREE-jointed body's rest pose is driven by qpos, not body_pos: MuJoCo
+  // seeds qpos0 from the body's pose (ComputeReference, user_model.cc) and
+  // mj_kinematics ignores body_pos/body_quat when the single joint is free. So
+  // record the 7-wide qpos slice ApplyPosePatch must reseed, and read the
+  // compiled field FROM qpos0. A BALL joint is NOT special: its qpos0 quat is
+  // identity by construction and kinematics composes body_quat * quat(qpos),
+  // so the rest pose lives entirely in body_pos/body_quat -- reseeding qpos0
+  // there would apply the rotation twice and clobber the authored body_quat.
   RigidPose F = ReadField(m_, e.objtype, e.id);
   if (e.objtype == mjOBJ_BODY) {
     const int nj = m_->body_jntnum[e.id];
@@ -218,13 +223,6 @@ std::optional<PosePatch> Binding::PosePatchFor(const void* elem) const {
         const mjtNum* q0 = m_->qpos0 + p.reseed_qposadr;
         for (int i = 0; i < 3; ++i) F.pos[i] = q0[i];
         for (int i = 0; i < 4; ++i) F.quat[i] = q0[3 + i];
-        break;
-      }
-      if (m_->jnt_type[j] == mjJNT_BALL) {
-        p.reseed_qposadr = m_->jnt_qposadr[j];
-        p.reseed_width = 4;  // ball rotates about body_pos; quat lives in qpos0
-        const mjtNum* q0 = m_->qpos0 + p.reseed_qposadr;
-        for (int i = 0; i < 4; ++i) F.quat[i] = q0[i];
         break;
       }
     }
@@ -276,14 +274,10 @@ bool ApplyPosePatch(mjModel* m, const PosePatch& p, const RigidPose& L_new) {
   if (quat)
     for (int i = 0; i < 4; ++i) quat[i] = F.quat[i];
 
-  if (p.reseed_qposadr >= 0 && m->qpos0 != nullptr) {
+  if (p.reseed_qposadr >= 0 && p.reseed_width == 7 && m->qpos0 != nullptr) {
     mjtNum* q0 = m->qpos0 + p.reseed_qposadr;
-    if (p.reseed_width == 7) {
-      for (int i = 0; i < 3; ++i) q0[i] = F.pos[i];
-      for (int i = 0; i < 4; ++i) q0[3 + i] = F.quat[i];
-    } else if (p.reseed_width == 4) {
-      for (int i = 0; i < 4; ++i) q0[i] = F.quat[i];
-    }
+    for (int i = 0; i < 3; ++i) q0[i] = F.pos[i];
+    for (int i = 0; i < 4; ++i) q0[3 + i] = F.quat[i];
   }
   return true;
 }

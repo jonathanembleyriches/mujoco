@@ -42,23 +42,26 @@ RigidPose Invert(const RigidPose& a);
 
 // A per-element pose-patch descriptor captured from a compiled model via
 // Binding::PosePatchFor. Holds the two baked frames A (prefix) and B (suffix)
-// plus, for a free/ball-jointed body, the qpos slice that must be reseeded
-// alongside body_pos (its rest pose at qpos0 is driven by qpos, not body_pos).
+// plus, for a FREE-jointed body, the qpos slice that must be reseeded instead
+// of body_pos (kinematics reads a free body's pose from qpos, and its rest
+// pose from qpos0). Ball and other joints need no reseed: their rest pose
+// lives in body_pos/body_quat and their qpos0 is joint-relative (identity
+// quat / `ref`), not a body pose.
 struct PosePatch {
   int objtype = 0;  // mjOBJ_BODY / GEOM / SITE / CAMERA / LIGHT
   int id = -1;      // mjModel id of the element
   RigidPose prefix;  // A: enclosing <frame> chain (body-local)
   RigidPose suffix;  // B: mesh/fit recentering; body free-joint inertial fold
 
-  // >=0 => ApplyPosePatch also reseeds model->qpos0[adr .. adr+width] for the
-  // body's free (width 7: pos+quat) or ball (width 4: quat) joint.
+  // >=0 => ApplyPosePatch also reseeds model->qpos0[adr .. adr+7] for the
+  // body's free joint (width is always 7: pos+quat).
   int reseed_qposadr = -1;
   int reseed_width = 0;
 };
 
 // Write A ∘ L_new ∘ B into the element's mjModel pose field (body/geom/site/cam
 // _pos and _quat; for a light, light_pos only), and reseed model->qpos0 for a
-// free/ball-jointed body. Pure array write -- it never inverts B. The caller
+// free-jointed body. Pure array write -- it never inverts B. The caller
 // then runs mj_kinematics / mj_forward (and, for a reseeded body, mj_resetData
 // or a qpos0->qpos copy so the reseeded rest pose takes effect). Returns false
 // when the patch's objtype is not a writable pose field or its id is unset.

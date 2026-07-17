@@ -642,7 +642,7 @@ bool GizmoController::LivePatch(EditorContext& ctx, const ViewportInput& in) {
   for (int i = 0; i < 3; ++i) Lnew.pos[i] = L.pos[i];
   for (int i = 0; i < 4; ++i) Lnew.quat[i] = L.quat[i];
   if (!mj::ApplyPosePatch(m, *pose_patch_, Lnew)) return false;
-  // A free/ball body's rest pose lives in qpos0 (just reseeded): copy it into
+  // A FREE body's rest pose lives in qpos0 (just reseeded): copy it into
   // qpos so mj_kinematics moves the body from the new rest pose.
   if (pose_patch_->reseed_qposadr >= 0) mju_copy(d->qpos, m->qpos0, m->nq);
   mj_kinematics(m, d);
