@@ -102,10 +102,11 @@ struct is_vector : std::false_type {};
 template <class T>
 struct is_vector<std::vector<T>> : std::true_type {};
 
-// The supported families: Model-level blocks, the body tree, defaults, assets,
-// and (wave 2) the contact/equality/tendon/actuator sections. Everything else
-// is a well-formed but unsupported element (skip signal), never a malformed
-// input.
+// The supported families: every element ProtoSpec models as first-class data --
+// Model-level blocks, the body tree, defaults, assets, the contact/equality/
+// tendon/actuator sections, sensors, custom/keyframe/extension, and the
+// deformable/macro pass-throughs. Everything else is a well-formed but
+// unsupported element (skip signal), never a malformed input.
 bool IsSupported(ElementType t) {
   switch (t) {
     case ElementType::Model:
@@ -670,8 +671,8 @@ class Reader {
       // #9 keyword-set canonicalization: a keyword set is an order-insensitive
       // bitmask (MapValues); store it in enum-declaration order so the canonical
       // form is deterministic. The enum's underlying value is its declaration
-      // index, which is also the MJCF map order (camout/raydata/condata) -- for
-      // the contact sensor, whose reader demands that exact order
+      // index, which is also the MJCF map order -- for the contact sensor,
+      // whose reader demands that exact order
       // (xml_native_reader.cc:4517-4530), the strict-order check runs separately
       // on the raw input before this normalization.
       std::sort(vals.begin(), vals.end());
@@ -929,7 +930,11 @@ class Reader {
     int size = static_cast<int>(data.size());
     if (const char* sz = xml->Attribute("size")) {
       int parsed = 0;
-      if (num::ParseInt<int>(sz, parsed) != num::Status::Ok) {
+      // Tokenize: a padded value ("  5 ") is one integer, matching MuJoCo's
+      // whitespace-splitting attribute reader (ParseInt rejects surrounding ws).
+      auto toks = num::Tokens(std::string_view(sz));
+      if (toks.size() != 1 ||
+          num::ParseInt<int>(toks[0], parsed) != num::Status::Ok) {
         Err(xml, "bad number in attribute 'size'");
         return;
       }
@@ -1150,8 +1155,12 @@ class Reader {
       return;
     }
     if (const char* num = xml->Attribute("num")) {
+      // Tokenize first: ParseInt rejects surrounding whitespace, so a padded
+      // value ("  -2 ") would otherwise slip past the positivity gate.
+      auto toks = num::Tokens(std::string_view(num));
       int n = 0;
-      if (num::ParseInt<int>(num, n) == num::Status::Ok && n <= 0) {
+      if (toks.size() == 1 &&
+          num::ParseInt<int>(toks[0], n) == num::Status::Ok && n <= 0) {
         Err(xml, "'num' must be positive in sensor");
       }
     }
