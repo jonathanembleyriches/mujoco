@@ -15,7 +15,6 @@
 #include "editor/authoring_ops.h"
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
-#include "editor/mode_ui.h"
 #include "host/shell.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
@@ -302,10 +301,6 @@ void OnToolbar(ToolbarPlugin* self) {
 
   DrawAddDropdown(c);
   ImGui::EndDisabled();
-
-  // Outside the disabled block: which mode we are in is exactly what a user
-  // with no model loaded still needs to read.
-  DrawModeChip(*c);
 }
 
 // --- Mode bridge (EditorShellPlugin) -------------------------------------- //
@@ -321,21 +316,6 @@ void OnSetMode(EditorShellPlugin* self, int mode) {
     }
   } else {  // Edit / stop: the host resets physics to qpos0.
     c->mode = EditorMode::Edit;
-  }
-}
-
-// Physics run/pause, pushed by the host every frame. Edit and paused-Play are
-// both "paused", so the pause bit alone cannot tell them apart -- Play/Stop
-// latch which of the two we are in. But a sim that is *advancing* is Play by
-// definition, however it was started (Space bypasses set_mode entirely), so
-// that case re-latches the mode rather than trusting the latch.
-void OnSetPaused(EditorShellPlugin* self, bool paused) {
-  EditorContext* c = Ctx(self->data);
-  if (!paused) {
-    c->mode = EditorMode::Play;
-    c->play_paused = false;
-  } else if (c->mode == EditorMode::Play) {
-    c->play_paused = true;
   }
 }
 
@@ -398,7 +378,6 @@ void RegisterEditorShell(EditorContext& ctx) {
   EditorShellPlugin shell;
   shell.name = "ProtoSpec Mode";
   shell.set_mode = OnSetMode;
-  shell.set_paused = OnSetPaused;
   shell.is_dirty = [](EditorShellPlugin* self) { return Ctx(self->data)->dirty; };
   shell.error_count = [](EditorShellPlugin* self) {
     return DiagnosticErrorCount(Ctx(self->data)->diagnostics);
