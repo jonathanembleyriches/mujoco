@@ -255,7 +255,7 @@ ImVec4 ConfigureDockingLayout() {
   // Profiler panels are docked into the same nodes (so they land somewhere sane
   // when restored via the View menu) but are hidden by default. The dockspace id
   // is versioned so a fresh curated layout supersedes a stale saved one.
-  ImGuiID root = ImGui::GetID("RootV2");
+  ImGuiID root = ImGui::GetID("RootV3");
   const bool first_time = (ImGui::DockBuilderGetNode(root) == nullptr);
 
   if (first_time) {
@@ -273,6 +273,13 @@ ImVec4 ConfigureDockingLayout() {
     ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, kDetailsRelWidth, &details,
                                 &main);
 
+    // Right column splits: Details on top, Layers beneath it -- the three
+    // panels of the curated layout (with Hierarchy) are all DOCKED; everything
+    // else folds in as tabs rather than floating.
+    ImGuiID layers_node = 0;
+    ImGui::DockBuilderSplitNode(details, ImGuiDir_Down, 0.40f, &layers_node,
+                                &details);
+
     ImGuiID bottom = 0;
     ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, kBottomRelHeight, &bottom,
                                 &main);
@@ -282,12 +289,17 @@ ImVec4 ConfigureDockingLayout() {
     // Left: Hierarchy (Options hides behind it when toggled on).
     ImGui::DockBuilderDockWindow("Hierarchy", hierarchy);
     ImGui::DockBuilderDockWindow("Options", hierarchy);
-    // Right: Details, with Studio's spec/data panels tabbed behind it.
+    // Right: Details, with Studio's spec/data panels and the ProtoSpec
+    // utility panels (File / + Add) tabbed behind it -- reachable, never
+    // floating. Layers gets its own node below.
     ImGui::DockBuilderDockWindow("Details", details);
     ImGui::DockBuilderDockWindow("Inspector", details);
     ImGui::DockBuilderDockWindow("Explorer", details);
     ImGui::DockBuilderDockWindow("Editor", details);
     ImGui::DockBuilderDockWindow("Properties", details);
+    ImGui::DockBuilderDockWindow("File", details);
+    ImGui::DockBuilderDockWindow("+ Add", details);
+    ImGui::DockBuilderDockWindow("Layers", layers_node);
     // Bottom: Assets + Diagnostics tabs (Stats / Profiler join them when shown).
     ImGui::DockBuilderDockWindow("Assets", bottom);
     ImGui::DockBuilderDockWindow("Diagnostics", bottom);

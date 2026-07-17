@@ -1115,8 +1115,13 @@ void App::BuildGui() {
     ImGui::End();
   }
 
-  // Display a drag-and-drop message if no model is loaded.
-  if (model_kind_ == kEmptyModel) {
+  // Display a drag-and-drop message if no model is loaded -- unless an editor
+  // shell is present: its viewport welcome (New / Open buttons) supersedes the
+  // plain hint, and the two overlapped.
+  bool editor_shell_present = false;
+  platform::ForEachPlugin<platform::EditorShellPlugin>(
+      [&](auto*) { editor_shell_present = true; });
+  if (model_kind_ == kEmptyModel && !editor_shell_present) {
 #ifndef __EMSCRIPTEN__
     const char* text = "Load model file or drag-and-drop model file here.";
 
@@ -1987,7 +1992,7 @@ void App::MainMenuGui() {
         ImGui::EndMenu();
       }
       if (ImGui::MenuItem("Reset Layout")) {
-        ImGui::DockBuilderRemoveNode(ImGui::GetID("RootV2"));
+        ImGui::DockBuilderRemoveNode(ImGui::GetID("RootV3"));
       }
       ImGui::Separator();
 
