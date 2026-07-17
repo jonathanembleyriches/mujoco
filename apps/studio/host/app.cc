@@ -12,6 +12,7 @@
 #include <imgui.h>
 #include <mujoco/mujoco.h>
 
+#include "editor/mode_ui.h"
 #include "editor/transform_math.h"
 #include "platform/ux/interaction.h"
 #include "platform/ux/plugin.h"
@@ -357,8 +358,6 @@ void App::ToolBarGui() {
   if (ImGui::Button("[] Stop")) {
     StopToEdit();
   }
-  ImGui::SameLine();
-  ImGui::TextDisabled("mode: %s", playing ? "Play" : "Edit");
 
   if (!editor_) return;
 
@@ -397,6 +396,8 @@ void App::ToolBarGui() {
     ImGui::InputDouble("scale", &g.snap_scale, 0.01, 0.05, "%.3f");
     ImGui::EndPopup();
   }
+
+  DrawModeChip(*editor_);
 }
 
 void App::StatusBarGui() {

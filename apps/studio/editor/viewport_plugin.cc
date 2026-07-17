@@ -22,6 +22,7 @@
 #include "editor/gizmo.h"
 #include "editor/gizmo_math.h"
 #include "editor/joint_overlay.h"
+#include "editor/mode_ui.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
@@ -320,6 +321,7 @@ void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   ServiceFocus(*ve->ctx, vc);
   ServiceDiagnosticsReveal(*ve->ctx);
   DrawDropMenu(ve);
+  DrawModeBorder(*ve->ctx);
 }
 
 // Selection outline: a wireframe box that hugs the selected element, oriented by
