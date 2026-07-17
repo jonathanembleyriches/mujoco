@@ -181,11 +181,17 @@ struct ToolbarPlugin final {
 // state). `mode`: 0 == Edit/stop, 1 == Play.
 struct EditorShellPlugin final {
   using SetModeFn = void (*)(EditorShellPlugin* self, int mode);
+  using SetPausedFn = void (*)(EditorShellPlugin* self, bool paused);
   using IsDirtyFn = bool (*)(EditorShellPlugin* self);
   using ErrorCountFn = int (*)(EditorShellPlugin* self);
   using FocusDiagnosticsFn = void (*)(EditorShellPlugin* self);
   const char* name = "";
   SetModeFn set_mode = nullptr;
+  // Whether physics is currently advancing, pushed every frame. set_mode alone
+  // does not track this: Pause, Space, the StepControl widget and the
+  // --screenshot flags all move the pause state without going through it, so an
+  // editor relying on set_mode would report a mode the sim is not in.
+  SetPausedFn set_paused = nullptr;
   // True when the editor has unsaved authored edits (drives the dirty indicator).
   IsDirtyFn is_dirty = nullptr;
   // Number of outstanding error-severity diagnostics (drives the status-bar
