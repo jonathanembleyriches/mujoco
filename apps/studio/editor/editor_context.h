@@ -231,9 +231,20 @@ struct LayerEdge {
 // The layer dependency graph, recomputed at the compile seam (not per frame).
 // `group[i]` is the connected-component id of layer i over the undirected
 // edges: layers in the same component render grouped in the Layers panel.
+//
+// `inside[i]` is the second relationship layers can have -- structural
+// containment, distinct from references: layer i's elements sit INSIDE an
+// element of layer `inside[i]` (an <include> spliced into another file's
+// body), or -1 when i's content is all top-level. It matters beyond display:
+// disabling the container prunes that element and takes i's nested content
+// with it, whatever i's own toggle says. The panel indents i under its
+// container to make the relationship visible. Nearest container wins; a
+// multi-region layer records the first found in walk order.
 struct LayerGraph {
   std::vector<LayerEdge> edges;
   std::vector<int> group;
+  std::vector<int> inside;
+  std::vector<std::string> inside_example;  // "geom 'armgeom' sits inside body 'torso'"
 };
 
 struct EditorContext {

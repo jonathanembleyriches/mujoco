@@ -24,6 +24,7 @@
 #include "mjcf.h"
 #include "protospec/detail.h"
 #include "protospec/refs.h"
+#include "protospec/traversal.h"
 #include "reflect.h"
 #include "types.h"
 #include "visit.h"
@@ -351,6 +352,49 @@ void RecomputeLayerGraph(EditorContext& ctx) {
       if (ra != rb) parent[ra] = rb;
     }
     for (int i = 0; i < n; ++i) g.group[i] = find(i);
+  }
+
+  // Structural containment: layer B's element sitting inside layer A's element
+  // (an <include> spliced into another file's body). The NEAREST differing
+  // ancestor is the container; the first found (walk order) wins for a
+  // multi-region layer. Distinct from reference edges -- see LayerGraph.
+  g.inside.assign(n, -1);
+  g.inside_example.assign(n, std::string());
+  if (ctx.tree && n > 1) {
+    std::unordered_map<const void*, int> layer_of;
+    ForEachElement(*ctx.tree, [&](auto& e) {
+      layer_of[static_cast<const void*>(&e)] =
+          LayerIndexForKey(ctx, e.loc.file);
+    });
+    ps::sdk::ParentMap pm(*ctx.tree);
+    ForEachElement(*ctx.tree, [&](auto& e) {
+      const int b = LayerIndexForKey(ctx, e.loc.file);
+      if (b < 0 || g.inside[b] >= 0) return;
+      const void* p = pm.ParentOf(e);
+      while (p) {
+        auto it = layer_of.find(p);
+        if (it == layer_of.end()) break;  // reached the Model root
+        if (it->second >= 0 && it->second != b) {
+          g.inside[b] = it->second;
+          std::string who = std::string(
+              reflect::Describe(mj::element_type_of<
+                                    std::decay_t<decltype(e)>>::value)
+                  .name);
+          if (const std::string* enm = sdkd::NameOf(e)) {
+            if (!enm->empty()) who += " '" + *enm + "'";
+          }
+          const ps::sdk::ParentMap::Node* pn = pm.Lookup(p);
+          std::string owner =
+              pn ? std::string(reflect::Describe(pn->type).name) +
+                       (pn->name.empty() ? "" : " '" + pn->name + "'")
+                 : std::string("an element");
+          g.inside_example[b] = who + " sits inside " + owner;
+          return;
+        }
+        const ps::sdk::ParentMap::Node* pn = pm.Lookup(p);
+        p = pn ? pn->parent : nullptr;
+      }
+    });
   }
 
   ctx.layer_graph = std::move(g);

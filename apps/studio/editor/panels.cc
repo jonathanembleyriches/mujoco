@@ -237,6 +237,31 @@ static void DrawLayerRow(EditorContext* c, int i, int& activate, int& move_idx,
   ImGui::TextUnformatted(l.name.c_str());
   ImGui::SetItemTooltip("%s", l.key.c_str());
 
+  // Structural containment annotation: this layer's content sits inside
+  // another layer's element (nested <include>). Distinct from the reference
+  // grouping -- and it has teeth: disabling the CONTAINER prunes this layer's
+  // nested content with it, whatever this row's own toggle says.
+  const std::vector<int>& inside = c->layer_graph.inside;
+  if (i < static_cast<int>(inside.size()) && inside[i] >= 0 &&
+      inside[i] < static_cast<int>(c->layers.size())) {
+    const Layer& container = c->layers[inside[i]];
+    ImGui::SameLine();
+    if (!container.enabled) {
+      ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                         "(pruned with '%s')", container.name.c_str());
+    } else {
+      ImGui::TextDisabled("(in %s)", container.name.c_str());
+    }
+    if (ImGui::IsItemHovered() &&
+        i < static_cast<int>(c->layer_graph.inside_example.size())) {
+      ImGui::SetTooltip(
+          "This layer's content lives inside '%s':\n%s\nDisabling '%s' prunes "
+          "it too.",
+          container.name.c_str(),
+          c->layer_graph.inside_example[i].c_str(), container.name.c_str());
+    }
+  }
+
   // Order / remove controls, right-aligned-ish.
   ImGui::SameLine();
   ImGui::BeginDisabled(i == 0);
@@ -273,11 +298,37 @@ static void LayersUpdate(GuiPlugin* self) {
   // Grouped rendering: layers connected by dependency edges draw together
   // inside a frame; independents draw standalone. Display order is preserved
   // inside and across groups (a group sits where its first member sits).
+  // Contained layers (graph.inside) draw indented directly under their
+  // container so "partial is part of nested" reads at a glance; a containment
+  // cycle (possible with multi-region layers) falls back to flat rows via the
+  // final sweep.
   const std::vector<int>& comp = c->layer_graph.group;
+  const std::vector<int>& inside = c->layer_graph.inside;
   const bool comp_ok = static_cast<int>(comp.size()) == n;
+  const bool inside_ok = static_cast<int>(inside.size()) == n;
   std::vector<bool> drawn(n, false);
+
+  // Draws row i, then every layer contained in it, indented beneath.
+  std::function<void(int, int)> draw_with_nested = [&](int i, int depth) {
+    if (drawn[i]) return;
+    drawn[i] = true;
+    DrawLayerRow(c, i, activate, move_idx, move_delta, remove_req);
+    if (!inside_ok || depth >= 8) return;
+    for (int j = 0; j < n; ++j) {
+      if (!drawn[j] && inside[j] == i) {
+        ImGui::Indent();
+        draw_with_nested(j, depth + 1);
+        ImGui::Unindent();
+      }
+    }
+  };
+
   for (int i = 0; i < n; ++i) {
     if (drawn[i]) continue;
+    // A contained layer draws under its container, not at top level.
+    if (inside_ok && inside[i] >= 0 && inside[i] < n && !drawn[inside[i]]) {
+      continue;
+    }
     std::vector<int> members{i};
     if (comp_ok) {
       for (int j = i + 1; j < n; ++j) {
@@ -292,15 +343,17 @@ static void LayersUpdate(GuiPlugin* self) {
                         ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
       ImGui::TextDisabled("linked by references");
       for (int m : members) {
-        DrawLayerRow(c, m, activate, move_idx, move_delta, remove_req);
-        drawn[m] = true;
+        draw_with_nested(m, 0);
       }
       ImGui::EndChild();
       ImGui::PopStyleColor();
     } else {
-      DrawLayerRow(c, i, activate, move_idx, move_delta, remove_req);
-      drawn[i] = true;
+      draw_with_nested(i, 0);
     }
+  }
+  // Cycle fallback: anything not reachable through a container draws flat.
+  for (int i = 0; i < n; ++i) {
+    if (!drawn[i]) DrawLayerRow(c, i, activate, move_idx, move_delta, remove_req);
   }
 
   // Apply after the loop: each of these mutates the vector being drawn.
