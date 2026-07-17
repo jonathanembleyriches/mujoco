@@ -1191,17 +1191,6 @@ void App::BuildGui() {
     }
   });
 
-  // The host owns run/pause, so tell the editor what physics is actually doing.
-  // Only Play/Stop route through set_mode; Pause, Space and the StepControl
-  // widget do not, and an editor left to infer from set_mode alone would show a
-  // stale mode.
-  {
-    const bool paused = step_control_.GetPauseState() != PauseState::kUnpaused;
-    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
-      if (p->set_paused) p->set_paused(p, paused);
-    });
-  }
-
   // Title-bar dirty dot: re-title only when the editor's dirty state flips.
   {
     bool ed_dirty = false;

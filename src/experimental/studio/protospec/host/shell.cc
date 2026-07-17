@@ -80,16 +80,16 @@ void DrawFileMenu(EditorContext* c) {
   }
   ImGui::Separator();
 
-  if (ImGui::MenuItem("Import Mesh...", nullptr, false, c->model_ready)) {
+  if (ImGui::MenuItem("Import Mesh...", nullptr, false, c->CanEdit())) {
     c->file_dialog.Request(FileDialogState::Kind::ImportMesh, c->base_dir);
   }
-  if (ImGui::MenuItem("Import Meshes...", nullptr, false, c->model_ready)) {
+  if (ImGui::MenuItem("Import Meshes...", nullptr, false, c->CanEdit())) {
     c->file_dialog.Request(FileDialogState::Kind::ImportMeshes, c->base_dir);
   }
-  if (ImGui::MenuItem("Import Folder...", nullptr, false, c->model_ready)) {
+  if (ImGui::MenuItem("Import Folder...", nullptr, false, c->CanEdit())) {
     c->file_dialog.Request(FileDialogState::Kind::ImportFolder, c->base_dir);
   }
-  if (ImGui::BeginMenu("Import Mesh path...", c->model_ready)) {
+  if (ImGui::BeginMenu("Import Mesh path...", c->CanEdit())) {
     static std::string path;
     static std::string status;
     if (InlinePathField("##mesh", "path to .obj / .stl / .msh", &path)) {
@@ -164,10 +164,15 @@ void DrainFileDialog(EditorContext* c) {
 
 void DrawEditMenu(EditorContext* c) {
   if (!ImGui::BeginMenu("Edit")) return;
-  if (ImGui::MenuItem("Undo", "Ctrl+Z", false, c->history.can_undo())) Undo(*c);
-  if (ImGui::MenuItem("Redo", "Ctrl+Y", false, c->history.can_redo())) Redo(*c);
+  const bool editable = c->CanEdit();
+  if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editable && c->history.can_undo())) {
+    Undo(*c);
+  }
+  if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editable && c->history.can_redo())) {
+    Redo(*c);
+  }
   ImGui::Separator();
-  const bool has_sel = c->selected_serial != 0;
+  const bool has_sel = editable && c->selected_serial != 0;
   if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, has_sel)) {
     DuplicateOp(*c, c->selected_serial);
   }
@@ -258,7 +263,9 @@ void OnToolbar(ToolbarPlugin* self) {
   // native-dialog result the host delivered since the last frame.
   DrainFileDialog(c);
 
-  ImGui::BeginDisabled(!c->model_ready);
+  // The transform tools and Add author the model, so they close outside the
+  // reset pose (the gizmos are already inert there; this makes that visible).
+  ImGui::BeginDisabled(!c->CanEdit());
   ToolButton(kIconSelect, "tool_select", GizmoTool::Select, g, "Select (Q)");
   ToolButton(kIconMove, "tool_move", GizmoTool::Translate, g, "Move (W)");
   ToolButton(kIconRotate, "tool_rotate", GizmoTool::Rotate, g,
