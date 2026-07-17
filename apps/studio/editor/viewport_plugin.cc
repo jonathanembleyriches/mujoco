@@ -387,23 +387,6 @@ void AppendBoxWire(mjvScene* s, const mjtNum center[3], const mjtNum half[3],
   }
 }
 
-// A subtle emissive lift on the selected geom's own scene geom, so the body
-// glows a touch above its neighbours (paired with the outline for readability).
-// The scene is rebuilt every frame, so the tweak lives for exactly this frame.
-void TintSelectedGeom(mjvScene* s, int gid) {
-  for (int i = 0; i < s->ngeom; ++i) {
-    mjvGeom* g = &s->geoms[i];
-    if (g->objtype != mjOBJ_GEOM || g->objid != gid) continue;
-    g->emission = std::max(g->emission, 0.28f);
-    // Nudge a quarter of the way toward the highlight so the tint reads on any
-    // base colour, staying subtle enough not to hide the material.
-    const float sel[3] = {1.0f, 0.85f, 0.25f};
-    for (int k = 0; k < 3; ++k) {
-      g->rgba[k] = g->rgba[k] * 0.75f + sel[k] * 0.25f;
-    }
-  }
-}
-
 // --- Joint rigging overlay (deliverable 3a) ------------------------------- //
 // Distinct colour per joint type; the selected joint is drawn in highlight.
 constexpr float kColHinge[4] = {0.20f, 0.90f, 0.35f, 1.0f};
@@ -538,7 +521,6 @@ void OnOverlay(OverlayPlugin* self, const mjModel* m, const mjData* d,
       mju_mulMatVec3(wc, R, m->geom_aabb + 6 * gid);
       for (int k = 0; k < 3; ++k) wc[k] += d->geom_xpos[3 * gid + k];
       AppendBoxWire(s, wc, half, R, rgba);
-      TintSelectedGeom(s, gid);
       return;
     }
     if (e.etype == mj::ElementType::Body) {

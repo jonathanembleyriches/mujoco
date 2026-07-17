@@ -421,23 +421,34 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
       double f = 1.0 + (t - grab_axis_t_) / (gizmo_size_ > 1e-6 ? gizmo_size_ : 1);
       f = Snap(f, g.snap_scale, g.snap);
       if (f < 1e-3) f = 1e-3;
+      if (scale_base_.is_mesh) {
+        // Mesh scale is UNIFORM whatever handle was grabbed: a non-uniform
+        // mesh scale changes the principal axes and the in-place compensation
+        // (visible centre held fixed) is no longer sound.
+        ApplyScaleMeshUniform(*ctx.tree, drag_serial_, scale_base_, frame_, f);
+        ctx.status_toast.Post(
+            "gizmo: uniform mesh scale (affects ALL users of the mesh)",
+            StatusToast::Kind::Warning, ImGui::GetTime());
+        break;
+      }
       double factor[3] = {1, 1, 1};
       factor[grabbed_.axis] = f;
       ApplyScale(*ctx.tree, drag_serial_, scale_base_, factor);
-      if (scale_base_.is_mesh)
-        ctx.status_toast.Post("gizmo: mesh scale affects ALL users of the mesh",
-                              StatusToast::Kind::Warning, ImGui::GetTime());
       break;
     }
     case HandleKind::ScaleUniform: {
       double f = 1.0 + ((in.x - grab_hit_[0]) - (in.y - grab_hit_[1])) * 3.0;
       f = Snap(f, g.snap_scale, g.snap);
       if (f < 1e-3) f = 1e-3;
+      if (scale_base_.is_mesh) {
+        ApplyScaleMeshUniform(*ctx.tree, drag_serial_, scale_base_, frame_, f);
+        ctx.status_toast.Post(
+            "gizmo: uniform mesh scale (affects ALL users of the mesh)",
+            StatusToast::Kind::Warning, ImGui::GetTime());
+        break;
+      }
       double factor[3] = {f, f, f};
       ApplyScale(*ctx.tree, drag_serial_, scale_base_, factor);
-      if (scale_base_.is_mesh)
-        ctx.status_toast.Post("gizmo: mesh scale affects ALL users of the mesh",
-                              StatusToast::Kind::Warning, ImGui::GetTime());
       break;
     }
     default:
@@ -469,6 +480,10 @@ bool GizmoController::LivePatch(EditorContext& ctx, const ViewportInput& in) {
 
   if (joint_mode_) return LivePatchJoint(ctx, m, d);
   if (!pose_patch_) return false;
+  // A mesh-scale drag changes the mesh geometry itself (asset scale + baked
+  // recentering); a pose patch cannot express it. Fall through to the
+  // debounced recompile so the preview shows the real result.
+  if (ctx.gizmo.tool == GizmoTool::Scale && scale_base_.is_mesh) return false;
 
   Rigid L;
   if (frame_.is_fromto) {

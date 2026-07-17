@@ -174,6 +174,22 @@ struct ScaleBase {
 };
 ScaleBase BuildScaleBase(mj::Model& tree, std::uint64_t serial);
 
+// Scale a MESH geom uniformly, in place. Mesh scale multiplies SOURCE-frame
+// vertices, so on its own the part grows about the mesh file's origin -- for a
+// decomposed hull that origin is the whole model's centre, and the hull
+// translates as it scales. This op writes mesh.scale = grab_scale * f AND
+// rewrites the geom's authored pos so the visible centre (P.L.B, the gizmo
+// anchor) stays fixed: under uniform f the baked recentering scales linearly
+// (B.pos' = f * B0.pos, B.quat unchanged -- principal axes are invariant), so
+//   pos' = c0 - R(L0.quat) . (f * B0.pos),  c0 = L0.pos + R(L0.quat) . B0.pos
+// with L0/B0 the grab-time DragFrame. Uniform only: a non-uniform mesh scale
+// changes the principal axes and the compensation is no longer sound.
+// The preview must RECOMPILE (the mesh geometry itself changes; a pose patch
+// cannot express it) -- the gizmo skips the live patch for mesh scale drags.
+void ApplyScaleMeshUniform(mj::Model& tree, std::uint64_t serial,
+                           const ScaleBase& base, const DragFrame& f,
+                           double factor);
+
 // Apply cumulative per-axis `factor` to the grab-time size (or, for a mesh geom,
 // to the referenced mesh asset's scale -- a model-wide change the caller should
 // warn about). Writes the geom/site size (or mesh scale).

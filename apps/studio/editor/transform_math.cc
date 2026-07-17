@@ -723,6 +723,48 @@ void ApplyScale(mj::Model& tree, std::uint64_t serial, const ScaleBase& base,
   }
 }
 
+void ApplyScaleMeshUniform(mj::Model& tree, std::uint64_t serial,
+                           const ScaleBase& base, const DragFrame& f,
+                           double factor) {
+  if (!base.valid || !base.is_mesh) return;
+  if (factor < 1e-3) factor = 1e-3;
+
+  // The mesh asset: every axis of the grab-time scale multiplies by the same
+  // uniform factor (a non-uniform authored scale keeps its proportions).
+  mj::Mesh* mesh = nullptr;
+  sdkd::WalkModelAll(tree, [&](auto& x) {
+    using X = std::decay_t<decltype(x)>;
+    if constexpr (std::is_same_v<X, mj::Mesh>) {
+      if (!mesh && x.serial == base.mesh_serial) mesh = &x;
+    }
+  });
+  if (!mesh) return;
+  mesh->scale = std::array<double, 3>{base.mesh_scale[0] * factor,
+                                      base.mesh_scale[1] * factor,
+                                      base.mesh_scale[2] * factor};
+
+  // Hold the visible centre: see the header. Only when a recentering suffix
+  // exists -- for a mesh already centred at its own origin there is nothing to
+  // compensate, and writing pos would needlessly author the field.
+  const bool has_suffix =
+      std::abs(f.suffix.pos[0]) + std::abs(f.suffix.pos[1]) +
+          std::abs(f.suffix.pos[2]) >
+      1e-12;
+  if (!has_suffix) return;
+  SpatialRef ref = FindSpatial(tree, serial);
+  if (!ref || ref.type != mj::ElementType::Geom) return;
+  double rb0[3], rbf[3], c0[3], np[3];
+  QuatRotate(f.local.quat, f.suffix.pos, rb0);
+  double scaled[3] = {f.suffix.pos[0] * factor, f.suffix.pos[1] * factor,
+                      f.suffix.pos[2] * factor};
+  QuatRotate(f.local.quat, scaled, rbf);
+  for (int i = 0; i < 3; ++i) {
+    c0[i] = f.local.pos[i] + rb0[i];
+    np[i] = c0[i] - rbf[i];
+  }
+  WritePos(*static_cast<mj::Geom*>(ref.ptr), np);
+}
+
 // ========================================================================== //
 // Joint rigging (SE4). Deliberately kept in its own block so a later upstream
 // transform_math sync merges cleanly: none of the generic FindSpatial /
