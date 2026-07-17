@@ -283,7 +283,7 @@ void OnToolbar(ToolbarPlugin* self) {
   ImGui::SetItemTooltip("%s", "Transform space (Local / World)");
   ImGui::SameLine();
 
-  // Snap toggle + increments popup.
+  // Snap toggle + increments/placement popup.
   if (g.snap) {
     ImGui::PushStyleColor(ImGuiCol_Button,
                           ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -295,9 +295,40 @@ void OnToolbar(ToolbarPlugin* self) {
     ImGui::InputDouble("move (m)", &g.snap_translate, 0.01, 0.1, "%.3f");
     ImGui::InputDouble("rotate (deg)", &g.snap_rotate_deg, 1.0, 5.0, "%.1f");
     ImGui::InputDouble("scale", &g.snap_scale, 0.01, 0.1, "%.3f");
+    ImGui::Checkbox("absolute grid", &g.grid_absolute);
+    ImGui::SetItemTooltip("%s",
+                          "On: translate snapping rounds the element's "
+                          "parent-frame POSITION to multiples of the move "
+                          "increment.\nOff: the drag DISTANCE is rounded "
+                          "instead (relative), keeping any off-grid offset.");
+    ImGui::Separator();
+    ImGui::Checkbox("surface snap", &g.surf_snap);
+    ImGui::SetItemTooltip("%s",
+                          "Translate drags glide on the surface under the "
+                          "cursor (Shift+drag enables it for one drag).\n"
+                          "End key: drop the selection to the ground.");
+    ImGui::Checkbox("align to surface", &g.surf_align);
+    ImGui::SetItemTooltip("%s",
+                          "While surface-snapping, rotate the element's local "
+                          "+Z onto the surface normal.");
     ImGui::EndPopup();
   }
-  ImGui::SetItemTooltip("%s", "Snap on/off (right-click: increments)");
+  ImGui::SetItemTooltip("%s", "Snap on/off (right-click: increments & options)");
+  ImGui::SameLine();
+
+  // Surface snap toggle ("Surf"): translate drags glide on the surface under
+  // the cursor; holding Shift enables the same glide for a single drag.
+  if (g.surf_snap) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Surf")) g.surf_snap = !g.surf_snap;
+  if (g.surf_snap) ImGui::PopStyleColor();
+  ImGui::SetItemTooltip("%s",
+                        "Surface snap: Move drags glide on the surface under "
+                        "the cursor, resting the element on it (or hold Shift "
+                        "while dragging).\nEnd key: drop selection to ground. "
+                        "Right-click Snap for align-to-surface.");
   ImGui::SameLine();
 
   // Joint overlay: show joints for all bodies (deliverable 3 View toggle).
