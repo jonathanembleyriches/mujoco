@@ -464,7 +464,7 @@ void GizmoController::UpdateDrag(EditorContext& ctx, const ViewportInput& in,
         double factor[3] = {1, 1, 1};
         factor[grabbed_.axis] = f;
         ApplyScaleMeshNonUniform(*ctx.tree, drag_serial_, scale_base_, frame_,
-                                 ctx.compiled.binding, factor);
+                                 factor);
         ArmMeshScaleFixup(ctx);
         ctx.status_toast.Post(
             "gizmo: mesh scale (affects ALL users of the mesh)",

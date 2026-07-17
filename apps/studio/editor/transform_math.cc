@@ -767,7 +767,6 @@ void ApplyScaleMeshUniform(mj::Model& tree, std::uint64_t serial,
 
 void ApplyScaleMeshNonUniform(mj::Model& tree, std::uint64_t serial,
                               const ScaleBase& base, const DragFrame& f,
-                              const mj::Binding& binding,
                               const double factor[3]) {
   if (!base.valid || !base.is_mesh) return;
   double fx[3];
@@ -785,21 +784,20 @@ void ApplyScaleMeshNonUniform(mj::Model& tree, std::uint64_t serial,
                                       base.mesh_scale[1] * fx[1],
                                       base.mesh_scale[2] * fx[2]};
 
-  // Hold the grab-time visible centre using the MEASURED current B (see the
-  // header). Falls back to no compensation when the element is not patchable
-  // (e.g. a pruned-layer compile clone owns the binding pointers).
+  // Hold the grab-time visible centre, closed form (see the header): the
+  // centroid part of the suffix scales component-wise with the factor. Using a
+  // measured-from-last-compile B here caused visible position flicker during
+  // drags (each frame corrected the previous frame's stale estimate).
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref || ref.type != mj::ElementType::Geom) return;
-  auto patch = binding.PosePatchFor(ref.ptr);
-  if (!patch) return;
-  double c0[3], rb0[3], rbc[3], np[3];
+  double c0[3], rb0[3], rbs[3], np[3];
   QuatRotate(f.local.quat, f.suffix.pos, rb0);
-  const double bcur[3] = {patch->suffix.pos[0], patch->suffix.pos[1],
-                          patch->suffix.pos[2]};
-  QuatRotate(f.local.quat, bcur, rbc);
+  const double scaled[3] = {f.suffix.pos[0] * fx[0], f.suffix.pos[1] * fx[1],
+                            f.suffix.pos[2] * fx[2]};
+  QuatRotate(f.local.quat, scaled, rbs);
   for (int i = 0; i < 3; ++i) {
     c0[i] = f.local.pos[i] + rb0[i];
-    np[i] = c0[i] - rbc[i];
+    np[i] = c0[i] - rbs[i];
   }
   WritePos(*static_cast<mj::Geom*>(ref.ptr), np);
 }
