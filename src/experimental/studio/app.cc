@@ -481,17 +481,21 @@ void App::ProcessPendingLoads() {
     pending_op_ = nullptr;
   }
 
-  // Allow plugins to edit the spec as well.
-  platform::ForEachPlugin<platform::SpecEditorPlugin>([&](auto* plugin) {
-    if (plugin->pre_compile) {
-      if (plugin->pre_compile(plugin, spec(), model(), data(), &camera_)) {
-        Recompile();
-        if (plugin->post_compile) {
-          plugin->post_compile(plugin, spec(), model(), data());
-        }
-      };
-    }
-  });
+  // Allow plugins to edit the spec as well. A model source plugin supplies its
+  // model below and never creates an mjSpec, so model_holder_ can still be null
+  // here on the first frame; spec() would dereference it.
+  if (has_spec()) {
+    platform::ForEachPlugin<platform::SpecEditorPlugin>([&](auto* plugin) {
+      if (plugin->pre_compile) {
+        if (plugin->pre_compile(plugin, spec(), model(), data(), &camera_)) {
+          Recompile();
+          if (plugin->post_compile) {
+            plugin->post_compile(plugin, spec(), model(), data());
+          }
+        };
+      }
+    });
+  }
 
   // Check plugins to see if we need to load a new model.
   platform::ForEachPlugin<platform::ModelPlugin>([&](auto* plugin) {
@@ -1186,6 +1190,17 @@ void App::BuildGui() {
       plugin->draw(plugin, viewport_ctx);
     }
   });
+
+  // The host owns run/pause, so tell the editor what physics is actually doing.
+  // Only Play/Stop route through set_mode; Pause, Space and the StepControl
+  // widget do not, and an editor left to infer from set_mode alone would show a
+  // stale mode.
+  {
+    const bool paused = step_control_.GetPauseState() != PauseState::kUnpaused;
+    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
+      if (p->set_paused) p->set_paused(p, paused);
+    });
+  }
 
   // Title-bar dirty dot: re-title only when the editor's dirty state flips.
   {
