@@ -305,6 +305,36 @@ inline bool Contains(const std::vector<mj::ElementType>& v, mj::ElementType t) {
   return false;
 }
 
+// The element types a DYNAMIC reference can name, given the runtime keyword its
+// sibling type field holds (objtype="body" -> Body, ...). Keywords follow
+// MuJoCo's mju_str2Type object names. An unknown or empty keyword returns the
+// empty set: the name is not scannable, and callers must treat it as opaque
+// rather than guess a namespace.
+inline std::vector<mj::ElementType> DynRefTargetTypes(std::string_view keyword) {
+  if (keyword == "body" || keyword == "xbody") return {mj::ElementType::Body};
+  if (keyword == "joint")
+    return {mj::ElementType::Joint, mj::ElementType::FreeJoint};
+  if (keyword == "geom") return {mj::ElementType::Geom};
+  if (keyword == "site") return {mj::ElementType::Site};
+  if (keyword == "camera") return {mj::ElementType::Camera};
+  if (keyword == "light") return {mj::ElementType::Light};
+  if (keyword == "flex") return {mj::ElementType::Flex};
+  if (keyword == "mesh") return {mj::ElementType::Mesh};
+  if (keyword == "skin") return {mj::ElementType::Skin};
+  if (keyword == "hfield") return {mj::ElementType::Hfield};
+  if (keyword == "texture") return {mj::ElementType::Texture};
+  if (keyword == "material") return {mj::ElementType::Material};
+  if (keyword == "tendon")
+    return {mj::ElementType::Spatial, mj::ElementType::Fixed};
+  if (keyword == "actuator") return RefTargetTypes<mj::ActuatorAny>();
+  if (keyword == "numeric") return {mj::ElementType::Numeric};
+  if (keyword == "text") return {mj::ElementType::Text};
+  if (keyword == "tuple") return {mj::ElementType::Tuple};
+  if (keyword == "key") return {mj::ElementType::Keyframe};
+  if (keyword == "plugin") return {mj::ElementType::PluginInstance};
+  return {};
+}
+
 }  // namespace ps::sdk::detail
 
 #endif  // PROTOSPEC_SDK_DETAIL_H

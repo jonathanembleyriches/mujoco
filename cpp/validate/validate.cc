@@ -185,6 +185,57 @@ bool IsImplicit(Ns ns, const std::string& name) {
          (ns == Ns::Class && name == "main");
 }
 
+// The namespace a DYNAMIC reference resolves in, given the runtime keyword its
+// sibling type field holds (mju_str2Type object names). nullopt = unknown or
+// unmapped keyword; the name is then not checkable and is left alone.
+std::optional<Ns> DynNs(const std::string& keyword) {
+  if (keyword == "body" || keyword == "xbody") return Ns::Body;
+  if (keyword == "joint") return Ns::Joint;
+  if (keyword == "geom") return Ns::Geom;
+  if (keyword == "site") return Ns::Site;
+  if (keyword == "camera") return Ns::Camera;
+  if (keyword == "light") return Ns::Light;
+  if (keyword == "flex") return Ns::Flex;
+  if (keyword == "mesh") return Ns::Mesh;
+  if (keyword == "skin") return Ns::Skin;
+  if (keyword == "hfield") return Ns::Hfield;
+  if (keyword == "texture") return Ns::Texture;
+  if (keyword == "material") return Ns::Material;
+  if (keyword == "tendon") return Ns::Tendon;
+  if (keyword == "actuator") return Ns::Actuator;
+  if (keyword == "sensor") return Ns::Sensor;
+  if (keyword == "numeric") return Ns::Numeric;
+  if (keyword == "text") return Ns::Text;
+  if (keyword == "tuple") return Ns::Tuple;
+  if (keyword == "key") return Ns::Key;
+  if (keyword == "plugin") return Ns::PluginInstance;
+  return std::nullopt;
+}
+
+// The `opt<string>` field at reflect field id `id`, via the generated Visit
+// hook (validate stays independent of the SDK's probe helpers).
+template <class T>
+struct StringGrab {
+  int want;
+  const ps::opt<std::string>* out = nullptr;
+  template <class U>
+  void field(int id, const char*, const U& v) {
+    if constexpr (std::is_same_v<std::decay_t<U>, ps::opt<std::string>>) {
+      if (id == want) out = &v;
+    }
+  }
+  template <class C>
+  void child(int, const char*, const C&) {}
+  template <class C>
+  void union_child(int, const char*, const C&) {}
+};
+template <class T>
+const ps::opt<std::string>* StringFieldAt(const T& e, int id) {
+  StringGrab<T> g{id};
+  Visit(e, g);
+  return g.out;
+}
+
 // --- Field-shape traits --------------------------------------------------- //
 template <class> struct is_opt : std::false_type {};
 template <class T> struct is_opt<ps::opt<T>> : std::true_type {
@@ -686,9 +737,50 @@ struct CheckPass {
     if (ctx.tiers & (kTierStructural | kTierReferential)) {
       FieldVisitor fv{ctx, reflect::Describe(et), e.loc};
       Visit(e, fv);
+      CheckDynRefs(e, et);
     }
     if (ctx.tiers & kTierSemantic) CheckSemanticLocal(ctx, e, et);
     if constexpr (std::is_same_v<T, Default>) ++default_depth;
+  }
+
+  // Dynamic refs (target_from): a string field whose target type is the
+  // runtime keyword of a sibling field. The typed field walk above cannot see
+  // them (they are plain strings there); resolve keyword -> namespace and run
+  // the same referential check a scalar ref gets. An unknown keyword is left
+  // alone -- objtype's own legality is a separate (structural) concern.
+  template <class T>
+  void CheckDynRefs(const T& e, ElementType et) {
+    if (!(ctx.tiers & kTierReferential) || ctx.in_default || ctx.has_macros) {
+      return;
+    }
+    const reflect::ElementDescriptor& d = reflect::Describe(et);
+    for (int i = 0; i < static_cast<int>(d.field_count); ++i) {
+      const reflect::FieldDescriptor& fd = d.fields[i];
+      if (fd.target_from.empty()) continue;
+      int sib = -1;
+      for (int j = 0; j < static_cast<int>(d.field_count); ++j) {
+        if (d.fields[j].name == fd.target_from) {
+          sib = j;
+          break;
+        }
+      }
+      if (sib < 0) continue;
+      const ps::opt<std::string>* kw = StringFieldAt(e, sib);
+      const ps::opt<std::string>* nm = StringFieldAt(e, i);
+      if (!kw || !kw->has_value() || !nm || !nm->has_value() ||
+          (*nm)->empty()) {
+        continue;
+      }
+      std::optional<Ns> ns = DynNs(**kw);
+      if (!ns) continue;
+      if (!ctx.Resolvable(*ns, **nm)) {
+        ctx.Emit(Tier::Referential, Severity::Error,
+                 "unresolved reference '" + **nm + "' in '" +
+                     std::string(fd.name) + "' (no such " +
+                     std::string(NsLabel(*ns)) + ")",
+                 e.loc);
+      }
+    }
   }
   template <class T>
   void Exit(const T&, ElementType) {

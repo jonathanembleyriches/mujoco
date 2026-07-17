@@ -781,7 +781,7 @@ element Tuple {
 
 element TupleElement (xml="element") {
   objtype : string
-  objname : string
+  objname : string (target_from=objtype)
   prm     : double
 }
 
@@ -2049,9 +2049,9 @@ element Tendonlimitfrc {
 element Framepos {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2064,9 +2064,9 @@ element Framepos {
 element Framequat {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2079,9 +2079,9 @@ element Framequat {
 element Framexaxis {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2094,9 +2094,9 @@ element Framexaxis {
 element Frameyaxis {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2109,9 +2109,9 @@ element Frameyaxis {
 element Framezaxis {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2124,9 +2124,9 @@ element Framezaxis {
 element Framelinvel {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2139,9 +2139,9 @@ element Framelinvel {
 element Frameangvel {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2154,7 +2154,7 @@ element Frameangvel {
 element Framelinacc {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2167,7 +2167,7 @@ element Framelinacc {
 element Frameangacc {
   name     : string   # element name
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2217,7 +2217,7 @@ element Insidesite {
   name     : string   # element name
   site     : ref<Site>
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   nsample  : int32
   interp   : InterpType
   delay    : double
@@ -2340,7 +2340,7 @@ element Tactile {
 element SensorUser (xml="user") {
   name      : string   # element name
   objtype   : string
-  objname   : string
+  objname   : string (target_from=objtype)
   datatype  : DataType
   needstage : NeedStage
   dim       : int32
@@ -2355,9 +2355,9 @@ element SensorPlugin (xml="plugin") {
   instance : ref<PluginInstance>
   cutoff   : double
   objtype  : string
-  objname  : string
+  objname  : string (target_from=objtype)
   reftype  : string
-  refname  : string
+  refname  : string (target_from=reftype)
   user     : double[]
   children config : Config *
 }

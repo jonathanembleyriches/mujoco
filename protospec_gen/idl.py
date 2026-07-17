@@ -149,6 +149,14 @@ _FIELD_ANNOTS = frozenset(
         "element_text",
         "aliases",
         "resolver",
+        # A dynamically-typed reference: this string field names an element
+        # whose type is given at runtime by the SIBLING field the value names
+        # (objname (target_from=objtype)). A phantom-typed ref<T> cannot
+        # express "whatever objtype says"; this annotation is how the schema
+        # declares it, so the referrer scan / rename fixup / referential
+        # validation cover these fields instead of leaving them silently
+        # untracked (docs/refs_design.md, category D).
+        "target_from",
     }
 )
 _ELEMENT_ANNOTS = frozenset({"xml"})

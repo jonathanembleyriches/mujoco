@@ -44,6 +44,8 @@ struct FieldDescriptor {
   int arity_max;
   bool optional;
   bool has_default;
+  std::string_view target_from;  // dynamic ref: sibling field naming the
+                                 // target type ("" = not a dynamic ref)
   std::string_view doc;       // one-line field description (schema comment)
 };
 

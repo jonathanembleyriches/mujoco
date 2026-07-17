@@ -6,11 +6,12 @@
 // element, rename an element and fix up all referrers, and delete a subtree
 // while reporting (or cascading) the references it would leave dangling.
 //
-// A "referrer" is any authored `Ref<T>` field whose target-type set includes
-// the referenced element's type and whose stored name matches. Untyped string
-// cross-references (e.g. a sensor's `objname`, a `<subtreecom>` body string)
-// are NOT tracked here -- only the schema's typed `ref<T>` fields, which are
-// exactly what the generated Visit hook exposes.
+// A "referrer" is any authored `Ref<T>` field (scalar or `ref<T>[]` list
+// entry) whose target-type set includes the referenced element's type and
+// whose stored name matches -- plus the schema's DYNAMIC refs: string fields
+// annotated `(target_from=sibling)`, whose target type is the runtime keyword
+// the sibling holds (a frame sensor's objtype/objname pair). All of them are
+// declared in the schema, which is what lets this module stay generic.
 #ifndef PROTOSPEC_SDK_REFS_H
 #define PROTOSPEC_SDK_REFS_H
 
@@ -21,6 +22,7 @@
 
 #include "protospec/detail.h"
 #include "protospec/traversal.h"
+#include "reflect.h"
 #include "types.h"
 #include "visit.h"
 
@@ -66,10 +68,52 @@ struct RefScan {
   void union_child(int, const char*, C&) {}
 };
 
+// The `opt<string>` field of `e` at reflect field id `id`, with `e`'s
+// constness. (FieldAt with an explicitly const T would make its two overloads
+// ambiguous; this picks the right one.)
+template <class E>
+auto StringFieldAt(E& e, int id) {
+  using P = std::remove_const_t<E>;
+  return FieldAt<P, ps::opt<std::string>>(e, id);
+}
+
 template <class E, class OnRef>
 void ScanRefs(E& e, OnRef&& on) {
   RefScan<std::remove_reference_t<OnRef>> v{&on};
   mj::Visit(e, v);
+
+  // Dynamic refs (target_from, docs/refs_design.md category D): the schema
+  // marks string fields whose target type is the runtime value of a SIBLING
+  // field (objname (target_from=objtype)). The reflect descriptor carries the
+  // marking, so rename fixup / referrer scan / delete cleanup reach these
+  // fields with no per-element code. An unset or unknown keyword yields no
+  // targets and the name is left alone -- opaque, never guessed at.
+  using P = std::remove_const_t<E>;
+  if constexpr (!std::is_same_v<P, mj::Model>) {
+    const mj::reflect::ElementDescriptor& desc =
+        mj::reflect::Describe(mj::element_type_of<P>::value);
+    for (int i = 0; i < static_cast<int>(desc.field_count); ++i) {
+      const mj::reflect::FieldDescriptor& fd = desc.fields[i];
+      if (fd.target_from.empty()) continue;
+      int sib = -1;
+      for (int j = 0; j < static_cast<int>(desc.field_count); ++j) {
+        if (desc.fields[j].name == fd.target_from) {
+          sib = j;
+          break;
+        }
+      }
+      if (sib < 0) continue;
+      auto* kw = StringFieldAt(e, sib);
+      auto* nm = StringFieldAt(e, i);
+      if (!kw || !kw->has_value() || !nm || !nm->has_value() ||
+          (*nm)->empty()) {
+        continue;
+      }
+      std::vector<mj::ElementType> targets = DynRefTargetTypes(**kw);
+      if (targets.empty()) continue;
+      on(i, fd.name.data(), **nm, targets);
+    }
+  }
 }
 
 }  // namespace detail
@@ -309,6 +353,39 @@ struct ClearRefs {
   void union_child(int, const char*, C&) {}
 };
 
+// ClearRefs plus the dynamic fields the plain Visit cannot see: a target_from
+// name whose sibling keyword resolves into the deleted set is reset alongside
+// its typed siblings.
+template <class E>
+void ClearRefsOn(E& e, const std::vector<NameType>& deleted) {
+  ClearRefs cr{&deleted};
+  mj::Visit(e, cr);
+  using P = std::remove_const_t<E>;
+  if constexpr (!std::is_same_v<P, mj::Model>) {
+    const mj::reflect::ElementDescriptor& desc =
+        mj::reflect::Describe(mj::element_type_of<P>::value);
+    for (int i = 0; i < static_cast<int>(desc.field_count); ++i) {
+      const mj::reflect::FieldDescriptor& fd = desc.fields[i];
+      if (fd.target_from.empty()) continue;
+      int sib = -1;
+      for (int j = 0; j < static_cast<int>(desc.field_count); ++j) {
+        if (desc.fields[j].name == fd.target_from) {
+          sib = j;
+          break;
+        }
+      }
+      if (sib < 0) continue;
+      auto* kw = StringFieldAt(e, sib);
+      auto* nm = StringFieldAt(e, i);
+      if (!kw || !kw->has_value() || !nm || !nm->has_value() ||
+          (*nm)->empty()) {
+        continue;
+      }
+      if (IsDeleted(deleted, **nm, DynRefTargetTypes(**kw))) nm->reset();
+    }
+  }
+}
+
 }  // namespace detail
 
 // Remove `elem` and its whole subtree from the model. Any reference elsewhere
@@ -345,8 +422,7 @@ DeleteReport DeleteRecursive(mj::Model& model, E& elem, bool cascade = false) {
 
   if (cascade && !report.dangling.empty()) {
     detail::WalkModelAll(model, [&](auto& other) {
-      detail::ClearRefs cr{&deleted};
-      mj::Visit(other, cr);
+      detail::ClearRefsOn(other, deleted);
     });
     report.cascaded = true;
   }
@@ -450,8 +526,7 @@ inline DeleteReport DeleteSubtree(mj::Model& model, const void* elem,
 
   if (cascade && !report.dangling.empty()) {
     detail::WalkModelAll(model, [&](auto& other) {
-      detail::ClearRefs cr{&deleted};
-      mj::Visit(other, cr);
+      detail::ClearRefsOn(other, deleted);
     });
     report.cascaded = true;
   }

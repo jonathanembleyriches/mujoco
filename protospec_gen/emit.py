@@ -632,6 +632,8 @@ def emit_reflect_h(s: Schema) -> str:
     w("  int arity_max;")
     w("  bool optional;")
     w("  bool has_default;")
+    w('  std::string_view target_from;  // dynamic ref: sibling field naming the')
+    w('                                 // target type ("" = not a dynamic ref)')
     w("  std::string_view doc;       // one-line field description (schema comment)")
     w("};")
     w("")
@@ -705,6 +707,7 @@ def emit_reflect_cc(s: Schema) -> str:
             w(f"constexpr FieldDescriptor kFields_{name}[] = {{")
             for f in fields:
                 ak, amin, amax = field_arity(f["type"])
+                target_from = f.get("annotations", {}).get("target_from", "")
                 w(
                     f'    {{"{f["name"]}", "{s.field_xml(f)}", '
                     f'"{field_type_name(f["type"])}", '
@@ -712,6 +715,7 @@ def emit_reflect_cc(s: Schema) -> str:
                     f"ArityKind::{ak}, {amin}, {amax}, "
                     f"{'true' if f['optional'] else 'false'}, "
                     f"{'true' if 'default' in f else 'false'}, "
+                    f'"{target_from}", '
                     f'"{cpp_str(f.get("doc", ""))}"}},'
                 )
             w("};")
