@@ -323,6 +323,37 @@ void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
   ve->ctx->sim_paused = vc.edit_mode;
   ve->ctx->sim_time = vc.data ? vc.data->time : 0.0;
 
+  // Empty state: an actionable welcome instead of a dead drag-drop hint --
+  // building from scratch (asset ingestion) starts HERE, so the two entry
+  // points must be one click away, not buried in the File menu. Keyed on the
+  // EDITOR's state, not vc.model: the host parks a placeholder empty mjModel
+  // when nothing is loaded, so vc.model is non-null even with no model.
+  if (!ve->ctx->model_ready && !ve->ctx->tree) {
+    const ImGuiViewport* v = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(v->Pos.x + v->Size.x * 0.5f, v->Pos.y + v->Size.y * 0.45f),
+        ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowBgAlpha(0.9f);
+    if (ImGui::Begin("##welcome", nullptr,
+                     ImGuiWindowFlags_NoDecoration |
+                         ImGuiWindowFlags_AlwaysAutoResize |
+                         ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoDocking)) {
+      ImGui::TextDisabled("No model loaded");
+      ImGui::Spacing();
+      if (ImGui::Button("New Model", ImVec2(180, 0))) {
+        NewModelOp(*ve->ctx);
+      }
+      if (ImGui::Button("Open...", ImVec2(180, 0))) {
+        ve->ctx->file_dialog.Request(FileDialogState::Kind::Open, "");
+      }
+      ImGui::Spacing();
+      ImGui::TextDisabled("%s", "or drag & drop an MJCF file");
+    }
+    ImGui::End();
+    return;
+  }
+
   ve->gizmo.Draw(*ve->ctx, vc);
   ServiceFocus(*ve->ctx, vc);
   ServiceDiagnosticsReveal(*ve->ctx);
