@@ -508,6 +508,42 @@ static void AssetsUpdate(GuiPlugin* self) {
   }
 }
 
+// Model-level creation items, shared between the "+ Add" panel and the
+// Hierarchy's per-section context menus (an empty family's section row is the
+// bootstrap for its first element).
+void DrawAddActuatorItems(EditorContext& ctx, std::uint64_t target) {
+  struct A { const char* label; ActuatorSpelling sp; };
+  const A acts[] = {{"Motor", ActuatorSpelling::Motor},
+                    {"Position", ActuatorSpelling::Position},
+                    {"Velocity", ActuatorSpelling::Velocity},
+                    {"IntVelocity", ActuatorSpelling::IntVelocity},
+                    {"Damper", ActuatorSpelling::Damper},
+                    {"Cylinder", ActuatorSpelling::Cylinder},
+                    {"Muscle", ActuatorSpelling::Muscle},
+                    {"Adhesion", ActuatorSpelling::Adhesion},
+                    {"DcMotor", ActuatorSpelling::DcMotor},
+                    {"General", ActuatorSpelling::General}};
+  for (const A& a : acts) {
+    if (ImGui::MenuItem(a.label)) AddActuatorOp(ctx, a.sp, target);
+  }
+}
+void DrawAddSensorItems(EditorContext& ctx, std::uint64_t target) {
+  struct S { const char* label; SensorSpelling sp; };
+  const S sens[] = {{"Jointpos", SensorSpelling::Jointpos},
+                    {"Jointvel", SensorSpelling::Jointvel},
+                    {"Framepos", SensorSpelling::Framepos},
+                    {"Framequat", SensorSpelling::Framequat},
+                    {"Gyro", SensorSpelling::Gyro},
+                    {"Accelerometer", SensorSpelling::Accelerometer},
+                    {"Velocimeter", SensorSpelling::Velocimeter},
+                    {"Force", SensorSpelling::Force},
+                    {"Torque", SensorSpelling::Torque},
+                    {"Touch", SensorSpelling::Touch}};
+  for (const S& s : sens) {
+    if (ImGui::MenuItem(s.label)) AddSensorOp(ctx, s.sp, target);
+  }
+}
+
 // The "+ Add" panel: model-level structural adds (deliverable 1). Target-aware --
 // an actuator/sensor wires to the current selection when it is a valid target.
 static void AddMenuUpdate(GuiPlugin* self) {
@@ -521,37 +557,11 @@ static void AddMenuUpdate(GuiPlugin* self) {
   ImGui::Separator();
 
   if (ImGui::BeginMenu("Actuator")) {
-    struct A { const char* label; ActuatorSpelling sp; };
-    const A acts[] = {{"Motor", ActuatorSpelling::Motor},
-                      {"Position", ActuatorSpelling::Position},
-                      {"Velocity", ActuatorSpelling::Velocity},
-                      {"IntVelocity", ActuatorSpelling::IntVelocity},
-                      {"Damper", ActuatorSpelling::Damper},
-                      {"Cylinder", ActuatorSpelling::Cylinder},
-                      {"Muscle", ActuatorSpelling::Muscle},
-                      {"Adhesion", ActuatorSpelling::Adhesion},
-                      {"DcMotor", ActuatorSpelling::DcMotor},
-                      {"General", ActuatorSpelling::General}};
-    for (const A& a : acts) {
-      if (ImGui::MenuItem(a.label)) AddActuatorOp(*c, a.sp, sel);
-    }
+    DrawAddActuatorItems(*c, sel);
     ImGui::EndMenu();
   }
   if (ImGui::BeginMenu("Sensor")) {
-    struct S { const char* label; SensorSpelling sp; };
-    const S sens[] = {{"Jointpos", SensorSpelling::Jointpos},
-                      {"Jointvel", SensorSpelling::Jointvel},
-                      {"Framepos", SensorSpelling::Framepos},
-                      {"Framequat", SensorSpelling::Framequat},
-                      {"Gyro", SensorSpelling::Gyro},
-                      {"Accelerometer", SensorSpelling::Accelerometer},
-                      {"Velocimeter", SensorSpelling::Velocimeter},
-                      {"Force", SensorSpelling::Force},
-                      {"Torque", SensorSpelling::Torque},
-                      {"Touch", SensorSpelling::Touch}};
-    for (const S& s : sens) {
-      if (ImGui::MenuItem(s.label)) AddSensorOp(*c, s.sp, sel);
-    }
+    DrawAddSensorItems(*c, sel);
     ImGui::EndMenu();
   }
   if (ImGui::MenuItem("Tendon (fixed)")) AddTendonOp(*c);

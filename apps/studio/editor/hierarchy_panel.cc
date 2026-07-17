@@ -339,6 +339,57 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
       ImGui::EndDisabled();
       ImGui::EndPopup();
     }
+    // Every remaining family creates from its own section row -- sections now
+    // render even when empty precisely so the FIRST element of a family can be
+    // added here (there is otherwise no row to reach the menu from).
+    if (node.tag == std::string("Actuators") &&
+        ImGui::BeginPopupContextItem("##actuators_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
+      DrawAddActuatorItems(ctx, ctx.selected_serial);
+      ImGui::EndDisabled();
+      ImGui::EndPopup();
+    }
+    if (node.tag == std::string("Sensors") &&
+        ImGui::BeginPopupContextItem("##sensors_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
+      DrawAddSensorItems(ctx, ctx.selected_serial);
+      ImGui::EndDisabled();
+      ImGui::EndPopup();
+    }
+    if (node.tag == std::string("Tendons") &&
+        ImGui::BeginPopupContextItem("##tendons_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
+      if (ImGui::MenuItem("Tendon (fixed)")) AddTendonOp(ctx);
+      ImGui::EndDisabled();
+      ImGui::EndPopup();
+    }
+    if (node.tag == std::string("Equality") &&
+        ImGui::BeginPopupContextItem("##equality_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
+      if (ImGui::MenuItem("Equality (weld)")) AddEqualityWeldOp(ctx);
+      ImGui::EndDisabled();
+      ImGui::EndPopup();
+    }
+    if (node.tag == std::string("Contact") &&
+        ImGui::BeginPopupContextItem("##contact_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
+      if (ImGui::MenuItem("Contact Pair")) AddPairOp(ctx);
+      if (ImGui::MenuItem("Contact Exclude")) AddExcludeOp(ctx);
+      ImGui::EndDisabled();
+      ImGui::EndPopup();
+    }
+    if (node.tag == std::string("Keyframes") &&
+        ImGui::BeginPopupContextItem("##keyframes_add")) {
+      ImGui::BeginDisabled(!ctx.CanEdit());
+      if (ImGui::MenuItem("Keyframe")) AddKeyframeOp(ctx);
+      ImGui::EndDisabled();
+      ImGui::EndPopup();
+    }
+    // An empty family says how to fill it instead of just sitting there.
+    if (node.children.empty()) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("(empty -- right-click to add)");
+    }
     if (open) {
       for (const HierNode& c : node.children) {
         DrawNode(ctx, c, st, ancestor_off);

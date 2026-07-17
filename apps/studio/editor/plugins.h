@@ -26,6 +26,14 @@ void RegisterEditorPanels(EditorContext& ctx);
 // (mouse + draw hooks), the selection outline, and the QWER/Del key handlers.
 void RegisterViewportEditor(EditorContext& ctx);
 
+// Model-level creation menu items (actuator/sensor spellings; tendon, equality,
+// contact pair/exclude, keyframe). Defined in panels.cc, shared with the
+// Hierarchy's per-section context menus so an EMPTY family can be bootstrapped
+// from its section row. `target` wires an actuator/sensor to the selection when
+// compatible (0 = none). Call inside an open ImGui menu/popup.
+void DrawAddActuatorItems(EditorContext& ctx, std::uint64_t target);
+void DrawAddSensorItems(EditorContext& ctx, std::uint64_t target);
+
 // The generated Details panel, owned by the concurrent SE1b cluster
 // (details_panel.cc, namespace ps::studio::details).
 namespace details {
