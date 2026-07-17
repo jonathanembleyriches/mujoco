@@ -29,6 +29,7 @@ struct HierNode {
   std::string tag;    // element XML tag ("body", "geom", ...) or section title
   std::string name;   // authored name, empty when unnamed
   std::string label;  // display label ("body: torso", "geom", section title)
+  std::string layer_key;  // the element's loc.file tag (its layer); see layers.h
   bool is_section = false;
   bool is_macro = false;
   std::vector<HierNode> children;

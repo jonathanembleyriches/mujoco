@@ -22,6 +22,7 @@
 #include "editor/gizmo.h"
 #include "editor/gizmo_math.h"
 #include "editor/joint_overlay.h"
+#include "editor/layers.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
@@ -604,7 +605,8 @@ void RegisterViewportEditor(EditorContext& ctx) {
   RegisterKey("Duplicate", ImGuiMod_Ctrl | ImGuiKey_D,
               [](KeyHandlerPlugin* s) {
                 EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
-                if (c.selected_serial != 0 && c.CanEdit()) {
+                if (c.selected_serial != 0 && c.CanEdit() &&
+                    SerialInActiveLayer(c, c.selected_serial)) {
                   DuplicateOp(c, c.selected_serial);
                 }
               }, ve);

@@ -9,6 +9,8 @@
 
 #include <imgui.h>
 
+#include "editor/layers.h"
+
 namespace ps::studio {
 namespace {
 
@@ -541,10 +543,13 @@ void GizmoController::Cancel(EditorContext& ctx) {
 
 bool GizmoController::HandleMouse(EditorContext& ctx, const ViewportInput& in) {
   ctx.gizmo_active = dragging_;
+  // The layer edit scope gates the grab exactly like the reset-pose rule: a
+  // foreign-layer selection stays selectable/visible, but not draggable.
   const bool eligible = ctx.CanEdit() && ctx.tree &&
                         in.model == ctx.compiled.model.get() && in.data &&
                         ctx.selected_serial != 0 &&
-                        ctx.gizmo.tool != GizmoTool::Select;
+                        ctx.gizmo.tool != GizmoTool::Select &&
+                        SerialInActiveLayer(ctx, ctx.selected_serial);
   if (!eligible) {
     if (dragging_) Cancel(ctx);  // selection/tool changed mid-drag
     prev_left_ = in.left_down;
@@ -637,6 +642,17 @@ void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context&
   if (!vc.edit_mode || !ctx.tree || ctx.selected_serial == 0 || !vc.data ||
       vc.model != ctx.compiled.model.get() ||
       ctx.gizmo.tool == GizmoTool::Select) {
+    return;
+  }
+  // Foreign-layer selection: no handles (HandleMouse refuses the grab too);
+  // say why instead of failing silently.
+  if (!SerialInActiveLayer(ctx, ctx.selected_serial)) {
+    const int owner = LayerOfSerial(ctx, ctx.selected_serial);
+    const std::string who =
+        owner >= 0 ? ctx.layers[owner].name : std::string("another layer");
+    DrawViewportNote(
+        ("Owned by layer '" + who + "' -- activate it in Layers to edit").c_str(),
+        StatusToast::Kind::Warning, 1.0f);
     return;
   }
   // The Scale tool only means something for a sized element (geom / site). For a

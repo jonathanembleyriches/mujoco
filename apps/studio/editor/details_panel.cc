@@ -22,6 +22,7 @@
 
 #include "binding.h"
 #include "editor/editor_ops.h"
+#include "editor/layers.h"
 #include "platform/ux/plugin.h"
 #include "protospec/classes.h"
 
@@ -791,19 +792,35 @@ void DetailsUpdate(GuiPlugin* self) {
   // children. Both free memory the walk still holds. Locate the element here
   // and render it once the traversal has finished.
   std::function<void()> render;
+  std::string elem_layer_key;
   sdkd::WalkModelAll(*c->tree, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model> && requires { e.serial; }) {
       if (!render && e.serial == c->selected_serial) {
         render = [c, &e] { RenderElement(*c, e); };
+        elem_layer_key = e.loc.file;
       }
     }
   });
   if (render) {
-    // Authoring is only legal at the reset pose; the fields stay readable but
-    // go visibly dead rather than silently ignoring input.
-    const bool editable = c->CanEdit();
-    if (!editable) {
+    // Two gates, both visible rather than silently inert: the reset-pose rule
+    // (CanEdit) and the layer edit scope -- an element owned by an inactive
+    // layer stays readable, with a one-click affordance to switch scope.
+    const int owner = LayerIndexForKey(*c, elem_layer_key);
+    const bool foreign = c->layers.size() > 1 && owner >= 0 &&
+                         owner != c->active_layer;
+    if (foreign) {
+      ImGui::TextDisabled("Owned by layer '%s' (not the active layer).",
+                          c->layers[owner].name.c_str());
+      ImGui::SameLine();
+      if (ImGui::SmallButton(
+              ("Edit layer '" + c->layers[owner].name + "'").c_str())) {
+        c->SetActiveLayer(owner);
+      }
+      ImGui::Separator();
+    }
+    const bool editable = c->CanEdit() && !foreign;
+    if (!c->CanEdit()) {
       ImGui::TextDisabled("Simulation running or advanced -- press Stop to edit.");
       ImGui::Separator();
     }

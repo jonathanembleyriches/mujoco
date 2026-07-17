@@ -16,6 +16,7 @@
 #include "editor/editor_ops.h"
 #include "editor/hierarchy_icons.h"
 #include "editor/hierarchy_panel.h"
+#include "editor/layers.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 #include "types.h"
@@ -106,6 +107,17 @@ bool IsContainerNode(const HierNode& n) {
   return n.type == mj::ElementType::Body || n.type == mj::ElementType::Frame;
 }
 
+// The layer edit-scope gate (layers.h), O(1) off the node's recorded key.
+// Mutating an EXISTING element requires its layer to be active; creating a NEW
+// element is always fine (it is stamped with the active key at the compile
+// seam), so "Add child" stays open on foreign containers -- that is exactly
+// the nested-include case the tag design exists to express.
+bool NodeInActiveLayer(EditorContext& ctx, const HierNode& n) {
+  if (ctx.layers.size() <= 1 || n.layer_key.empty()) return true;
+  const int li = LayerIndexForKey(ctx, n.layer_key);
+  return li < 0 || li == ctx.active_layer;
+}
+
 void ClearSelectionIf(EditorContext& ctx, std::uint64_t serial) {
   if (ctx.selected_serial == serial) {
     ctx.selected_serial = 0;
@@ -146,6 +158,21 @@ void DrawRenameInput(EditorContext& ctx, const HierNode& node, HierUiState& st) 
 void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) {
   ImGui::TextDisabled("%s", node.label.c_str());
   ImGui::Separator();
+  // Elements of an inactive layer stay browsable but not editable; the menu
+  // says who owns them and offers the switch.
+  const bool in_active = NodeInActiveLayer(ctx, node);
+  if (!in_active) {
+    const int owner = LayerIndexForKey(ctx, node.layer_key);
+    const std::string owner_name =
+        owner >= 0 ? ctx.layers[owner].name : node.layer_key;
+    ImGui::TextDisabled("Owned by layer '%s'", owner_name.c_str());
+    if (owner >= 0 &&
+        ImGui::MenuItem(("Edit layer '" + owner_name + "'").c_str())) {
+      ctx.SetActiveLayer(owner);
+    }
+    ImGui::Separator();
+  }
+  ImGui::BeginDisabled(!in_active);
   if (ImGui::MenuItem("Rename")) {
     st.rename_serial = node.serial;
     st.rename_buf = node.name;
@@ -165,6 +192,7 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
   if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
     DuplicateOp(ctx, node.serial);
   }
+  ImGui::EndDisabled();  // !in_active gate: tool select / add-child stay open
   // Gizmo tool selection as a right-click verb (mirrors the Q/W/E/R hotkeys), so
   // the transform tools live on the element, not only the toolbar.
   if (ImGui::BeginMenu("Transform")) {
@@ -186,7 +214,9 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
     DrawAddChildMenu(ctx, node.serial);
   }
   // Geom material assignment: pick from the model's materials (or clear).
+  // Mutates the geom, so it obeys the layer edit scope.
   if (node.type == mj::ElementType::Geom) {
+    ImGui::BeginDisabled(!in_active);
     if (ImGui::BeginMenu("Assign material")) {
       if (ImGui::MenuItem("(none)")) {
         AssignGeomMaterialOp(ctx, node.serial, "");
@@ -205,6 +235,7 @@ void DrawContextMenu(EditorContext& ctx, const HierNode& node, HierUiState& st) 
       if (!any) ImGui::TextDisabled("no materials -- add one in Assets");
       ImGui::EndMenu();
     }
+    ImGui::EndDisabled();
   }
   // Quick-rig: wire an actuator to a selected joint (surfaces AddActuatorOp).
   if (node.type == mj::ElementType::Joint ||
@@ -228,6 +259,18 @@ void DrawReparentDragDrop(EditorContext& ctx, const HierNode& node,
                           const HierUiState& st) {
   if (!ctx.CanEdit()) return;  // reparenting is an edit like any other
   if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+    // Moving an element mutates it, so the drag source obeys the layer edit
+    // scope. Dropping INTO a foreign container is fine (nested-include case).
+    if (!NodeInActiveLayer(ctx, node)) {
+      // A payload type no target accepts: the drag shows why it will not
+      // move, and every drop site refuses it.
+      const std::uint64_t s = node.serial;
+      ImGui::SetDragDropPayload("PS_ELEMENT_LOCKED", &s, sizeof(s));
+      ImGui::TextUnformatted(
+          (node.label + "  --  owned by an inactive layer").c_str());
+      ImGui::EndDragDropSource();
+      return;
+    }
     const std::uint64_t s = node.serial;
     ImGui::SetDragDropPayload("PS_ELEMENT", &s, sizeof(s));
     ImGui::TextUnformatted(node.label.c_str());
@@ -450,6 +493,18 @@ void HierarchyUpdate(GuiPlugin* self) {
   ImGui::EndChild();
 
   // Service a viewport Del request through the same referrer-confirm flow.
+  // The layer edit scope is enforced HERE, the one funnel both the Del key and
+  // the Edit menu route through (their own gates are advisory greying).
+  if (c->delete_request_serial != 0 &&
+      !SerialInActiveLayer(*c, c->delete_request_serial)) {
+    const int owner = LayerOfSerial(*c, c->delete_request_serial);
+    c->delete_request_serial = 0;
+    c->status_toast.Post(
+        "Owned by layer '" +
+            (owner >= 0 ? c->layers[owner].name : std::string("?")) +
+            "' -- activate that layer to delete",
+        StatusToast::Kind::Warning, ImGui::GetTime());
+  }
   if (c->delete_request_serial != 0) {
     const std::uint64_t sn = c->delete_request_serial;
     c->delete_request_serial = 0;

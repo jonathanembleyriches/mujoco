@@ -38,6 +38,7 @@ HierNode MakeNode(const E& e) {
     n.name = *nm;
   }
   n.is_macro = IsMacroType(n.type);
+  n.layer_key = e.loc.file;
   n.label = n.name.empty() ? n.tag : (n.tag + ": " + n.name);
   return n;
 }
