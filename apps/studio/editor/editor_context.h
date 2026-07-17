@@ -388,10 +388,20 @@ struct EditorContext {
     RequestRecompile();
   }
 
+  // Cancel is DEFERRED: the snapshot is stashed here and swapped in at the
+  // frame seam (the model-source poll), never mid-frame. Swapping `tree`
+  // immediately freed every element the in-flight ImGui frame still held --
+  // a widget deactivating without an edit (GestureShouldCommit's cancel)
+  // destroyed the very element whose remaining rows were about to render
+  // (SIGSEGV in the material texture-layers section). A gesture cancel has no
+  // tree mutation pending (widgets write back only on commit), so the deferral
+  // is content-identical there; an Esc-cancelled gizmo drag reverts one frame
+  // later. First stash wins: it is the oldest, correct base.
+  std::unique_ptr<ps::mjcf::Model> pending_revert;
   void CancelEdit() {
     if (std::unique_ptr<ps::mjcf::Model> snapshot = history.TakePending()) {
-      if (tree) {
-        tree = std::move(snapshot);
+      if (tree && !pending_revert) {
+        pending_revert = std::move(snapshot);
         RequestRecompile();
       }
     }

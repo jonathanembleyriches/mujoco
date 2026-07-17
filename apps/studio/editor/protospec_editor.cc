@@ -25,8 +25,10 @@ void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
   plugin.poll_compiled = [](ModelSourcePlugin* self, CompiledModel* out) -> bool {
     EditorContext* c = Ctx(self->data);
 
-    // A pending file load takes priority (fresh tree + compile).
+    // A pending file load takes priority (fresh tree + compile). It replaces
+    // the tree wholesale, so any stashed cancel-revert is moot.
     if (c->pending.pending()) {
+      c->pending_revert.reset();
       const std::string path = c->pending.Take();
       if (!path.empty() && LoadModel(*c, path)) {
         c->recompile_requested = false;  // the load already produced an artifact
@@ -34,6 +36,14 @@ void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
         return true;
       }
       return false;  // errors already logged to Diagnostics
+    }
+
+    // Apply a deferred cancel-revert HERE, at the frame seam -- no ImGui frame
+    // is in flight, so no panel holds references into the outgoing tree. (Why
+    // CancelEdit must not swap the tree itself: editor_context.h.)
+    if (c->pending_revert) {
+      c->tree = std::move(c->pending_revert);
+      c->recompile_requested = true;
     }
 
     // Otherwise service a debounced recompile request (edits coalesce to at most
