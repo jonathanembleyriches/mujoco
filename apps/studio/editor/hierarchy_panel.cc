@@ -288,7 +288,17 @@ void DrawReparentDragDrop(EditorContext& ctx, const HierNode& node,
   }
 }
 
-void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
+// True when the node's own layer is toggled off. Nodes under a disabled
+// element are pruned with it whatever their own layer says (subtree pruning),
+// which is what the ancestor_off flag threads through the recursion below.
+bool NodeLayerDisabled(const EditorContext& ctx, const HierNode& n) {
+  if (n.layer_key.empty()) return false;
+  const int li = LayerIndexForKey(ctx, n.layer_key);
+  return li >= 0 && !ctx.layers[li].enabled;
+}
+
+void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
+              bool ancestor_off = false) {
   if (node.is_section) {
     const std::string section_label =
         std::string(kSectionIcon) + "  " + node.label;
@@ -331,7 +341,7 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     }
     if (open) {
       for (const HierNode& c : node.children) {
-        DrawNode(ctx, c, st);
+        DrawNode(ctx, c, st, ancestor_off);
       }
       ImGui::TreePop();
     }
@@ -357,6 +367,14 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
     flags |= ImGuiTreeNodeFlags_Selected;
   }
 
+  // A disabled layer's elements are pruned from the compile but stay in the
+  // authored tree; the hierarchy shows that state instead of pretending the
+  // toggle did nothing. The whole pruned subtree greys (children go with their
+  // ancestor whatever their own layer says); the marker sits only on rows
+  // whose OWN layer is off, so the toggle's boundary stays readable.
+  const bool own_off = NodeLayerDisabled(ctx, node);
+  const bool off = ancestor_off || own_off;
+
   // A family glyph leads every element row so kinds read at a glance; the
   // selected row is lifted to the brightest text colour for prominence.
   std::string label =
@@ -364,11 +382,18 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
   if (node.is_macro) {
     label += "  [macro]";
   }
+  if (own_off) {
+    label += "  (off)";
+  }
   if (selected) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, off ? ImVec4(0.8f, 0.8f, 0.8f, 1.0f)
+                                             : ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+  } else if (off) {
+    ImGui::PushStyleColor(ImGuiCol_Text,
+                          ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
   }
   const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
-  if (selected) {
+  if (selected || off) {
     ImGui::PopStyleColor();
   }
 
@@ -392,7 +417,7 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st) {
 
   if (open && !leaf) {
     for (const HierNode& c : node.children) {
-      DrawNode(ctx, c, st);
+      DrawNode(ctx, c, st, off);
     }
     ImGui::TreePop();
   }
