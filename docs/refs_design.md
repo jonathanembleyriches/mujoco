@@ -84,10 +84,14 @@ an element reference), key/user text.
 
 ## Sequencing
 
-1. **Now**: the 12 category-B fixes, schema-edited directly (see below) +
-   `REFS` kept in sync.
-2. **Next, own pass**: `ref<T>[]` (category C) as a generator feature.
-3. **When consumed**: `(target_from=...)` annotation (category D).
+1. **DONE**: the 12 category-B fixes, schema-edited directly + `REFS` kept in
+   sync.
+2. **DONE**: `ref<T>[]` (category C) -- IDL grammar, reader/writer, RefScan /
+   ClearRefs / RefPrefixer / native collector / validate / Details panel;
+   Flex.body and Flex.node typed. Ref<ActuatorAny> union expansion landed with
+   it (RefTargetTypes + RefNs).
+3. **When consumed**: `(target_from=...)` annotation (category D). First
+   candidate consumer: the layer dependency graph over sensors.
 4. **Never**: typing `Attach.body` as a local ref (category E).
 
 ## Housekeeping

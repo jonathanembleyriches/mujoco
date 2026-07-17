@@ -119,8 +119,14 @@ Two hosts consume one editor source (`apps/studio/`):
 
 ```sh
 uv run python -m protospec_gen.emit          # regenerate cpp/generated + cpp/python/generated
-uv run python tools/bootstrap/draft_schema.py  # regenerate schema/mujoco.spec from snapshots
 ```
+
+`schema/mujoco.spec` is the source of truth and is edited directly.
+`tools/bootstrap/draft_schema.py` is the one-time bootstrap DRAFTER, not a
+regenerator: running it over the snapshots discards the schema's hand
+refinements (the BodyChildAny union, resolvers, aliases, typed refs). Keep its
+tables in sync when editing the schema so future drafts start closer, but never
+overwrite the schema with its output.
 
 ## Documents
 
