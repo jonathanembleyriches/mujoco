@@ -53,11 +53,12 @@ XML join/split, reflect arity, python binding, and a list case in `refs.h`'s
 list entries. Deliberately a follow-up: a generator feature deserves its own
 verified pass.
 
-### D. Dynamic-typed pairs (13 `objtype`+`objname`, 9 `reftype`+`refname`)
+### D. Dynamic-typed pairs (13 `objtype`+`objname`, 8 `reftype`+`refname`)
 
 `TupleElement`, `Insidesite`, `SensorUser`, `SensorPlugin`, and the nine frame
-sensors (`Framepos` ... `Frameangacc`; those also carry `reftype`/`refname` for
-the reference frame). The target type is *runtime data in a sibling field*; a
+sensors (`Framepos` ... `Frameangacc`; seven of them -- not `Framelinacc`/
+`Frameangacc` -- also carry `reftype`/`refname` for the reference frame, and
+SensorPlugin carries both pairs). The target type is *runtime data in a sibling field*; a
 phantom-typed `Ref<T>` structurally cannot express it. Options:
 
 1. keep strings, SDK helper resolves via the sibling (status quo, knowledge in
@@ -80,7 +81,9 @@ asset's parsed model.
 
 `Model.model` (the model's own name), `prefix` on Attach/Composite/Replicate
 (name *transformers*), file paths (a file reference is a different concept from
-an element reference), key/user text.
+an element reference), key/user text, and the four `plugin` fields
+(PluginDef/PluginRef/ActuatorPlugin/SensorPlugin) -- reference-shaped, but they
+name entries in the process-global plugin registry, not model elements.
 
 ## Sequencing
 

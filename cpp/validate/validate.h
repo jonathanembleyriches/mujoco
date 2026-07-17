@@ -9,9 +9,9 @@
 //   Tier 2  Referential -- every typed Ref<T> resolves (through union targets
 //                          and the implicit "world"/"main" symbols), names are
 //                          unique per MuJoCo object namespace (empties allowed),
-//                          default class references resolve, dangling
-//                          dclass/childclass reported here (the wave-1 decision
-//                          to defer these out of the reader).
+//                          default class references resolve; dangling
+//                          dclass/childclass is reported here, never by the
+//                          reader (the reader stays resolution-free).
 //   Tier 3  Semantic     -- lint grounded in MuJoCo's compiler: keyframe vector
 //                          lengths vs computed model sizes, range-without-limited
 //                          under autolimits=false, hinge/slide zero axis, mocap

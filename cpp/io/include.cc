@@ -57,10 +57,9 @@ class Expander {
                        ps::SourceLoc{model_file_loc(e), e->GetLineNum()}, ""});
   }
 
-  // Include errors are reported against the top-level file: the failing
-  // <include> lives there (nested includes are spliced before their own
-  // failures can arise). Provenance for successfully spliced content is the
-  // included file, recorded separately.
+  // The source file for an include error: an <include> spliced from a nested
+  // file carries that file's path via the provenance map; a top-level <include>
+  // is absent from the map and falls back to model_file_.
   std::string model_file_loc(const XMLElement* e) const {
     auto it = provenance_.find(e);
     return it == provenance_.end() ? model_file_ : it->second.file;

@@ -210,10 +210,11 @@ std::vector<Referrer> FindReferrers(mj::Model& model, const E& elem) {
 // --- Rename --------------------------------------------------------------- //
 
 // Rename an element and rewrite every referrer to match. Returns the number of
-// referrer fields updated. A no-op (0) when the element is nameless or the new
-// name equals the old. The pointer is excluded from this template so the
-// runtime `Rename(model, const void*, newname)` below wins for a type-erased
-// element pointer.
+// referrer fields updated -- 0 when the new name equals the old (a no-op) or
+// when the element was nameless (it gains the name; nothing can have referred
+// to it). The pointer is excluded from this template so the runtime
+// `Rename(model, const void*, newname)` below wins for a type-erased element
+// pointer.
 template <class E, std::enable_if_t<!std::is_pointer_v<E>, int> = 0>
 int Rename(mj::Model& model, E& elem, const std::string& newname) {
   const std::string* cur = detail::NameOf(elem);
@@ -444,8 +445,8 @@ DeleteReport DeleteRecursive(mj::Model& model, E& elem, bool cascade = false) {
 
 // Rename the element at `elem` (any element owned by `model`) to `newname` and
 // rewrite every typed referrer. Returns the number of referrer fields updated,
-// or -1 when `elem` is not found in the model. A no-op returning 0 when the
-// element is nameless or `newname` equals the current name.
+// or -1 when `elem` is not found in the model. Returns 0 when `newname` equals
+// the current name (a no-op) or the element was nameless (it gains the name).
 inline int Rename(mj::Model& model, const void* elem,
                   const std::string& newname) {
   bool found = false;

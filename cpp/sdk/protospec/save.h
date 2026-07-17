@@ -12,14 +12,13 @@
 //            authored <compiler meshdir>. This is the operation that turns a
 //            never-saved, in-memory model into a fully on-disk one.
 //
-// Purity (matches CDR-14 / owner rule 3): saving never mutates the model tree.
-// The model is taken by const ref; the only mutable output is the asset list a
-// caller hands to SaveAs, which is cleared once its bytes live on disk.
+// Purity (CDR-14): saving never mutates the model tree. The model is taken by
+// const ref; the only mutable output is the asset list a caller hands to
+// SaveAs, which is cleared once its bytes live on disk.
 //
-// The asset externalization is the ONE shared implementation the studio editor's
-// ExternalizeVfsAssets is meant to delegate to (ModelAssetDir + WriteAssetFile
-// are the shared primitives, ExternalizeAssets the convenience over the SDK's
-// own asset type). See the FOLLOW-UP note in the findings report.
+// ModelAssetDir + WriteAssetFile are the shared asset-externalization
+// primitives; ExternalizeAssets is the convenience over the SDK's own asset
+// type.
 #ifndef PROTOSPEC_SDK_SAVE_H
 #define PROTOSPEC_SDK_SAVE_H
 

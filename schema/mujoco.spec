@@ -1244,8 +1244,8 @@ element Pair {
 
 element Exclude {
   name  : string   # element name
-  body1 : ref<Body>   # name of geom 1
-  body2 : ref<Body>   # name of geom 2
+  body1 : ref<Body>   # name of body 1
+  body2 : ref<Body>   # name of body 2
 }
 
 element Equality {

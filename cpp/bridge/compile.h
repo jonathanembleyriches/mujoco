@@ -98,9 +98,9 @@ std::string CompileToXml(const Model& m, const CompileOptions& opts = {});
 // stashed keyed by element identity (creation serial). The edited `m` is
 // compiled fresh; a new mjData is allocated and each surviving element's state
 // is written back at its new address. Absent elements fall back to qpos0/zeros;
-// d->time is preserved. `d` is read only (const). The returned Compiled owns a
-// fresh mjData obtainable via mj_makeData off its model; the migrated state is
-// returned through `out_data` (caller owns it, frees with mj_deleteData).
+// d->time is preserved. `d` is read only (const). The returned Compiled holds
+// no mjData; the migrated state is returned through `out_data` (caller owns it,
+// frees with mj_deleteData; null `out_data` discards the migrated state).
 //
 // Pure w.r.t. `m`: the edited tree is not mutated. Element identity is the
 // serial recorded in `prev`, so surviving elements must keep their serials

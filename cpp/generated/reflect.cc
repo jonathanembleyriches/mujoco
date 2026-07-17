@@ -578,8 +578,8 @@ constexpr FieldDescriptor kFields_EqualityTendon[] = {
 
 constexpr FieldDescriptor kFields_Exclude[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "", "element name"},
-    {"body1", "body1", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "name of geom 1"},
-    {"body2", "body2", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "name of geom 2"},
+    {"body1", "body1", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "name of body 1"},
+    {"body2", "body2", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "name of body 2"},
 };
 
 constexpr ChildDescriptor kChildren_Extension[] = {
