@@ -23,6 +23,12 @@ _SPEC = importlib.util.spec_from_file_location(
 lr = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(lr)
 
+# This gate re-extracts *lifted* code and needs the full studio superproject build tree
+# (build/_deps and all), which is a different thing from the MuJoCo source checkout that
+# PROTOSPEC_MUJOCO_SRC points the extractor tests at -- so it keeps its own discovery
+# (PROTOSPEC_MUJOCO_ROOT / PROTOSPEC_CORPUS / default) rather than being folded onto the
+# shared var. It already collects everywhere and skips cleanly when no tree is found.
+
 
 class _Args:
     def __init__(self, **kw):
@@ -57,7 +63,7 @@ def test_snapshots_present_and_match_registry_hash():
 
 @pytest.mark.skipif(
     lr.find_mujoco_root() is None,
-    reason="vendored MuJoCo tree not found (set PROTOSPEC_MUJOCO_ROOT)",
+    reason="lifted-code tree not found (set PROTOSPEC_MUJOCO_ROOT)",
 )
 def test_check_against_vendored_tree():
     assert lr.cmd_check(_Args(mujoco_root=None)) == 0, (

@@ -1,0 +1,30 @@
+# ProtoSpec generator + test gate.
+#
+# Deliberately minimal and fast: this runs the Python side only. It does NOT build
+# the C++ harness -- that build is currently Windows-locked, so a Linux runner cannot
+# exercise it. When the C++ harness is portable, add a compile/test job here.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      # The generated C++/Python sources checked into the tree must be byte-identical
+      # to a fresh emit -- guards against forgetting to regenerate after a schema edit.
+      - name: Generator drift gate
+        run: uv run python -m protospec_gen.emit --check
+
+      # Full Python suite. The extractor integration tests skip cleanly here because
+      # PROTOSPEC_MUJOCO_SRC is unset (no MuJoCo source checkout on the runner);
+      # collection still succeeds everywhere.
+      - name: Tests
+        run: uv run pytest -q

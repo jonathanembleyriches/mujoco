@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from _mujoco_src import MUJOCO_SRC, SKIP_REASON
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "bootstrap"))
 
 import extract_mjcf_schema as ex  # noqa: E402
@@ -161,16 +163,7 @@ std::vector<const char*> MJCF[nMJCF] = {
         ex.parse_schema_tree(malformed)
 
 
-MUJOCO_SRC = Path(
-    r"C:\Users\jonat\Documents\Unreal Projects\url_proj\Plugins"
-    r"\UnrealRoboticsLab\third_party\MuJoCo\src"
-)
-
-
-@pytest.mark.skipif(
-    not (MUJOCO_SRC / "src" / "xml" / "xml_native_reader.cc").exists(),
-    reason="vendored MuJoCo source not present",
-)
+@pytest.mark.skipif(MUJOCO_SRC is None, reason=SKIP_REASON)
 def test_integration_real_source():
     snapshot = ex.build_snapshot(MUJOCO_SRC)
 

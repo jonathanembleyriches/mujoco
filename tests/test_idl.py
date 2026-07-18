@@ -207,10 +207,7 @@ def test_all_annotation_kinds():
     assert "annotations" not in fields["name"]  # required is folded into optional
     assert fields["angle"]["annotations"] == {"unit": "angle"}
     assert fields["tag"]["annotations"] == {"xml": "class"}
-    assert fields["orient"]["annotations"] == {
-        "variant_group": "orient",
-        "variant_tag": "quat",
-    }
+    assert "annotations" not in fields["orient"]  # variant field, no annotations
     assert fields["text"]["annotations"] == {"element_text": True}
 
 

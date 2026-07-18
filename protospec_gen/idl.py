@@ -144,8 +144,6 @@ _FIELD_ANNOTS = frozenset(
         "xml",
         "unit",
         "required",
-        "variant_group",
-        "variant_tag",
         "element_text",
         "aliases",
         "resolver",
@@ -1228,7 +1226,7 @@ class _Parser:
                 if value is None:
                     raise self._error("annotation 'resolver' requires a value", tok)
                 result[key] = value
-            else:  # variant_group / variant_tag
+            else:  # target_from
                 if value is None:
                     raise self._error(f"annotation {key!r} requires a value", tok)
                 result[key] = value

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from _mujoco_src import MUJOCO_SRC, SKIP_REASON
+
 _MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "tools" / "bootstrap" / "extract_mjspec_fields.py"
 )
@@ -19,12 +21,6 @@ _spec = importlib.util.spec_from_file_location("extract_mjspec_fields", _MODULE_
 mod = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = mod  # dataclasses resolves string annotations via sys.modules
 _spec.loader.exec_module(mod)
-
-VENDORED_HEADER = Path(
-    r"C:\Users\jonat\Documents\Unreal Projects\url_proj\Plugins\UnrealRoboticsLab"
-    r"\third_party\MuJoCo\src\include\mujoco\mjspec.h"
-)
-MUJOCO_SRC = VENDORED_HEADER.parents[2]
 
 MACROS = {"mjNREF": 2, "mjNIMP": 5, "mjNPOLY": 2}
 
@@ -194,9 +190,7 @@ def test_pointer_type_full_matrix():
     assert kinds == {"a": "int_vec", "b": "float_vec", "c": "nested_vec", "d": "byte_vec"}
 
 
-@pytest.mark.skipif(
-    not VENDORED_HEADER.exists(), reason="vendored MuJoCo header not present"
-)
+@pytest.mark.skipif(MUJOCO_SRC is None, reason=SKIP_REASON)
 def test_integration_real_header():
     snapshot = mod.build_snapshot(MUJOCO_SRC)
 

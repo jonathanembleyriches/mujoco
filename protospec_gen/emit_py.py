@@ -53,6 +53,8 @@ NUM_CHUNKS = 6
 
 # Child lists the generic sequence accessor deliberately skips; the hand-written
 # Augment hook exposes a friendlier surface instead. Keyed (element, child).
+# Cross-ref: emit.py `_CHILD_XML_OVERRIDE` encodes the same (Model, worldbody) edge
+# for the C++ XML tag -- keep the two in step.
 _CHILD_SKIP = {("Model", "worldbody")}
 
 

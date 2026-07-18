@@ -51,7 +51,7 @@ import argparse
 import os
 import sys
 
-from .idl import parse_spec
+from .idl import _CARDINALITY, _PRIMS, parse_spec
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -78,6 +78,11 @@ _CPP_KEYWORDS = frozenset(
     """.split()
 )
 
+# The set of primitive/cardinality names is owned by idl.py (idl._PRIMS,
+# idl._CARDINALITY); this file only maps each name to its C++ rendering. The
+# assertions below are the single-source guarantee: if idl gains, drops, or
+# renames a primitive or cardinality, importing emit fails loudly here instead of
+# silently emitting for a stale vocabulary.
 _PRIM_CPP = {
     "int32": "int32_t",
     "uint64": "uint64_t",
@@ -86,12 +91,19 @@ _PRIM_CPP = {
     "bool": "bool",
     "string": "std::string",
 }
+assert set(_PRIM_CPP) == set(_PRIMS), (
+    f"_PRIM_CPP is out of sync with idl._PRIMS: {set(_PRIM_CPP) ^ set(_PRIMS)}"
+)
 
 _CARDINALITY_CPP = {
     "zero_or_more": "ZeroOrMore",
     "zero_or_one": "ZeroOrOne",
     "one": "One",
 }
+assert set(_CARDINALITY_CPP) == set(_CARDINALITY.values()), (
+    "_CARDINALITY_CPP is out of sync with idl._CARDINALITY: "
+    f"{set(_CARDINALITY_CPP) ^ set(_CARDINALITY.values())}"
+)
 
 # Child lists whose XML tag diverges from the child element's own tag. MJCF's
 # <worldbody> validates against the <body> row (plan Section 2): it is a Body
@@ -99,6 +111,8 @@ _CARDINALITY_CPP = {
 # (Body) declares tag "body", so this one edge needs an explicit override; every
 # other child list's tag is the child element's own tag. Keyed by
 # (element name, child-list name).
+# Cross-ref: emit_py.py `_CHILD_SKIP` encodes the same (Model, worldbody) edge for
+# the Python bindings -- keep the two in step.
 _CHILD_XML_OVERRIDE = {("Model", "worldbody"): "worldbody"}
 
 # Element-level input aliases (Q-TEX, docs/plan_canonicalization.md Wave B #7):

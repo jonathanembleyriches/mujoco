@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from _mujoco_src import MUJOCO_SRC, SKIP_REASON
+
 _MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "tools" / "bootstrap" / "extract_spec_defaults.py"
 )
@@ -19,12 +21,6 @@ _spec = importlib.util.spec_from_file_location("extract_spec_defaults", _MODULE_
 mod = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = mod
 _spec.loader.exec_module(mod)
-
-MUJOCO_SRC = Path(
-    r"C:\Users\jonat\Documents\Unreal Projects\url_proj\Plugins\UnrealRoboticsLab"
-    r"\third_party\MuJoCo\src"
-)
-VENDORED_SRC = MUJOCO_SRC / "src" / "user" / "user_init.c"
 
 
 def extract(src, members=None):
@@ -179,7 +175,7 @@ typedef struct mjsThing_ {
     assert members["mjsThing"] == ["element", "pos", "eulerseq", "info"]
 
 
-@pytest.mark.skipif(not VENDORED_SRC.exists(), reason="vendored MuJoCo source not present")
+@pytest.mark.skipif(MUJOCO_SRC is None, reason=SKIP_REASON)
 def test_integration_real_file_sanity():
     snapshot, stats = mod.build_snapshot(MUJOCO_SRC)
     defaults = snapshot["defaults"]
