@@ -1708,8 +1708,8 @@ constexpr FieldDescriptor kFields_TendonDefault[] = {
     {"width", "width", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, true, "", "width for rendering"},
     {"material", "material", "Material", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "name of material for rendering"},
     {"margin", "margin", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "margin value for tendon limit detection"},
-    {"stiffness", "stiffness", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false, "", "stiffness coefficients"},
-    {"damping", "damping", "double", FieldKind::Double, ArityKind::Fixed, 3, 3, true, false, "", "damping coefficients"},
+    {"stiffness", "stiffness", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false, "", "stiffness coefficients (mjNPOLY+1)"},
+    {"damping", "damping", "double", FieldKind::Double, ArityKind::Range, 0, 3, true, false, "", "damping coefficients (mjNPOLY+1)"},
     {"rgba", "rgba", "float", FieldKind::Float, ArityKind::Fixed, 4, 4, true, true, "", "rgba when material is omitted"},
     {"user", "user", "double", FieldKind::Double, ArityKind::Unbounded, 0, 0, true, false, "", "user data"},
 };

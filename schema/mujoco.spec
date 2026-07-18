@@ -733,8 +733,8 @@ element TendonDefault (xml="tendon") {
   width          : double = 0.003   # width for rendering
   material       : ref<Material>   # name of material for rendering
   margin         : double   # margin value for tendon limit detection
-  stiffness      : double[3]   # stiffness coefficients
-  damping        : double[3]   # damping coefficients
+  stiffness      : double[0..3]   # stiffness coefficients (mjNPOLY+1)
+  damping        : double[0..3]   # damping coefficients (mjNPOLY+1)
   rgba           : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   user           : double[]   # user data
 }

@@ -1775,8 +1775,8 @@ constexpr AttrBinding kAttrs_TendonDefault[] = {
     {"width", "double", 9, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"material", "Material", 10, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, false},
     {"margin", "double", 11, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, false},
-    {"stiffness", "double", 12, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
-    {"damping", "double", 13, FieldKind::Double, ArityKind::Fixed, 3, 3, false, false, false, false},
+    {"stiffness", "double", 12, FieldKind::Double, ArityKind::Range, 0, 3, false, false, false, false},
+    {"damping", "double", 13, FieldKind::Double, ArityKind::Range, 0, 3, false, false, false, false},
     {"rgba", "float", 14, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, false},
     {"user", "double", 15, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, false},
 };

@@ -4477,13 +4477,13 @@ void ResolveTendonFields(const ps::sdk::detail::DefaultIndex& idx,
   resolve_imp(ct.solimp_lim, a.solimplimit, [](const TendonDefault* t){ return t->solimplimit; });
   resolve_ref(ct.solref_fri, a.solreffriction, [](const TendonDefault* t){ return t->solreffriction; });
   resolve_imp(ct.solimp_fri, a.solimpfriction, [](const TendonDefault* t){ return t->solimpfriction; });
-  // stiffness / damping (InlineVec<3> authored; array<3> in default)
+  // stiffness / damping (InlineVec<3>, 1..3 authored values, both levels)
   if (a.stiffness) CopyVecOpt<3>(ct.stiffness, *a.stiffness);
   else for (const auto* td : chain) if (td->stiffness) {
-    for (int k = 0; k < 3; ++k) ct.stiffness[k] = (*td->stiffness)[k]; break; }
+    CopyVecOpt<3>(ct.stiffness, *td->stiffness); break; }
   if (a.damping) CopyVecOpt<3>(ct.damping, *a.damping);
   else for (const auto* td : chain) if (td->damping) {
-    for (int k = 0; k < 3; ++k) ct.damping[k] = (*td->damping)[k]; break; }
+    CopyVecOpt<3>(ct.damping, *td->damping); break; }
   // rgba
   if (a.rgba) for (int k = 0; k < 4; ++k) ct.rgba[k] = (*a.rgba)[k];
   else for (const auto* td : chain) if (td->rgba) {

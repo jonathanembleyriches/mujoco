@@ -2499,8 +2499,8 @@ struct TendonDefault {
   ps::opt<double> width = {};
   ps::opt<ps::Ref<Material>> material = {};
   ps::opt<double> margin = {};
-  ps::opt<std::array<double, 3>> stiffness = {};
-  ps::opt<std::array<double, 3>> damping = {};
+  ps::opt<ps::InlineVec<double, 3>> stiffness = {};
+  ps::opt<ps::InlineVec<double, 3>> damping = {};
   ps::opt<std::array<float, 4>> rgba = {};
   ps::opt<std::vector<double>> user = {};
 };
