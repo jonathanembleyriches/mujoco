@@ -117,7 +117,7 @@ OneMeshResult AddOneMesh(EditorContext& ctx, mj::Model& tree,
   return r;
 }
 
-// A body-context, non-recursive glob of a folder for mesh files.
+// A non-recursive glob of a folder for mesh files.
 bool IsMeshExtension(const fs::path& p) {
   std::string ext = p.extension().string();
   for (char& ch : ext) ch = static_cast<char>(std::tolower((unsigned char)ch));

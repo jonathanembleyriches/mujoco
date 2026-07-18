@@ -646,8 +646,9 @@ static void DiagnosticsUpdate(GuiPlugin* self) {
   ImGui::EndChild();
 }
 
-// File menu: a simple path input for load / save (no vendored file dialog in
-// SE0). Lives in the main menu bar; drag-drop and the CLI arg still feed loads.
+// File panel: path inputs for load / save (the vendored shell carries no native
+// file dialog). A dockable panel, not a menu-bar item; drag-drop and the CLI arg
+// still feed loads.
 // Save `c` to `path` and externalize any in-memory (imported) assets beside it.
 static void SaveAndExternalize(EditorContext* c, const std::string& path) {
   if (SaveModel(*c, path)) {

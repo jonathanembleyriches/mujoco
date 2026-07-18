@@ -21,7 +21,11 @@
 // Every Diagnostic carries {tier, severity, message, SourceLoc, element path}.
 // Tier 1 and 2 findings are Errors; tier 3 findings are Warnings (ProtoSpec is
 // an authoring-level model, so semantic lint never blocks a still-editable
-// tree). The bridge runs tiers 1-2 mandatorily before compile (plan Section 9).
+// tree). Validation is a standalone pass, not part of Compile: the front-ends
+// that drive a model to compile (the studio editor, the Python bindings) run
+// tiers 1-2 first and surface the diagnostics (plan Section 9). The bridge's
+// Compile() itself does not validate -- it assumes a validated tree and lets
+// MuJoCo reject any residual structural error.
 #ifndef PROTOSPEC_VALIDATE_VALIDATE_H
 #define PROTOSPEC_VALIDATE_VALIDATE_H
 

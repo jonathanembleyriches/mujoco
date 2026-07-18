@@ -95,11 +95,6 @@ std::uint64_t AddActuatorOp(EditorContext& ctx, ActuatorSpelling spelling,
 std::uint64_t AddSensorOp(EditorContext& ctx, SensorSpelling spelling,
                           std::uint64_t target_serial);
 
-// Add a fixed tendon, a weld equality, a contact pair, an exclude, a keyframe,
-// or a new default class nested under `main`. One undo entry each; the new
-// element is selected; returns its creation serial. (Tendon/equality/pair/
-// exclude are created empty -- they need targets wired in Details before they
-// compile; keyframe and default class compile as-is.)
 // --- Assets: materials & textures ----------------------------------------- //
 
 // A new material's authored appearance. Only fields the New Material dialog
@@ -157,6 +152,11 @@ inline bool TextureSpecValid(const TextureSpec& spec) {
 bool AssignGeomMaterialOp(EditorContext& ctx, std::uint64_t geom_serial,
                           const std::string& material_name);
 
+// Add a fixed tendon, a weld equality, a contact pair, an exclude, a keyframe,
+// or a new default class nested under `main`. One undo entry each; the new
+// element is selected; returns its creation serial. (Tendon/equality/pair/
+// exclude are created empty -- they need targets wired in Details before they
+// compile; keyframe and default class compile as-is.)
 std::uint64_t AddTendonOp(EditorContext& ctx);
 std::uint64_t AddEqualityWeldOp(EditorContext& ctx);
 std::uint64_t AddPairOp(EditorContext& ctx);

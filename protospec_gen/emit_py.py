@@ -1,6 +1,6 @@
 """ProtoSpec Python-binding emitter: schema AST -> generated pybind11 glue.
 
-Milestone 7. Consumes the same canonical JSON AST the C++ emitters use
+Consumes the same canonical JSON AST the C++ emitters use
 (:func:`protospec_gen.idl.parse_spec`) and emits the *generated* half of the
 Python bindings into ``cpp/python/generated/``. The hand-written half lives in
 ``cpp/python/`` (``ps_bind.h`` casters + field helpers, ``module.cc`` the module

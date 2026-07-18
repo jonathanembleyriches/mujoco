@@ -2,8 +2,9 @@
 //
 // Registers the ProtoSpec-native editor as a set of Studio plugins sharing one
 // EditorContext: a ModelSource plugin (load/compile pipeline), the Gui panels
-// (Hierarchy / Details / Assets / Diagnostics), and a Viewport pick logger.
-// Called once by main() after the host is constructed.
+// (Hierarchy / Details / Layers, plus the folded Assets / Diagnostics / File),
+// and the Viewport editor cluster (pick/select, transform gizmo, selection
+// overlay). Called once by main() after the host is constructed.
 
 #ifndef PS_STUDIO_EDITOR_PLUGINS_H_
 #define PS_STUDIO_EDITOR_PLUGINS_H_

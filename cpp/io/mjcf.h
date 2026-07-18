@@ -1,10 +1,12 @@
 // ProtoSpec MJCF IO: the public read/write surface.
 //
 // ParseMjcf turns an MJCF document (tinyxml2 under the hood) into a ps::Model;
-// WriteMjcf serializes a Model back to a canonical MJCF string. Only the Model-
-// level blocks (compiler/option/size/statistic/visual) and the body tree
-// (worldbody/body/frame/inertial/joint/freejoint/geom/site/camera/light) are
-// understood so far; every other element is reported as a structured
+// WriteMjcf serializes a Model back to a canonical MJCF string. Every MJCF
+// element family ProtoSpec models as first-class data is understood -- the
+// Model-level blocks, the body tree, defaults, assets, the contact/equality/
+// tendon/actuator/sensor sections, custom/keyframe/extension, and the
+// deformable/macro pass-throughs (the full IsSupported set in mjcf_reader.cc). A
+// well-formed element outside those families is reported as a structured
 // "unsupported element" diagnostic (Diagnostic::Kind::UnsupportedElement) that a
 // harness can use to skip a file, kept distinct from malformed-input errors.
 //
@@ -72,8 +74,9 @@ ParseResult ParseMjcfString(const std::string& xml,
 // Parse MJCF from a file on disk.
 ParseResult ParseMjcfFile(const std::string& path);
 
-// Serialize a Model to a deterministic MJCF string (2-space indent, radians,
-// shortest round-trip numeric formatting). Emits exactly the authored fields.
+// Serialize a Model to a deterministic MJCF string (2-space indent, angles
+// emitted verbatim in their authored unit per Q-ANGLE, shortest round-trip
+// numeric formatting). Emits exactly the authored fields.
 //
 // A model can hold a value MJCF cannot represent: a ref-list entry (e.g.
 // Flex.body) whose name contains whitespace would corrupt the space-joined wire

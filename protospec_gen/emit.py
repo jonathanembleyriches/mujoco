@@ -1,6 +1,6 @@
 """ProtoSpec C++ emitters: schema AST -> generated C++ object model.
 
-This module is milestone 2. It consumes ``parse_spec("schema/mujoco.spec")``'s
+It consumes ``parse_spec("schema/mujoco.spec")``'s
 canonical JSON AST (the contract documented in :mod:`protospec_gen.idl`) and
 emits the generated half of the object model into ``cpp/generated/``:
 
@@ -1300,7 +1300,7 @@ def main() -> None:
 
     files = generate()
 
-    # Milestone 7: the Python-binding generated tree is produced by the same
+    # The Python-binding generated tree is produced by the same
     # invocation (additive; it writes to cpp/python/generated/, never touching
     # the cpp/generated/ files above). Imported lazily so the core C++ emitter
     # has no hard dependency on the pybind emitter.

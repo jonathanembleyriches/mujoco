@@ -15,7 +15,8 @@
 //
 // Scope: the layered merge is defined for families whose class partial has the
 // same element type as the live element (geom, joint, site, camera, light,
-// mesh, material, pair, and every actuator spelling). MuJoCo's equality/tendon
+// mesh, material, pair, and every actuator spelling that has a <default> block
+// -- i.e. all but the plugin actuator, which has none). MuJoCo's equality/tendon
 // defaults use a distinct partial type (EqualityDefault/TendonDefault) and are
 // out of scope for these merges; such elements are passed through unchanged.
 #ifndef PROTOSPEC_SDK_CLASSES_H

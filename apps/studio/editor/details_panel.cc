@@ -31,13 +31,13 @@ namespace {
 
 namespace sdk = ps::sdk;
 
-// --- Edit lifecycle bridge to the SE1a EditorContext ----------------------- //
-// The BeginEdit/CommitEdit/CancelEdit/RequestRecompile contract is frozen but
-// owned by the concurrent SE1a cluster. Calling through these `requires`-guarded
-// shims (templated so the discarded branch is never instantiated) keeps this TU
-// green whether or not those methods have landed yet, and binds to them the
-// moment they do. INTEGRATION: once the context exposes the four methods these
-// become direct calls; the shims can be dropped.
+// --- Edit lifecycle bridge to the EditorContext ---------------------------- //
+// EditorContext exposes the BeginEdit/CommitEdit/CancelEdit contract directly
+// now (editor_context.h), and the rest of the editor (gizmo.cc, hierarchy_panel
+// .cc, layers.cc) calls those methods without a shim. These `requires`-guarded
+// wrappers are therefore vestigial -- the guard is always satisfied -- surviving
+// from when this TU and that contract landed concurrently. They can be replaced
+// with direct c.BeginEdit()/c.CommitEdit(label)/c.CancelEdit() calls.
 template <class C>
 void EditBegin(C& c) {
   if constexpr (requires { c.BeginEdit(); }) c.BeginEdit();
