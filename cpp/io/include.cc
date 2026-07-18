@@ -21,6 +21,12 @@ bool IsInclude(const XMLElement* e) {
   return e != nullptr && std::strcmp(e->Value(), "include") == 0;
 }
 
+// Chained includes recurse once per file, so nesting depth is bounded only by
+// this cap; without it a long enough chain exhausts the native stack. 64 is far
+// beyond any real model (the once-per-file rule already forces every level to
+// be a distinct file).
+constexpr int kMaxIncludeDepth = 64;
+
 // The parent directory of a path, as authored (empty stays empty).
 std::string ParentDir(const std::string& path) {
   if (path.empty()) return "";
@@ -113,6 +119,11 @@ class Expander {
       Err(inc, "include element missing file attribute");
       return;
     }
+    if (depth_ >= kMaxIncludeDepth) {
+      Err(inc, "include depth exceeds " + std::to_string(kMaxIncludeDepth) +
+                   " at file '" + std::string(file) + "'");
+      return;
+    }
 
     std::string resolved;
     if (!Resolve(file, search_dir, resolved)) {
@@ -159,7 +170,9 @@ class Expander {
     parent->DeleteChild(inc);
 
     // Nested includes inside the spliced content resolve against the included
-    // file's own directory.
+    // file's own directory. Everything reached from here is one include level
+    // deeper.
+    ++depth_;
     for (XMLElement* s : spliced) {
       if (IsInclude(s)) {
         HandleInclude(s, parent, idir);
@@ -167,6 +180,7 @@ class Expander {
         ProcessChildren(s, idir);
       }
     }
+    --depth_;
   }
 
   // Walk the source and clone subtrees in lockstep (DeepClone preserves
@@ -187,6 +201,7 @@ class Expander {
   XMLDocument& doc_;
   std::string model_dir_;
   std::string model_file_;
+  int depth_ = 0;
   std::unordered_set<std::string> included_;
   ProvenanceMap provenance_;
   std::vector<Diagnostic> errors_;

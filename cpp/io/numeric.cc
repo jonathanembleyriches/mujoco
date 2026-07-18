@@ -4,8 +4,11 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
+#include <string>
 #include <system_error>
+#include <type_traits>
 
 namespace ps::mjcf::io::num {
 namespace {
@@ -96,7 +99,28 @@ Status ParseFloat(std::string_view tok, T& out, bool& is_nan) {
   if (ParseInfOrNan<T>(tok, out, is_nan)) {
     return Status::Ok;
   }
-  if (ec == std::errc::result_out_of_range) return Status::Overflow;
+  if (ec == std::errc::result_out_of_range) {
+    // from_chars reports one range error for both directions. MuJoCo's
+    // sscanf-based reader accepts underflow silently (the value becomes 0 or a
+    // denormal), so only true overflow may fail. strtof/strtod distinguishes
+    // the two: an underflowing token yields a magnitude <= the smallest normal.
+    if (ptr == end) {
+      std::string z(tok);
+      char* endp = nullptr;
+      T v;
+      if constexpr (std::is_same_v<T, float>) {
+        v = std::strtof(z.c_str(), &endp);
+      } else {
+        v = std::strtod(z.c_str(), &endp);
+      }
+      if (endp == z.c_str() + z.size() &&
+          std::fabs(v) <= std::numeric_limits<T>::min()) {
+        out = v;
+        return Status::Ok;
+      }
+    }
+    return Status::Overflow;
+  }
   return Status::BadFormat;
 }
 

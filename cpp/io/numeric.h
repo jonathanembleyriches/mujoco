@@ -24,7 +24,9 @@ std::vector<std::string_view> Tokens(std::string_view s);
 enum class Status {
   Ok,
   BadFormat,  // not a number
-  Overflow,   // out of the target type's range (integers) or too large
+  Overflow,   // out of the target type's range (integers) or magnitude too
+              // large (floats; underflow is accepted as 0/denormal, sscanf
+              // parity with MuJoCo)
 };
 
 // Parse one C-locale integer token into a signed 64-bit value.

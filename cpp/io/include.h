@@ -5,7 +5,9 @@
 // is included at most once GLOBALLY (the set is seeded with the top-level
 // file), expansion is allowed anywhere in the tree, and a relative file is
 // resolved against the model directory first and then the including file's
-// directory.
+// directory. One rule is ours, not MuJoCo's: include nesting is capped at 64
+// levels (expansion recurses once per chained file, so depth must be bounded
+// to keep the native stack safe); exceeding the cap is a normal reader error.
 //
 // Unlike MuJoCo, which nests the included subtree inside the surviving
 // <include> wrapper, ProtoSpec splices the included root's children directly
