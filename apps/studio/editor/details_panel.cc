@@ -765,8 +765,9 @@ void RenderElement(EditorContext& ctx, E& e) {
 
   RenderNameRow(ctx, e);
 
-  std::unique_ptr<E> eff_class = sdk::Effective(*ctx.tree, e, false);
-  std::unique_ptr<E> eff_full = sdk::Effective(*ctx.tree, e, true);
+  const sdk::EffectiveContext ectx(*ctx.tree);  // one lookup build, two merges
+  std::unique_ptr<E> eff_class = sdk::Effective(ectx, e, false);
+  std::unique_ptr<E> eff_full = sdk::Effective(ectx, e, true);
 
   if (AnyTransformField<E>(desc)) {
     if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {

@@ -73,11 +73,12 @@ void QuatOf(const ps::opt<std::array<double, 4>>& q, double out[4]) {
 
 // The effective authored local pose L of a spatial element (Effective resolves a
 // class-inherited pos/quat exactly as the compiler saw it). Light has pos but no
-// orientation field, so its L rotation is identity.
+// orientation field, so its L rotation is identity. `ctx` is the caller's
+// per-capture lookup context (one build serves the whole capture).
 template <class E>
-RigidPose EffectiveLocal(const Model& model, const E& e) {
+RigidPose EffectiveLocal(const sdk::EffectiveContext& ctx, const E& e) {
   RigidPose L;
-  std::unique_ptr<E> eff = sdk::Effective(model, e, /*apply_idl_defaults=*/true);
+  std::unique_ptr<E> eff = sdk::Effective(ctx, e, /*apply_idl_defaults=*/true);
   if (eff->pos)
     for (int i = 0; i < 3; ++i) L.pos[i] = (*eff->pos)[i];
   if constexpr (requires { eff->quat; }) QuatOf(eff->quat, L.quat);
@@ -89,8 +90,7 @@ RigidPose EffectiveLocal(const Model& model, const E& e) {
 // left prefix). Raw field reads are exact here: MJCF defines no <frame> entry
 // in <default>, so a frame's own pos/quat is always authored, never
 // class-inherited.
-RigidPose ReconstructPrefix(const Model& model, const void* elem) {
-  sdk::ParentMap pm(model);
+RigidPose ReconstructPrefix(const sdk::ParentMap& pm, const void* elem) {
   std::vector<const Frame*> frames;  // innermost first
   const sdk::ParentMap::Node* self = pm.Lookup(elem);
   const void* p = self ? self->parent : nullptr;
@@ -137,18 +137,19 @@ RigidPose ReadField(const mjModel* m, int objtype, int id) {
   return F;
 }
 
-RigidPose LocalOf(const Model& model, ElementType etype, const void* elem) {
+RigidPose LocalOf(const sdk::EffectiveContext& ctx, ElementType etype,
+                  const void* elem) {
   switch (etype) {
     case ElementType::Body:
-      return EffectiveLocal(model, *static_cast<const Body*>(elem));
+      return EffectiveLocal(ctx, *static_cast<const Body*>(elem));
     case ElementType::Geom:
-      return EffectiveLocal(model, *static_cast<const Geom*>(elem));
+      return EffectiveLocal(ctx, *static_cast<const Geom*>(elem));
     case ElementType::Site:
-      return EffectiveLocal(model, *static_cast<const Site*>(elem));
+      return EffectiveLocal(ctx, *static_cast<const Site*>(elem));
     case ElementType::Camera:
-      return EffectiveLocal(model, *static_cast<const Camera*>(elem));
+      return EffectiveLocal(ctx, *static_cast<const Camera*>(elem));
     case ElementType::Light:
-      return EffectiveLocal(model, *static_cast<const Light*>(elem));
+      return EffectiveLocal(ctx, *static_cast<const Light*>(elem));
     default:
       return {};
   }
@@ -200,8 +201,10 @@ std::optional<PosePatch> Binding::PosePatchFor(const void* elem) const {
   PosePatch p;
   p.objtype = e.objtype;
   p.id = e.id;
-  p.prefix = ReconstructPrefix(*model_, elem);
-  const RigidPose L = LocalOf(*model_, e.etype, elem);
+  // One lookup build (parent map + class index) serves the whole capture.
+  const sdk::EffectiveContext ectx(*model_);
+  p.prefix = ReconstructPrefix(ectx.parents(), elem);
+  const RigidPose L = LocalOf(ectx, e.etype, elem);
 
   // A FREE-jointed body's rest pose is driven by qpos, not body_pos: MuJoCo
   // seeds qpos0 from the body's pose (ComputeReference, user_model.cc) and

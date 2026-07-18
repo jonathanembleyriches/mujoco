@@ -270,19 +270,37 @@ inline mj::Default* EnsureRoot(mj::Model& model) {
 
 // --- Effective (query) ---------------------------------------------------- //
 
+// The lookup state Effective needs, built once from a Model: the parent map
+// (childclass resolution) and the <default> class index. A caller issuing many
+// Effective queries against an unchanged model (a drag frame, a panel render)
+// builds one context for the batch instead of paying both walks per call.
+// Holds pointers into the model: any tree mutation invalidates it, so build it
+// per frame/batch and discard -- never cache across edits.
+class EffectiveContext {
+ public:
+  explicit EffectiveContext(const mj::Model& m) : pm_(m), idx_(m) {}
+  const ParentMap& parents() const { return pm_; }
+  const detail::DefaultIndex& classes() const { return idx_; }
+
+ private:
+  ParentMap pm_;
+  detail::DefaultIndex idx_;
+};
+
 // The effective value of an element with all class layers resolved: a fresh
 // copy of `e` with every unauthored field filled from its class chain and
 // (when `apply_idl_defaults`) the IDL defaults. Does not mutate the model. For
 // families without a same-type class partial, returns `e` plus IDL defaults.
+// `ctx` must have been built from the model that owns `e`, after its last
+// mutation.
 template <class T>
-std::unique_ptr<T> Effective(const mj::Model& model, const T& e,
+std::unique_ptr<T> Effective(const EffectiveContext& ctx, const T& e,
                              bool apply_idl_defaults = true) {
-  ParentMap pm(model);
-  detail::DefaultIndex idx(model);
   std::unique_ptr<T> out = mj::Clone(e);
   if constexpr (HasDefaultFamily<T>::value) {
-    std::string cls = detail::ResolveClassName(pm, detail::OwnClass(e), &e);
-    detail::MergeClassChain(idx, cls, *out);
+    std::string cls =
+        detail::ResolveClassName(ctx.parents(), detail::OwnClass(e), &e);
+    detail::MergeClassChain(ctx.classes(), cls, *out);
   }
   // IDL defaults are the lowest priority layer: fill only fields still unset
   // after element + class. ApplyDefault assigns unconditionally, so route it
@@ -293,6 +311,13 @@ std::unique_ptr<T> Effective(const mj::Model& model, const T& e,
     detail::MergeUnset(*out, defs);
   }
   return out;
+}
+
+// Single-query convenience: builds the lookup context for this one call.
+template <class T>
+std::unique_ptr<T> Effective(const mj::Model& model, const T& e,
+                             bool apply_idl_defaults = true) {
+  return Effective(EffectiveContext(model), e, apply_idl_defaults);
 }
 
 // --- FlattenDefaults (mutating) ------------------------------------------- //

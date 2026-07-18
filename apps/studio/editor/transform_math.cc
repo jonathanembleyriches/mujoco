@@ -238,7 +238,8 @@ static Rigid ComputeParentPose(const mjData* data,
 // also the convention PosePatchFor's B capture uses (pose.cc EffectiveLocal);
 // the two sides composing A . L . B must agree on what L is.
 template <class E>
-static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
+static Rigid MaterializeLocal(const sdk::EffectiveContext& ectx, E& e,
+                              const OrientContext& oc) {
   Rigid L;
   (void)oc;
   std::array<double, 3> pos{0, 0, 0};
@@ -249,7 +250,7 @@ static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
     bool need_eff = !e.pos;
     if constexpr (requires { e.quat; }) need_eff = need_eff || !quat;
     if (need_eff) {
-      std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
+      std::unique_ptr<E> eff = sdk::Effective(ectx, e, true);
       if (!e.pos && eff->pos) pos = *eff->pos;
       if constexpr (requires { e.quat; }) {
         if (!quat) quat = eff->quat;
@@ -267,14 +268,14 @@ static Rigid MaterializeLocal(mj::Model& tree, E& e, const OrientContext& oc) {
 // class-inherited shape resolves), or false when the element is not
 // fromto-authored. Only Geom/Site carry the `shape` variant.
 template <class E>
-static bool EffectiveFromTo(mj::Model& tree, E& e, double from[3],
-                            double to[3]) {
+static bool EffectiveFromTo(const sdk::EffectiveContext& ectx, E& e,
+                            double from[3], double to[3]) {
   if constexpr (requires { e.shape; }) {
     ps::opt<mj::GeomShape> shape;
     if (e.shape) {
       shape = e.shape;
     } else if constexpr (sdk::HasDefaultFamily<E>::value) {
-      std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
+      std::unique_ptr<E> eff = sdk::Effective(ectx, e, true);
       shape = eff->shape;
     }
     if (shape) {
@@ -293,19 +294,19 @@ static bool EffectiveFromTo(mj::Model& tree, E& e, double from[3],
 template <class E>
 static DragFrame BuildFor(mj::Model& tree, const mjModel* model,
                           const mjData* data, const mj::Binding& binding,
-                          const sdk::ParentMap& pm, const OrientContext& oc,
-                          E& e) {
+                          const sdk::EffectiveContext& ectx,
+                          const OrientContext& oc, E& e) {
   DragFrame f;
   f.valid = true;
   f.type = mj::element_type_of<E>::value;
-  f.parent = ComputeParentPose(data, binding, pm, oc, &e);
-  f.local = MaterializeLocal(tree, e, oc);
+  f.parent = ComputeParentPose(data, binding, ectx.parents(), oc, &e);
+  f.local = MaterializeLocal(ectx, e, oc);
 
   // fromto override: the compiled pose is the endpoint midpoint + the z->axis
   // rotation, NOT the authored pos/orient. Anchor the gizmo on the capsule
   // centre and align world_quat with the derived axis so local-axis modes and
   // the scale gizmo act on the limb, not on an ignored authored frame.
-  if (EffectiveFromTo(tree, e, f.from, f.to)) {
+  if (EffectiveFromTo(ectx, e, f.from, f.to)) {
     f.is_fromto = true;
     double vec[3] = {f.from[0] - f.to[0], f.from[1] - f.to[1],
                      f.from[2] - f.to[2]};
@@ -346,25 +347,26 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref || !data) return f;
   const OrientContext oc = ReadOrientContext(tree);
-  sdk::ParentMap pm(tree);
+  // One lookup build (parent map + class index) serves the whole drag frame.
+  const sdk::EffectiveContext ectx(tree);
   switch (ref.type) {
     case mj::ElementType::Body:
-      return BuildFor(tree, model, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, ectx, oc,
                       *static_cast<mj::Body*>(ref.ptr));
     case mj::ElementType::Geom:
-      return BuildFor(tree, model, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, ectx, oc,
                       *static_cast<mj::Geom*>(ref.ptr));
     case mj::ElementType::Site:
-      return BuildFor(tree, model, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, ectx, oc,
                       *static_cast<mj::Site*>(ref.ptr));
     case mj::ElementType::Camera:
-      return BuildFor(tree, model, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, ectx, oc,
                       *static_cast<mj::Camera*>(ref.ptr));
     case mj::ElementType::Light:
-      return BuildFor(tree, model, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, ectx, oc,
                       *static_cast<mj::Light*>(ref.ptr));
     case mj::ElementType::Frame:
-      return BuildFor(tree, model, data, binding, pm, oc,
+      return BuildFor(tree, model, data, binding, ectx, oc,
                       *static_cast<mj::Frame*>(ref.ptr));
     default:
       return f;
@@ -417,19 +419,20 @@ Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial) {
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref) return {};
   const OrientContext oc = ReadOrientContext(tree);
+  const sdk::EffectiveContext ectx(tree);
   switch (ref.type) {
     case mj::ElementType::Body:
-      return MaterializeLocal(tree, *static_cast<mj::Body*>(ref.ptr), oc);
+      return MaterializeLocal(ectx, *static_cast<mj::Body*>(ref.ptr), oc);
     case mj::ElementType::Geom:
-      return MaterializeLocal(tree, *static_cast<mj::Geom*>(ref.ptr), oc);
+      return MaterializeLocal(ectx, *static_cast<mj::Geom*>(ref.ptr), oc);
     case mj::ElementType::Site:
-      return MaterializeLocal(tree, *static_cast<mj::Site*>(ref.ptr), oc);
+      return MaterializeLocal(ectx, *static_cast<mj::Site*>(ref.ptr), oc);
     case mj::ElementType::Camera:
-      return MaterializeLocal(tree, *static_cast<mj::Camera*>(ref.ptr), oc);
+      return MaterializeLocal(ectx, *static_cast<mj::Camera*>(ref.ptr), oc);
     case mj::ElementType::Light:
-      return MaterializeLocal(tree, *static_cast<mj::Light*>(ref.ptr), oc);
+      return MaterializeLocal(ectx, *static_cast<mj::Light*>(ref.ptr), oc);
     case mj::ElementType::Frame:
-      return MaterializeLocal(tree, *static_cast<mj::Frame*>(ref.ptr), oc);
+      return MaterializeLocal(ectx, *static_cast<mj::Frame*>(ref.ptr), oc);
     default:
       return {};
   }
@@ -615,7 +618,8 @@ template <class E>
 static ScaleBase BuildScaleFor(mj::Model& tree, E& e) {
   ScaleBase b;
   b.valid = true;
-  std::unique_ptr<E> eff = sdk::Effective(tree, e, true);
+  const sdk::EffectiveContext ectx(tree);
+  std::unique_ptr<E> eff = sdk::Effective(ectx, e, true);
   const mj::GeomType type =
       eff->type ? *eff->type : mj::GeomType::sphere;
   if (type == mj::GeomType::mesh) {
@@ -644,7 +648,7 @@ static ScaleBase BuildScaleFor(mj::Model& tree, E& e) {
   // scale gizmo drives the endpoint separation for the axis component and the
   // `size` radius for the radial components. size[0] holds the grab-time radius.
   if constexpr (requires { e.shape; }) {
-    if (EffectiveFromTo(tree, e, b.from, b.to)) b.is_fromto = true;
+    if (EffectiveFromTo(ectx, e, b.from, b.to)) b.is_fromto = true;
   }
   return b;
 }
@@ -846,7 +850,7 @@ JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
   JointDragFrame f;
   if (!data || serial == 0) return f;
   const OrientContext oc = ReadOrientContext(tree);
-  sdk::ParentMap pm(tree);
+  const sdk::EffectiveContext ectx(tree);
 
   const void* elem = nullptr;
   if (mj::Joint* j = FindJoint(tree, serial)) {
@@ -854,7 +858,7 @@ JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
     f.type = j->type ? *j->type : mj::JointType::hinge;
     std::array<double, 3> pos{0, 0, 0};
     std::array<double, 3> axis{0, 0, 1};
-    std::unique_ptr<mj::Joint> eff = sdk::Effective(tree, *j, true);
+    std::unique_ptr<mj::Joint> eff = sdk::Effective(ectx, *j, true);
     if (eff->pos) pos = *eff->pos;
     if (eff->axis) axis = *eff->axis;
     for (int i = 0; i < 3; ++i) {
@@ -873,7 +877,7 @@ JointDragFrame BuildJointDragFrame(const mjModel* model, const mjData* data,
   }
 
   f.valid = true;
-  f.parent = ComputeParentPose(data, binding, pm, oc, elem);
+  f.parent = ComputeParentPose(data, binding, ectx.parents(), oc, elem);
   double rp[3];
   QuatRotate(f.parent.quat, f.pos, rp);
   for (int i = 0; i < 3; ++i) f.world_anchor[i] = f.parent.pos[i] + rp[i];
