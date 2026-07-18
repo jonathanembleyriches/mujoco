@@ -7,6 +7,7 @@
 #ifndef PROTOSPEC_SDK_TRAVERSAL_H
 #define PROTOSPEC_SDK_TRAVERSAL_H
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -217,6 +218,53 @@ T* Find(mj::Model& model, std::string_view name) {
 template <class T>
 const T* Find(const mj::Model& model, std::string_view name) {
   return Find<T>(const_cast<mj::Model&>(model), name);
+}
+
+// --- Find by serial ------------------------------------------------------- //
+// Every authored element carries a process-unique `serial` (assigned at
+// construction, preserved by the serial-aware clone) -- the stable identity a
+// UI holds across edits, since the pointer moves on a tree mutation. These
+// resolve that identity back to a live element with one generic model walk,
+// replacing the hand-rolled "walk and match e.serial" the consumer would
+// otherwise repeat per call site.
+
+// A located element: its address and runtime type, or null when unfound.
+struct Located {
+  void* ptr = nullptr;
+  mj::ElementType type{};
+  explicit operator bool() const { return ptr != nullptr; }
+};
+
+// The element in `model` whose `serial` is `serial`, with its runtime type, or a
+// null Located when none matches. Serial 0 never matches (it is the "no
+// selection" sentinel), and the Model root is excluded (it is the document, not
+// a prunable/selectable element). Serials are unique, so the first match wins.
+inline Located FindBySerialTyped(mj::Model& model, std::uint64_t serial) {
+  Located out;
+  if (serial == 0) return out;
+  detail::WalkModelAll(model, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if (out.ptr) return;
+    if constexpr (!std::is_same_v<E, mj::Model>) {
+      if constexpr (requires { e.serial; }) {
+        if (e.serial == serial) {
+          out.ptr = static_cast<void*>(&e);
+          out.type = mj::element_type_of<E>::value;
+        }
+      }
+    }
+  });
+  return out;
+}
+
+// The element in `model` carrying `serial` as a type-erased pointer, or nullptr.
+// Pair with reflect::Describe on the type from FindBySerialTyped to recover a
+// concrete type; this overload is for callers that only need the address.
+inline void* FindBySerial(mj::Model& model, std::uint64_t serial) {
+  return FindBySerialTyped(model, serial).ptr;
+}
+inline const void* FindBySerial(const mj::Model& model, std::uint64_t serial) {
+  return FindBySerialTyped(const_cast<mj::Model&>(model), serial).ptr;
 }
 
 // --- Typed visitors ------------------------------------------------------- //

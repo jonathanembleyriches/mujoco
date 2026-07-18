@@ -64,10 +64,6 @@ std::vector<std::string_view> Tokens(std::string_view s) {
   return out;
 }
 
-Status ParseInt64(std::string_view tok, std::int64_t& out) {
-  return ParseInt<std::int64_t>(tok, out);
-}
-
 template <class T>
 Status ParseInt(std::string_view tok, T& out) {
   if (tok.empty()) return Status::BadFormat;
@@ -184,7 +180,6 @@ std::string FormatInt(std::int64_t v) {
 }
 
 template Status ParseInt<std::int32_t>(std::string_view, std::int32_t&);
-template Status ParseInt<std::int64_t>(std::string_view, std::int64_t&);
 template Status ParseInt<std::uint64_t>(std::string_view, std::uint64_t&);
 template Status ParseFloat<float>(std::string_view, float&, bool&);
 template Status ParseFloat<double>(std::string_view, double&, bool&);

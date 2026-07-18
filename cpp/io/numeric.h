@@ -29,9 +29,6 @@ enum class Status {
               // parity with MuJoCo)
 };
 
-// Parse one C-locale integer token into a signed 64-bit value.
-Status ParseInt64(std::string_view tok, std::int64_t& out);
-
 // Parse one C-locale integer token into T, range-checked (T: int32_t/uint64_t).
 template <class T>
 Status ParseInt(std::string_view tok, T& out);

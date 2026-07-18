@@ -834,6 +834,47 @@ static void TestReparent() {
   CHECK(r2.ok);
 }
 
+// Schema-drift guards: these must stay empty as the schema evolves. A failure
+// means the schema grew a defaultable family with no PS_SDK_FAMILY mapping
+// (class-merge would silently skip it) or a referenceable runtime family with no
+// dynamic keyword (rename/delete/referrer scan would silently skip it). Plus the
+// new type-erased lookup / prune verbs and the SetRef target-type contract.
+static void TestSchemaInvariants() {
+  CHECK(sdk::DefaultFamilyCoverageGaps().empty());
+  CHECK(sdk::detail::DynRefKeywordGaps().empty());
+
+  std::unique_ptr<Model> m = BuildRobot();
+
+  // FindBySerial round-trips a live element's serial to its pointer + type.
+  Geom* shin = sdk::Find<Geom>(*m, "shin_geom");
+  CHECK(shin != nullptr);
+  const std::uint64_t s = shin->serial;
+  CHECK(sdk::FindBySerial(*m, s) == static_cast<void*>(shin));
+  sdk::Located loc = sdk::FindBySerialTyped(*m, s);
+  CHECK(loc.ptr == static_cast<void*>(shin) && loc.type == ElementType::Geom);
+  CHECK(sdk::FindBySerial(*m, 0) == nullptr);          // sentinel never matches
+  CHECK(sdk::FindBySerial(*m, ~std::uint64_t{0}) == nullptr);  // absent
+
+  // PruneSubtrees drops selected elements (subtrees included) with no ref fixup.
+  int before = 0;
+  sdk::ForEachOfType<Geom>(*m, [&](Geom&) { ++before; });
+  sdk::PruneSubtrees(*m, [](const auto& e) {
+    const std::string* n = sdk::Name(e);
+    return n && *n == "shin_geom";
+  });
+  int after = 0;
+  sdk::ForEachOfType<Geom>(*m, [&](Geom&) { ++after; });
+  CHECK(after == before - 1);
+  CHECK(sdk::Find<Geom>(*m, "shin_geom") == nullptr);
+
+  // SetRef by target element: a concrete-type target sets the ref by name.
+  Geom* thigh = sdk::Find<Geom>(*m, "thigh_geom");
+  Material* steel = sdk::Find<Material>(*m, "steel");
+  CHECK(thigh != nullptr && steel != nullptr);
+  CHECK(sdk::SetRef(thigh->material, *steel));
+  CHECK(thigh->material.has_value() && thigh->material->name == "steel");
+}
+
 int main() {
   TestBuilders();
   TestFixpoint();
@@ -851,6 +892,7 @@ int main() {
   TestExtractClass();
   TestMultiBlockDefaults();
   TestAttach();
+  TestSchemaInvariants();
 
   std::printf("%d checks, %d failures\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

@@ -16,8 +16,10 @@
 #define PROTOSPEC_SDK_REFS_H
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "protospec/detail.h"
@@ -164,9 +166,13 @@ void SetRef(ps::opt<ps::Ref<T>>& field, std::string_view name) {
 
 // Point a reference at a concrete element by its authored name. Returns false
 // (leaving the field untouched) when the target has no usable name -- an unnamed
-// element cannot be referred to in MJCF.
+// element cannot be referred to in MJCF. `target`'s element type must be a valid
+// target of `Ref<T>` (itself for a concrete ref, a union member for a union ref)
+// -- otherwise this is a compile error, not a silent type-mismatched assignment.
 template <class T, class E>
 bool SetRef(ps::opt<ps::Ref<T>>& field, const E& target) {
+  static_assert(detail::ref_accepts_target<T, std::decay_t<E>>,
+                "SetRef target type is not a valid target for this Ref<T>");
   const std::string* nm = detail::NameOf(target);
   if (!nm || nm->empty()) return false;
   field = ps::Ref<T>(*nm);
@@ -575,6 +581,68 @@ inline DeleteReport DeleteSubtree(mj::Model& model, const void* elem,
     report.cascaded = true;
   }
   return report;
+}
+
+// --- PruneSubtrees -------------------------------------------------------- //
+
+namespace detail {
+
+// Erase from every child / union-child list the elements a predicate selects,
+// their subtrees going with them, then descend into the survivors. The generic
+// form of an authored "drop these elements" pass (e.g. the editor's layer
+// prune).
+template <class Pred>
+struct PruneVisitor {
+  Pred* pred;
+  template <class U>
+  void field(int, const char*, U&) {}
+  template <class T>
+  void child(int, const char*, std::vector<std::unique_ptr<T>>& list) {
+    std::erase_if(list,
+                  [&](const std::unique_ptr<T>& p) { return p && (*pred)(*p); });
+    for (auto& p : list)
+      if (p) {
+        PruneVisitor sub{pred};
+        mj::Visit(*p, sub);
+      }
+  }
+  template <class U>
+  void union_child(int, const char*, std::vector<U>& list) {
+    std::erase_if(list, [&](const U& item) {
+      bool rm = false;
+      std::visit([&](const auto& p) { if (p && (*pred)(*p)) rm = true; },
+                 item.node);
+      return rm;
+    });
+    for (auto& item : list)
+      std::visit(
+          [&](auto& p) {
+            if (p) {
+              PruneVisitor sub{pred};
+              mj::Visit(*p, sub);
+            }
+          },
+          item.node);
+  }
+};
+
+}  // namespace detail
+
+// Remove every element for which `pred` returns true, subtrees included: pruning
+// a body prunes everything beneath it, and a kept parent is still descended so
+// its own selected children go too. `pred` is any callable `bool(const auto&
+// element)` invoked on each element in document order; the Model root is never
+// offered to it (there is nothing to prune it from).
+//
+// A raw structural prune: unlike DeleteRecursive / DeleteSubtree it does NOT
+// scan or clear references to removed elements, so a ref elsewhere may be left
+// dangling. Use it for whole-partition drops (compile-input filtering, layer
+// pruning) where dangling names are tolerated or reconciled separately; reach
+// for the Delete verbs when referrer bookkeeping must stay consistent.
+template <class Pred>
+void PruneSubtrees(mj::Model& model, Pred&& pred) {
+  detail::PruneVisitor<std::remove_reference_t<Pred>> v{&pred};
+  mj::Visit(model, v);
 }
 
 }  // namespace ps::sdk

@@ -53,6 +53,16 @@ std::vector<std::unique_ptr<T>>* DefaultVecMut(mj::Default&) {
   return nullptr;
 }
 
+namespace detail {
+// Runtime record of the element types PS_SDK_FAMILY maps, populated once at
+// static init by the macro. Lets DefaultFamilyCoverageGaps compare what the
+// class-merge actually covers against the generated <default> struct's families.
+inline std::vector<mj::ElementType>& DefaultFamilyRegistry() {
+  static std::vector<mj::ElementType> r;
+  return r;
+}
+}  // namespace detail
+
 #define PS_SDK_FAMILY(T, member)                                        \
   template <>                                                           \
   struct HasDefaultFamily<mj::T> : std::true_type {};                   \
@@ -65,7 +75,11 @@ std::vector<std::unique_ptr<T>>* DefaultVecMut(mj::Default&) {
   inline std::vector<std::unique_ptr<mj::T>>* DefaultVecMut<mj::T>(     \
       mj::Default& d) {                                                 \
     return &d.member;                                                   \
-  }
+  }                                                                     \
+  inline const bool ps_sdk_family_reg_##T =                             \
+      (detail::DefaultFamilyRegistry().push_back(                       \
+           mj::element_type_of<mj::T>::value),                          \
+       true);
 
 PS_SDK_FAMILY(Geom, geom)
 PS_SDK_FAMILY(Joint, joint)
@@ -87,6 +101,37 @@ PS_SDK_FAMILY(Adhesion, adhesion)
 PS_SDK_FAMILY(DcMotor, dcmotor)
 
 #undef PS_SDK_FAMILY
+
+// Every same-type-partial family the generated <default> struct exposes must
+// have a PS_SDK_FAMILY mapping; without it the class-merge (Effective /
+// FlattenDefaults / ExtractClass) silently passes that family through unmerged.
+// This returns the <default> children that are same-type partials with no
+// mapping -- empty unless the schema grew a defaultable family and the family
+// table above was not extended to match.
+//
+// A <default> child is a same-type partial when its class element has the SAME
+// element type as the live element it defaults (geom, joint, ...). The two
+// distinct-partial families use a dedicated type named `<Family>Default`
+// (EqualityDefault, TendonDefault) and the recursive `subclasses` child is a
+// nested Default; all three carry the `Default` name suffix and are out of scope
+// for the same-type merge, so they are skipped here.
+inline std::vector<mj::ElementType> DefaultFamilyCoverageGaps() {
+  const std::vector<mj::ElementType>& covered =
+      detail::DefaultFamilyRegistry();
+  std::vector<mj::ElementType> gaps;
+  const mj::reflect::ElementDescriptor& d =
+      mj::reflect::Describe(mj::ElementType::Default);
+  for (std::size_t i = 0; i < d.child_count; ++i) {
+    std::string_view target = d.children[i].target;
+    if (target.size() >= 7 && target.substr(target.size() - 7) == "Default") {
+      continue;  // Default / EqualityDefault / TendonDefault: not same-type
+    }
+    const mj::reflect::ElementDescriptor* cd =
+        mj::reflect::DescribeByName(target);
+    if (cd && !detail::Contains(covered, cd->type)) gaps.push_back(cd->type);
+  }
+  return gaps;
+}
 
 // --- Field-wise "fill unauthored" merge ----------------------------------- //
 

@@ -134,7 +134,20 @@ for them:
   direct `ps::sdk::detail::{NameOf, SetName, WalkTree, WalkModelAll}` use.
 - **Reference assignment** (refs): `sdk::SetRef(field, name)`,
   `sdk::SetRef(field, targetElement)`, `sdk::ClearRef(field)` — set a typed
-  `opt<Ref<T>>` without spelling `ps::Ref<T>` or knowing the storage shape.
+  `opt<Ref<T>>` without spelling `ps::Ref<T>` or knowing the storage shape. The
+  target-element overload is compile-time checked: the target's element type
+  must be a valid target of the field's `Ref<T>` (itself for a concrete ref, a
+  union member for a union ref such as `Ref<ActuatorAny>`), so a mismatched
+  target (`SetRef(materialRef, someBody)`) is a build error, not a silent no-op.
+- **Find by serial** (traversal): `sdk::FindBySerial(model, serial) -> void*`
+  and `sdk::FindBySerialTyped(model, serial) -> Located{ptr, type}` — resolve the
+  process-unique element serial (the identity a UI holds across edits, since the
+  pointer moves on mutation) back to a live element with one generic walk,
+  replacing the hand-rolled "walk and match `e.serial`" at each call site.
+- **Prune by predicate** (refs): `sdk::PruneSubtrees(model, pred)` — remove every
+  element for which `pred(const auto& element)` is true, subtrees included. A raw
+  structural prune (no referrer bookkeeping, unlike the Delete verbs): for
+  whole-partition drops such as compile-input filtering or layer pruning.
 - **Primitive sizing** (builders): `sdk::SeedPrimitiveSize(geom)` and
   `sdk::AddPrimitive(parent, type, name)` — a bare `AddGeom` authors only what
   you pass (DR-1), so a primitive has no size and will not compile;

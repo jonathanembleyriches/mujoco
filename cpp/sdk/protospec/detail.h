@@ -14,9 +14,11 @@
 #define PROTOSPEC_SDK_DETAIL_H
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -70,6 +72,42 @@ struct opt_ref_list<ps::opt<std::vector<ps::Ref<T>>>> {
   static constexpr bool value = true;
   using target = T;
 };
+
+// --- Union membership (generated-derived) --------------------------------- //
+// A union element type (TendonAny, ActuatorAny, ...) stores its alternatives in
+// a `std::variant<std::unique_ptr<Members>...> node`; a concrete element type
+// has no such member. These traits read that variant directly, so ref-target
+// checking tracks the schema with no hand-listed member set.
+template <class E, class V>
+struct VariantHoldsPtr : std::false_type {};
+template <class E, class... Ts>
+struct VariantHoldsPtr<E, std::variant<Ts...>>
+    : std::disjunction<std::is_same<std::unique_ptr<E>, Ts>...> {};
+
+template <class T, class = void>
+struct union_node {
+  using type = void;
+};
+template <class T>
+struct union_node<T, std::void_t<decltype(std::declval<T&>().node)>> {
+  using type = std::decay_t<decltype(std::declval<T&>().node)>;
+};
+
+// True when element type E is a valid target of a `Ref<T>`: E == T for a
+// concrete target, or E a member of the union T (Ref<TendonAny> accepts
+// Spatial/Fixed; Ref<ActuatorAny> accepts every actuator spelling). Consumed by
+// SetRef's compile-time target check, so a target of the wrong element type is
+// a hard error rather than a silent mismatch.
+template <class T, class E>
+constexpr bool RefAcceptsTargetImpl() {
+  using Node = typename union_node<T>::type;
+  if constexpr (std::is_same_v<Node, void>)
+    return std::is_same_v<E, T>;
+  else
+    return VariantHoldsPtr<E, Node>::value;
+}
+template <class T, class E>
+inline constexpr bool ref_accepts_target = RefAcceptsTargetImpl<T, E>();
 
 // --- Whole-tree walk ------------------------------------------------------ //
 // Visits `root`, then every element nested beneath it in document order, in a
@@ -280,21 +318,24 @@ Handle MakeHandle(const E& e) {
 }
 
 // --- Reference target types ----------------------------------------------- //
+// The member element types of a union, straight from the generated union
+// descriptor. The single source of truth for a union's spellings is the schema
+// (reflect::DescribeUnion); nothing here re-lists them.
+inline std::vector<mj::ElementType> UnionMemberTypes(std::string_view name) {
+  const mj::reflect::UnionDescriptor& u = mj::reflect::DescribeUnion(name);
+  return {u.members, u.members + u.member_count};
+}
+
 // The element types a `Ref<Target>` can name. Every ref names a single element
 // type except the union targets: `Ref<TendonAny>` (the two tendon spellings)
 // and `Ref<ActuatorAny>` (every actuator spelling -- one MuJoCo actuator
-// namespace).
+// namespace), whose member sets are read from the union descriptor.
 template <class Target>
 inline std::vector<mj::ElementType> RefTargetTypes() {
   if constexpr (std::is_same_v<Target, mj::TendonAny>) {
-    return {mj::ElementType::Spatial, mj::ElementType::Fixed};
+    return UnionMemberTypes("TendonAny");
   } else if constexpr (std::is_same_v<Target, mj::ActuatorAny>) {
-    return {mj::ElementType::ActuatorGeneral, mj::ElementType::Motor,
-            mj::ElementType::Position,        mj::ElementType::Velocity,
-            mj::ElementType::IntVelocity,     mj::ElementType::Damper,
-            mj::ElementType::Cylinder,        mj::ElementType::Muscle,
-            mj::ElementType::Adhesion,        mj::ElementType::DcMotor,
-            mj::ElementType::ActuatorPlugin};
+    return UnionMemberTypes("ActuatorAny");
   } else {
     return {mj::element_type_of<Target>::value};
   }
@@ -322,46 +363,111 @@ inline bool InUnionNamespace(std::string_view union_name, mj::ElementType t) {
 
 inline int NameCategory(mj::ElementType t) {
   if (t == mj::ElementType::Joint || t == mj::ElementType::FreeJoint) return -1;
-  if (t == mj::ElementType::Spatial || t == mj::ElementType::Fixed) return -2;
+  if (InUnionNamespace("TendonAny", t)) return -2;
   if (InUnionNamespace("ActuatorAny", t)) return -3;
   if (InUnionNamespace("SensorAny", t)) return -4;
   if (InUnionNamespace("EqualityAny", t)) return -5;
   return static_cast<int>(t);
 }
 
+// The keyword -> target-type table backing dynamic references. Keywords follow
+// MuJoCo's mju_str2Type object names; the union-valued arms (tendon / actuator /
+// sensor) read their member sets from the union descriptors so they never drift
+// from the schema. Built once. The table is also the single set the coverage
+// guard (DynRefKeywordGaps) checks against, so keyword lookup and drift
+// detection cannot disagree.
+inline const std::vector<
+    std::pair<std::string_view, std::vector<mj::ElementType>>>&
+DynRefTable() {
+  using ET = mj::ElementType;
+  static const std::vector<
+      std::pair<std::string_view, std::vector<mj::ElementType>>>
+      table = [] {
+        std::vector<std::pair<std::string_view, std::vector<mj::ElementType>>> t;
+        t.push_back({"body", {ET::Body}});
+        t.push_back({"xbody", {ET::Body}});
+        t.push_back({"joint", {ET::Joint, ET::FreeJoint}});
+        t.push_back({"geom", {ET::Geom}});
+        t.push_back({"site", {ET::Site}});
+        t.push_back({"camera", {ET::Camera}});
+        t.push_back({"light", {ET::Light}});
+        t.push_back({"flex", {ET::Flex}});
+        t.push_back({"mesh", {ET::Mesh}});
+        t.push_back({"skin", {ET::Skin}});
+        t.push_back({"hfield", {ET::Hfield}});
+        t.push_back({"texture", {ET::Texture}});
+        t.push_back({"material", {ET::Material}});
+        t.push_back({"tendon", UnionMemberTypes("TendonAny")});
+        t.push_back({"actuator", UnionMemberTypes("ActuatorAny")});
+        t.push_back({"sensor", UnionMemberTypes("SensorAny")});
+        t.push_back({"numeric", {ET::Numeric}});
+        t.push_back({"text", {ET::Text}});
+        t.push_back({"tuple", {ET::Tuple}});
+        t.push_back({"key", {ET::Keyframe}});
+        t.push_back({"plugin", {ET::PluginInstance}});
+        return t;
+      }();
+  return table;
+}
+
 // The element types a DYNAMIC reference can name, given the runtime keyword its
-// sibling type field holds (objtype="body" -> Body, ...). Keywords follow
-// MuJoCo's mju_str2Type object names. An unknown or empty keyword returns the
-// empty set: the name is not scannable, and callers must treat it as opaque
-// rather than guess a namespace.
+// sibling type field holds (objtype="body" -> Body, ...). An unknown or empty
+// keyword returns the empty set: the name is not scannable, and callers must
+// treat it as opaque rather than guess a namespace.
 inline std::vector<mj::ElementType> DynRefTargetTypes(std::string_view keyword) {
-  if (keyword == "body" || keyword == "xbody") return {mj::ElementType::Body};
-  if (keyword == "joint")
-    return {mj::ElementType::Joint, mj::ElementType::FreeJoint};
-  if (keyword == "geom") return {mj::ElementType::Geom};
-  if (keyword == "site") return {mj::ElementType::Site};
-  if (keyword == "camera") return {mj::ElementType::Camera};
-  if (keyword == "light") return {mj::ElementType::Light};
-  if (keyword == "flex") return {mj::ElementType::Flex};
-  if (keyword == "mesh") return {mj::ElementType::Mesh};
-  if (keyword == "skin") return {mj::ElementType::Skin};
-  if (keyword == "hfield") return {mj::ElementType::Hfield};
-  if (keyword == "texture") return {mj::ElementType::Texture};
-  if (keyword == "material") return {mj::ElementType::Material};
-  if (keyword == "tendon")
-    return {mj::ElementType::Spatial, mj::ElementType::Fixed};
-  if (keyword == "actuator") return RefTargetTypes<mj::ActuatorAny>();
-  if (keyword == "sensor") {
-    const mj::reflect::UnionDescriptor& u =
-        mj::reflect::DescribeUnion("SensorAny");
-    return {u.members, u.members + u.member_count};
-  }
-  if (keyword == "numeric") return {mj::ElementType::Numeric};
-  if (keyword == "text") return {mj::ElementType::Text};
-  if (keyword == "tuple") return {mj::ElementType::Tuple};
-  if (keyword == "key") return {mj::ElementType::Keyframe};
-  if (keyword == "plugin") return {mj::ElementType::PluginInstance};
+  for (const auto& [k, v] : DynRefTable())
+    if (k == keyword) return v;
   return {};
+}
+
+// Drift guard for the dynamic keyword table. Every element type that some typed
+// `Ref<T>` field in the schema names AND that is a MuJoCo runtime object must be
+// reachable through at least one dynamic keyword; otherwise a frame sensor could
+// name that object by objtype but the SDK's rename / delete / referrer scan
+// would silently skip it. Returns the reachable-but-orphaned target types, empty
+// when the table covers every referenceable runtime object.
+//
+// Excluded (authoring-time reference kinds, never runtime mjOBJ objects, so no
+// objtype keyword names them): Default (a class/childclass naming a <default>)
+// and ModelAsset (a `model` naming an attached submodel).
+//
+// Limitation: the authoritative keyword universe is MuJoCo's mju_str2Type, which
+// this MuJoCo-independent layer cannot enumerate. This guard therefore catches a
+// new referenceable family added to the SCHEMA; a keyword added to mju_str2Type
+// with no schema ref target is out of its reach and must be caught where MuJoCo
+// is linked (cpp/compile/native.cc consumes str2Type directly).
+inline std::vector<mj::ElementType> DynRefKeywordGaps() {
+  std::vector<mj::ElementType> reachable;
+  for (const auto& [k, v] : DynRefTable())
+    for (mj::ElementType t : v)
+      if (!Contains(reachable, t)) reachable.push_back(t);
+
+  auto resolve = [](std::string_view type_name) -> std::vector<mj::ElementType> {
+    for (std::size_t i = 0; i < mj::reflect::UnionCount(); ++i) {
+      const mj::reflect::UnionDescriptor& u = mj::reflect::UnionAt(i);
+      if (u.name == type_name) return {u.members, u.members + u.member_count};
+    }
+    if (const mj::reflect::ElementDescriptor* d =
+            mj::reflect::DescribeByName(type_name)) {
+      return {d->type};
+    }
+    return {};
+  };
+
+  std::vector<mj::ElementType> gaps;
+  for (std::size_t i = 0; i < mj::reflect::ElementCount(); ++i) {
+    const mj::reflect::ElementDescriptor& e = mj::reflect::ElementAt(i);
+    for (std::size_t f = 0; f < e.field_count; ++f) {
+      const mj::reflect::FieldDescriptor& fd = e.fields[f];
+      if (fd.kind != mj::reflect::FieldKind::Ref) continue;
+      for (mj::ElementType t : resolve(fd.type_name)) {
+        if (t == mj::ElementType::Default || t == mj::ElementType::ModelAsset)
+          continue;
+        if (!Contains(reachable, t) && !Contains(gaps, t)) gaps.push_back(t);
+      }
+    }
+  }
+  return gaps;
 }
 
 }  // namespace ps::sdk::detail
