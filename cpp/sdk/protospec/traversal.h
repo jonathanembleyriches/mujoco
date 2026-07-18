@@ -33,9 +33,14 @@ const std::string* Name(const E& e) {
 }
 
 // Set (create) an element's name field; a no-op for nameless element types.
+// Returns false, leaving the element untouched, when `name` starts with the
+// reserved auto-name prefix (ps::kReservedNamePrefix) -- authored names must
+// stay outside it so they can never collide with compile-time auto-names.
 template <class E>
-void SetName(E& e, const std::string& name) {
+bool SetName(E& e, const std::string& name) {
+  if (std::string_view(name).starts_with(ps::kReservedNamePrefix)) return false;
   detail::SetName(e, name);
+  return true;
 }
 
 // The runtime element-type tag of a concrete element type.

@@ -116,6 +116,34 @@ void ScanRefs(E& e, OnRef&& on) {
   }
 }
 
+// True when `newname` is already held by an element other than `self` in the
+// same shared name namespace as `type` (NameCategory folding: the joint /
+// tendon / actuator / sensor / equality spelling unions each share one
+// namespace). Renaming onto such a name would fuse two elements' referrer sets.
+inline bool NameTakenByOther(mj::Model& model, const void* self,
+                             mj::ElementType type, const std::string& newname) {
+  const int cat = NameCategory(type);
+  bool taken = false;
+  WalkModelAll(model, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model>) {
+      if (taken || static_cast<const void*>(&e) == self) return;
+      if (NameCategory(mj::element_type_of<E>::value) != cat) return;
+      const std::string* nm = NameOf(e);
+      if (nm && *nm == newname) taken = true;
+    }
+  });
+  return taken;
+}
+
+// A name an element may be renamed to: non-empty and outside the reserved
+// auto-name prefix (ps::kReservedNamePrefix, owned by compile-time binding
+// names).
+inline bool AssignableName(const std::string& name) {
+  return !name.empty() &&
+         !std::string_view(name).starts_with(ps::kReservedNamePrefix);
+}
+
 }  // namespace detail
 
 // --- Reference assignment (DR-8) ------------------------------------------ //
@@ -212,7 +240,11 @@ std::vector<Referrer> FindReferrers(mj::Model& model, const E& elem) {
 // Rename an element and rewrite every referrer to match. Returns the number of
 // referrer fields updated -- 0 when the new name equals the old (a no-op) or
 // when the element was nameless (it gains the name; nothing can have referred
-// to it). The pointer is excluded from this template so the runtime
+// to it). Returns -1, leaving the model untouched, when `newname` is invalid:
+// empty, inside the reserved auto-name prefix (ps::kReservedNamePrefix), or
+// already held by a DIFFERENT element in the same shared name namespace
+// (renaming onto it would silently fuse the two elements' referrer sets). The
+// pointer is excluded from this template so the runtime
 // `Rename(model, const void*, newname)` below wins for a type-erased element
 // pointer.
 template <class E, std::enable_if_t<!std::is_pointer_v<E>, int> = 0>
@@ -221,6 +253,10 @@ int Rename(mj::Model& model, E& elem, const std::string& newname) {
   const std::string oldname = cur ? *cur : std::string();
   if (oldname == newname) return 0;
   const mj::ElementType targetType = mj::element_type_of<E>::value;
+  if (!detail::AssignableName(newname) ||
+      detail::NameTakenByOther(model, &elem, targetType, newname)) {
+    return -1;
+  }
 
   int updated = 0;
   detail::WalkModelAll(model, [&](auto& other) {
@@ -444,9 +480,12 @@ DeleteReport DeleteRecursive(mj::Model& model, E& elem, bool cascade = false) {
 // `<E>` templates only when the static type is already in hand.
 
 // Rename the element at `elem` (any element owned by `model`) to `newname` and
-// rewrite every typed referrer. Returns the number of referrer fields updated,
-// or -1 when `elem` is not found in the model. Returns 0 when `newname` equals
-// the current name (a no-op) or the element was nameless (it gains the name).
+// rewrite every typed referrer. Returns the number of referrer fields updated.
+// Returns 0 when `newname` equals the current name (a no-op) or the element
+// was nameless (it gains the name). Returns -1, leaving the model untouched,
+// when `elem` is not found in the model or `newname` is invalid: empty, inside
+// the reserved auto-name prefix (ps::kReservedNamePrefix), or already held by
+// a DIFFERENT element in the same shared name namespace.
 inline int Rename(mj::Model& model, const void* elem,
                   const std::string& newname) {
   bool found = false;
@@ -466,6 +505,10 @@ inline int Rename(mj::Model& model, const void* elem,
   });
   if (!found) return -1;
   if (oldname == newname) return 0;
+  if (!detail::AssignableName(newname) ||
+      detail::NameTakenByOther(model, elem, type, newname)) {
+    return -1;
+  }
 
   int updated = 0;
   detail::WalkModelAll(model, [&](auto& other) {

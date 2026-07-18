@@ -53,7 +53,7 @@ std::string PathName(ps::mjcf::CompilePath p) {
   return "?";
 }
 
-const std::string kAutoPrefix = "_ps:";
+const std::string kAutoPrefix{ps::kReservedNamePrefix};
 
 bool IsAuto(const std::string& name) {
   return name.rfind(kAutoPrefix, 0) == 0;

@@ -145,9 +145,16 @@ void DrawRenameInput(EditorContext& ctx, const HierNode& node, HierUiState& st) 
   if (enter) {
     if (!st.rename_buf.empty() && st.rename_buf != node.name) {
       ctx.BeginEdit();
-      RenameBySerial(ctx, node.serial, st.rename_buf);
-      ctx.CommitEdit("Rename " + node.name + " -> " + st.rename_buf);
-      SelectBySerial(ctx, node.serial);
+      if (RenameBySerial(ctx, node.serial, st.rename_buf) >= 0) {
+        ctx.CommitEdit("Rename " + node.name + " -> " + st.rename_buf);
+        SelectBySerial(ctx, node.serial);
+      } else {
+        // Rejected (reserved prefix or name in use): nothing was applied, so
+        // drop the pending snapshot; the row keeps the old name.
+        ctx.Log("rename rejected: '" + st.rename_buf +
+                "' (reserved prefix or already in use)");
+        ctx.CancelEdit();
+      }
     }
     st.rename_serial = 0;
   } else if (ImGui::IsItemDeactivated()) {

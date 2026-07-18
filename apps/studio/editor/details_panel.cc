@@ -640,12 +640,19 @@ void RenderNameRow(EditorContext& ctx, E& e) {
     ImGui::SetNextItemWidth(kFieldWidth * 2.2f);
     ImGui::InputText("##name", &work);
     if (GestureShouldCommit(ctx)) {
-      if (!work.empty() && work != cur) {
-        ps::studio::RenameBySerial(ctx, e.serial, work);
+      if (!work.empty() && work != cur &&
+          ps::studio::RenameBySerial(ctx, e.serial, work) >= 0) {
         EditCommit(ctx, "rename");
         ps::studio::SelectBySerial(ctx, e.serial);
       } else {
-        EditCancel(ctx);  // no effective change: drop the pending snapshot
+        // Rejected (empty / reserved prefix / name in use) or no effective
+        // change: nothing was applied, drop the pending snapshot. The field
+        // snaps back to the current name on refresh.
+        if (!work.empty() && work != cur) {
+          ctx.Log("rename rejected: '" + work +
+                  "' (reserved prefix or already in use)");
+        }
+        EditCancel(ctx);
       }
     }
     ImGui::PopID();

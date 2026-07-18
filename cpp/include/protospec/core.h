@@ -13,9 +13,12 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -30,7 +33,10 @@ using opt = std::optional<T>;
 // A fixed-capacity vector carrying its filled count, for range-arity MJCF
 // attributes (`size` 0..3, `friction` 1..3, `gear` 0..6, ...). Capacity is the
 // arity upper bound; the filled count is the number of authored values. Range
-// bounds are a validation concern, not enforced by the type.
+// bounds are a validation concern, not enforced by the type -- but the capacity
+// N is a hard storage invariant: exceeding it is a programmer error upstream of
+// the type, so push_back/resize abort (with a diagnostic) rather than write out
+// of bounds. operator[] stays unchecked, as std::array.
 template <class T, std::size_t N>
 class InlineVec {
  public:
@@ -46,8 +52,14 @@ class InlineVec {
   bool empty() const { return size_ == 0; }
   void clear() { size_ = 0; }
 
-  void push_back(const T& v) { data_[size_++] = v; }
-  void resize(std::size_t n) { size_ = n; }
+  void push_back(const T& v) {
+    if (size_ >= N) Overflow(size_ + 1);
+    data_[size_++] = v;
+  }
+  void resize(std::size_t n) {
+    if (n > N) Overflow(n);
+    size_ = n;
+  }
 
   T& operator[](std::size_t i) { return data_[i]; }
   const T& operator[](std::size_t i) const { return data_[i]; }
@@ -69,9 +81,23 @@ class InlineVec {
   }
 
  private:
+  [[noreturn]] static void Overflow(std::size_t requested) {
+    std::fprintf(stderr,
+                 "protospec: InlineVec overflow: capacity %zu, requested %zu\n",
+                 N, requested);
+    std::abort();
+  }
+
   std::array<T, N> data_{};
   std::size_t size_ = 0;
 };
+
+// --- Reserved name prefix (DR-10) ----------------------------------------- //
+// Auto-generated binding names (`_ps:<family>:<serial>`, injected only into
+// compile-XML, never into saved documents) own this prefix. Authored names must
+// never start with it: SDK SetName/Rename reject such names and validation
+// flags them, so an auto-name can never collide with an authored one.
+inline constexpr std::string_view kReservedNamePrefix = "_ps:";
 
 // --- Provenance (DR-9) ---------------------------------------------------- //
 // mjSpec's `info` string, structured. Populated by the reader through include

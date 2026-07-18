@@ -76,27 +76,9 @@ inline void PrefixSubtree(mj::Body& clone, const std::string& prefix) {
   });
 }
 
-// MuJoCo names are unique within an object *category*, not per element type.
-// Most element types are their own category; the spelling families share one
-// namespace each: the two joint spellings, the two tendon spellings, and every
-// actuator / sensor / equality spelling. Collision checks and clone re-uniquing
-// key on the category so e.g. a FreeJoint "j" does collide with a Joint "j".
-inline bool InUnionNamespace(std::string_view union_name, mj::ElementType t) {
-  const mj::reflect::UnionDescriptor& u = mj::reflect::DescribeUnion(union_name);
-  for (std::size_t i = 0; i < u.member_count; ++i)
-    if (u.members[i] == t) return true;
-  return false;
-}
-
-inline int NameCategory(mj::ElementType t) {
-  if (t == mj::ElementType::Joint || t == mj::ElementType::FreeJoint) return -1;
-  if (t == mj::ElementType::Spatial || t == mj::ElementType::Fixed) return -2;
-  if (InUnionNamespace("ActuatorAny", t)) return -3;
-  if (InUnionNamespace("SensorAny", t)) return -4;
-  if (InUnionNamespace("EqualityAny", t)) return -5;
-  return static_cast<int>(t);
-}
-
+// (category,name) key over the shared MuJoCo name namespaces; the category
+// folding itself (detail.h NameCategory) is shared with Rename's collision
+// rejection.
 inline std::string Key(mj::ElementType t, const std::string& name) {
   return std::to_string(NameCategory(t)) + ':' + name;
 }

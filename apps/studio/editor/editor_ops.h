@@ -84,8 +84,11 @@ ElementRef FindBySerial(EditorContext& ctx, std::uint64_t serial);
 bool SelectBySerial(EditorContext& ctx, std::uint64_t serial);
 
 // Rename the element with `serial` and rewrite every typed referrer
-// (sdk::Rename). Returns the number of referrer fields updated, or -1 when the
-// serial does not resolve. Caller wraps this in BeginEdit/CommitEdit.
+// (sdk::Rename). Returns the number of referrer fields updated, or -1 (tree
+// untouched) when the serial does not resolve or the new name is rejected:
+// empty, inside the reserved `_ps:` auto-name prefix, or already held by a
+// different element in the same name namespace. Caller wraps this in
+// BeginEdit/CommitEdit and must not commit on -1.
 int RenameBySerial(EditorContext& ctx, std::uint64_t serial,
                    const std::string& new_name);
 

@@ -424,6 +424,7 @@ struct CollectPass {
       std::optional<Ns> ns = ElemNamespace(et);
       if (!ns) return;
       if (e.name && !e.name->empty()) {
+        CheckReserved(*e.name, e.loc);
         Register(*ns, *e.name, e.loc);
       } else {
         // Implicit file-derived asset name: resolvable but not dup-checked (a
@@ -439,6 +440,20 @@ struct CollectPass {
   template <class T>
   void Exit(const T&, ElementType) {
     if constexpr (std::is_same_v<T, Default>) --default_depth;
+  }
+
+  // The `_ps:` prefix is reserved for the compile bridge's auto-generated
+  // binding names (which are injected only into compile-XML, never persisted
+  // to a document), so an authored name inside it is always a user error and
+  // could collide with an auto-name.
+  void CheckReserved(const std::string& name, const ps::SourceLoc& loc) {
+    if ((ctx.tiers & kTierReferential) &&
+        std::string_view(name).starts_with(ps::kReservedNamePrefix)) {
+      ctx.Emit(Tier::Referential, Severity::Error,
+               "name '" + name + "' uses the reserved prefix '" +
+                   std::string(ps::kReservedNamePrefix) + "'",
+               loc);
+    }
   }
 
   void Register(Ns ns, const std::string& name, const ps::SourceLoc& loc) {
@@ -463,6 +478,14 @@ struct CollectPass {
 // class-name uniqueness stay separate concerns.
 void CollectClassNames(const Default& d, Ctx& ctx) {
   if (d.dclass && !d.dclass->empty()) {
+    // Same reservation as instance names: `_ps:` belongs to auto-names.
+    if ((ctx.tiers & kTierReferential) &&
+        std::string_view(*d.dclass).starts_with(ps::kReservedNamePrefix)) {
+      ctx.EmitAt(Tier::Referential, Severity::Error,
+                 "name '" + *d.dclass + "' uses the reserved prefix '" +
+                     std::string(ps::kReservedNamePrefix) + "'",
+                 d.loc, "default[" + *d.dclass + "]");
+    }
     auto& tbl = ctx.symbols[static_cast<std::size_t>(Ns::Class)];
     auto it = tbl.find(*d.dclass);
     if (it != tbl.end()) {
