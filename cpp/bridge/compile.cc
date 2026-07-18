@@ -203,11 +203,26 @@ DropFlags ReadDropFlags(const Model& m) {
   return f;
 }
 
+// --- mj_loadXML warning capture ------------------------------------------- //
+// MuJoCo surfaces load-window warnings on two channels: parse-time warnings
+// (e.g. "XML contains a 'NaN'") go through the process-global mju_user_warning
+// hook, while compile-time warnings are intercepted by the engine's own
+// thread-local log handler and come back in mj_loadXML's error buffer when the
+// load nonetheless succeeds. The hook has no context pointer, so a thread_local
+// sink routes hook callbacks to the installing thread's collector; warnings
+// raised on a thread with no active sink are dropped, never misattributed.
+thread_local std::vector<std::string>* t_warning_sink = nullptr;
+
+void CollectWarning(const char* msg) {
+  if (t_warning_sink) t_warning_sink->push_back(msg ? msg : "");
+}
+
 // mj_loadXML through an in-memory VFS: registers the compile-XML plus every
 // injected asset, then loads. `base_dir` becomes the model directory MuJoCo uses
-// to resolve on-disk assets not supplied in the VFS.
+// to resolve on-disk assets not supplied in the VFS. Warnings MuJoCo emits
+// during the load (both channels above) are appended to `warnings`.
 mjModel* LoadFromVfs(const std::string& xml, const CompileOptions& opts,
-                     std::string& err) {
+                     std::string& err, std::vector<std::string>& warnings) {
   mjVFS vfs;
   mj_defaultVFS(&vfs);
 
@@ -233,8 +248,22 @@ mjModel* LoadFromVfs(const std::string& xml, const CompileOptions& opts,
   mjModel* m = nullptr;
   if (ok) {
     char errbuf[1024] = {0};
+    // Install the warning hook for the load window, restoring the previous
+    // handler after. A concurrently running load window's collector is never
+    // recorded as "previous" (restore would then outlive both windows).
+    void (*prev)(const char*) = mju_user_warning;
+    if (prev == CollectWarning) prev = nullptr;
+    t_warning_sink = &warnings;
+    mju_user_warning = CollectWarning;
     m = mj_loadXML(xml_path.c_str(), &vfs, errbuf, sizeof(errbuf));
-    if (!m) err = errbuf[0] ? errbuf : "mj_loadXML failed (no message)";
+    mju_user_warning = prev;
+    t_warning_sink = nullptr;
+    if (!m) {
+      err = errbuf[0] ? errbuf : "mj_loadXML failed (no message)";
+    } else if (errbuf[0]) {
+      // Successful load with a non-empty buffer: the compile warning text.
+      warnings.push_back(errbuf);
+    }
   }
   mj_deleteVFS(&vfs);
   return m;
@@ -337,9 +366,24 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
   collect(model);
 
   // Serialize with auto-name injection, then compile through the VFS.
-  const std::string xml = io::WriteMjcf(model, auto_names);
+  std::vector<io::Diagnostic> write_errors;
+  const std::string xml = io::WriteMjcf(model, auto_names, &write_errors);
+  if (xml.empty()) {
+    for (io::Diagnostic& d : write_errors)
+      out.report.errors.push_back(MakeError("serialize", std::move(d.message),
+                                            d.loc));
+    if (out.report.errors.empty())
+      out.report.errors.push_back(MakeError("serialize",
+                                            "WriteMjcf produced no output"));
+    return out;
+  }
   std::string load_err;
-  mjModel* m = LoadFromVfs(xml, opts, load_err);
+  std::vector<std::string> load_warnings;
+  mjModel* m = LoadFromVfs(xml, opts, load_err, load_warnings);
+  for (std::string& w : load_warnings) {
+    out.report.warnings.push_back(Diagnostic{Diagnostic::Severity::Warning,
+                                             "load", std::move(w), {}});
+  }
   if (!m) {
     out.report.errors.push_back(MakeError("load", std::move(load_err)));
     return out;

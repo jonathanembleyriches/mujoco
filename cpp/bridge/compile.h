@@ -7,9 +7,17 @@
 // Purity (CDR-14): Compile / Recompile take const Model& end to end and never
 // mutate the tree (no const_cast). Unnamed elements are auto-named only in the
 // emitted compile-XML, via a serial-keyed override map -- the tree is untouched.
-// Concurrent Compile calls on the same const Model& are safe (all state is
-// stack-owned); MuJoCo plugin registration must complete before concurrent
-// compiles (the engine's own process-global rule).
+//
+// Concurrency: concurrent Compile calls on the same const Model& are
+// memory-safe (per-call state is stack-owned or thread-local), but warning
+// capture installs the process-global mju_user_warning hook around the
+// mj_loadXML window (saved and restored). Hook callbacks route to a
+// thread-local sink, so a warning is only ever attributed to the thread that
+// raised it -- never to another caller -- but with overlapping windows a
+// warning raised on a thread outside its own window, or a caller-installed
+// mju_user_warning handler, can be dropped for the duration of the overlap.
+// MuJoCo plugin registration must complete before concurrent compiles (the
+// engine's own process-global rule).
 //
 // This header forward-declares mjModel/mjData and never includes mujoco.h.
 #ifndef PROTOSPEC_BRIDGE_COMPILE_H
@@ -59,7 +67,7 @@ struct CompileOptions {
   // Opt out for pristine name tables, at the cost of unnamed elements being
   // unbindable.
   bool auto_name = true;
-  std::string auto_name_prefix = "_ps:";
+  std::string auto_name_prefix = std::string(ps::kReservedNamePrefix);
 
   // Directory used as the model dir for resolving on-disk meshdir/texturedir
   // assets that are NOT supplied in `vfs_assets`. Empty = no on-disk assets.
@@ -89,6 +97,8 @@ Compiled Compile(const Model& m, const CompileOptions& opts = {});
 
 // Inspection: the exact MJCF string Compile would hand to MuJoCo (auto-names
 // injected per opts). Pure and MuJoCo-free; useful for debugging and tests.
+// Empty when the model cannot be serialized (see io::WriteMjcf in mjcf.h);
+// Compile reports the same condition as serialize-pass errors.
 std::string CompileToXml(const Model& m, const CompileOptions& opts = {});
 
 // Recompile after a structural edit, migrating simulation state (DR-11).

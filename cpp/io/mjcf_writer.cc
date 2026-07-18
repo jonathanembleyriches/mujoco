@@ -12,6 +12,7 @@
 
 #include <array>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -151,9 +152,19 @@ std::optional<std::string> FormatValue(const Inner& v, bool keyword_set) {
 
 std::string Indent(int depth) { return std::string(2 * depth, ' '); }
 
+bool ContainsSpace(std::string_view s) {
+  for (char c : s) {
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
+        c == '\v') {
+      return true;
+    }
+  }
+  return false;
+}
+
 template <class E>
 void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
-                  const AutoNames* names);
+                  const AutoNames* names, std::vector<Diagnostic>* errors);
 
 // Append ` name="value"` unless value is skipped.
 void AppendAttr(std::string& attrs, std::string_view name,
@@ -194,6 +205,8 @@ struct WriterVisitor {
   std::string* attrs;
   std::string* children;
   const AutoNames* names;
+  const ps::SourceLoc* loc;
+  std::vector<Diagnostic>* errors;
 
   template <class T>
   void field(int id, const char*, T& value) {
@@ -223,6 +236,25 @@ struct WriterVisitor {
           return;
         }
       }
+      // Ref lists are space-joined on the wire, so a name containing
+      // whitespace is unrepresentable (it would re-read as multiple refs).
+      if constexpr (is_vector<I>::value) {
+        if constexpr (is_ref<typename I::value_type>::value) {
+          for (const auto& r : inner) {
+            if (ContainsSpace(r.name)) {
+              Diagnostic d;
+              d.kind = Diagnostic::Kind::MalformedInput;
+              d.message = "ref list attribute '" + std::string(ab.attr) +
+                          "' on <" + std::string(b->tag) + ">: name '" +
+                          r.name +
+                          "' contains whitespace and cannot be written "
+                          "(space-joined list)";
+              if (loc) d.loc = *loc;
+              errors->push_back(std::move(d));
+            }
+          }
+        }
+      }
       AppendAttr(*attrs, ab.attr, FormatValue(inner, ab.keyword_set));
     };
     if constexpr (is_opt<T>::value) {
@@ -247,7 +279,7 @@ struct WriterVisitor {
   void child(int cid, const char*, std::vector<std::unique_ptr<T>>& list) {
     std::string_view tag = b->children[cid].tag;
     for (const auto& item : list) {
-      if (item) WriteElement(*item, tag, depth + 1, *children, names);
+      if (item) WriteElement(*item, tag, depth + 1, *children, names, errors);
     }
   }
 
@@ -259,7 +291,7 @@ struct WriterVisitor {
             using M = typename std::decay_t<decltype(p)>::element_type;
             if (p) {
               WriteElement(*p, Bind(element_type_of<M>::value).tag, depth + 1,
-                           *children, names);
+                           *children, names, errors);
             }
           },
           item.node);
@@ -269,13 +301,14 @@ struct WriterVisitor {
 
 template <class E>
 void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
-                  const AutoNames* names) {
+                  const AutoNames* names, std::vector<Diagnostic>* errors) {
   const ElementBinding& b = Bind(element_type_of<E>::value);
   std::string attrs;
   std::string children;
-  WriterVisitor<E> v{&b,       element_type_of<E>::value,
-                     depth,    &attrs,
-                     &children, names};
+  WriterVisitor<E> v{&b,        element_type_of<E>::value,
+                     depth,     &attrs,
+                     &children, names,
+                     &e.loc,    errors};
   Visit(const_cast<E&>(e), v);
 
   // Auto-name injection (DR-10): an unnamed bindable element whose serial the
@@ -309,16 +342,32 @@ void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
 
 }  // namespace
 
-std::string WriteMjcf(const Model& model) {
+namespace {
+
+std::string WriteChecked(const Model& model, const AutoNames* names,
+                         std::vector<Diagnostic>* errors) {
   std::string out;
-  WriteElement(model, Bind(ElementType::Model).tag, 0, out, nullptr);
+  std::vector<Diagnostic> local;
+  WriteElement(model, Bind(ElementType::Model).tag, 0, out, names, &local);
+  if (!local.empty()) {
+    if (errors) {
+      errors->insert(errors->end(), std::make_move_iterator(local.begin()),
+                     std::make_move_iterator(local.end()));
+    }
+    return std::string();
+  }
   return out;
 }
 
-std::string WriteMjcf(const Model& model, const AutoNames& auto_names) {
-  std::string out;
-  WriteElement(model, Bind(ElementType::Model).tag, 0, out, &auto_names);
-  return out;
+}  // namespace
+
+std::string WriteMjcf(const Model& model, std::vector<Diagnostic>* errors) {
+  return WriteChecked(model, nullptr, errors);
+}
+
+std::string WriteMjcf(const Model& model, const AutoNames& auto_names,
+                      std::vector<Diagnostic>* errors) {
+  return WriteChecked(model, &auto_names, errors);
 }
 
 }  // namespace ps::mjcf::io

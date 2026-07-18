@@ -74,11 +74,20 @@ ParseResult ParseMjcfFile(const std::string& path);
 
 // Serialize a Model to a deterministic MJCF string (2-space indent, radians,
 // shortest round-trip numeric formatting). Emits exactly the authored fields.
-std::string WriteMjcf(const Model& model);
+//
+// A model can hold a value MJCF cannot represent: a ref-list entry (e.g.
+// Flex.body) whose name contains whitespace would corrupt the space-joined wire
+// form (it re-reads as two refs; MuJoCo's mjs_setStringVec has the same
+// limitation). Such a model fails to write: the result is the empty string (a
+// successful write always starts with "<mujoco") and, when `errors` is
+// non-null, one diagnostic per offending entry is appended.
+std::string WriteMjcf(const Model& model,
+                      std::vector<Diagnostic>* errors = nullptr);
 
 // As above, but unnamed elements whose serial appears in `auto_names` are
 // emitted with the mapped reserved name. Used by the compile bridge.
-std::string WriteMjcf(const Model& model, const AutoNames& auto_names);
+std::string WriteMjcf(const Model& model, const AutoNames& auto_names,
+                      std::vector<Diagnostic>* errors = nullptr);
 
 }  // namespace ps::mjcf::io
 

@@ -54,6 +54,9 @@ std::size_t ExternalizeAssets(const mj::Model& model,
 
 bool Save(const mj::Model& model, const std::filesystem::path& path) {
   const std::string mjcf = io::WriteMjcf(model);
+  // Empty means the model holds a value MJCF cannot represent (see mjcf.h);
+  // do not produce an empty file.
+  if (mjcf.empty()) return false;
   std::ofstream out(path, std::ios::binary);
   if (!out) return false;
   out.write(mjcf.data(), static_cast<std::streamsize>(mjcf.size()));
