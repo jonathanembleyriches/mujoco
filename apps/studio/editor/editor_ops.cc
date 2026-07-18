@@ -1,6 +1,7 @@
 // ProtoSpec Studio editor operations (ps::studio, ours). See editor_ops.h.
 
 #include "editor/editor_ops.h"
+#include "editor/element_access.h"
 #include "editor/layers.h"
 #include "editor/transform_math.h"
 
@@ -37,18 +38,7 @@ namespace sdk_detail = ps::sdk::detail;
 // live tree; this resolves any model, as PreviewDeleteReferrers needs on its
 // serial-preserving clone.
 static const void* FindPtrInModel(const mj::Model& model, std::uint64_t serial) {
-  const void* out = nullptr;
-  if (serial == 0) return out;
-  sdk_detail::WalkModelAll(model, [&](const auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (out) return;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if constexpr (requires { e.serial; }) {
-        if (e.serial == serial) out = &e;
-      }
-    }
-  });
-  return out;
+  return FindSerial(model, serial);
 }
 
 // See editor_ops.h. Only the trailing path segment (the offending element) is
@@ -245,7 +235,6 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
     return false;
   }
 
-  ctx.source_name = fpath.stem().string();
   ctx.source_path = fpath.string();
   ctx.history.Clear();
   ctx.recompile_requested = false;
@@ -371,22 +360,13 @@ PickResolution ResolvePick(EditorContext& ctx, int geom_id, int body_id) {
 
 ElementRef FindBySerial(EditorContext& ctx, std::uint64_t serial) {
   ElementRef out;
-  if (!ctx.tree || serial == 0) {
-    return out;
+  if (!ctx.tree) return out;
+  auto [ptr, type] = FindSerialWithType(*ctx.tree, serial);
+  if (ptr) {
+    out.ptr = ptr;
+    out.type = type;
+    out.serial = serial;
   }
-  sdk_detail::WalkModelAll(*ctx.tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (out.ptr) {
-      return;
-    }
-    if constexpr (requires { e.serial; }) {
-      if (e.serial == serial) {
-        out.ptr = &e;
-        out.type = mj::element_type_of<E>::value;
-        out.serial = serial;
-      }
-    }
-  });
   return out;
 }
 

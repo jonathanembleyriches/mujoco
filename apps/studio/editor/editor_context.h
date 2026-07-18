@@ -40,6 +40,14 @@ struct ElementRef {
   explicit operator bool() const { return ptr != nullptr; }
 };
 
+// The ImGui id to feed ImGui::PushID for an element `serial`. PushID takes an
+// int, so a raw static_cast<int>(serial) drops the high 32 bits and two serials
+// differing only above bit 31 would share a widget id; folding both halves keeps
+// the whole serial in play. (Pure int math -- no ImGui dependency here.)
+inline int ImGuiSerialId(std::uint64_t serial) {
+  return static_cast<int>(serial ^ (serial >> 32));
+}
+
 // The deferred model-load slot (Studio's pending-load pattern): a requested path
 // is stashed and consumed on a later frame. Pure state machine so it can be
 // unit-tested without a window.
@@ -293,7 +301,6 @@ struct EditorContext {
 
   // Deferred load slot, fed by the host (CLI arg / drag-drop).
   PendingLoad pending;
-  std::string source_name;   // display name of the loaded model
   std::string source_path;   // last loaded/saved file path (for Save)
   std::string base_dir;      // model dir for on-disk asset resolution on recompile
 
@@ -358,8 +365,9 @@ struct EditorContext {
   GizmoSettings gizmo;
   bool gizmo_active = false;           // a gizmo drag is in progress (host reads
                                       // this so Esc cancels the drag, not exit)
-  bool show_all_joints = false;        // View toggle: draw joints for every body,
-                                      // not just the selected body (deliverable 3)
+  bool show_all_joints = false;        // draw joints for every body, not just the
+                                      // selected body. No UI control exists yet;
+                                      // only the joint-overlay tests set it.
   StatusToast status_toast;           // transient viewport note (gizmo hints, ...)
   FileDialogState file_dialog;        // pending native-dialog request for the host
 

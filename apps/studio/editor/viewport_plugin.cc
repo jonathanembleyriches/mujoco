@@ -24,6 +24,7 @@
 #include "editor/placement.h"
 #include "editor/joint_overlay.h"
 #include "editor/layers.h"
+#include "editor/plugin_abi.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 #include "platform/ux/ps_plugin_ext.h"
@@ -194,7 +195,7 @@ void HandlePick(ViewportEditor& ve, const ViewportInput& in) {
 }
 
 bool OnMouse(ViewportPlugin* self, const ViewportInput& in) {
-  ViewportEditor* ve = static_cast<ViewportEditor*>(self->data);
+  ViewportEditor* ve = ctx_cast<ViewportEditor>(self);
   EditorContext& ctx = *ve->ctx;
   if (in.model == nullptr || in.data == nullptr ||
       ctx.compiled.model.get() != in.model) {
@@ -326,7 +327,7 @@ void ServiceDiagnosticsReveal(EditorContext& ctx) {
 }
 
 void OnDraw(ViewportGuiPlugin* self, const ViewportGuiPlugin::Context& vc) {
-  ViewportEditor* ve = static_cast<ViewportEditor*>(self->data);
+  ViewportEditor* ve = ctx_cast<ViewportEditor>(self);
 
   // The host hands us what physics is doing every frame; latch it for the
   // panels, which have no other view of it (the host owns the live mjData).
@@ -520,7 +521,7 @@ void DrawJointOverlays(EditorContext* ctx, const mjModel* m, const mjData* d,
 
 void OnOverlay(OverlayPlugin* self, const mjModel* m, const mjData* d,
                mjvScene* s) {
-  EditorContext* ctx = static_cast<EditorContext*>(self->data);
+  EditorContext* ctx = ctx_cast<EditorContext>(self);
   if (!ctx->tree || ctx->compiled.model.get() != m) return;
   DrawJointOverlays(ctx, m, d, s);
   if (ctx->selected_serial == 0) return;
@@ -602,33 +603,33 @@ void RegisterViewportEditor(EditorContext& ctx) {
 
   RegisterKey("Tool Select", ImGuiKey_Q,
               [](KeyHandlerPlugin* s) {
-                SetTool(*static_cast<ViewportEditor*>(s->data)->ctx,
+                SetTool(*ctx_cast<ViewportEditor>(s)->ctx,
                         GizmoTool::Select);
               }, ve);
   RegisterKey("Tool Translate", ImGuiKey_W,
               [](KeyHandlerPlugin* s) {
-                SetTool(*static_cast<ViewportEditor*>(s->data)->ctx,
+                SetTool(*ctx_cast<ViewportEditor>(s)->ctx,
                         GizmoTool::Translate);
               }, ve);
   RegisterKey("Tool Rotate", ImGuiKey_E,
               [](KeyHandlerPlugin* s) {
-                SetTool(*static_cast<ViewportEditor*>(s->data)->ctx,
+                SetTool(*ctx_cast<ViewportEditor>(s)->ctx,
                         GizmoTool::Rotate);
               }, ve);
   RegisterKey("Tool Scale", ImGuiKey_R,
               [](KeyHandlerPlugin* s) {
-                SetTool(*static_cast<ViewportEditor*>(s->data)->ctx,
+                SetTool(*ctx_cast<ViewportEditor>(s)->ctx,
                         GizmoTool::Scale);
               }, ve);
   RegisterKey("Frame Selection", ImGuiKey_F,
               [](KeyHandlerPlugin* s) {
-                EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
+                EditorContext& c = *ctx_cast<ViewportEditor>(s)->ctx;
                 if (ViewportFocused() && c.selected_serial != 0)
                   c.focus_request_serial = c.selected_serial;
               }, ve);
   RegisterKey("Delete", ImGuiKey_Delete,
               [](KeyHandlerPlugin* s) {
-                EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
+                EditorContext& c = *ctx_cast<ViewportEditor>(s)->ctx;
                 if (c.selected_serial == 0 || !c.CanEdit()) return;
                 // Route through the SE1a referrer-confirm flow: the panels layer
                 // owns the modal, so request it via the shared context.
@@ -636,7 +637,7 @@ void RegisterViewportEditor(EditorContext& ctx) {
               }, ve);
   RegisterKey("Duplicate", ImGuiMod_Ctrl | ImGuiKey_D,
               [](KeyHandlerPlugin* s) {
-                EditorContext& c = *static_cast<ViewportEditor*>(s->data)->ctx;
+                EditorContext& c = *ctx_cast<ViewportEditor>(s)->ctx;
                 if (c.selected_serial != 0 && c.CanEdit() &&
                     SerialInActiveLayer(c, c.selected_serial)) {
                   DuplicateOp(c, c.selected_serial);
@@ -644,7 +645,7 @@ void RegisterViewportEditor(EditorContext& ctx) {
               }, ve);
   RegisterKey("Drop To Ground", ImGuiKey_End,
               [](KeyHandlerPlugin* s) {
-                ViewportEditor* ve = static_cast<ViewportEditor*>(s->data);
+                ViewportEditor* ve = ctx_cast<ViewportEditor>(s);
                 EditorContext& c = *ve->ctx;
                 if (!ViewportFocused() || c.selected_serial == 0 ||
                     !c.CanEdit() ||

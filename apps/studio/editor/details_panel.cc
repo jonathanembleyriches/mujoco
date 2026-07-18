@@ -23,6 +23,7 @@
 #include "binding.h"
 #include "editor/editor_ops.h"
 #include "editor/layers.h"
+#include "editor/plugin_abi.h"
 #include "platform/ux/plugin.h"
 #include "protospec/classes.h"
 
@@ -785,7 +786,7 @@ void RenderElement(EditorContext& ctx, E& e) {
 }
 
 void DetailsUpdate(GuiPlugin* self) {
-  EditorContext* c = static_cast<EditorContext*>(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   if (!c->tree) {
     ImGui::TextUnformatted("No model loaded.");
     return;

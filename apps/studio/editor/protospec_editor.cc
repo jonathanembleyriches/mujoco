@@ -4,14 +4,11 @@
 // plugin publishes via poll_compiled. The host never touches ps::Model.
 
 #include "editor/editor_ops.h"
+#include "editor/plugin_abi.h"
 #include "editor/plugins.h"
 #include "platform/ux/ps_plugin_ext.h"
 
 namespace ps::studio {
-
-static EditorContext* Ctx(void* data) {
-  return static_cast<EditorContext*>(data);
-}
 
 void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
   ModelSourcePlugin plugin;
@@ -19,11 +16,11 @@ void RegisterProtoSpecEditorPlugin(EditorContext& ctx) {
   plugin.data = &ctx;
 
   plugin.submit_load = [](ModelSourcePlugin* self, const char* path) {
-    Ctx(self->data)->pending.Request(path ? path : "");
+    ctx_cast<EditorContext>(self)->pending.Request(path ? path : "");
   };
 
   plugin.poll_compiled = [](ModelSourcePlugin* self, CompiledModel* out) -> bool {
-    EditorContext* c = Ctx(self->data);
+    EditorContext* c = ctx_cast<EditorContext>(self);
 
     // A pending file load takes priority (fresh tree + compile). It replaces
     // the tree wholesale, so any stashed cancel-revert is moot.

@@ -16,16 +16,13 @@
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
 #include "editor/layers.h"
+#include "editor/plugin_abi.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 
 namespace ps::studio {
 
 namespace mj = ps::mjcf;
-
-static EditorContext* Ctx(void* data) {
-  return static_cast<EditorContext*>(data);
-}
 
 // Every material / texture in the model, in document order (across asset blocks).
 static std::vector<mj::Material*> AllMaterials(mj::Model& tree) {
@@ -281,7 +278,7 @@ static void DrawLayerRow(EditorContext* c, int i, int& activate, int& move_idx,
 }
 
 static void LayersUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   static LayersUiState st;
 
   ImGui::TextDisabled("Layers -- provenance tags over one tree");
@@ -432,7 +429,7 @@ static void LayersUpdate(GuiPlugin* self) {
 
 // Assets: meshes / textures / materials, with creation + a browsable swatch list.
 static void AssetsUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   ImGui::TextDisabled("Assets (meshes / textures / materials / hfields)");
   ImGui::Separator();
   if (!c->tree) {
@@ -465,7 +462,7 @@ static void AssetsUpdate(GuiPlugin* self) {
   const std::vector<mj::Material*> mats = AllMaterials(*c->tree);
   ImGui::Text("Materials (%zu)", mats.size());
   for (mj::Material* m : mats) {
-    ImGui::PushID(static_cast<int>(m->serial));
+    ImGui::PushID(ImGuiSerialId(m->serial));
     std::array<float, 4> col{0.8f, 0.8f, 0.8f, 1.0f};
     if (m->rgba) col = *m->rgba;
     ColorSwatch("##matsw", col);
@@ -483,7 +480,7 @@ static void AssetsUpdate(GuiPlugin* self) {
   const std::vector<mj::Texture*> texs = AllTextures(*c->tree);
   ImGui::Text("Textures (%zu)", texs.size());
   for (mj::Texture* t : texs) {
-    ImGui::PushID(static_cast<int>(t->serial));
+    ImGui::PushID(ImGuiSerialId(t->serial));
     // A builtin texture previews as its rgb1 swatch; a file texture as a marker.
     std::array<float, 4> col{0.5f, 0.5f, 0.5f, 1.0f};
     const char* kind = "file";
@@ -531,6 +528,8 @@ void DrawAddSensorItems(EditorContext& ctx, std::uint64_t target) {
   struct S { const char* label; SensorSpelling sp; };
   const S sens[] = {{"Jointpos", SensorSpelling::Jointpos},
                     {"Jointvel", SensorSpelling::Jointvel},
+                    {"Actuatorpos", SensorSpelling::Actuatorpos},
+                    {"Actuatorvel", SensorSpelling::Actuatorvel},
                     {"Framepos", SensorSpelling::Framepos},
                     {"Framequat", SensorSpelling::Framequat},
                     {"Gyro", SensorSpelling::Gyro},
@@ -547,7 +546,7 @@ void DrawAddSensorItems(EditorContext& ctx, std::uint64_t target) {
 // The "+ Add" panel: model-level structural adds (deliverable 1). Target-aware --
 // an actuator/sensor wires to the current selection when it is a valid target.
 static void AddMenuUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   if (!c->tree) {
     ImGui::TextDisabled("No model loaded.");
     return;
@@ -597,7 +596,7 @@ static ImVec4 SeverityColor(DiagEntry::Severity s) {
 }
 
 static void DiagnosticsUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   // The status-bar error chip focuses this panel by posting a request the panel
   // honours from inside its own window (one-shot).
   if (c->focus_diagnostics_request) {
@@ -657,7 +656,7 @@ static void SaveAndExternalize(EditorContext* c, const std::string& path) {
 }
 
 static void FileMenuUpdate(GuiPlugin* self) {
-  EditorContext* c = Ctx(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   static std::string load_path;
   static std::string save_path;
 
@@ -737,19 +736,19 @@ void RegisterEditorPanels(EditorContext& ctx) {
   RegisterKey(
       "Undo", ImGuiMod_Ctrl | ImGuiKey_Z,
       [](KeyHandlerPlugin* self) {
-        EditorContext* c = Ctx(self->data);
+        EditorContext* c = ctx_cast<EditorContext>(self);
         if (c->CanEdit()) Undo(*c);
       }, ctx);
   RegisterKey(
       "Redo", ImGuiMod_Ctrl | ImGuiKey_Y,
       [](KeyHandlerPlugin* self) {
-        EditorContext* c = Ctx(self->data);
+        EditorContext* c = ctx_cast<EditorContext>(self);
         if (c->CanEdit()) Redo(*c);
       }, ctx);
   RegisterKey(
       "Save", ImGuiMod_Ctrl | ImGuiKey_S,
       [](KeyHandlerPlugin* self) {
-        EditorContext* c = Ctx(self->data);
+        EditorContext* c = ctx_cast<EditorContext>(self);
         if (c->model_ready && !c->source_path.empty()) {
           SaveAndExternalize(c, c->source_path);
         }

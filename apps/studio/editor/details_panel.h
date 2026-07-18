@@ -159,23 +159,6 @@ constexpr std::size_t NumericWidgetBytes(NumericWidget w) {
   return 0;
 }
 
-inline std::string_view WidgetKindName(WidgetKind w) {
-  switch (w) {
-    case WidgetKind::Checkbox: return "Checkbox";
-    case WidgetKind::IntScalar: return "IntScalar";
-    case WidgetKind::RealScalar: return "RealScalar";
-    case WidgetKind::Text: return "Text";
-    case WidgetKind::EnumCombo: return "EnumCombo";
-    case WidgetKind::EnumSet: return "EnumSet";
-    case WidgetKind::RefCombo: return "RefCombo";
-    case WidgetKind::Variant: return "Variant";
-    case WidgetKind::IntRow: return "IntRow";
-    case WidgetKind::RealRow: return "RealRow";
-    case WidgetKind::Unhandled: return "Unhandled";
-  }
-  return "?";
-}
-
 // --- Colour fields --------------------------------------------------------- //
 // A handful of fields are RGB(A) colours and read far better as an ImGui colour
 // swatch/picker than as a bare numeric row. They are recognised by field name

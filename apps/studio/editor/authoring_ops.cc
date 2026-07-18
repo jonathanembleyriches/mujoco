@@ -18,6 +18,7 @@
 
 #include "compile.h"
 #include "editor/editor_ops.h"
+#include "editor/element_access.h"
 #include "editor/layers.h"
 #include "editor/transform_math.h"
 #include "protospec/attach.h"  // sdk::Duplicate / sdk::Reparent (public verbs)
@@ -80,15 +81,12 @@ Container FindContainer(mj::Model& tree, std::uint64_t serial) {
     c.body = &sdk::World(tree);
     return c;
   }
-  sdk_detail::WalkModelAll(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (c.valid()) return;
-    if constexpr (std::is_same_v<E, mj::Body>) {
-      if (e.serial == serial) c.body = &e;
-    } else if constexpr (std::is_same_v<E, mj::Frame>) {
-      if (e.serial == serial) c.frame = &e;
-    }
-  });
+  auto [ptr, type] = FindSerialWithType(tree, serial);
+  if (type == mj::ElementType::Body) {
+    c.body = static_cast<mj::Body*>(ptr);
+  } else if (type == mj::ElementType::Frame) {
+    c.frame = static_cast<mj::Frame*>(ptr);
+  }
   return c;
 }
 
@@ -179,9 +177,19 @@ TargetRef TargetBySerial(mj::Model& tree, std::uint64_t serial) {
   return t;
 }
 
+// True when `t` is a spelling of the ActuatorAny union (classified off the
+// schema, so it tracks the IDL rather than a hand-kept list).
+inline bool IsActuatorType(mj::ElementType t) {
+  const reflect::UnionDescriptor& u = reflect::DescribeUnion("ActuatorAny");
+  for (std::size_t i = 0; i < u.member_count; ++i) {
+    if (u.members[i] == t) return true;
+  }
+  return false;
+}
+
 // Wire a sensor's target field from a resolved (type, name) selection, using
-// whichever transmission the sensor spelling exposes (joint / site / frame
-// object). No-op when the target is empty or incompatible.
+// whichever transmission the sensor spelling exposes (joint / site / actuator /
+// frame object). No-op when the target is empty or incompatible.
 template <class S>
 void WireSensorTarget(S& s, mj::ElementType ttype, const std::string& tname) {
   if (tname.empty()) return;
@@ -194,6 +202,12 @@ void WireSensorTarget(S& s, mj::ElementType ttype, const std::string& tname) {
   if constexpr (requires { s.site; }) {
     if (ttype == mj::ElementType::Site) {
       s.site = ps::Ref<mj::Site>(tname);
+      return;
+    }
+  }
+  if constexpr (requires { s.actuator; }) {
+    if (IsActuatorType(ttype)) {
+      s.actuator = ps::Ref<mj::ActuatorAny>(tname);
       return;
     }
   }
@@ -444,6 +458,14 @@ std::uint64_t AddSensorOp(EditorContext& ctx, SensorSpelling spelling,
       case SensorSpelling::Jointvel:
         return make(sdk::AddSensor<mj::Jointvel>(
             tree, UniqueNameFor(tree, mj::ElementType::Jointvel, "jointvel")));
+      case SensorSpelling::Actuatorpos:
+        return make(sdk::AddSensor<mj::Actuatorpos>(
+            tree,
+            UniqueNameFor(tree, mj::ElementType::Actuatorpos, "actuatorpos")));
+      case SensorSpelling::Actuatorvel:
+        return make(sdk::AddSensor<mj::Actuatorvel>(
+            tree,
+            UniqueNameFor(tree, mj::ElementType::Actuatorvel, "actuatorvel")));
       case SensorSpelling::Framepos:
         return make(sdk::AddSensor<mj::Framepos>(
             tree, UniqueNameFor(tree, mj::ElementType::Framepos, "framepos")));
@@ -521,13 +543,7 @@ std::uint64_t CreateTextureOp(EditorContext& ctx, const TextureSpec& spec) {
 bool AssignGeomMaterialOp(EditorContext& ctx, std::uint64_t geom_serial,
                           const std::string& material_name) {
   if (!ctx.tree || geom_serial == 0) return false;
-  mj::Geom* target = nullptr;
-  sdk_detail::WalkModelAll(*ctx.tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (std::is_same_v<E, mj::Geom>) {
-      if (!target && e.serial == geom_serial) target = &e;
-    }
-  });
+  mj::Geom* target = FindSerialAs<mj::Geom>(*ctx.tree, geom_serial);
   if (!target) return false;
   ctx.BeginEdit();
   if (material_name.empty()) {
@@ -601,16 +617,7 @@ namespace {
 // the target/parent of a structural op before handing it to a runtime-pointer SDK
 // verb.
 const void* FindPtrBySerial(mj::Model& model, std::uint64_t serial) {
-  const void* out = nullptr;
-  sdk_detail::WalkModelAll(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if constexpr (requires { e.serial; }) {
-        if (!out && e.serial == serial) out = &e;
-      }
-    }
-  });
-  return out;
+  return FindSerial(model, serial);
 }
 
 // The creation serial of the element at `ptr` (sdk::Duplicate returns the clone's
@@ -775,7 +782,6 @@ bool NewModelOp(EditorContext& ctx) {
     ctx.active_layer = prev_active;
     return false;
   }
-  ctx.source_name = "untitled";
   ctx.source_path.clear();
   ctx.history.Clear();
   // The HOST adopts a model only through the model-source poll, and the poll

@@ -50,6 +50,7 @@ std::uint64_t AddGeomOp(EditorContext& ctx, std::uint64_t parent_serial,
 // (each offset a fixed step further along +X) so they do not overlap. ONE undo
 // entry for the whole batch; the last geom is selected. `count <= 1` is exactly
 // AddGeomOp. Returns the last geom's serial, or 0 when the parent is invalid.
+// No UI exposes batch add yet; the SE5 asset tests are its only callers.
 std::uint64_t AddGeomsOp(EditorContext& ctx, std::uint64_t parent_serial,
                          mj::GeomType type, int count);
 // JointType::free adds a <freejoint>; the other three add a typed <joint>.

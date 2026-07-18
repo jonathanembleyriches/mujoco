@@ -17,6 +17,7 @@
 #include "editor/hierarchy_icons.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/layers.h"
+#include "editor/plugin_abi.h"
 #include "editor/plugins.h"
 #include "platform/ux/plugin.h"
 #include "types.h"
@@ -406,7 +407,7 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
     return;
   }
 
-  ImGui::PushID(static_cast<int>(node.serial));
+  ImGui::PushID(ImGuiSerialId(node.serial));
 
   if (st.rename_serial == node.serial) {
     DrawRenameInput(ctx, node, st);
@@ -512,7 +513,7 @@ void DrawDeleteModal(EditorContext& ctx, HierUiState& st) {
 
 void HierarchyUpdate(GuiPlugin* self) {
   static HierUiState st;
-  EditorContext* c = static_cast<EditorContext*>(self->data);
+  EditorContext* c = ctx_cast<EditorContext>(self);
   if (!c->tree) {
     ImGui::TextUnformatted("No model loaded.");
     return;

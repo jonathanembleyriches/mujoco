@@ -166,13 +166,17 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
     }
     root.children.push_back(std::move(s));  // always: right-click adds world children
   }
+  // The family sections below are pushed unconditionally, even when empty
+  // (unlike Custom's PushIfNonEmpty at the end): the always-present section row
+  // is the right-click target that bootstraps the first element of an otherwise
+  // empty family.
   {
     HierNode s = Section("Actuators");
     NodeBuilder b{&s};
     for (const auto& act : m.actuators) {
       if (act) EmitUnionVec(b, act->actuators);
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Sensors");
@@ -180,7 +184,7 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
     for (const auto& sen : m.sensors) {
       if (sen) EmitUnionVec(b, sen->sensors);
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Tendons");
@@ -188,7 +192,7 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
     for (const auto& t : m.tendons) {
       if (t) EmitUnionVec(b, t->tendons);
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Equality");
@@ -196,7 +200,7 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
     for (const auto& eq : m.equalitys) {
       if (eq) EmitUnionVec(b, eq->equalities);
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Contact");
@@ -207,13 +211,13 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
         EmitPtrVec(b, c->excludes);
       }
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Defaults");
     NodeBuilder b{&s};
     EmitPtrVec(b, m.defaults);
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Keyframes");
@@ -221,7 +225,7 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
     for (const auto& kf : m.keyframes) {
       if (kf) EmitPtrVec(b, kf->keys);
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Assets");
@@ -236,7 +240,7 @@ HierNode BuildHierarchyModel(const mj::Model& m) {
         EmitPtrVec(b, a->modelAssets);
       }
     }
-    root.children.push_back(std::move(s));  // always: right-click bootstraps an empty family
+    root.children.push_back(std::move(s));
   }
   {
     HierNode s = Section("Custom");

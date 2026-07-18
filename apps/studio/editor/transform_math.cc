@@ -9,6 +9,7 @@
 
 #include <mujoco/mujoco.h>
 
+#include "editor/element_access.h"  // FindSerial(As)/DispatchSpatial/IsSpatialType
 #include "protospec/classes.h"    // sdk::Effective, HasDefaultFamily
 #include "protospec/detail.h"     // WalkModelAll, NameOf
 #include "protospec/traversal.h"  // ParentMap, Find
@@ -18,7 +19,6 @@
 namespace ps::studio {
 
 namespace sdk = ps::sdk;
-namespace sdkd = ps::sdk::detail;
 
 // --- Quaternion / rigid-transform primitives ------------------------------ //
 
@@ -142,28 +142,13 @@ void QuatOf(const ps::opt<std::array<double, 4>>& quat, double out[4]) {
 
 // --- Spatial element resolution ------------------------------------------- //
 
-static bool IsSpatial(mj::ElementType t) {
-  return t == mj::ElementType::Body || t == mj::ElementType::Geom ||
-         t == mj::ElementType::Site || t == mj::ElementType::Camera ||
-         t == mj::ElementType::Light || t == mj::ElementType::Frame;
-}
-
 SpatialRef FindSpatial(mj::Model& tree, std::uint64_t serial) {
   SpatialRef out;
-  if (serial == 0) return out;
-  sdkd::WalkModelAll(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (out.ptr) return;
-    if constexpr (requires { e.serial; }) {
-      if constexpr (!std::is_same_v<E, mj::Model>) {
-        const mj::ElementType t = mj::element_type_of<E>::value;
-        if (e.serial == serial && IsSpatial(t)) {
-          out.ptr = &e;
-          out.type = t;
-        }
-      }
-    }
-  });
+  auto [ptr, type] = FindSerialWithType(tree, serial);
+  if (ptr && IsSpatialType(type)) {
+    out.ptr = ptr;
+    out.type = type;
+  }
   return out;
 }
 
@@ -177,17 +162,17 @@ static Rigid BodyWorldPose(const mjData* data, int body_id) {
   return r;
 }
 
-// Compose the parent world pose P: nearest body ancestor's compiled world pose
-// composed with the authored transforms of the <frame> nodes between that body
-// and the element (outermost frame first). Frames are absent from mjModel, so
-// their poses come from the tree.
-static Rigid ComputeParentPose(const mjData* data,
-                               const mj::Binding& binding,
-                               const sdk::ParentMap& pm, const OrientContext& oc,
-                               const void* elem_ptr) {
+// The authored <frame> chain enclosing `elem_ptr`, as one body-local Rigid
+// (outermost frame first; identity when the element sits directly under a body
+// or the world). Walks the ParentMap upward, collecting Frame ancestors until
+// the first non-Frame node; when `out_body` is given and that node is a Body it
+// is reported so the caller can compose the body world pose on its left. Frames
+// are absent from mjModel, so their poses come from the tree. THE single parent-
+// chain walk both ComputeParentPose and FrameChainPrefix share.
+static Rigid FrameChainRigid(const sdk::ParentMap& pm, const void* elem_ptr,
+                             const mj::Body** out_body) {
+  if (out_body) *out_body = nullptr;
   std::vector<const mj::Frame*> frames;  // innermost first
-  const mj::Body* body = nullptr;
-
   const sdk::ParentMap::Node* self = pm.Lookup(elem_ptr);
   const void* p = self ? self->parent : nullptr;
   while (p) {
@@ -196,22 +181,15 @@ static Rigid ComputeParentPose(const mjData* data,
     if (n->type == mj::ElementType::Frame) {
       frames.push_back(static_cast<const mj::Frame*>(p));
       p = n->parent;
-    } else if (n->type == mj::ElementType::Body) {
-      body = static_cast<const mj::Body*>(p);
-      break;
     } else {
-      break;  // worldbody (Model root) or a non-spatial container -> world frame
+      if (out_body && n->type == mj::ElementType::Body) {
+        *out_body = static_cast<const mj::Body*>(p);
+      }
+      break;  // Body / world (Model root) / non-spatial container -> stop
     }
   }
-
-  Rigid P;  // identity == worldbody
-  if (body) {
-    if (std::optional<int> id = binding.Id(*body)) {
-      P = BodyWorldPose(data, *id);
-    }
-  }
-  // Compose frames from outermost (nearest the body) to innermost.
-  for (auto it = frames.rbegin(); it != frames.rend(); ++it) {
+  Rigid A;  // identity
+  for (auto it = frames.rbegin(); it != frames.rend(); ++it) {  // outermost first
     const mj::Frame* f = *it;
     Rigid fr;
     if (f->pos) {
@@ -219,11 +197,28 @@ static Rigid ComputeParentPose(const mjData* data,
       fr.pos[1] = (*f->pos)[1];
       fr.pos[2] = (*f->pos)[2];
     }
-    (void)oc;
     QuatOf(f->quat, fr.quat);
-    P = Compose(P, fr);
+    A = Compose(A, fr);
   }
-  return P;
+  return A;
+}
+
+// Compose the parent world pose P: nearest body ancestor's compiled world pose
+// composed with the authored transforms of the enclosing <frame> nodes.
+static Rigid ComputeParentPose(const mjData* data,
+                               const mj::Binding& binding,
+                               const sdk::ParentMap& pm, const OrientContext& oc,
+                               const void* elem_ptr) {
+  (void)oc;
+  const mj::Body* body = nullptr;
+  const Rigid frame_chain = FrameChainRigid(pm, elem_ptr, &body);
+  Rigid P;  // identity == worldbody
+  if (body) {
+    if (std::optional<int> id = binding.Id(*body)) {
+      P = BodyWorldPose(data, *id);
+    }
+  }
+  return Compose(P, frame_chain);
 }
 
 // Materialise an element's authored local pose (Effective fills a class-inherited
@@ -349,70 +344,17 @@ DragFrame BuildDragFrame(const mjModel* model, const mjData* data,
   const OrientContext oc = ReadOrientContext(tree);
   // One lookup build (parent map + class index) serves the whole drag frame.
   const sdk::EffectiveContext ectx(tree);
-  switch (ref.type) {
-    case mj::ElementType::Body:
-      return BuildFor(tree, model, data, binding, ectx, oc,
-                      *static_cast<mj::Body*>(ref.ptr));
-    case mj::ElementType::Geom:
-      return BuildFor(tree, model, data, binding, ectx, oc,
-                      *static_cast<mj::Geom*>(ref.ptr));
-    case mj::ElementType::Site:
-      return BuildFor(tree, model, data, binding, ectx, oc,
-                      *static_cast<mj::Site*>(ref.ptr));
-    case mj::ElementType::Camera:
-      return BuildFor(tree, model, data, binding, ectx, oc,
-                      *static_cast<mj::Camera*>(ref.ptr));
-    case mj::ElementType::Light:
-      return BuildFor(tree, model, data, binding, ectx, oc,
-                      *static_cast<mj::Light*>(ref.ptr));
-    case mj::ElementType::Frame:
-      return BuildFor(tree, model, data, binding, ectx, oc,
-                      *static_cast<mj::Frame*>(ref.ptr));
-    default:
-      return f;
-  }
+  DispatchSpatial(ref.type, ref.ptr, [&](auto& e) {
+    f = BuildFor(tree, model, data, binding, ectx, oc, e);
+  });
+  return f;
 }
 
 Rigid FrameChainPrefix(mj::Model& tree, std::uint64_t serial) {
-  Rigid A;  // identity
-  if (serial == 0) return A;
-  const void* elem = nullptr;
-  sdkd::WalkModelAll(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if constexpr (requires { e.serial; }) {
-        if (!elem && e.serial == serial) elem = &e;
-      }
-    }
-  });
-  if (!elem) return A;
-
-  sdk::ParentMap pm(tree);
-  std::vector<const mj::Frame*> frames;  // innermost first
-  const sdk::ParentMap::Node* self = pm.Lookup(elem);
-  const void* p = self ? self->parent : nullptr;
-  while (p) {
-    const sdk::ParentMap::Node* n = pm.Lookup(p);
-    if (!n) break;
-    if (n->type == mj::ElementType::Frame) {
-      frames.push_back(static_cast<const mj::Frame*>(p));
-      p = n->parent;
-    } else {
-      break;  // a Body / world / non-spatial container: A is body-local, stop
-    }
-  }
-  for (auto it = frames.rbegin(); it != frames.rend(); ++it) {  // outermost first
-    const mj::Frame* f = *it;
-    Rigid fr;
-    if (f->pos) {
-      fr.pos[0] = (*f->pos)[0];
-      fr.pos[1] = (*f->pos)[1];
-      fr.pos[2] = (*f->pos)[2];
-    }
-    QuatOf(f->quat, fr.quat);
-    A = Compose(A, fr);
-  }
-  return A;
+  const void* elem = FindSerial(tree, serial);
+  if (!elem) return {};
+  const sdk::ParentMap pm(tree);
+  return FrameChainRigid(pm, elem, nullptr);
 }
 
 Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial) {
@@ -420,22 +362,10 @@ Rigid EffectiveLocalPose(mj::Model& tree, std::uint64_t serial) {
   if (!ref) return {};
   const OrientContext oc = ReadOrientContext(tree);
   const sdk::EffectiveContext ectx(tree);
-  switch (ref.type) {
-    case mj::ElementType::Body:
-      return MaterializeLocal(ectx, *static_cast<mj::Body*>(ref.ptr), oc);
-    case mj::ElementType::Geom:
-      return MaterializeLocal(ectx, *static_cast<mj::Geom*>(ref.ptr), oc);
-    case mj::ElementType::Site:
-      return MaterializeLocal(ectx, *static_cast<mj::Site*>(ref.ptr), oc);
-    case mj::ElementType::Camera:
-      return MaterializeLocal(ectx, *static_cast<mj::Camera*>(ref.ptr), oc);
-    case mj::ElementType::Light:
-      return MaterializeLocal(ectx, *static_cast<mj::Light*>(ref.ptr), oc);
-    case mj::ElementType::Frame:
-      return MaterializeLocal(ectx, *static_cast<mj::Frame*>(ref.ptr), oc);
-    default:
-      return {};
-  }
+  Rigid out;
+  DispatchSpatial(ref.type, ref.ptr,
+                  [&](auto& e) { out = MaterializeLocal(ectx, e, oc); });
+  return out;
 }
 
 // --- Delta application ---------------------------------------------------- //
@@ -562,42 +492,16 @@ void ApplyTranslate(mj::Model& tree, std::uint64_t serial, const DragFrame& f,
                     const double world_delta[3]) {
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref) return;
-  switch (ref.type) {
-    case mj::ElementType::Body:
-      TranslateElem(*static_cast<mj::Body*>(ref.ptr), f, world_delta); break;
-    case mj::ElementType::Geom:
-      TranslateElem(*static_cast<mj::Geom*>(ref.ptr), f, world_delta); break;
-    case mj::ElementType::Site:
-      TranslateElem(*static_cast<mj::Site*>(ref.ptr), f, world_delta); break;
-    case mj::ElementType::Camera:
-      TranslateElem(*static_cast<mj::Camera*>(ref.ptr), f, world_delta); break;
-    case mj::ElementType::Light:
-      TranslateElem(*static_cast<mj::Light*>(ref.ptr), f, world_delta); break;
-    case mj::ElementType::Frame:
-      TranslateElem(*static_cast<mj::Frame*>(ref.ptr), f, world_delta); break;
-    default: break;
-  }
+  DispatchSpatial(ref.type, ref.ptr,
+                  [&](auto& e) { TranslateElem(e, f, world_delta); });
 }
 
 void ApplyRotate(mj::Model& tree, std::uint64_t serial, const DragFrame& f,
                  const double axis[3], double angle) {
   SpatialRef ref = FindSpatial(tree, serial);
   if (!ref) return;
-  switch (ref.type) {
-    case mj::ElementType::Body:
-      RotateElem(*static_cast<mj::Body*>(ref.ptr), f, axis, angle); break;
-    case mj::ElementType::Geom:
-      RotateElem(*static_cast<mj::Geom*>(ref.ptr), f, axis, angle); break;
-    case mj::ElementType::Site:
-      RotateElem(*static_cast<mj::Site*>(ref.ptr), f, axis, angle); break;
-    case mj::ElementType::Camera:
-      RotateElem(*static_cast<mj::Camera*>(ref.ptr), f, axis, angle); break;
-    case mj::ElementType::Light:
-      RotateElem(*static_cast<mj::Light*>(ref.ptr), f, axis, angle); break;
-    case mj::ElementType::Frame:
-      RotateElem(*static_cast<mj::Frame*>(ref.ptr), f, axis, angle); break;
-    default: break;
-  }
+  DispatchSpatial(ref.type, ref.ptr,
+                  [&](auto& e) { RotateElem(e, f, axis, angle); });
 }
 
 // --- Scale ---------------------------------------------------------------- //
@@ -696,16 +600,7 @@ void ApplyScale(mj::Model& tree, std::uint64_t serial, const ScaleBase& base,
                 const double factor[3]) {
   if (!base.valid) return;
   if (base.is_mesh) {
-    if (mj::Mesh* m = [&]() -> mj::Mesh* {
-          mj::Mesh* found = nullptr;
-          sdkd::WalkModelAll(tree, [&](auto& x) {
-            using X = std::decay_t<decltype(x)>;
-            if constexpr (std::is_same_v<X, mj::Mesh>) {
-              if (!found && x.serial == base.mesh_serial) found = &x;
-            }
-          });
-          return found;
-        }()) {
+    if (mj::Mesh* m = FindSerialAs<mj::Mesh>(tree, base.mesh_serial)) {
       m->scale = std::array<double, 3>{base.mesh_scale[0] * factor[0],
                                        base.mesh_scale[1] * factor[1],
                                        base.mesh_scale[2] * factor[2]};
@@ -735,13 +630,7 @@ void ApplyScaleMeshUniform(mj::Model& tree, std::uint64_t serial,
 
   // The mesh asset: every axis of the grab-time scale multiplies by the same
   // uniform factor (a non-uniform authored scale keeps its proportions).
-  mj::Mesh* mesh = nullptr;
-  sdkd::WalkModelAll(tree, [&](auto& x) {
-    using X = std::decay_t<decltype(x)>;
-    if constexpr (std::is_same_v<X, mj::Mesh>) {
-      if (!mesh && x.serial == base.mesh_serial) mesh = &x;
-    }
-  });
+  mj::Mesh* mesh = FindSerialAs<mj::Mesh>(tree, base.mesh_serial);
   if (!mesh) return;
   mesh->scale = std::array<double, 3>{base.mesh_scale[0] * factor,
                                       base.mesh_scale[1] * factor,
@@ -776,13 +665,7 @@ void ApplyScaleMeshNonUniform(mj::Model& tree, std::uint64_t serial,
   double fx[3];
   for (int i = 0; i < 3; ++i) fx[i] = factor[i] < 1e-3 ? 1e-3 : factor[i];
 
-  mj::Mesh* mesh = nullptr;
-  sdkd::WalkModelAll(tree, [&](auto& x) {
-    using X = std::decay_t<decltype(x)>;
-    if constexpr (std::is_same_v<X, mj::Mesh>) {
-      if (!mesh && x.serial == base.mesh_serial) mesh = &x;
-    }
-  });
+  mj::Mesh* mesh = FindSerialAs<mj::Mesh>(tree, base.mesh_serial);
   if (!mesh) return;
   mesh->scale = std::array<double, 3>{base.mesh_scale[0] * fx[0],
                                       base.mesh_scale[1] * fx[1],
@@ -816,26 +699,12 @@ void ApplyScaleMeshNonUniform(mj::Model& tree, std::uint64_t serial,
 
 // The Joint element with `serial`, or nullptr (also nullptr for a FreeJoint).
 static mj::Joint* FindJoint(mj::Model& tree, std::uint64_t serial) {
-  mj::Joint* out = nullptr;
-  sdkd::WalkModelAll(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (std::is_same_v<E, mj::Joint>) {
-      if (!out && e.serial == serial) out = &e;
-    }
-  });
-  return out;
+  return FindSerialAs<mj::Joint>(tree, serial);
 }
 
 // The FreeJoint element pointer with `serial`, or nullptr.
 static const void* FindFreeJoint(mj::Model& tree, std::uint64_t serial) {
-  const void* out = nullptr;
-  sdkd::WalkModelAll(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (std::is_same_v<E, mj::FreeJoint>) {
-      if (!out && e.serial == serial) out = &e;
-    }
-  });
-  return out;
+  return FindSerialAs<mj::FreeJoint>(tree, serial);
 }
 
 bool IsJointSerial(mj::Model& tree, std::uint64_t serial) {
