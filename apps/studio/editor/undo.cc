@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "protospec/detail.h"  // ps::sdk::detail::WalkModelAll
+#include "protospec/traversal.h"  // ps::sdk::WalkModel
 #include "types.h"
 
 namespace ps::studio {
@@ -19,7 +19,7 @@ namespace {
 // the Model root) carry a serial; the union wrapper types the walk descends
 // through do not and are transparently skipped by the `requires` guard.
 void CollectSerials(const mj::Model& m, std::vector<std::uint64_t>& out) {
-  ps::sdk::detail::WalkModelAll(m, [&](const auto& e) {
+  ps::sdk::WalkModel(m, [&](const auto& e) {
     if constexpr (requires { e.serial; }) {
       out.push_back(e.serial);
     }
@@ -27,7 +27,7 @@ void CollectSerials(const mj::Model& m, std::vector<std::uint64_t>& out) {
 }
 
 void CollectSerialSlots(mj::Model& m, std::vector<std::uint64_t*>& out) {
-  ps::sdk::detail::WalkModelAll(m, [&](auto& e) {
+  ps::sdk::WalkModel(m, [&](auto& e) {
     if constexpr (requires { e.serial; }) {
       out.push_back(&e.serial);
     }

@@ -17,8 +17,8 @@
 #include "binding.h"
 #include "compile.h"
 #include "mjcf.h"
-#include "protospec/detail.h"
 #include "protospec/refs.h"
+#include "protospec/traversal.h"
 #include "reflect.h"
 #include "report.h"
 #include "types.h"
@@ -31,7 +31,6 @@ namespace validate = ps::mjcf::validate;
 namespace reflect = ps::mjcf::reflect;
 namespace mj = ps::mjcf;
 namespace sdk = ps::sdk;
-namespace sdk_detail = ps::sdk::detail;
 
 // A type-erased element pointer by creation serial in an arbitrary model (the
 // live tree or a probe clone), or nullptr. FindBySerial(ctx, ...) resolves the
@@ -60,13 +59,13 @@ std::optional<std::uint64_t> SerialForValidatePath(const mj::Model& tree,
   }
 
   std::optional<std::uint64_t> found;
-  sdk_detail::WalkModelAll(tree, [&](const auto& e) {
+  sdk::WalkModel(tree, [&](const auto& e) {
     using E = std::decay_t<decltype(e)>;
     if (found) {
       return;
     }
     if constexpr (requires { e.serial; }) {
-      const std::string* nm = sdk_detail::NameOf(e);
+      const std::string* nm = sdk::Name(e);
       if (nm && *nm == name &&
           reflect::Describe(mj::element_type_of<E>::value).xml == tag) {
         found = e.serial;
@@ -374,7 +373,7 @@ bool SelectBySerial(EditorContext& ctx, std::uint64_t serial) {
   bool found = false;
   std::string desc;
   if (ctx.tree && serial != 0) {
-    sdk_detail::WalkModelAll(*ctx.tree, [&](const auto& e) {
+    sdk::WalkModel(*ctx.tree, [&](const auto& e) {
       using E = std::decay_t<decltype(e)>;
       if (found) {
         return;
@@ -384,7 +383,7 @@ bool SelectBySerial(EditorContext& ctx, std::uint64_t serial) {
           found = true;
           const std::string type =
               std::string(reflect::Describe(mj::element_type_of<E>::value).name);
-          const std::string* nm = sdk_detail::NameOf(e);
+          const std::string* nm = sdk::Name(e);
           desc = type + " '" + (nm ? *nm : std::string("<unnamed>")) +
                  "' (serial " + std::to_string(serial) + ")";
         }

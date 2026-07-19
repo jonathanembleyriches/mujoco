@@ -85,7 +85,7 @@ ps::mjcf::Model* BuildCompileModel(EditorContext& ctx,
 
 // Recompute ctx.layer_graph from the tree's cross-layer references (typed
 // scalar refs, ref<T>[] lists, and dynamic target_from refs, via
-// ps::sdk::detail::ScanRefs).
+// ps::sdk::ScanRefs).
 void RecomputeLayerGraph(EditorContext& ctx);
 
 // The enable-toggle lock for layer `index`: locked while any ENABLED layer

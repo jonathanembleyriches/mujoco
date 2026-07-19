@@ -3,6 +3,7 @@
 
 #include "editor/authoring_ops.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -23,7 +24,6 @@
 #include "editor/transform_math.h"
 #include "protospec/attach.h"  // sdk::Duplicate / sdk::Reparent (public verbs)
 #include "protospec/builders.h"
-#include "protospec/detail.h"
 #include "protospec/refs.h"
 #include "protospec/traversal.h"
 #include "reflect.h"
@@ -34,7 +34,6 @@ namespace ps::studio {
 
 namespace mj = ps::mjcf;
 namespace sdk = ps::sdk;
-namespace sdk_detail = ps::sdk::detail;
 namespace reflect = ps::mjcf::reflect;
 
 namespace {
@@ -141,12 +140,12 @@ std::uint64_t DoAdd(EditorContext& ctx, const std::string& label, Fn&& fn) {
 std::string JointNameBySerial(mj::Model& tree, std::uint64_t serial) {
   std::string out;
   if (serial == 0) return out;
-  sdk_detail::WalkModelAll(tree, [&](auto& e) {
+  sdk::WalkModel(tree, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (std::is_same_v<E, mj::Joint> ||
                   std::is_same_v<E, mj::FreeJoint>) {
       if (out.empty() && e.serial == serial) {
-        if (const std::string* nm = sdk_detail::NameOf(e)) out = *nm;
+        if (const std::string* nm = sdk::Name(e)) out = *nm;
       }
     }
   });
@@ -161,12 +160,12 @@ struct TargetRef {
 TargetRef TargetBySerial(mj::Model& tree, std::uint64_t serial) {
   TargetRef t;
   if (serial == 0) return t;
-  sdk_detail::WalkModelAll(tree, [&](auto& e) {
+  sdk::WalkModel(tree, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model>) {
       if constexpr (requires { e.serial; }) {
         if (t.name.empty() && e.serial == serial) {
-          if (const std::string* nm = sdk_detail::NameOf(e)) {
+          if (const std::string* nm = sdk::Name(e)) {
             t.type = mj::element_type_of<E>::value;
             t.name = *nm;
           }
@@ -226,11 +225,12 @@ std::string UniqueName(mj::Model& model,
                        const std::vector<mj::ElementType>& category,
                        const std::string& base) {
   std::unordered_set<std::string> used;
-  sdk_detail::WalkModelAll(model, [&](auto& e) {
+  sdk::WalkModel(model, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model>) {
-      if (sdk_detail::Contains(category, mj::element_type_of<E>::value)) {
-        if (const std::string* nm = sdk_detail::NameOf(e)) used.insert(*nm);
+      const mj::ElementType t = mj::element_type_of<E>::value;
+      if (std::find(category.begin(), category.end(), t) != category.end()) {
+        if (const std::string* nm = sdk::Name(e)) used.insert(*nm);
       }
     }
   });
@@ -567,14 +567,8 @@ std::uint64_t AddTendonOp(EditorContext& ctx) {
 
 std::uint64_t AddEqualityWeldOp(EditorContext& ctx) {
   return DoAdd(ctx, "Add equality", [&](mj::Model& tree) -> std::uint64_t {
-    // sdk::AddEquality names the section vector `equalitys`, but the Equality
-    // element's union list is `equalities`; push the weld directly to avoid that
-    // stale builder (cpp/sdk is out of scope to edit here).
-    mj::Equality& section = sdk::EnsureEqualitySection(tree);
-    auto weld = std::make_unique<mj::Weld>();
-    sdk_detail::SetName(*weld,
-                        UniqueNameFor(tree, mj::ElementType::Weld, "weld"));
-    return sdk::detail::PushUnion<mj::Weld>(section.equalities, std::move(weld))
+    return sdk::AddEquality<mj::Weld>(
+               tree, UniqueNameFor(tree, mj::ElementType::Weld, "weld"))
         .serial;
   });
 }
@@ -624,7 +618,7 @@ const void* FindPtrBySerial(mj::Model& model, std::uint64_t serial) {
 // pointer; the editor selects by serial), or 0.
 std::uint64_t SerialOfPtr(mj::Model& model, const void* ptr) {
   std::uint64_t out = 0;
-  sdk_detail::WalkModelAll(model, [&](auto& e) {
+  sdk::WalkModel(model, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model>) {
       if constexpr (requires { e.serial; }) {
@@ -665,7 +659,7 @@ namespace {
 // the element object). The keep-world-pose fixup the SDK deliberately leaves to
 // the compile-aware caller.
 void SetElemLocalPose(mj::Model& tree, const void* elem, const Rigid& L) {
-  sdk_detail::WalkModelAll(tree, [&](auto& e) {
+  sdk::WalkModel(tree, [&](auto& e) {
     if (static_cast<const void*>(&e) != elem) return;
     if constexpr (requires { e.pos; }) {
       e.pos = std::array<double, 3>{L.pos[0], L.pos[1], L.pos[2]};

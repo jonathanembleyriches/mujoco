@@ -49,6 +49,7 @@
 
 #include "binding.h"       // ps::mjcf::ObjTypeOf / FamilyToken
 #include "classes.h"       // ps::sdk::Effective (pure effective-defaults query)
+#include "model_core.h"    // ps::sdk::internal::DefaultIndex/ResolveClassName/OwnClass
 #include "context.h"
 #include "builtin_mesh.h"  // lifted procedural mesh generators
 #include "image_pipeline.h" // lifted PNG decode
@@ -621,9 +622,9 @@ void EagerSizeArray(const Model& m, const T& e, double out[3]) {
   };
   overlay(e.size);  // element authored prefix is highest priority
   ps::sdk::ParentMap pm(m);
-  ps::sdk::detail::DefaultIndex idx(m);
+  ps::sdk::internal::DefaultIndex idx(m);
   const std::string cls =
-      ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(e), &e);
+      ps::sdk::internal::ResolveClassName(pm, ps::sdk::internal::OwnClass(e), &e);
   for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d;
        d = idx.ParentOf(d)) {
     if (idx.ParentOf(d) == nullptr) {  // terminal: top-level block(s) -> `main`
@@ -4188,7 +4189,7 @@ struct CEquality {
 // Resolve active/solref/solimp from the EqualityDefault class chain (element's
 // own class then ancestors up to root; IDL defaults are already the CEquality
 // initializers). Fill-unauthored order: authored value wins, else nearest class.
-void MergeEqualityClassChain(const ps::sdk::detail::DefaultIndex& idx,
+void MergeEqualityClassChain(const ps::sdk::internal::DefaultIndex& idx,
                              const std::string& cls,
                              const ps::opt<bool>& a_auth,
                              const ps::opt<ps::InlineVec<double, 2>>& sr_auth,
@@ -4249,7 +4250,7 @@ void PackPolycoef(const ps::opt<std::vector<double>>& poly, CEquality& ce) {
 using NameIdMap = std::unordered_map<std::string, int>;
 
 // Compile one equality element of any spelling.
-CEquality EqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
+CEquality EqualityCompile(const ps::sdk::internal::DefaultIndex& idx,
                           const EqualityAny& any, const NameIdMap& bodyid,
                           const NameIdMap& siteid, const NameIdMap& jointid,
                           const NameIdMap& tendonid) {
@@ -4319,7 +4320,7 @@ CEquality EqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
 // Compile a flex equality referencing a flex by name (mjCEquality::
 // ResolveReferences flex branch). `type` is the mjtEq kind (mjEQ_FLEX for an
 // edge equality, mjEQ_FLEXVERT for a vert equality); obj2 is unused (-1).
-CEquality FlexEqualityCompile(const ps::sdk::detail::DefaultIndex& idx,
+CEquality FlexEqualityCompile(const ps::sdk::internal::DefaultIndex& idx,
                               const EqualityFlex& e, const NameIdMap& flexid,
                               int type, const double* strain_data = nullptr) {
   CEquality ce;
@@ -4422,7 +4423,7 @@ void CopyVecOpt(double* dst, const ps::InlineVec<double, N>& v) {
 
 // Resolve authored -> class chain -> IDL (CTendon initializers) for the scalar
 // and small-array fields shared by spatial and fixed tendons.
-void ResolveTendonFields(const ps::sdk::detail::DefaultIndex& idx,
+void ResolveTendonFields(const ps::sdk::internal::DefaultIndex& idx,
                          const std::string& cls, const TendonAuthored& a,
                          CTendon& ct) {
   // gather class-chain TendonDefault snapshots (nearest first).
@@ -4528,7 +4529,7 @@ void FillTendonAuthoredFixed(const Fixed& f, TendonAuthored& a) {
   a.stiffness = f.stiffness; a.damping = f.damping; a.user = f.user;
 }
 
-CTendon TendonCompile(const ps::sdk::detail::DefaultIndex& idx,
+CTendon TendonCompile(const ps::sdk::internal::DefaultIndex& idx,
                       const TendonAny& any, const NameIdMap& siteid,
                       const NameIdMap& geomid, const NameIdMap& jointid,
                       const std::vector<CGeom>& geoms) {
@@ -9913,7 +9914,7 @@ mjModel* BuildNativeModel(const Model& m, const ps::mjcf::CompileOptions& opts,
                      return a.signature < b.signature;
                    });
 
-  ps::sdk::detail::DefaultIndex default_idx(m);
+  ps::sdk::internal::DefaultIndex default_idx(m);
 
   // Tendons (S8): document order across all <tendon> sections. Compiled before
   // equalities so equality-tendon refs (and later actuator tendon targets) can

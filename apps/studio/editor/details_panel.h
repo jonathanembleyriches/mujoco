@@ -21,7 +21,7 @@
 
 #include "editor/editor_context.h"
 #include "keywords.h"
-#include "protospec/detail.h"
+#include "protospec/model_core.h"
 #include "protospec/traversal.h"
 #include "reflect.h"
 #include "types.h"
@@ -31,7 +31,12 @@ namespace ps::studio::details {
 
 namespace mj = ps::mjcf;
 namespace reflect = ps::mjcf::reflect;
-namespace sdkd = ps::sdk::detail;
+namespace sdk = ps::sdk;
+// The reflection-driven inspector programs against the SDK's shared model-core
+// surface (ps::sdk::internal, model_core.h): field-shape traits, per-field
+// probes and ref-target sets that have no public verb. Element walks and name
+// access go through the public verbs (sdk::WalkModel / sdk::Name).
+namespace sdkd = ps::sdk::internal;
 
 // --- Value-shape traits ---------------------------------------------------- //
 // The generic renderer dispatches on the stored C++ type of each field. The opt
@@ -225,11 +230,11 @@ inline std::vector<mj::ElementType> RefTargets(std::string_view type_name) {
 inline std::vector<std::string> RefCandidates(
     const mj::Model& model, const std::vector<mj::ElementType>& targets) {
   std::vector<std::string> out;
-  sdkd::WalkModelAll(const_cast<mj::Model&>(model), [&](auto& e) {
+  sdk::WalkModel(model, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (requires { mj::element_type_of<E>::value; }) {
       if (sdkd::Contains(targets, mj::element_type_of<E>::value)) {
-        if (const std::string* nm = sdkd::NameOf(e); nm && !nm->empty()) {
+        if (const std::string* nm = sdk::Name(e); nm && !nm->empty()) {
           out.push_back(*nm);
         }
       }

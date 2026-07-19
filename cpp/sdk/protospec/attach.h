@@ -47,27 +47,8 @@ struct AttachResult {
 
 namespace detail {
 
-// Prefix every typed reference name in one element (names handled separately).
-struct RefPrefixer {
-  const std::string* prefix;
-  template <class U>
-  void field(int, const char*, U& v) {
-    using D = std::decay_t<U>;
-    if constexpr (opt_ref<D>::value) {
-      if (v.has_value() && !v->name.empty()) v->name = *prefix + v->name;
-    } else if constexpr (opt_ref_list<D>::value) {
-      if (v.has_value())
-        for (auto& r : *v)
-          if (!r.name.empty()) r.name = *prefix + r.name;
-    }
-  }
-  template <class C>
-  void child(int, const char*, C&) {}
-  template <class C>
-  void union_child(int, const char*, C&) {}
-};
-
 // Prefix every name and every internal reference throughout a cloned subtree.
+// (RefPrefixer itself is shared model-core machinery; see model_core.h.)
 inline void PrefixSubtree(mj::Body& clone, const std::string& prefix) {
   WalkTree(clone, [&](auto& e) {
     if (const std::string* nm = NameOf(e)) SetName(e, prefix + *nm);

@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "editor/hierarchy_panel.h"
-#include "protospec/detail.h"  // ps::sdk::detail::NameOf
+#include "protospec/traversal.h"  // ps::sdk::Name
 #include "reflect.h"
 #include "types.h"
 #include "visit.h"
@@ -19,7 +19,7 @@ namespace ps::studio {
 
 namespace mj = ps::mjcf;
 namespace reflect = ps::mjcf::reflect;
-namespace sdk_detail = ps::sdk::detail;
+namespace sdk = ps::sdk;
 
 namespace {
 
@@ -34,7 +34,7 @@ HierNode MakeNode(const E& e) {
   n.serial = e.serial;
   n.type = mj::element_type_of<E>::value;
   n.tag = std::string(reflect::Describe(n.type).xml);
-  if (const std::string* nm = sdk_detail::NameOf(e)) {
+  if (const std::string* nm = sdk::Name(e)) {
     n.name = *nm;
   }
   n.is_macro = IsMacroType(n.type);

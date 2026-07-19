@@ -133,38 +133,14 @@ inline std::vector<mj::ElementType> DefaultFamilyCoverageGaps() {
   return gaps;
 }
 
-// --- Field-wise "fill unauthored" merge ----------------------------------- //
+// --- Shared class-layering surface (ps::sdk::internal) -------------------- //
+// The <default> class index and class-name resolution the in-tree native
+// compiler shares with the SDK (contract in model_core.h: changes update both
+// cpp/sdk and cpp/compile). These live in classes.h rather than model_core.h
+// because ResolveClassName is defined over ParentMap (traversal.h), which sits
+// above model_core in the include order.
 
-namespace detail {
-
-template <class U>
-void MergeField(U& dst, const U& src) {
-  if constexpr (is_opt<U>::value) {
-    if (!dst.has_value() && src.has_value()) dst = src;
-  }
-}
-
-// Fill each unauthored field of `dst` from `src` (same element type). Required
-// (non-opt) fields are left untouched -- a class never overrides structure.
-template <class T>
-struct MergeVisitor {
-  const T* src;
-  template <class U>
-  void field(int id, const char*, U& dst) {
-    const U* s = FieldAt<T, U>(*src, id);
-    if (s) MergeField(dst, *s);
-  }
-  template <class C>
-  void child(int, const char*, C&) {}
-  template <class C>
-  void union_child(int, const char*, C&) {}
-};
-
-template <class T>
-void MergeUnset(T& dst, const T& src) {
-  MergeVisitor<T> v{&src};
-  mj::Visit(dst, v);
-}
+namespace internal {
 
 // Index of the <default> class tree: name -> node, node -> parent, plus the
 // top-level blocks that make up the root `main` class.
@@ -250,8 +226,8 @@ std::string OwnClass(const T& e) {
 // The class governing an element: its own class, else the nearest enclosing
 // body-context childclass, else "" (the root/main class).
 inline std::string ResolveClassName(const ParentMap& pm,
-                                     const std::string& own,
-                                     const void* elemPtr) {
+                                    const std::string& own,
+                                    const void* elemPtr) {
   if (!own.empty()) return own;
   const ParentMap::Node* n = pm.Lookup(elemPtr);
   for (const void* p = n ? n->parent : nullptr; p;) {
@@ -261,6 +237,62 @@ inline std::string ResolveClassName(const ParentMap& pm,
     p = pn->parent;
   }
   return "";
+}
+
+inline mj::Default* EnsureRoot(mj::Model& model) {
+  for (auto& d : model.defaults) {
+    if (!d) continue;
+    std::string n = d->dclass ? *d->dclass : std::string();
+    if (n.empty() || n == "main") return d.get();
+  }
+  auto d = std::make_unique<mj::Default>();
+  d->dclass = "main";
+  mj::Default* raw = d.get();
+  model.defaults.push_back(std::move(d));
+  return raw;
+}
+
+}  // namespace internal
+
+// --- Field-wise "fill unauthored" merge ----------------------------------- //
+
+namespace detail {
+
+// The class-layering surface above is shared with the compiler (ps::sdk::
+// internal); re-exported here under the `detail::` spelling the SDK's own
+// class-merge code uses.
+using internal::DefaultIndex;
+using internal::EnsureRoot;
+using internal::OwnClass;
+using internal::ResolveClassName;
+
+template <class U>
+void MergeField(U& dst, const U& src) {
+  if constexpr (is_opt<U>::value) {
+    if (!dst.has_value() && src.has_value()) dst = src;
+  }
+}
+
+// Fill each unauthored field of `dst` from `src` (same element type). Required
+// (non-opt) fields are left untouched -- a class never overrides structure.
+template <class T>
+struct MergeVisitor {
+  const T* src;
+  template <class U>
+  void field(int id, const char*, U& dst) {
+    const U* s = FieldAt<T, U>(*src, id);
+    if (s) MergeField(dst, *s);
+  }
+  template <class C>
+  void child(int, const char*, C&) {}
+  template <class C>
+  void union_child(int, const char*, C&) {}
+};
+
+template <class T>
+void MergeUnset(T& dst, const T& src) {
+  MergeVisitor<T> v{&src};
+  mj::Visit(dst, v);
 }
 
 // Fill `target`'s unauthored fields from one <default> node's class partial for
@@ -297,19 +329,6 @@ void MergeClassChain(const DefaultIndex& idx, const std::string& className,
     }
     MergeNode(*d, target);
   }
-}
-
-inline mj::Default* EnsureRoot(mj::Model& model) {
-  for (auto& d : model.defaults) {
-    if (!d) continue;
-    std::string n = d->dclass ? *d->dclass : std::string();
-    if (n.empty() || n == "main") return d.get();
-  }
-  auto d = std::make_unique<mj::Default>();
-  d->dclass = "main";
-  mj::Default* raw = d.get();
-  model.defaults.push_back(std::move(d));
-  return raw;
 }
 
 }  // namespace detail

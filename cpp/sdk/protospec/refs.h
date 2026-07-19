@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "protospec/detail.h"
@@ -210,6 +211,27 @@ template <class T>
 T* ResolveTo(mj::Model& model, const ps::Ref<T>& ref) {
   detail::Handle h = Resolve(model, ref);
   return h ? static_cast<T*>(const_cast<void*>(h.ptr)) : nullptr;
+}
+
+// --- ScanRefs (reflection-driven reference visit) ------------------------- //
+
+// Invoke `on` once for every authored typed reference OF a single element:
+// scalar `Ref<T>` fields, each entry of a `ref<T>[]` list, and the schema's
+// dynamic (target_from) references. `on` is called as
+//
+//   on(int field_id, const char* field_name, std::string& ref_name,
+//      const std::vector<mj::ElementType>& target_types)
+//
+// where `ref_name` is the LIVE, mutable name string inside the reference --
+// rewrite it to edit the reference in place (this is how Rename fixes referrers)
+// or just read it for a scan -- and `target_types` is the set of element types
+// the reference may name (a union ref names several). Reflection-driven: it
+// needs no per-element code and tracks the schema automatically. Only `element`
+// itself is visited (not its subtree); walk with WalkModel/WalkSubtree to reach
+// every element. Never invoked for a Model (the root holds no references).
+template <class E, class OnRef>
+void ScanRefs(E& element, OnRef&& on) {
+  detail::ScanRefs(element, std::forward<OnRef>(on));
 }
 
 // --- FindReferrers -------------------------------------------------------- //

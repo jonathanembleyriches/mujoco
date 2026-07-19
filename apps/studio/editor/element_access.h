@@ -16,8 +16,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "protospec/detail.h"  // ps::sdk::detail::WalkModelAll
-#include "types.h"             // mj::Model, element_type_of, ElementType
+#include "protospec/traversal.h"  // ps::sdk::FindBySerial / FindBySerialTyped
+#include "types.h"                // mj::Model, element_type_of, ElementType
 
 namespace ps::studio {
 
@@ -33,18 +33,15 @@ auto FindSerialWithType(Model& model, std::uint64_t serial) {
   using Ptr = std::conditional_t<std::is_const_v<Model>, const void*, void*>;
   std::pair<Ptr, mj::ElementType> out{nullptr, mj::ElementType::Model};
   if (serial == 0) return out;
-  ps::sdk::detail::WalkModelAll(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if (out.first) return;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if constexpr (requires { e.serial; }) {
-        if (e.serial == serial) {
-          out.first = &e;
-          out.second = mj::element_type_of<E>::value;
-        }
-      }
-    }
-  });
+  // The SDK verb owns the walk; it takes a mutable Model and never mutates for a
+  // lookup, so a const model resolves through a const_cast and re-narrows on the
+  // way out (Ptr is const void* for a const Model).
+  const ps::sdk::Located loc =
+      ps::sdk::FindBySerialTyped(const_cast<mj::Model&>(model), serial);
+  if (loc) {
+    out.first = static_cast<Ptr>(loc.ptr);
+    out.second = loc.type;
+  }
   return out;
 }
 
@@ -59,15 +56,16 @@ auto FindSerial(Model& model, std::uint64_t serial) {
 template <class T, class Model>
 auto FindSerialAs(Model& model, std::uint64_t serial)
     -> std::conditional_t<std::is_const_v<Model>, const T*, T*> {
-  std::conditional_t<std::is_const_v<Model>, const T*, T*> out = nullptr;
-  if (serial == 0) return out;
-  ps::sdk::detail::WalkModelAll(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (std::is_same_v<E, T>) {
-      if (!out && e.serial == serial) out = &e;
-    }
-  });
-  return out;
+  using RetT = std::conditional_t<std::is_const_v<Model>, const T*, T*>;
+  if (serial == 0) return static_cast<RetT>(nullptr);
+  // Serials are process-unique (DR-10): the one element carrying `serial` is a T
+  // iff FindBySerialTyped reports T's element type, so this is the typed slice of
+  // the same single walk.
+  const ps::sdk::Located loc =
+      ps::sdk::FindBySerialTyped(const_cast<mj::Model&>(model), serial);
+  if (loc && loc.type == mj::element_type_of<T>::value)
+    return static_cast<RetT>(loc.ptr);
+  return static_cast<RetT>(nullptr);
 }
 
 // The six spatial families the gizmo drives, in one place. Any element outside

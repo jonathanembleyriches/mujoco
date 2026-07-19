@@ -44,7 +44,8 @@ The compile bridge is **not** a consumer-facing namespace: it is written as
 `ps::mjcf::Compile` / `ps::mjcf::Binding`, never `ps::mjcf::bridge::...`. `cpp/bridge`
 and `cpp/compile` are the implementation directories behind it, not a namespace a
 consumer names. Nested `detail` namespaces (`ps::mjcf::detail`, `ps::sdk::detail`,
-...) and the internal headers below are **not** public.
+...), the SDK/compiler shared core `ps::sdk::internal`, and the internal headers
+below are **not** public.
 
 ## Hello world (public headers only)
 
@@ -113,9 +114,23 @@ The include graph makes the boundary unambiguous: if it is not a
 - **Compile internals** — `cpp/compile/**` (native compiler, build, lifted MuJoCo
   code) and `cpp/core/resolve.h`. The supported compile surface is
   `protospec/compile.h` only.
-- **SDK internals** — `cpp/sdk/protospec/detail.h` (`ps::sdk::detail::*`: the
-  whole-tree walk, name access, ref scan, handles). Its useful primitives are
-  now re-exported as public `ps::sdk` verbs (see below).
+- **SDK internals** — `cpp/sdk/protospec/detail.h` (`ps::sdk::detail::*`):
+  genuinely SDK-private reflection helpers (type-erased element `Handle`, the
+  union/ref-accepts descriptors, MuJoCo name-category folding, the dynamic-keyword
+  table and its drift guard). No in-tree consumer outside `cpp/sdk` refers to a
+  symbol that stays private here. Its broadly-useful primitives are re-exported as
+  public `ps::sdk` verbs (see below).
+- **SDK / compiler shared core** — `cpp/sdk/protospec/model_core.h`
+  (`ps::sdk::internal::*`): the generic tree machinery the SDK's public verbs AND
+  the in-tree native compiler (`cpp/compile/{native,build}.cc`) both program
+  against — the whole-tree walk, name access, reference-shape traits, per-field
+  probes, ref-target sets, the reference prefixer, plus the `<default>` class
+  index / class-name resolution (the last defined in `classes.h`, over
+  `ParentMap`). It is a **named internal seam, not a public surface**: not
+  versioned, not exported, and any change must update both consumers in the same
+  change. The editor's reflection-driven inspector (`details_panel`) is the only
+  other in-tree consumer, for the per-field probes and ref-target sets that have
+  no public verb.
 - **Bridge internals** — `binding.h`'s `detail::BindingBuilder`, `report.h`'s
   `detail::`. `Binding`, `Compiled`, `CompileReport`, `Diagnostic`, `PosePatch`,
   and `ApplyPosePatch` are public (in `ps::mjcf`) via `protospec/compile.h`. The
@@ -148,6 +163,13 @@ for them:
   element for which `pred(const auto& element)` is true, subtrees included. A raw
   structural prune (no referrer bookkeeping, unlike the Delete verbs): for
   whole-partition drops such as compile-input filtering or layer pruning.
+- **Scan references** (refs): `sdk::ScanRefs(element, on)` — invoke `on(field_id,
+  field_name, std::string& ref_name, target_types)` for every authored typed
+  reference of a single element (scalar `Ref<T>`, each `ref<T>[]` entry, and the
+  schema's dynamic `target_from` refs). Reflection-driven, so it tracks the schema
+  with no per-element code; `ref_name` is the live mutable string (edit it to
+  rewrite the reference, or just read it). Backs the editor's cross-layer
+  dependency graph; promoted from `ps::sdk::detail`.
 - **Primitive sizing** (builders): `sdk::SeedPrimitiveSize(geom)` and
   `sdk::AddPrimitive(parent, type, name)` — a bare `AddGeom` authors only what
   you pass (DR-1), so a primitive has no size and will not compile;

@@ -632,7 +632,7 @@ constexpr bool ElemHasName() {
 template <class E>
 void RenderNameRow(EditorContext& ctx, E& e) {
   if constexpr (ElemHasName<E>()) {
-    const std::string* nm = sdkd::NameOf(e);
+    const std::string* nm = sdk::Name(e);
     const std::string cur = nm ? *nm : "";
     std::string work = cur;
     ImGui::PushID("name_field");
@@ -802,7 +802,7 @@ void DetailsUpdate(GuiPlugin* self) {
   // and render it once the traversal has finished.
   std::function<void()> render;
   std::string elem_layer_key;
-  sdkd::WalkModelAll(*c->tree, [&](auto& e) {
+  sdk::WalkModel(*c->tree, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model> && requires { e.serial; }) {
       if (!render && e.serial == c->selected_serial) {

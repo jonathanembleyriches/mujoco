@@ -2,6 +2,7 @@
 
 #include "editor/layers.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -22,7 +23,6 @@
 #include "editor/editor_ops.h"
 #include "editor/undo.h"
 #include "mjcf.h"
-#include "protospec/detail.h"
 #include "protospec/refs.h"
 #include "protospec/traversal.h"
 #include "reflect.h"
@@ -35,7 +35,7 @@ namespace {
 namespace mj = ps::mjcf;
 namespace io = ps::mjcf::io;
 namespace reflect = ps::mjcf::reflect;
-namespace sdkd = ps::sdk::detail;
+namespace sdk = ps::sdk;
 namespace xt = tinyxml2;
 
 // Visit every element of the tree EXCEPT the Model root (the root is the
@@ -43,7 +43,7 @@ namespace xt = tinyxml2;
 // the stack and must never partition, prune, or gate anything).
 template <class Fn>
 void ForEachElement(mj::Model& m, Fn&& fn) {
-  sdkd::WalkModelAll(m, [&](auto& e) {
+  sdk::WalkModel(m, [&](auto& e) {
     using E = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<E, mj::Model>) {
       fn(e);
@@ -88,54 +88,14 @@ void StampEmptyLoc(mj::Model& m, const std::string& key) {
   });
 }
 
-// Remove every element whose loc.file is in `drop`, subtrees included
-// (removing a body removes everything under it -- correct and expected).
-struct LayerPruner {
-  const std::unordered_set<std::string>* drop;
-
-  template <class U>
-  void field(int, const char*, U&) {}
-
-  template <class T>
-  void child(int, const char*, std::vector<std::unique_ptr<T>>& list) {
-    std::erase_if(list, [&](const std::unique_ptr<T>& p) {
-      return p && drop->count(p->loc.file) > 0;
-    });
-    for (auto& p : list) {
-      if (p) {
-        LayerPruner sub{drop};
-        mj::Visit(*p, sub);
-      }
-    }
-  }
-
-  template <class U>
-  void union_child(int, const char*, std::vector<U>& list) {
-    std::erase_if(list, [&](const U& item) {
-      bool rm = false;
-      std::visit(
-          [&](const auto& p) {
-            if (p && drop->count(p->loc.file) > 0) rm = true;
-          },
-          item.node);
-      return rm;
-    });
-    for (auto& item : list) {
-      std::visit(
-          [&](auto& p) {
-            if (p) {
-              LayerPruner sub{drop};
-              mj::Visit(*p, sub);
-            }
-          },
-          item.node);
-    }
-  }
-};
-
+// Remove every element whose loc.file is in `drop`, subtrees included (removing
+// a body removes everything under it -- correct and expected). sdk::PruneSubtrees
+// is the generalization of the editor's original LayerPruner: same erase-then-
+// descend order, keyed on a predicate rather than the loc.file set directly. It
+// deliberately does NOT scan/clear references to pruned elements -- a disabled
+// layer's dangling refs are meant to surface as honest compile/validate errors.
 void PruneKeys(mj::Model& m, const std::unordered_set<std::string>& drop) {
-  LayerPruner pr{&drop};
-  mj::Visit(m, pr);
+  sdk::PruneSubtrees(m, [&](const auto& e) { return drop.count(e.loc.file) > 0; });
 }
 
 // Move every top-level element of `src` onto the end of `dst`, per section
@@ -305,7 +265,7 @@ void RecomputeLayerGraph(EditorContext& ctx) {
     std::unordered_map<std::string, std::vector<Named>> named;
     ForEachElement(*ctx.tree, [&](auto& e) {
       using E = std::decay_t<decltype(e)>;
-      const std::string* nm = sdkd::NameOf(e);
+      const std::string* nm = sdk::Name(e);
       if (nm && !nm->empty()) {
         named[*nm].push_back({mj::element_type_of<E>::value,
                               LayerIndexForKey(ctx, e.loc.file)});
@@ -320,18 +280,19 @@ void RecomputeLayerGraph(EditorContext& ctx) {
       using E = std::decay_t<decltype(e)>;
       const int a = LayerIndexForKey(ctx, e.loc.file);
       if (a < 0) return;
-      sdkd::ScanRefs(
+      sdk::ScanRefs(
           e, [&](int, const char* fname, const std::string& rn,
                  const std::vector<mj::ElementType>& tgts) {
             auto it = named.find(rn);
             if (it == named.end()) return;
             for (const Named& cand : it->second) {
               if (cand.layer < 0 || cand.layer == a) continue;
-              if (!sdkd::Contains(tgts, cand.type)) continue;
+              if (std::find(tgts.begin(), tgts.end(), cand.type) == tgts.end())
+                continue;
               if (!seen.insert({a, cand.layer}).second) continue;
               std::string who = std::string(
                   reflect::Describe(mj::element_type_of<E>::value).name);
-              if (const std::string* enm = sdkd::NameOf(e)) {
+              if (const std::string* enm = sdk::Name(e)) {
                 if (!enm->empty()) who += " '" + *enm + "'";
               }
               g.edges.push_back(
@@ -380,7 +341,7 @@ void RecomputeLayerGraph(EditorContext& ctx) {
               reflect::Describe(mj::element_type_of<
                                     std::decay_t<decltype(e)>>::value)
                   .name);
-          if (const std::string* enm = sdkd::NameOf(e)) {
+          if (const std::string* enm = sdk::Name(e)) {
             if (!enm->empty()) who += " '" + *enm + "'";
           }
           const ps::sdk::ParentMap::Node* pn = pm.Lookup(p);

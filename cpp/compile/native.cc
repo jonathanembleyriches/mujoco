@@ -52,9 +52,10 @@
 
 #include <mujoco/mujoco.h>
 
-#include "attach.h"    // ps::sdk::detail::RefPrefixer (cross-model NameSpace)
+#include "attach.h"    // ps::sdk namespaced-subtree splice
 #include "build.h"
 #include "classes.h"   // ps::sdk defaults resolution (partial-array detector)
+#include "model_core.h"  // ps::sdk::internal shared model-core (walks, refs, classes)
 #include "context.h"
 #include "mjcf.h"      // io::ParseMjcfFile (recursive child-model parse)
 #include "native_supported.h"
@@ -71,9 +72,9 @@ namespace {
 // inherited by a <velocity>), MuJoCo's shared default applies fields the native
 // per-spelling merge misses. Detect a foreign actuator partial and fall back.
 template <class T>
-bool ForeignActuatorDefault(const ps::sdk::detail::DefaultIndex& idx,
+bool ForeignActuatorDefault(const ps::sdk::internal::DefaultIndex& idx,
                             const ps::sdk::ParentMap& pm, const T& e) {
-  std::string cls = ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(e), &e);
+  std::string cls = ps::sdk::internal::ResolveClassName(pm, ps::sdk::internal::OwnClass(e), &e);
   for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d; d = idx.ParentOf(d)) {
     auto has = [&](const auto& vec) { return !vec.empty() && vec.front(); };
     // every actuator family except the element's own T
@@ -284,9 +285,9 @@ class SubFeatureScanner {
   void CheckMaterial(const Material& mat) {
     if (!mat.layers.empty()) return;  // authored its own layers: handled
     ps::sdk::ParentMap pm(m_);
-    ps::sdk::detail::DefaultIndex idx(m_);
+    ps::sdk::internal::DefaultIndex idx(m_);
     const std::string cls =
-        ps::sdk::detail::ResolveClassName(pm, ps::sdk::detail::OwnClass(mat), &mat);
+        ps::sdk::internal::ResolveClassName(pm, ps::sdk::internal::OwnClass(mat), &mat);
     for (const ps::mjcf::Default* d = idx.ByNameOrRoot(cls); d;
          d = idx.ParentOf(d)) {
       const auto* vec = ps::sdk::DefaultVec<Material>(*d);
@@ -528,7 +529,7 @@ class PartialArrayScanner {
     }
   };
   const Model& m_;
-  ps::sdk::detail::DefaultIndex idx_;
+  ps::sdk::internal::DefaultIndex idx_;
   ps::sdk::ParentMap pm_;
   std::unordered_map<std::string, FeatureUse>& out_;
 };
@@ -585,13 +586,13 @@ class RefNameCollector {
     template <class T>
     void field(int, const char*, const T& v) {
       using DT = std::decay_t<T>;
-      if constexpr (ps::sdk::detail::opt_ref<DT>::value) {
+      if constexpr (ps::sdk::internal::opt_ref<DT>::value) {
         if (v && !v->name.empty()) c->out_.insert(v->name);
-      } else if constexpr (ps::sdk::detail::opt_ref_list<DT>::value) {
+      } else if constexpr (ps::sdk::internal::opt_ref_list<DT>::value) {
         if (v)
           for (const auto& r : *v)
             if (!r.name.empty()) c->out_.insert(r.name);
-      } else if constexpr (ps::sdk::detail::is_ref<DT>::value) {
+      } else if constexpr (ps::sdk::internal::is_ref<DT>::value) {
         if (!v.name.empty()) c->out_.insert(v.name);
       }
     }
@@ -781,9 +782,9 @@ template <class E>
 void TagClass(E& e, const std::string& cls) {
   if constexpr (requires { e.dclass; }) {
     using DT = std::decay_t<decltype(e.dclass)>;
-    if constexpr (ps::sdk::detail::is_opt<DT>::value) {
-      using Inner = typename ps::sdk::detail::is_opt<DT>::inner;
-      if constexpr (ps::sdk::detail::is_ref<Inner>::value) {
+    if constexpr (ps::sdk::internal::is_opt<DT>::value) {
+      using Inner = typename ps::sdk::internal::is_opt<DT>::inner;
+      if constexpr (ps::sdk::internal::is_ref<Inner>::value) {
         if (!e.dclass || e.dclass->name.empty()) {
           Inner r;
           r.name = cls;
@@ -798,10 +799,10 @@ void TagClass(E& e, const std::string& cls) {
 // throughout an element subtree -- the uniform cross-model NameSpace.
 template <class E>
 void PrefixTree(E& root, const std::string& prefix) {
-  ps::sdk::detail::WalkTree(root, [&](auto& e) {
-    if (const std::string* nm = ps::sdk::detail::NameOf(e))
-      ps::sdk::detail::SetName(e, prefix + *nm);
-    ps::sdk::detail::RefPrefixer p{&prefix};
+  ps::sdk::internal::WalkTree(root, [&](auto& e) {
+    if (const std::string* nm = ps::sdk::internal::NameOf(e))
+      ps::sdk::internal::SetName(e, prefix + *nm);
+    ps::sdk::internal::RefPrefixer p{&prefix};
     ps::mjcf::Visit(e, p);
   });
 }
@@ -865,7 +866,7 @@ void TagGraftSubtree(std::vector<BodyChildAny>& subtree, const std::string& pref
 // (only referencing families carry a dclass; wrap/anchor sub-items do not).
 template <class E>
 void TagSectionClasses(E& section, const std::string& prefix) {
-  ps::sdk::detail::WalkTree(section, [&](auto& e) { TagClass(e, prefix); });
+  ps::sdk::internal::WalkTree(section, [&](auto& e) { TagClass(e, prefix); });
 }
 
 // Give every still-unnamed nameable element in an imported subtree an authored
@@ -877,11 +878,11 @@ void TagSectionClasses(E& section, const std::string& prefix) {
 // imported default subclasses are always renamed, never left blank.)
 template <class E>
 void EmptyUnnamed(E& root) {
-  ps::sdk::detail::WalkTree(root, [&](auto& e) {
+  ps::sdk::internal::WalkTree(root, [&](auto& e) {
     using X = std::decay_t<decltype(e)>;
     if constexpr (!std::is_same_v<X, Default>) {
-      if (ps::sdk::detail::HasNameField<X>() && !ps::sdk::detail::NameOf(e))
-        ps::sdk::detail::SetName(e, "");
+      if (ps::sdk::internal::HasNameField<X>() && !ps::sdk::internal::NameOf(e))
+        ps::sdk::internal::SetName(e, "");
     }
   });
 }
@@ -1236,7 +1237,7 @@ void ExpandAttachInSubtree(
 // existing native files author none, so this keeps them on the zero-copy path.
 bool ModelUsesAttach(const Model& m) {
   bool found = false;
-  ps::sdk::detail::WalkModelLive(const_cast<Model&>(m), [&](auto& e) {
+  ps::sdk::internal::WalkModelLive(const_cast<Model&>(m), [&](auto& e) {
     if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Attach>) found = true;
   });
   return found;
@@ -1260,11 +1261,11 @@ std::unique_ptr<Model> ExpandAttaches(const Model& m,
   // their regenerated serials never surface.
   {
     std::vector<std::uint64_t> serials;
-    ps::sdk::detail::WalkModelLive(const_cast<Model&>(m), [&](auto& e) {
+    ps::sdk::internal::WalkModelLive(const_cast<Model&>(m), [&](auto& e) {
       if constexpr (requires { e.serial; }) serials.push_back(e.serial);
     });
     std::size_t i = 0;
-    ps::sdk::detail::WalkModelLive(*synth, [&](auto& e) {
+    ps::sdk::internal::WalkModelLive(*synth, [&](auto& e) {
       if constexpr (requires { e.serial; })
         if (i < serials.size()) e.serial = serials[i++];
     });
@@ -1294,7 +1295,7 @@ std::unique_ptr<Model> ExpandAttaches(const Model& m,
 
   // The child default trees graft as subclasses under synth's root default;
   // ensure it exists (a parent with no <default> gets an empty "main").
-  Default* root = ps::sdk::detail::EnsureRoot(*synth);
+  Default* root = ps::sdk::internal::EnsureRoot(*synth);
 
   // Parsed children live for the whole expansion (grafts reference nothing from
   // them after cloning, but keep them alive through the walk).
