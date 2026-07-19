@@ -58,9 +58,15 @@ void RegisterFirstPartyPlugins(const std::string& dir) {
   std::error_code ec;
   const std::filesystem::path root(base);
   for (const char* lib : kPluginLibs) {
-    const std::filesystem::path path = root / (std::string(lib) + kLibExt);
-    if (std::filesystem::exists(path, ec))
-      mj_loadPluginLibrary(path.string().c_str());
+    // Windows builds these beside mujoco.dll as `<name>.dll`; on Linux/macOS
+    // CMake emits the `lib<name>.so`/`.dylib` convention. Try both.
+    const std::filesystem::path bare = root / (std::string(lib) + kLibExt);
+    const std::filesystem::path prefixed =
+        root / ("lib" + std::string(lib) + kLibExt);
+    if (std::filesystem::exists(bare, ec))
+      mj_loadPluginLibrary(bare.string().c_str());
+    else if (std::filesystem::exists(prefixed, ec))
+      mj_loadPluginLibrary(prefixed.string().c_str());
   }
 }
 

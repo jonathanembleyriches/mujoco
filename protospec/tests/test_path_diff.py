@@ -153,8 +153,14 @@ FIXTURE_IDS = [p.stem for p in FIXTURE_FILES]
 
 
 def _run(exe: Path, *args: str) -> subprocess.CompletedProcess:
+    # Plugin-bearing fixtures need the first-party engine plugins (built beside
+    # libmujoco.so in the studio build_ps/lib). Point the harness's registry at
+    # that dir so <extension> models load on both legs; harmless for the rest.
+    env = dict(os.environ)
+    if BUILD_PS_LIB is not None:
+        env.setdefault("PROTOSPEC_PLUGIN_DIR", str(BUILD_PS_LIB))
     return subprocess.run(
-        [str(exe), *args], capture_output=True, text=True, timeout=300
+        [str(exe), *args], capture_output=True, text=True, timeout=300, env=env
     )
 
 

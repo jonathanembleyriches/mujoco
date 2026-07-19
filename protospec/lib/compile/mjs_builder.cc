@@ -14,6 +14,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
 #include <variant>
 #include <vector>
@@ -22,6 +24,11 @@
 
 #include "mjs_binding.h"
 #include "mjs_convert.h"
+
+// mjs_addSpec registers a parsed child spec on a parent for <attach>. It is an
+// exported (MJAPI, C-linkage) symbol of libmujoco but lives in the engine's
+// internal user_api.h, not the public <mujoco/mujoco.h>; declare it here.
+extern "C" void mjs_addSpec(mjSpec* s, mjSpec* child);
 
 namespace ps::mjcf::compile {
 namespace {
@@ -76,6 +83,63 @@ int TexRoleToMjt(TexRole v) {
   return mjTEXROLE_RGB;
 }
 
+// Exotic-sensor data-field enums -> engine bit indices (mirror the reader's
+// raydata_map / condata_map, whose enum order the schema enums match). The
+// keyword set is OR'd into a single-bit-per-field mask in mjsSensor.intprm[0].
+int RayDataToMjt(RayData v) {
+  switch (v) {
+    case RayData::dist: return mjRAYDATA_DIST;
+    case RayData::dir: return mjRAYDATA_DIR;
+    case RayData::origin: return mjRAYDATA_ORIGIN;
+    case RayData::point: return mjRAYDATA_POINT;
+    case RayData::normal: return mjRAYDATA_NORMAL;
+    case RayData::depth: return mjRAYDATA_DEPTH;
+  }
+  return mjRAYDATA_DIST;
+}
+int ContactDataToMjt(ContactData v) {
+  switch (v) {
+    case ContactData::found: return mjCONDATA_FOUND;
+    case ContactData::force: return mjCONDATA_FORCE;
+    case ContactData::torque: return mjCONDATA_TORQUE;
+    case ContactData::dist: return mjCONDATA_DIST;
+    case ContactData::pos: return mjCONDATA_POS;
+    case ContactData::normal: return mjCONDATA_NORMAL;
+    case ContactData::tangent: return mjCONDATA_TANGENT;
+  }
+  return mjCONDATA_FOUND;
+}
+int ContactReduceToInt(ContactReduce v) {
+  switch (v) {
+    case ContactReduce::none: return 0;
+    case ContactReduce::mindist: return 1;
+    case ContactReduce::maxforce: return 2;
+    case ContactReduce::netforce: return 3;
+  }
+  return 0;
+}
+
+// Flex sub-block enums -> engine ints (mirror flexself_map / elastic2d_map).
+int FlexSelfToInt(FlexSelfCollide v) {
+  switch (v) {
+    case FlexSelfCollide::none: return mjFLEXSELF_NONE;
+    case FlexSelfCollide::narrow: return mjFLEXSELF_NARROW;
+    case FlexSelfCollide::bvh: return mjFLEXSELF_BVH;
+    case FlexSelfCollide::sap: return mjFLEXSELF_SAP;
+    case FlexSelfCollide::auto_: return mjFLEXSELF_AUTO;
+  }
+  return mjFLEXSELF_AUTO;
+}
+int Elastic2DToInt(Elastic2D v) {
+  switch (v) {
+    case Elastic2D::none: return 0;
+    case Elastic2D::bend: return 1;
+    case Elastic2D::stretch: return 2;
+    case Elastic2D::both: return 3;
+  }
+  return 0;
+}
+
 // --- the builder --------------------------------------------------------- //
 class Builder {
  public:
@@ -118,12 +182,29 @@ class Builder {
   void BuildSensors(const Model& m);
   void BuildCustom(const Model& m);
   void BuildKeyframes(const Model& m);
+  void BuildDeformables(const Model& m);
+  void BuildSkin(const Skin& sk);
+  void BuildExtensions(const Model& m);
+
+  // Plugin helpers (mirror xml_native_reader.cc OnePlugin / ReadPluginConfigs).
+  void ApplyPluginConfigs(const std::vector<std::unique_ptr<Config>>& cfgs,
+                          mjsPlugin* plugin);
+  // Fills an element-embedded mjsPlugin: active=1, plugin_name (type) + name
+  // (instance). Empty instance name => an inline anonymous instance is created
+  // (mjs_addPlugin) and the configs applied to it; otherwise it references a
+  // predefined instance by name (no new instance, configs must be empty).
+  void SetPluginFields(const char* plugin_name, const char* instance_name,
+                       const std::vector<std::unique_ptr<Config>>& cfgs,
+                       mjsPlugin* plugin);
+  void ApplyPluginRef(const PluginRef& pr, mjsPlugin* plugin);
+  void BuildModelAssets(const Model& m);
 
   template <class A>
   void ApplyActuatorTail(const A& e, mjsActuator* out);
 
   mjSpec* spec_;
   const io::AutoNames& names_;
+  std::string base_dir_;   // model directory for resolving <model file=...>
 };
 
 // --- compiler / spec-level blocks ---------------------------------------- //
@@ -364,6 +445,85 @@ void Builder::BuildDefaults(const Model& m) {
   for (const auto& d : m.defaults) if (d) BuildDefaultNode(*d, root);
 }
 
+// --- plugins ------------------------------------------------------------- //
+void Builder::ApplyPluginConfigs(
+    const std::vector<std::unique_ptr<Config>>& cfgs, mjsPlugin* plugin) {
+  if (cfgs.empty()) return;
+  // mjs_setPluginAttributes reinterprets the pointer as a
+  // std::map<string,string,std::less<>> and move-assigns it (user_api.cc).
+  std::map<std::string, std::string, std::less<>> attribs;
+  for (const auto& c : cfgs)
+    if (c && c->key.has_value()) attribs[*c->key] = c->value.value_or("");
+  mjs_setPluginAttributes(plugin, &attribs);
+}
+
+void Builder::SetPluginFields(
+    const char* plugin_name, const char* instance_name,
+    const std::vector<std::unique_ptr<Config>>& cfgs, mjsPlugin* plugin) {
+  plugin->active = 1;
+  mjs_setString(plugin->plugin_name, plugin_name ? plugin_name : "");
+  const bool has_instance = instance_name && instance_name[0];
+  mjs_setString(plugin->name, has_instance ? instance_name : "");
+  if (!has_instance) {
+    plugin->element = mjs_addPlugin(spec_)->element;
+    ApplyPluginConfigs(cfgs, plugin);
+  }
+}
+
+void Builder::ApplyPluginRef(const PluginRef& pr, mjsPlugin* plugin) {
+  SetPluginFields(pr.plugin.has_value() ? pr.plugin->c_str() : nullptr,
+                  (pr.instance.has_value() && !pr.instance->name.empty())
+                      ? pr.instance->name.c_str() : nullptr,
+                  pr.config, plugin);
+}
+
+// Top-level <extension><plugin><instance><config>: activate each plugin type
+// and create one mjsPlugin per predefined instance. Runs before any element
+// that carries an inline plugin (ordering: explicit instances must precede
+// implicit ones), so this is invoked early in Build().
+void Builder::BuildExtensions(const Model& m) {
+  for (const auto& ext : m.extensions) {
+    if (!ext) continue;
+    for (const auto& def : ext->pluginDefs) {
+      if (!def) continue;
+      const std::string pname = def->plugin.value_or("");
+      if (!pname.empty()) mjs_activatePlugin(spec_, pname.c_str());
+      for (const auto& inst : def->pluginInstances) {
+        if (!inst) continue;
+        mjsPlugin* p = mjs_addPlugin(spec_);
+        mjs_setString(p->plugin_name, pname.c_str());
+        if (inst->name.has_value()) mjs_setString(p->name, inst->name->c_str());
+        ApplyPluginConfigs(inst->config, p);
+      }
+    }
+  }
+}
+
+// --- attach (model assets) ----------------------------------------------- //
+// Parse each <asset><model file=...> into a child spec and register it under
+// its (optionally overridden) modelname, then enable deep copy so <attach>
+// grafts a self-contained copy of the child subtree into the main spec. The
+// child specs are owned by the main spec after mjs_addSpec and freed with it.
+void Builder::BuildModelAssets(const Model& m) {
+  bool any = false;
+  for (const auto& a : m.assets) {
+    if (!a) continue;
+    for (const auto& ma : a->modelAssets) {
+      if (!ma || !ma->file.has_value()) continue;
+      const std::string path =
+          base_dir_.empty() ? *ma->file : base_dir_ + "/" + *ma->file;
+      char err[1024] = {0};
+      mjSpec* child = mj_parseXML(path.c_str(), nullptr, err, sizeof(err));
+      if (!child) continue;  // a bad child file fails identically on the XML leg
+      if (ma->name.has_value())
+        mjs_setString(child->modelname, ma->name->c_str());
+      mjs_addSpec(spec_, child);
+      any = true;
+    }
+  }
+  if (any) mjs_setDeepCopy(spec_, 1);
+}
+
 // --- assets -------------------------------------------------------------- //
 void Builder::BuildAssets(const Model& m) {
   for (const auto& a : m.assets) {
@@ -372,6 +532,28 @@ void Builder::BuildAssets(const Model& m) {
       if (!tex) continue;
       mjsTexture* t = mjs_addTexture(spec_);
       ApplyMjs(*tex, t);
+      // Cube-face separate files + gridlayout are emitter-waived (a char[12]
+      // array and a per-face string vector). Mirror xml_native_reader.cc
+      // OneTexture: when any face file is authored, set all six cubefiles slots
+      // in reader order (right,left,up,down,front,back), empty for unauthored;
+      // memcpy the gridlayout string into the char[12] field.
+      const ps::opt<std::string>* faces[6] = {
+          &tex->fileright, &tex->fileleft, &tex->fileup,
+          &tex->filedown,  &tex->filefront, &tex->fileback};
+      bool any_face = false;
+      for (const auto* f : faces) if (f->has_value()) any_face = true;
+      if (any_face) {
+        for (int i = 0; i < 6; ++i)
+          mjs_setInStringVec(t->cubefiles, i,
+                             faces[i]->has_value() ? faces[i]->value().c_str()
+                                                   : "");
+      }
+      if (tex->gridlayout.has_value()) {
+        const std::string& gl = *tex->gridlayout;
+        for (int i = 0; i < 12; ++i)
+          t->gridlayout[i] =
+              i < static_cast<int>(gl.size()) ? gl[i] : '\0';
+      }
     }
     for (const auto& mat : a->materials) {
       if (!mat) continue;
@@ -387,6 +569,8 @@ void Builder::BuildAssets(const Model& m) {
       if (!mesh) continue;
       mjsMesh* mo = mjs_addMesh(spec_, nullptr);
       ApplyMjs(*mesh, mo);
+      if (!mesh->plugin.empty() && mesh->plugin.front())
+        ApplyPluginRef(*mesh->plugin.front(), &mo->plugin);
     }
     for (const auto& hf : a->hfields) {
       if (!hf) continue;
@@ -394,6 +578,11 @@ void Builder::BuildAssets(const Model& m) {
       // Hfield.elevation aliases userdata (float); ApplyMjs handles name/file/
       // nrow/ncol/size and the elevation buffer.
       ApplyMjs(*hf, h);
+    }
+    // <skin> is also accepted under <asset> (legacy location); same builder as
+    // the <deformable> one.
+    for (const auto& sk : a->skins) {
+      if (sk) BuildSkin(*sk);
     }
   }
 }
@@ -424,6 +613,8 @@ void Builder::BuildSubtree(mjsBody* body,
         if (e.fluidshape.has_value())
           g->fluid_ellipsoid = (*e.fluidshape == FluidShape::ellipsoid) ? 1 : 0;
         if (frame) mjs_setFrame(g->element, frame);
+        if (!e.plugin.empty() && e.plugin.front())
+          ApplyPluginRef(*e.plugin.front(), &g->plugin);
         AutoName(g->element, e.serial);
       } else if constexpr (std::is_same_v<T, Joint>) {
         const mjsDefault* def = FindClass(e.dclass, inherited);
@@ -480,9 +671,32 @@ void Builder::BuildSubtree(mjsBody* body,
         const mjsDefault* framedef = childdef ? childdef : inherited;
         mjs_setDefault(pframe->element, framedef);
         BuildSubtree(body, e.subtree, pframe, framedef);
+      } else if constexpr (std::is_same_v<T, PluginRef>) {
+        // A <plugin> directly under a body sets that body's plugin sub-struct.
+        ApplyPluginRef(e, &body->plugin);
+      } else if constexpr (std::is_same_v<T, Attach>) {
+        // Native subtree attach (mirror the reader): parent is the enclosing
+        // frame, or a fresh frame on this body; child is the named body in the
+        // registered child spec (or the whole child model when body is empty).
+        // Deep copy (enabled in BuildModelAssets) grafts a self-contained copy.
+        if (e.model.has_value()) {
+          if (mjSpec* child = mjs_findSpec(spec_, e.model->name.c_str())) {
+            mjsFrame* pframe = frame ? frame : mjs_addFrame(body, nullptr);
+            mjsElement* childel = nullptr;
+            if (e.body.has_value() && !e.body->empty()) {
+              if (mjsBody* cb = mjs_findBody(child, e.body->c_str()))
+                childel = cb->element;
+            } else {
+              childel = child->element;
+            }
+            if (childel)
+              mjs_attach(pframe->element, childel,
+                         e.prefix.has_value() ? e.prefix->c_str() : "", "");
+          }
+        }
       }
-      // Composite/Flexcomp/Replicate/Attach/PluginRef are excluded by
-      // MjsFallbackScan, so they never reach here.
+      // Composite/Flexcomp/Replicate are excluded by MjsFallbackScan, so they
+      // never reach here.
     }, item.node);
   }
 }
@@ -789,6 +1003,14 @@ void Builder::BuildActuators(const Model& m) {
         }
         // ActuatorGeneral: gaintype/biastype/dyntype/gainprm/biasprm/dynprm are
         // written directly by ApplyMjs -- no shortcut needed.
+        if constexpr (std::is_same_v<T, ActuatorPlugin>) {
+          // Plugin actuator: standard transmission (set above) + dyntype/actdim/
+          // dynprm/actearly (ApplyMjs) + the plugin sub-struct.
+          SetPluginFields(e.plugin.has_value() ? e.plugin->c_str() : nullptr,
+                          (e.instance.has_value() && !e.instance->name.empty())
+                              ? e.instance->name.c_str() : nullptr,
+                          e.config, &a->plugin);
+        }
         AutoName(a->element, e.serial);
       }, any.node);
     }
@@ -885,6 +1107,82 @@ void Builder::BuildSensors(const Model& m) {
         else if constexpr (std::is_same_v<T, EPotential>) s->type = mjSENS_E_POTENTIAL;
         else if constexpr (std::is_same_v<T, EKinetic>) s->type = mjSENS_E_KINETIC;
         else if constexpr (std::is_same_v<T, Clock>) s->type = mjSENS_CLOCK;
+        else if constexpr (std::is_same_v<T, Rangefinder>) {
+          // Site OR camera is the sensorized object (never a ref). data keyword
+          // set -> intprm[0] bitmask; default 1<<mjRAYDATA_DIST. dim/datatype/
+          // needstage are derived by the compiler (mjs_sensorDim).
+          s->type = mjSENS_RANGEFINDER;
+          if (const char* n = RefCStr(e.site)) {
+            s->objtype = mjOBJ_SITE; mjs_setString(s->objname, n);
+          } else if (const char* n = RefCStr(e.camera)) {
+            s->objtype = mjOBJ_CAMERA; mjs_setString(s->objname, n);
+          }
+          int spec = 1 << mjRAYDATA_DIST;
+          if (e.data.has_value() && !e.data->empty()) {
+            spec = 0;
+            for (RayData d : *e.data) spec |= (1 << RayDataToMjt(d));
+          }
+          s->intprm[0] = spec;
+        }
+        else if constexpr (std::is_same_v<T, SensorContact>) {
+          // First present of site/body1/subtree1/geom1 is the object; second of
+          // body2/subtree2/geom2 is the ref (subtree maps to XBODY). intprm:
+          // [0]=data bitmask (default 1<<mjCONDATA_FOUND), [1]=reduce, [2]=num.
+          s->type = mjSENS_CONTACT;
+          if (const char* n = RefCStr(e.site)) {
+            s->objtype = mjOBJ_SITE; mjs_setString(s->objname, n);
+          } else if (const char* n = RefCStr(e.body1)) {
+            s->objtype = mjOBJ_BODY; mjs_setString(s->objname, n);
+          } else if (const char* n = RefCStr(e.subtree1)) {
+            s->objtype = mjOBJ_XBODY; mjs_setString(s->objname, n);
+          } else if (const char* n = RefCStr(e.geom1)) {
+            s->objtype = mjOBJ_GEOM; mjs_setString(s->objname, n);
+          }
+          if (const char* n = RefCStr(e.body2)) {
+            s->reftype = mjOBJ_BODY; mjs_setString(s->refname, n);
+          } else if (const char* n = RefCStr(e.subtree2)) {
+            s->reftype = mjOBJ_XBODY; mjs_setString(s->refname, n);
+          } else if (const char* n = RefCStr(e.geom2)) {
+            s->reftype = mjOBJ_GEOM; mjs_setString(s->refname, n);
+          }
+          int spec = 1 << mjCONDATA_FOUND;
+          if (e.data.has_value() && !e.data->empty()) {
+            spec = 0;
+            for (ContactData d : *e.data) spec |= (1 << ContactDataToMjt(d));
+          }
+          s->intprm[0] = spec;
+          s->intprm[1] = e.reduce.has_value() ? ContactReduceToInt(*e.reduce) : 0;
+          s->intprm[2] = e.num.value_or(1);
+        }
+        else if constexpr (std::is_same_v<T, Tactile>) {
+          // Inverted: the MESH is the object, the GEOM is the ref.
+          s->type = mjSENS_TACTILE;
+          s->objtype = mjOBJ_MESH;
+          if (const char* n = RefCStr(e.mesh)) mjs_setString(s->objname, n);
+          s->reftype = mjOBJ_GEOM;
+          if (const char* n = RefCStr(e.geom)) mjs_setString(s->refname, n);
+        }
+        else if constexpr (std::is_same_v<T, SensorUser>) {
+          // datatype/needstage/dim/objname are exact-mapped by ApplyMjs and NOT
+          // recomputed by the compiler for user sensors; only objtype (a string
+          // keyword) needs the mju_str2Type conversion the emitter waives.
+          s->type = mjSENS_USER;
+          if (e.objtype.has_value())
+            s->objtype = static_cast<mjtObj>(mju_str2Type(e.objtype->c_str()));
+        }
+        else if constexpr (std::is_same_v<T, SensorPlugin>) {
+          // Plugin sensor: type + plugin sub-struct + objtype/reftype keywords
+          // (objname/refname are exact-mapped by ApplyMjs).
+          s->type = mjSENS_PLUGIN;
+          SetPluginFields(e.plugin.has_value() ? e.plugin->c_str() : nullptr,
+                          (e.instance.has_value() && !e.instance->name.empty())
+                              ? e.instance->name.c_str() : nullptr,
+                          e.config, &s->plugin);
+          if (e.objtype.has_value())
+            s->objtype = static_cast<mjtObj>(mju_str2Type(e.objtype->c_str()));
+          if (e.reftype.has_value())
+            s->reftype = static_cast<mjtObj>(mju_str2Type(e.reftype->c_str()));
+        }
         AutoName(s->element, e.serial);
       }, any.node);
     }
@@ -947,14 +1245,116 @@ void Builder::BuildKeyframes(const Model& m) {
   }
 }
 
+// --- deformables (flex / skin) ------------------------------------------- //
+void Builder::BuildDeformables(const Model& m) {
+  for (const auto& d : m.deformables) {
+    if (!d) continue;
+    for (const auto& fx : d->flexs) {
+      if (!fx) continue;
+      mjsFlex* f = mjs_addFlex(spec_);
+      ApplyMjs(*fx, f);  // flat fields + vertbody/nodebody/vert/elem/texcoord
+      AutoName(f->element, fx->serial);
+      // dof -> order (mirror OneFlex: quadratic=2, trilinear=1, else 0; the
+      // reader always writes order, so set it unconditionally here too).
+      int order = 0;
+      if (fx->dof.has_value()) {
+        if (*fx->dof == FlexDof::quadratic) order = 2;
+        else if (*fx->dof == FlexDof::trilinear) order = 1;
+      }
+      f->order = order;
+      // <contact> sub-block folds into the flat contact fields.
+      for (const auto& c : fx->flexContacts) {
+        if (!c) continue;
+        if (c->contype.has_value()) f->contype = *c->contype;
+        if (c->conaffinity.has_value()) f->conaffinity = *c->conaffinity;
+        if (c->condim.has_value()) f->condim = *c->condim;
+        if (c->priority.has_value()) f->priority = *c->priority;
+        if (c->friction.has_value())
+          for (std::size_t i = 0; i < c->friction->size(); ++i)
+            f->friction[i] = (*c->friction)[i];
+        if (c->solmix.has_value()) f->solmix = *c->solmix;
+        if (c->solref.has_value())
+          for (std::size_t i = 0; i < c->solref->size(); ++i)
+            f->solref[i] = (*c->solref)[i];
+        if (c->solimp.has_value())
+          for (std::size_t i = 0; i < c->solimp->size(); ++i)
+            f->solimp[i] = (*c->solimp)[i];
+        if (c->margin.has_value()) f->margin = *c->margin;
+        if (c->gap.has_value()) f->gap = *c->gap;
+        if (c->internal.has_value()) f->internal = *c->internal ? 1 : 0;
+        if (c->selfcollide.has_value())
+          f->selfcollide = FlexSelfToInt(*c->selfcollide);
+        if (c->passive.has_value()) f->passive = *c->passive ? 1 : 0;
+        if (c->activelayers.has_value()) f->activelayers = *c->activelayers;
+      }
+      // <edge> sub-block.
+      for (const auto& ed : fx->flexEdges) {
+        if (!ed) continue;
+        if (ed->stiffness.has_value()) f->edgestiffness = *ed->stiffness;
+        if (ed->damping.has_value()) f->edgedamping = *ed->damping;
+      }
+      // <elasticity> sub-block (its `damping` is the flex damping field, not
+      // edgedamping).
+      for (const auto& el : fx->flexElasticitys) {
+        if (!el) continue;
+        if (el->young.has_value()) f->young = *el->young;
+        if (el->poisson.has_value()) f->poisson = *el->poisson;
+        if (el->damping.has_value()) f->damping = *el->damping;
+        if (el->thickness.has_value()) f->thickness = *el->thickness;
+        if (el->elastic2d.has_value()) f->elastic2d = Elastic2DToInt(*el->elastic2d);
+      }
+    }
+    for (const auto& sk : d->skins) {
+      if (sk) BuildSkin(*sk);
+    }
+  }
+}
+
+// A <skin> (valid under both <asset> and <deformable>). ApplyMjs sets the flat
+// fields; <bone> rows fold into the parallel arrays: bodyname/vertid/vertweight
+// append one entry per bone; bindpos/bindquat are single flattened float arrays
+// set once (mirror OneSkin).
+void Builder::BuildSkin(const Skin& sk) {
+  mjsSkin* s = mjs_addSkin(spec_);
+  ApplyMjs(sk, s);  // file/material/rgba/inflate/vert/texcoord/face/group
+  AutoName(s->element, sk.serial);
+  std::vector<float> bindpos, bindquat;
+  for (const auto& b : sk.bones) {
+    if (!b) continue;
+    mjs_appendString(s->bodyname,
+                     b->body.has_value() ? b->body->name.c_str() : "");
+    for (int i = 0; i < 3; ++i)
+      bindpos.push_back(b->bindpos.has_value()
+                            ? static_cast<float>((*b->bindpos)[i]) : 0.0f);
+    for (int i = 0; i < 4; ++i)
+      bindquat.push_back(b->bindquat.has_value()
+                             ? static_cast<float>((*b->bindquat)[i]) : 0.0f);
+    std::vector<int> vid;
+    if (b->vertid.has_value()) vid.assign(b->vertid->begin(), b->vertid->end());
+    mjs_appendIntVec(s->vertid, vid.data(), static_cast<int>(vid.size()));
+    std::vector<float> vw;
+    if (b->vertweight.has_value())
+      vw.assign(b->vertweight->begin(), b->vertweight->end());
+    mjs_appendFloatVec(s->vertweight, vw.data(), static_cast<int>(vw.size()));
+  }
+  if (!bindpos.empty())
+    mjs_setFloat(s->bindpos, bindpos.data(), static_cast<int>(bindpos.size()));
+  if (!bindquat.empty())
+    mjs_setFloat(s->bindquat, bindquat.data(), static_cast<int>(bindquat.size()));
+}
+
 void Builder::Build(const Model& m, const CompileOptions& opts) {
+  base_dir_ = opts.base_dir;
   BuildCompiler(m, opts);
   for (const auto& o : m.options) if (o) BuildOption(*o);
   for (const auto& s : m.sizes) if (s) BuildSize(*s);
   for (const auto& s : m.statistics) if (s) BuildStatistic(*s);
   for (const auto& v : m.visuals) if (v) BuildVisual(*v);
   BuildDefaults(m);
+  BuildExtensions(m);
   BuildAssets(m);
+  BuildDeformables(m);
+  BuildModelAssets(m);
   BuildWorldbody(m);
   BuildContact(m);
   BuildEquality(m);
@@ -987,11 +1387,6 @@ void ScanBodyChild(const BodyChildAny& item, std::vector<FallbackReason>& out) {
     if constexpr (std::is_same_v<T, Composite>) AddReason(out, "mjs.composite");
     else if constexpr (std::is_same_v<T, Flexcomp>) AddReason(out, "mjs.flexcomp");
     else if constexpr (std::is_same_v<T, Replicate>) AddReason(out, "mjs.replicate");
-    else if constexpr (std::is_same_v<T, Attach>) AddReason(out, "mjs.attach");
-    else if constexpr (std::is_same_v<T, PluginRef>) AddReason(out, "mjs.plugin");
-    else if constexpr (std::is_same_v<T, Geom>) {
-      if (!e.plugin.empty()) AddReason(out, "mjs.plugin");
-    }
     else if constexpr (std::is_same_v<T, Body>) ScanSubtree(e.subtree, out);
     else if constexpr (std::is_same_v<T, Frame>) ScanSubtree(e.subtree, out);
   }, item.node);
@@ -1010,50 +1405,35 @@ std::vector<FallbackReason> MjsFallbackScan(const Model& m) {
     if (c && c->coordinate.has_value() && *c->coordinate == Coordinate::global)
       AddReason(out, "mjs.global_coordinates");
   }
-  for (const auto& e : m.extensions) {
-    if (e && !e->pluginDefs.empty()) AddReason(out, "mjs.plugin");
-  }
   for (const auto& a : m.assets) {
     if (!a) continue;
-    if (!a->skins.empty()) AddReason(out, "mjs.skin");
-    if (!a->modelAssets.empty()) AddReason(out, "mjs.model_asset");
+    // XML child models are grafted via mj_parseXML + mjs_attach; URDF/MJB
+    // children need mj_parse content-type dispatch (still XML fallback).
+    for (const auto& ma : a->modelAssets) {
+      if (!ma) continue;
+      bool is_xml = true;
+      if (ma->content_type.has_value())
+        is_xml = ma->content_type->find("xml") != std::string::npos;
+      else if (ma->file.has_value()) {
+        const std::string& f = *ma->file;
+        is_xml = f.size() < 5 ||
+                 (f.compare(f.size() - 4, 4, ".xml") == 0 ||
+                  f.compare(f.size() - 4, 4, ".XML") == 0);
+      }
+      if (!is_xml) AddReason(out, "mjs.model_asset_nonxml");
+    }
+    // Builtin procedural meshes have no mjsMesh representation (mjSpec exposes
+    // no builtin field). Plugin (SDF) meshes, cube-face textures + gridlayout,
+    // and skins are all built directly now.
     for (const auto& mesh : a->meshs)
-      if (mesh && (mesh->builtin.has_value() || !mesh->plugin.empty()))
-        AddReason(out, "mjs.mesh_builtin_or_plugin");
-    for (const auto& tex : a->textures)
-      if (tex && (tex->fileright.has_value() || tex->fileleft.has_value() ||
-                  tex->fileup.has_value() || tex->filedown.has_value() ||
-                  tex->filefront.has_value() || tex->fileback.has_value() ||
-                  tex->gridlayout.has_value()))
-        AddReason(out, "mjs.texture_cube_faces");
-  }
-  for (const auto& d : m.deformables) {
-    if (d && (!d->flexs.empty() || !d->skins.empty()))
-      AddReason(out, "mjs.deformable");
+      if (mesh && mesh->builtin.has_value())
+        AddReason(out, "mjs.mesh_builtin");
   }
   for (const auto& wb : m.worldbody)
     if (wb) ScanSubtree(wb->subtree, out);
-  for (const auto& act : m.actuators) {
-    if (!act) continue;
-    for (const auto& any : act->actuators)
-      if (any.kind() == ActuatorAny::Kind::ActuatorPlugin)
-        AddReason(out, "mjs.plugin");
-  }
-  for (const auto& sen : m.sensors) {
-    if (!sen) continue;
-    for (const auto& any : sen->sensors) {
-      switch (any.kind()) {
-        case SensorAny::Kind::Rangefinder:
-        case SensorAny::Kind::SensorContact:
-        case SensorAny::Kind::Tactile:
-        case SensorAny::Kind::SensorUser:
-        case SensorAny::Kind::SensorPlugin:
-          AddReason(out, "mjs.sensor_unsupported");
-          break;
-        default: break;
-      }
-    }
-  }
+  // Actuator/sensor plugins, exotic sensors, and body/geom/mesh plugin refs are
+  // all built directly now; only the macros, attach, model assets, global
+  // coordinates, and builtin meshes remain (handled above / in ScanBodyChild).
   return out;
 }
 

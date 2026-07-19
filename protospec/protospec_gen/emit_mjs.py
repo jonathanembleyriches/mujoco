@@ -165,8 +165,9 @@ ELEMENT_WAIVERS = {
     "SkinBone": "bone rows fold into the mjsSkin parallel arrays "
                 "(bodyname/bindpos/bindquat/vertid/vertweight) by Wave 2",
     "MaterialLayer": "layer rows fold into mjsMaterial.textures[role] by Wave 2",
-    "ModelAsset": "attached child spec (mjs_attach); not an mjs* struct",
-    "Attach": "attach macro; the shim falls back to XML for it",
+    "ModelAsset": "child spec parsed via mj_parseXML + mjs_addSpec by Wave 4; "
+                  "not an mjs* struct",
+    "Attach": "native subtree attach via mjs_attach by Wave 4; not an mjs* struct",
     "Composite": "composite macro; the shim falls back to XML for it",
     "CompositeJoint": "composite macro sub-element; XML fallback",
     "CompositeSkin": "composite macro sub-element; XML fallback",
