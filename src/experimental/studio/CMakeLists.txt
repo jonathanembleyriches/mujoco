@@ -118,6 +118,8 @@ if(NOT EMSCRIPTEN)
         set(STUDIO_RESOURCE_FILES "")
     endif()
 
+    option(MUJOCO_STUDIO_PROTOSPEC "Build Studio with the ProtoSpec editor" OFF)
+
     add_executable(mujoco_studio
         main.cc
         launcher.cc
@@ -144,6 +146,19 @@ if(NOT EMSCRIPTEN)
         )
     endif()
     configure_studio_target(mujoco_studio)
+
+    # ProtoSpec editor cluster. main.cc stays stock (it calls LaunchStudio); the
+    # editor self-registers through the upstream plugin registry via the
+    # mjPLUGIN_LIB_INIT startup constructor in register_editor.cc, which is
+    # compiled directly INTO the executable (not the static editor lib) so the
+    # linker never drops it.
+    if(MUJOCO_STUDIO_PROTOSPEC)
+        add_subdirectory(protospec)
+        target_sources(mujoco_studio PRIVATE protospec/register_editor.cc)
+        target_link_libraries(mujoco_studio PRIVATE mujoco::protospec_editor)
+        target_compile_definitions(mujoco_studio PRIVATE MUJOCO_STUDIO_PROTOSPEC)
+    endif()
+
     if(NOT (APPLE AND MUJOCO_BUILD_MACOS_FRAMEWORKS))
         include(TargetAddRpath)
         target_add_rpath(
