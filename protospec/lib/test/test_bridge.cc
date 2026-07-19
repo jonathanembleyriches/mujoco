@@ -16,7 +16,7 @@
 
 #include <mujoco/mujoco.h>
 
-#include "compile.h"
+#include "bridge.h"
 #include "mjcf.h"
 #include "types.h"
 #include "visit.h"

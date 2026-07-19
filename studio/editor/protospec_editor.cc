@@ -29,7 +29,7 @@
 
 #include <mujoco/mujoco.h>
 
-#include "compile.h"  // ps::mjcf::CompileToXml, CompileOptions
+#include "bridge.h"  // ps::mjcf::CompileToXml, CompileOptions
 #include "editor/editor_ops.h"
 #include "editor/plugin_abi.h"
 #include "editor/plugins.h"

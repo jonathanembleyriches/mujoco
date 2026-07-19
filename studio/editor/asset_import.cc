@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "compile.h"
+#include "bridge.h"
 #include "editor/authoring_ops.h"  // UniqueName
 #include "editor/editor_ops.h"     // SelectBySerial
 #include "protospec/builders.h"

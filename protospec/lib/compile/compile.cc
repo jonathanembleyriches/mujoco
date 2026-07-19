@@ -1,7 +1,7 @@
 // Compile boundary implementation (XML path). Inside the MuJoCo quarantine
 // zone: includes mujoco.h. See compile.h for the contract and purity guarantees.
 
-#include "compile.h"
+#include "bridge.h"
 
 #include <cstdint>
 #include <mutex>

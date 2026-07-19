@@ -41,8 +41,8 @@
 // process-global rule).
 //
 // This header forward-declares mjModel/mjData and never includes mujoco.h.
-#ifndef PROTOSPEC_BRIDGE_COMPILE_H
-#define PROTOSPEC_BRIDGE_COMPILE_H
+#ifndef PROTOSPEC_COMPILE_BRIDGE_H
+#define PROTOSPEC_COMPILE_BRIDGE_H
 
 #include <cstddef>
 #include <cstdint>
@@ -147,4 +147,4 @@ Compiled Recompile(const Model& m, const Compiled& prev, const mjData* d,
 
 }  // namespace ps::mjcf
 
-#endif  // PROTOSPEC_BRIDGE_COMPILE_H
+#endif  // PROTOSPEC_COMPILE_BRIDGE_H

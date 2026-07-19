@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-#include "compile.h"   // CompileOptions
+#include "bridge.h"   // CompileOptions
 #include "mjcf.h"       // io::AutoNames
 #include "report.h"     // FallbackReason
 #include "types.h"

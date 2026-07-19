@@ -21,7 +21,7 @@
 
 #include "protospec/model.h"
 
-#include "../../compile/compile.h"  // Compile, Recompile, Compiled, CompileOptions, VfsAsset, CompileToXml
+#include "../../compile/bridge.h"  // Compile, Recompile, Compiled, CompileOptions, VfsAsset, CompileToXml
 #include "../../compile/binding.h"  // Binding (also pulled by compile.h; named for clarity)
 #include "../../compile/pose.h"     // RigidPose, PosePatch, ApplyPosePatch (gizmo-drag patching)
 

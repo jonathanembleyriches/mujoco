@@ -23,7 +23,7 @@
 
 #include <mujoco/mujoco.h>
 
-#include "compile.h"
+#include "bridge.h"
 #include "mjcf.h"
 #include "plugin_registry.h"
 

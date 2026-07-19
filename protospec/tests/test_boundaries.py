@@ -45,7 +45,7 @@ ALLOWED_AREAS = {"generated", "sdk", "include"}
 ALLOWED_AREA_BASENAMES = {
     "io": {"mjcf.h"},
     # the compile bridge public surface (dir was `bridge/`, renamed to `compile/`)
-    "compile": {"binding.h", "pose.h", "report.h", "compile.h"},
+    "compile": {"binding.h", "pose.h", "report.h", "bridge.h"},
 }
 
 # Explicit, dated waivers: (including_file_suffix, included_spelling, reason).

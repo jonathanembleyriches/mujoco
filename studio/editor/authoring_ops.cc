@@ -17,7 +17,7 @@
 
 #include <mujoco/mujoco.h>
 
-#include "compile.h"
+#include "bridge.h"
 #include "editor/editor_ops.h"
 #include "editor/element_access.h"
 #include "editor/layers.h"

@@ -29,7 +29,7 @@
 
 #include "protospec/sdk.h"
 #include "mjcf.h"       // ps::mjcf::io  (ParseMjcf*, WriteMjcf)
-#include "compile.h"    // ps::mjcf (Compile, Recompile, CompileOptions)
+#include "bridge.h"    // ps::mjcf (Compile, Recompile, CompileOptions)
 #include "validate.h"   // ps::mjcf::validate (Validate)
 
 namespace pyb = pybind11;

@@ -15,7 +15,7 @@
 #include <mujoco/mujoco.h>
 
 #include "binding.h"
-#include "compile.h"
+#include "bridge.h"
 #include "mjcf.h"
 #include "protospec/refs.h"
 #include "protospec/traversal.h"

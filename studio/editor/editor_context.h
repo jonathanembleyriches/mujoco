@@ -17,7 +17,7 @@
 #include <string_view>
 #include <vector>
 
-#include "compile.h"  // ps::mjcf::Compiled, ps::mjcf::VfsAsset
+#include "bridge.h"  // ps::mjcf::Compiled, ps::mjcf::VfsAsset
 #include "editor/undo.h"
 #include "types.h"    // ps::Model
 

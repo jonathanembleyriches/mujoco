@@ -47,7 +47,7 @@
 
 #include <mujoco/mujoco.h>
 
-#include "compile.h"
+#include "bridge.h"
 #include "mjcf.h"
 #include "model_diff_lib.h"
 #include "plugin_registry.h"
