@@ -196,10 +196,16 @@ bool DoUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
       // the first frame after every adoption (fresh load or recompile) renders
       // with all geom_xpos == 0 (the model collapsed at the origin, off-camera:
       // the "black viewport until Backspace" regression, Backspace == host
-      // ResetPhysics == mj_forward). Reset only when the sim has advanced
-      // (Play->Stop) to avoid clobbering nothing every frame.
+      // ResetPhysics == mj_forward).
+      //
+      // RESET-ON-ENTER (single Edit toggle): entering Edit must show qpos0, NOT
+      // the mid-flight pose the host left when it was running. `time != 0` is
+      // exactly that transition -- the sim only advances while Edit is OFF (our
+      // freeze holds time at 0), so the first Edit tick after handing back to the
+      // host resets to qpos0; every later Edit tick sees time == 0 and just holds
+      // the frozen pose. Leaving Edit never resets (Play returns false above).
       if (host_data->time != 0.0) {
-        mj_resetData(host_model, host_data);  // Play->Stop snaps back to qpos0
+        mj_resetData(host_model, host_data);  // enter-Edit snap to qpos0
       }
       mj_forward(host_model, host_data);
     }

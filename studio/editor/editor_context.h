@@ -362,10 +362,15 @@ struct EditorContext {
   bool apply_edits = false;           // one-shot: compile now regardless of mode
                                       // (the ▶ "compile if dirty then run" path)
 
-  // Mode machine + gizmo interaction settings (SE2). The host toolbar drives the
-  // mode; the viewport/gizmo plugins read it (gizmos render only in Edit mode).
+  // Transport: a SINGLE Edit toggle (DR-S2). Edit ON freezes physics at qpos0
+  // (the model plugin's do_update resets on entry and holds the reset pose, a
+  // true return that makes the host skip StepControl::Advance); Edit OFF hands
+  // the sim to the HOST's own play/pause transport (toolbar / Space), with no
+  // reset on exit. `EditorMode::Play` therefore just names "Edit off, host
+  // governs" -- there is no editor-owned play/pause. The toolbar toggle and the
+  // Space key both call ToggleEditMode(); gizmos/edits are gated on CanEdit()
+  // (== Edit mode at qpos0), so the panel greying follows this one toggle.
   EditorMode mode = EditorMode::Edit;
-  bool play_paused = false;           // ⏸ within Play mode
 
   // What physics is actually doing, latched each frame in the model ModelPlugin's
   // do_update (R1): sim_paused = (mode == Edit) since Edit-mode do_update freezes
@@ -459,6 +464,28 @@ struct EditorContext {
   }
 
   void RequestRecompile() { recompile_requested = true; }
+
+  // --- The single Edit toggle (transport) --------------------------------- //
+  // Leaving Edit hands the sim to the host transport; apply any pending authored
+  // edits first so the host runs the latest compile (Edit-mode edits already
+  // recompile+adopt live, but a debounced one may still be queued). No reset on
+  // exit -- the reset happens on ENTRY (do_update snaps the freshly frozen host
+  // to qpos0). Entering Edit is a bare mode flip; the model plugin does the
+  // reset+forward+freeze.
+  void ExitEditToHost() {
+    mode = EditorMode::Play;
+    if (dirty) {
+      apply_edits = true;
+      RequestRecompile();
+    }
+  }
+  void ToggleEditMode() {
+    if (mode == EditorMode::Edit) {
+      ExitEditToHost();
+    } else {
+      mode = EditorMode::Edit;  // enter Edit: do_update resets to qpos0 + freezes
+    }
+  }
 };
 
 }  // namespace ps::studio
