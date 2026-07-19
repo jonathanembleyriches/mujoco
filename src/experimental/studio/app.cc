@@ -88,20 +88,6 @@ App::App(Config config)
       gfx_mode_(config.gfx_mode) {
   SwitchGraphicsMode(config.width, config.height, config.gfx_mode);
 
-  // Self-screenshot config from the environment (see app.h). Decoupled from
-  // flags/Config so it works through the stock LaunchStudio path.
-  if (const char* dir = std::getenv("MUJOCO_SCREENSHOT_DIR")) {
-    screenshot_dir_ = dir;
-  }
-  if (const char* after = std::getenv("MUJOCO_SCREENSHOT_AFTER")) {
-    screenshot_after_ = std::atoi(after);
-  }
-  if (screenshot_after_ > 0) {
-    const char* count = std::getenv("MUJOCO_SCREENSHOT_COUNT");
-    screenshot_remaining_ = count ? std::max(1, std::atoi(count)) : 1;
-  }
-  screenshot_exit_ = std::getenv("MUJOCO_SCREENSHOT_EXIT") != nullptr;
-
   if (config.initial_theme.has_value()) {
     ui_.theme = *config.initial_theme;
   }
@@ -485,10 +471,6 @@ void App::Render() {
                     width * scale, height * scale, pixels_,
                     {plugin_scene_.geoms, (size_t)plugin_scene_.ngeom});
 
-  // Capture the composited framebuffer (scene + ImGui) after Render() draws it
-  // and before the buffers swap.
-  ServiceScreenshots();
-
   window_->EndFrame();
   window_->Present(pixels_);
 
@@ -497,53 +479,6 @@ void App::Render() {
       data()->timer[i].duration = 0;
       data()->timer[i].number = 0;
     }
-  }
-}
-
-void App::WriteScreenshot(const std::string& path) {
-  const int width = window_->GetWidth() * window_->GetScale();
-  const int height = window_->GetHeight() * window_->GetScale();
-  std::vector<std::byte> buffer(static_cast<std::size_t>(width) * height * 3);
-  if (!renderer_->CaptureWindowRGB(
-          width, height, reinterpret_cast<unsigned char*>(buffer.data()))) {
-    mju_warning(
-        "Screenshot capture is only supported for the classic backend "
-        "(run with --gfx=classic).");
-    return;
-  }
-  if (platform::SaveToPng(width, height, buffer.data(), path)) {
-    std::fprintf(stderr, "[screenshot] wrote %s (%dx%d)\n", path.c_str(), width,
-                 height);
-  }
-}
-
-void App::ServiceScreenshots() {
-  ++frame_counter_;
-
-  bool due = false;
-  if (screenshot_key_) {
-    due = true;
-    screenshot_key_ = false;
-  }
-  const bool auto_active = screenshot_after_ > 0 &&
-                           frame_counter_ >= screenshot_after_ &&
-                           screenshot_remaining_ > 0;
-  if (auto_active) {
-    due = true;
-    --screenshot_remaining_;
-  }
-
-  if (due) {
-    const std::string dir = screenshot_dir_.empty() ? "." : screenshot_dir_;
-    char name[64];
-    std::snprintf(name, sizeof(name), "shot_%04d.png", screenshot_index_++);
-    WriteScreenshot(dir + "/" + name);
-  }
-
-  // In auto mode, quit once the requested sequence has been written.
-  if (screenshot_exit_ && screenshot_after_ > 0 &&
-      frame_counter_ >= screenshot_after_ && screenshot_remaining_ == 0) {
-    tmp_.should_exit = true;
   }
 }
 
@@ -737,13 +672,6 @@ void App::HandleMouseEvents() {
 
 void App::HandleKeyboardEvents() {
   using platform::ImGui_IsChordJustPressed;
-
-  // F12 grabs a self-screenshot regardless of focus (it never conflicts with a
-  // text field), so it is checked before the keyboard-capture early-out.
-  if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) {
-    screenshot_key_ = true;
-  }
-
   if (ImGui::GetIO().WantCaptureKeyboard) {
     return;
   }

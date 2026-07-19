@@ -338,7 +338,7 @@ void SetupTheme(GuiTheme theme) {
 
 void RescaleDock(float ratio) {
   if (ratio == 1) return;
-  ImGuiID root = ImGui::GetID("RootV3");  // matches ConfigureDockingLayout
+  ImGuiID root = ImGui::GetID("Root");
   ImGuiDockNode* root_node = ImGui::DockBuilderGetNode(root);
   if (root_node) {
     struct ScaleNodes {
@@ -357,12 +357,9 @@ ImVec4 ConfigureDockingLayout(bool show_toolbar, bool show_status_bar) {
   const float scale = ImGui::GetWindowDpiScale();
   const float font_scale = ImGui::GetIO().FontGlobalScale;
 
-  // ProtoSpec curated layout constants (Hierarchy left, Details right, bottom
-  // tab strip). Named for the curated panels; the fallback viewport math below
-  // reuses the left/right widths.
-  const float kOptionsRelWidth = 0.20f;    // Hierarchy column width
-  const float kInspectorRelWidth = 0.24f;  // Details column width
-  const float kBottomRelHeight = 0.26f;
+  const float kOptionsRelWidth = 0.15f;
+  const float kInspectorRelWidth = 0.22f;
+  const float kPropertiesRelHeight = 0.3f;
   const float kToolsBarHeight =
       show_toolbar ? 36.f * scale * font_scale : 0.0f;
   const float kStatusBarHeight =
@@ -374,13 +371,7 @@ ImVec4 ConfigureDockingLayout(bool show_toolbar, bool show_status_bar) {
       viewport->WorkSize.x,
       viewport->WorkSize.y - kToolsBarHeight - kStatusBarHeight};
 
-  // A Unity/Unreal-style curated default: Hierarchy left, Viewport centre (the
-  // passthrough central node), Details right, Assets + Diagnostics as tabs along
-  // the bottom. Studio's own Options / Inspector / Explorer / Editor / Profiler
-  // panels are docked into the same nodes (so they land somewhere sane when
-  // restored via the View menu) but are hidden by default. The dockspace id is
-  // versioned so a fresh curated layout supersedes a stale saved one.
-  ImGuiID root = ImGui::GetID("RootV3");
+  ImGuiID root = ImGui::GetID("Root");
   const bool first_time = (ImGui::DockBuilderGetNode(root) == nullptr);
 
   if (first_time) {
@@ -388,47 +379,31 @@ ImVec4 ConfigureDockingLayout(bool show_toolbar, bool show_status_bar) {
     ImGui::DockBuilderAddNode(root, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(root, dockspace_size);
 
+    // Slice up the main dock space.
     ImGuiID main = root;
 
-    ImGuiID hierarchy = 0;
-    ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, kOptionsRelWidth,
-                                &hierarchy, &main);
-
-    ImGuiID details = 0;
-    ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, kInspectorRelWidth,
-                                &details, &main);
-
-    // Right column splits: Details on top, Layers beneath it -- the three
-    // curated panels (with Hierarchy) are all DOCKED; everything else folds in
-    // as tabs rather than floating.
-    ImGuiID layers_node = 0;
-    ImGui::DockBuilderSplitNode(details, ImGuiDir_Down, 0.40f, &layers_node,
-                                &details);
-
-    ImGuiID bottom = 0;
-    ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, kBottomRelHeight, &bottom,
+    ImGuiID options = 0;
+    ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, kOptionsRelWidth, &options,
                                 &main);
 
-    // Centre (main) is the passthrough viewport.
+    ImGuiID inspector = 0;
+    ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, kInspectorRelWidth,
+                                &inspector, &main);
+
+    ImGuiID properties = 0;
+    ImGui::DockBuilderSplitNode(inspector, ImGuiDir_Down, kPropertiesRelHeight,
+                                &properties, &inspector);
+
+    ImGuiID profiler = 0;
+    ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.42f, &profiler, &main);
+
     ImGui::DockBuilderDockWindow("Dockspace", main);
-    // Left: Hierarchy (Options hides behind it when toggled on).
-    ImGui::DockBuilderDockWindow("Hierarchy", hierarchy);
-    ImGui::DockBuilderDockWindow("Options", hierarchy);
-    // Right: Details, with Studio's spec/data panels and the ProtoSpec utility
-    // panels (File / + Add) tabbed behind it -- reachable, never floating.
-    // Layers gets its own node below.
-    ImGui::DockBuilderDockWindow("Details", details);
-    ImGui::DockBuilderDockWindow("Inspector", details);
-    ImGui::DockBuilderDockWindow("Explorer", details);
-    ImGui::DockBuilderDockWindow("Editor", details);
-    ImGui::DockBuilderDockWindow("Properties", details);
-    ImGui::DockBuilderDockWindow("File", details);
-    ImGui::DockBuilderDockWindow("+ Add", details);
-    ImGui::DockBuilderDockWindow("Layers", layers_node);
-    // Bottom: Assets + Diagnostics tabs (Profiler joins them when shown).
-    ImGui::DockBuilderDockWindow("Assets", bottom);
-    ImGui::DockBuilderDockWindow("Diagnostics", bottom);
-    ImGui::DockBuilderDockWindow("Profiler", bottom);
+    ImGui::DockBuilderDockWindow("Options", options);
+    ImGui::DockBuilderDockWindow("Explorer", inspector);
+    ImGui::DockBuilderDockWindow("Editor", inspector);
+    ImGui::DockBuilderDockWindow("Inspector", inspector);
+    ImGui::DockBuilderDockWindow("Properties", properties);
+    ImGui::DockBuilderDockWindow("Profiler", profiler);
     ImGui::DockBuilderFinish(root);
   }
 

@@ -105,7 +105,6 @@ target_link_libraries(${MUJOCO_PLATFORM_TARGET_NAME}
     dear_imgui_OpenGL3
     dear_imgui_stdlib
     implot
-    lodepng
     mujoco::filament
     mujoco::filament_experimental
     webp

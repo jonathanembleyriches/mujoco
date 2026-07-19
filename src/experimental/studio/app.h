@@ -134,14 +134,10 @@ class App {
     bool profiler = false;
     bool profiler_show_iter = false;
     bool picture_in_picture = false;
-    // ProtoSpec fork: the stock Options / Explorer+Inspector / Editor panels
-    // default OFF so the curated ProtoSpec panels (Hierarchy / Details / Layers,
-    // all GuiPlugins) are the default view. Upstream's own View menu still
-    // toggles them back on. (`editor_panel` is already false upstream.)
-    bool options_panel = false;
+    bool options_panel = true;
     bool toolbar = false;
     bool status_bar = false;
-    bool inspector_panel = false;
+    bool inspector_panel = true;
     bool editor_panel = false;
     bool full_screen = false;
     bool style_editor = false;
@@ -228,11 +224,6 @@ class App {
   void HandleMouseEvents();
   void HandleKeyboardEvents();
 
-  // Captures the composited window framebuffer (classic backend) to a PNG under
-  // screenshot_dir_. Services the F12 key and the env-driven auto-capture mode.
-  void ServiceScreenshots();
-  void WriteScreenshot(const std::string& path);
-
   void ProcessPendingLoads();
 
   void SetupTheme(platform::GuiTheme theme);
@@ -286,19 +277,6 @@ class App {
   mjvPerturb perturb_;
   mjvOption vis_options_;
   mjvScene plugin_scene_;
-
-  // Self-screenshot state (classic backend). Configured from the environment in
-  // the App constructor: MUJOCO_SCREENSHOT_DIR, MUJOCO_SCREENSHOT_AFTER,
-  // MUJOCO_SCREENSHOT_COUNT, MUJOCO_SCREENSHOT_EXIT. F12 always captures when a
-  // dir is available. Decoupled from Config/flags so it works through the stock
-  // LaunchStudio path without a launcher patch.
-  std::string screenshot_dir_;
-  int screenshot_after_ = 0;
-  int screenshot_remaining_ = 0;
-  bool screenshot_exit_ = false;
-  int frame_counter_ = 0;
-  int screenshot_index_ = 0;
-  bool screenshot_key_ = false;  // F12 pressed since the last capture pass
 
   UiState ui_;
   UiTempState tmp_;

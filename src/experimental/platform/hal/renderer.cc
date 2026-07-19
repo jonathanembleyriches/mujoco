@@ -352,17 +352,6 @@ void Renderer::DoReadPixels(int width, int height, unsigned char* rgb) {
   DoSetBuffer(mjFB_WINDOW);
 }
 
-bool Renderer::CaptureWindowRGB(int width, int height, unsigned char* rgb) {
-  if (!initialized_ || !rgb || !IsClassic(gfx_)) {
-    return false;
-  }
-  const mjrRect viewport = {0, 0, width, height};
-  mjr_setBuffer(mjFB_WINDOW, &render_context_);
-  mjr_readPixels(rgb, nullptr, viewport, &render_context_);
-  FlipImage(rgb, width, height, 3);
-  return true;
-}
-
 double Renderer::GetFps() { return fps_; }
 
 void Renderer::UpdateFps() {

@@ -147,16 +147,24 @@ if(NOT EMSCRIPTEN)
     endif()
     configure_studio_target(mujoco_studio)
 
-    # ProtoSpec editor cluster. main.cc stays stock (it calls LaunchStudio); the
+    # ProtoSpec editor cluster, compiled live from the ProtoSpec repository at
+    # PROTOSPEC_ROOT; every line of build logic lives there (studio/glue), this
+    # block only mounts it. main.cc stays stock (it calls LaunchStudio); the
     # editor self-registers through the upstream plugin registry via the
     # mjPLUGIN_LIB_INIT startup constructor in register_editor.cc, which is
     # compiled directly INTO the executable (not the static editor lib) so the
     # linker never drops it.
     if(MUJOCO_STUDIO_PROTOSPEC)
-        add_subdirectory(protospec)
-        target_sources(mujoco_studio PRIVATE protospec/register_editor.cc)
+        set(PROTOSPEC_ROOT "" CACHE PATH "Root of the ProtoSpec repository")
+        if(NOT EXISTS "${PROTOSPEC_ROOT}/studio/glue/CMakeLists.txt")
+            message(FATAL_ERROR
+                "PROTOSPEC_ROOT does not point at a ProtoSpec checkout: "
+                "${PROTOSPEC_ROOT}")
+        endif()
+        add_subdirectory("${PROTOSPEC_ROOT}/studio/glue" protospec_glue)
+        target_sources(mujoco_studio PRIVATE
+            "${PROTOSPEC_ROOT}/studio/glue/register_editor.cc")
         target_link_libraries(mujoco_studio PRIVATE mujoco::protospec_editor)
-        target_compile_definitions(mujoco_studio PRIVATE MUJOCO_STUDIO_PROTOSPEC)
     endif()
 
     if(NOT (APPLE AND MUJOCO_BUILD_MACOS_FRAMEWORKS))
