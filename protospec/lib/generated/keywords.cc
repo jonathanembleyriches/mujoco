@@ -161,6 +161,22 @@ bool FromMjcf(std::string_view text, Cone& out) {
   return false;
 }
 
+std::string_view ToMjcf(Conflict value) {
+  switch (value) {
+    case Conflict::warning: return "warning";
+    case Conflict::merge: return "merge";
+    case Conflict::error: return "error";
+  }
+  return "";
+}
+
+bool FromMjcf(std::string_view text, Conflict& out) {
+  if (text == "warning") { out = Conflict::warning; return true; }
+  if (text == "merge") { out = Conflict::merge; return true; }
+  if (text == "error") { out = Conflict::error; return true; }
+  return false;
+}
+
 std::string_view ToMjcf(ContactData value) {
   switch (value) {
     case ContactData::found: return "found";
@@ -644,6 +660,20 @@ bool FromMjcf(std::string_view text, RayData& out) {
   if (text == "point") { out = RayData::point; return true; }
   if (text == "normal") { out = RayData::normal; return true; }
   if (text == "depth") { out = RayData::depth; return true; }
+  return false;
+}
+
+std::string_view ToMjcf(SimpleMode value) {
+  switch (value) {
+    case SimpleMode::false_: return "false";
+    case SimpleMode::auto_: return "auto";
+  }
+  return "";
+}
+
+bool FromMjcf(std::string_view text, SimpleMode& out) {
+  if (text == "false") { out = SimpleMode::false_; return true; }
+  if (text == "auto") { out = SimpleMode::auto_; return true; }
   return false;
 }
 

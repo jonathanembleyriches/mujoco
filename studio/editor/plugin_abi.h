@@ -1,7 +1,8 @@
 // ProtoSpec Studio: plugin C-ABI helpers + layout guards (ps::studio, ours).
 //
-// R1: the editor operates through the FOUR upstream Studio plugin types only
-// (GuiPlugin / ModelPlugin / KeyHandlerPlugin / SpecEditorPlugin). Every callback
+// R1: the editor operates through the upstream Studio plugin types only
+// (GuiPlugin / ModelPlugin / KeyHandlerPlugin / SpecEditorPlugin / ScenePlugin).
+// Every callback
 // recovers its owning object with static_cast<T*>(self->data) -- ctx_cast<T> is
 // the one typed spelling of that. The four PODs are the upstream
 // mujoco::platform:: types themselves, re-exported into ps::studio by the host
@@ -42,12 +43,19 @@ static_assert(offsetof(GuiPlugin, data) == 3 * pv);
 static_assert(std::is_same_v<decltype(GuiPlugin::active), bool>);
 static_assert(std::is_same_v<decltype(GuiPlugin::data), void*>);
 
+// ModelPlugin grew `pre_step`/`post_step` upstream (2026-06-23), pushing `data`
+// from slot 4 to slot 6. The editor sets only name/get_model_to_load/
+// post_model_loaded/do_update/data (pre_step/post_step stay null), but every
+// slot -- including the two new ones' positions -- is pinned so a future reorder
+// is a compile error, not a silent C-ABI mismatch against a newer host.
 static_assert(std::is_standard_layout_v<ModelPlugin>);
 static_assert(offsetof(ModelPlugin, name) == 0 * pv);
 static_assert(offsetof(ModelPlugin, get_model_to_load) == 1 * pv);
 static_assert(offsetof(ModelPlugin, post_model_loaded) == 2 * pv);
 static_assert(offsetof(ModelPlugin, do_update) == 3 * pv);
-static_assert(offsetof(ModelPlugin, data) == 4 * pv);
+static_assert(offsetof(ModelPlugin, pre_step) == 4 * pv);
+static_assert(offsetof(ModelPlugin, post_step) == 5 * pv);
+static_assert(offsetof(ModelPlugin, data) == 6 * pv);
 static_assert(std::is_same_v<decltype(ModelPlugin::data), void*>);
 
 static_assert(std::is_standard_layout_v<KeyHandlerPlugin>);
@@ -64,6 +72,15 @@ static_assert(offsetof(SpecEditorPlugin, pre_compile) == 1 * pv);
 static_assert(offsetof(SpecEditorPlugin, post_compile) == 2 * pv);
 static_assert(offsetof(SpecEditorPlugin, data) == 3 * pv);
 static_assert(std::is_same_v<decltype(SpecEditorPlugin::data), void*>);
+
+// ScenePlugin landed upstream 2026-06-23 (5637f743). The editor adopts it for
+// the depth-occluded selection outline (enhance_scene adds mjvGeoms to the
+// composited scene), replacing the screen-space projected wire box.
+static_assert(std::is_standard_layout_v<ScenePlugin>);
+static_assert(offsetof(ScenePlugin, name) == 0 * pv);
+static_assert(offsetof(ScenePlugin, enhance_scene) == 1 * pv);
+static_assert(offsetof(ScenePlugin, data) == 2 * pv);
+static_assert(std::is_same_v<decltype(ScenePlugin::data), void*>);
 }  // namespace abi_check
 
 }  // namespace ps::studio

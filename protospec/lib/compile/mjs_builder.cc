@@ -1042,7 +1042,7 @@ void Builder::BuildFlexcomp(mjsBody* body, const Flexcomp& e) {
     if (c->margin.has_value()) f->margin = *c->margin;
     if (c->gap.has_value()) f->gap = *c->gap;
     if (c->internal.has_value()) f->internal = *c->internal ? 1 : 0;
-    if (c->selfcollide.has_value()) f->selfcollide = FlexSelfToInt(*c->selfcollide);
+    if (c->selfcollide.has_value()) f->selfcollide = static_cast<mjtFlexSelf>(FlexSelfToInt(*c->selfcollide));
     if (c->passive.has_value()) f->passive = *c->passive ? 1 : 0;
     if (c->activelayers.has_value()) f->activelayers = *c->activelayers;
   }
@@ -1293,7 +1293,10 @@ void Builder::ApplyActuatorShortcut(const T& e, mjsActuator* a) {
           if (e.kv.has_value()) kv = *e.kv;
           mjs_setToVelocity(a, kv);
         } else if constexpr (std::is_same_v<T, Damper>) {
-          double kv = 0;
+          // Inherited default: a damper's kv lives negated in gainprm[2] under
+          // affine gain (upstream faf0dabc fixed the reader to inherit it; the
+          // pre-fix shape read 0).
+          double kv = (a->gaintype == mjGAIN_AFFINE) ? -a->gainprm[2] : 0;
           if (e.kv.has_value()) kv = *e.kv;
           mjs_setToDamper(a, kv);
         } else if constexpr (std::is_same_v<T, Cylinder>) {
@@ -1666,7 +1669,7 @@ void Builder::BuildDeformables(const Model& m) {
         if (c->gap.has_value()) f->gap = *c->gap;
         if (c->internal.has_value()) f->internal = *c->internal ? 1 : 0;
         if (c->selfcollide.has_value())
-          f->selfcollide = FlexSelfToInt(*c->selfcollide);
+          f->selfcollide = static_cast<mjtFlexSelf>(FlexSelfToInt(*c->selfcollide));
         if (c->passive.has_value()) f->passive = *c->passive ? 1 : 0;
         if (c->activelayers.has_value()) f->activelayers = *c->activelayers;
       }
@@ -1796,6 +1799,13 @@ void ScanFlexcompSubtree(const std::vector<BodyChildAny>& subtree,
         if (e.material.has_value() && !e.material->name.empty() &&
             !has_texcoord && !has_file)
           AddReason(out, "mjs.flexcomp_material_texcoord");
+      } else if constexpr (std::is_same_v<T, Attach>) {
+        // Self-attach (MuJoCo 3.10.1: <attach frame=...> duplicating a local
+        // frame, no child model) -- the builder's Attach branch only handles
+        // file-backed model= attaches; a frame-source attach would silently
+        // drop the duplicated subtree.
+        if (!e.model.has_value() && e.frame.has_value() && !e.frame->empty())
+          AddReason(out, "mjs.attach_frame");
       } else if constexpr (std::is_same_v<T, Body> ||
                            std::is_same_v<T, Frame> ||
                            std::is_same_v<T, Replicate>) {

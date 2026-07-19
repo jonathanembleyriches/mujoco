@@ -275,6 +275,12 @@ ENUM_MJT = {
     "TriState": ("mjtLimited", {
         "false_": "mjLIMITED_FALSE", "true_": "mjLIMITED_TRUE",
         "auto": "mjLIMITED_AUTO"}),
+    "Conflict": ("mjtConflict", {
+        "warning": "mjCONFLICT_WARNING", "merge": "mjCONFLICT_MERGE",
+        "error": "mjCONFLICT_ERROR"}),
+    # `simple` is a raw mjtByte flag whose XML surface uses FAuto_map
+    # (false=0, auto=1); no dedicated mjt enum exists for it.
+    "SimpleMode": ("mjtByte", {"false_": "0", "auto": "1"}),
     "InertiaFromGeom": ("mjtInertiaFromGeom", {
         "false_": "mjINERTIAFROMGEOM_FALSE", "true_": "mjINERTIAFROMGEOM_TRUE",
         "auto": "mjINERTIAFROMGEOM_AUTO"}),

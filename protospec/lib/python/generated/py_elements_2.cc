@@ -302,6 +302,7 @@ void RegisterElements2(pybind11::module_& m) {
     OptField(c, "solimp", &Geom::solimp);
     OptField(c, "margin", &Geom::margin);
     OptField(c, "gap", &Geom::gap);
+    OptField(c, "surfacevel", &Geom::surfacevel);
     OptField(c, "hfield", &Geom::hfield);
     OptField(c, "mesh", &Geom::mesh);
     OptField(c, "fitscale", &Geom::fitscale);
@@ -375,6 +376,7 @@ void RegisterElements2(pybind11::module_& m) {
     OptField(c, "delay", &IntVelocity::delay);
     OptField(c, "ctrllimited", &IntVelocity::ctrllimited);
     OptField(c, "forcelimited", &IntVelocity::forcelimited);
+    OptField(c, "actlimited", &IntVelocity::actlimited);
     OptField(c, "ctrlrange", &IntVelocity::ctrlrange);
     OptField(c, "forcerange", &IntVelocity::forcerange);
     OptField(c, "actrange", &IntVelocity::actrange);

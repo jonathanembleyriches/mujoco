@@ -463,14 +463,16 @@ template <class V> void Visit(const Asset& e, V&& v) {
 template <class V> void Visit(Attach& e, V&& v) {
   v.field(0, "model", e.model);
   v.field(1, "body", e.body);
-  v.field(2, "prefix", e.prefix);
+  v.field(2, "frame", e.frame);
+  v.field(3, "prefix", e.prefix);
   (void)v;
 }
 
 template <class V> void Visit(const Attach& e, V&& v) {
   v.field(0, "model", e.model);
   v.field(1, "body", e.body);
-  v.field(2, "prefix", e.prefix);
+  v.field(2, "frame", e.frame);
+  v.field(3, "prefix", e.prefix);
   (void)v;
 }
 
@@ -534,7 +536,8 @@ template <class V> void Visit(Body& e, V&& v) {
   v.field(4, "mocap", e.mocap);
   v.field(5, "gravcomp", e.gravcomp);
   v.field(6, "sleep", e.sleep);
-  v.field(7, "user", e.user);
+  v.field(7, "simple", e.simple);
+  v.field(8, "user", e.user);
   v.child(0, "inertial", e.inertial);
   v.union_child(1, "subtree", e.subtree);
   (void)v;
@@ -548,7 +551,8 @@ template <class V> void Visit(const Body& e, V&& v) {
   v.field(4, "mocap", e.mocap);
   v.field(5, "gravcomp", e.gravcomp);
   v.field(6, "sleep", e.sleep);
-  v.field(7, "user", e.user);
+  v.field(7, "simple", e.simple);
+  v.field(8, "user", e.user);
   v.child(0, "inertial", e.inertial);
   v.union_child(1, "subtree", e.subtree);
   (void)v;
@@ -669,6 +673,7 @@ template <class V> void Visit(Compiler& e, V&& v) {
   v.field(17, "saveinertial", e.saveinertial);
   v.field(18, "assetdir", e.assetdir);
   v.field(19, "alignfree", e.alignfree);
+  v.field(20, "conflict", e.conflict);
   v.child(0, "lengthRanges", e.lengthRanges);
   (void)v;
 }
@@ -694,6 +699,7 @@ template <class V> void Visit(const Compiler& e, V&& v) {
   v.field(17, "saveinertial", e.saveinertial);
   v.field(18, "assetdir", e.assetdir);
   v.field(19, "alignfree", e.alignfree);
+  v.field(20, "conflict", e.conflict);
   v.child(0, "lengthRanges", e.lengthRanges);
   (void)v;
 }
@@ -752,6 +758,7 @@ template <class V> void Visit(CompositeGeom& e, V&& v) {
   v.field(14, "solimp", e.solimp);
   v.field(15, "margin", e.margin);
   v.field(16, "gap", e.gap);
+  v.field(17, "surfacevel", e.surfacevel);
   (void)v;
 }
 
@@ -773,6 +780,7 @@ template <class V> void Visit(const CompositeGeom& e, V&& v) {
   v.field(14, "solimp", e.solimp);
   v.field(15, "margin", e.margin);
   v.field(16, "gap", e.gap);
+  v.field(17, "surfacevel", e.surfacevel);
   (void)v;
 }
 
@@ -2126,14 +2134,15 @@ template <class V> void Visit(Geom& e, V&& v) {
   v.field(18, "solimp", e.solimp);
   v.field(19, "margin", e.margin);
   v.field(20, "gap", e.gap);
-  v.field(21, "hfield", e.hfield);
-  v.field(22, "mesh", e.mesh);
-  v.field(23, "fitscale", e.fitscale);
-  v.field(24, "rgba", e.rgba);
-  v.field(25, "fluidshape", e.fluidshape);
-  v.field(26, "fluidcoef", e.fluidcoef);
-  v.field(27, "user", e.user);
-  v.field(28, "shape", e.shape);
+  v.field(21, "surfacevel", e.surfacevel);
+  v.field(22, "hfield", e.hfield);
+  v.field(23, "mesh", e.mesh);
+  v.field(24, "fitscale", e.fitscale);
+  v.field(25, "rgba", e.rgba);
+  v.field(26, "fluidshape", e.fluidshape);
+  v.field(27, "fluidcoef", e.fluidcoef);
+  v.field(28, "user", e.user);
+  v.field(29, "shape", e.shape);
   v.child(0, "plugin", e.plugin);
   (void)v;
 }
@@ -2160,14 +2169,15 @@ template <class V> void Visit(const Geom& e, V&& v) {
   v.field(18, "solimp", e.solimp);
   v.field(19, "margin", e.margin);
   v.field(20, "gap", e.gap);
-  v.field(21, "hfield", e.hfield);
-  v.field(22, "mesh", e.mesh);
-  v.field(23, "fitscale", e.fitscale);
-  v.field(24, "rgba", e.rgba);
-  v.field(25, "fluidshape", e.fluidshape);
-  v.field(26, "fluidcoef", e.fluidcoef);
-  v.field(27, "user", e.user);
-  v.field(28, "shape", e.shape);
+  v.field(21, "surfacevel", e.surfacevel);
+  v.field(22, "hfield", e.hfield);
+  v.field(23, "mesh", e.mesh);
+  v.field(24, "fitscale", e.fitscale);
+  v.field(25, "rgba", e.rgba);
+  v.field(26, "fluidshape", e.fluidshape);
+  v.field(27, "fluidcoef", e.fluidcoef);
+  v.field(28, "user", e.user);
+  v.field(29, "shape", e.shape);
   v.child(0, "plugin", e.plugin);
   (void)v;
 }
@@ -2275,26 +2285,27 @@ template <class V> void Visit(IntVelocity& e, V&& v) {
   v.field(5, "delay", e.delay);
   v.field(6, "ctrllimited", e.ctrllimited);
   v.field(7, "forcelimited", e.forcelimited);
-  v.field(8, "ctrlrange", e.ctrlrange);
-  v.field(9, "forcerange", e.forcerange);
-  v.field(10, "actrange", e.actrange);
-  v.field(11, "inheritrange", e.inheritrange);
-  v.field(12, "lengthrange", e.lengthrange);
-  v.field(13, "gear", e.gear);
-  v.field(14, "damping", e.damping);
-  v.field(15, "armature", e.armature);
-  v.field(16, "cranklength", e.cranklength);
-  v.field(17, "user", e.user);
-  v.field(18, "joint", e.joint);
-  v.field(19, "jointinparent", e.jointinparent);
-  v.field(20, "tendon", e.tendon);
-  v.field(21, "slidersite", e.slidersite);
-  v.field(22, "cranksite", e.cranksite);
-  v.field(23, "site", e.site);
-  v.field(24, "refsite", e.refsite);
-  v.field(25, "kp", e.kp);
-  v.field(26, "kv", e.kv);
-  v.field(27, "dampratio", e.dampratio);
+  v.field(8, "actlimited", e.actlimited);
+  v.field(9, "ctrlrange", e.ctrlrange);
+  v.field(10, "forcerange", e.forcerange);
+  v.field(11, "actrange", e.actrange);
+  v.field(12, "inheritrange", e.inheritrange);
+  v.field(13, "lengthrange", e.lengthrange);
+  v.field(14, "gear", e.gear);
+  v.field(15, "damping", e.damping);
+  v.field(16, "armature", e.armature);
+  v.field(17, "cranklength", e.cranklength);
+  v.field(18, "user", e.user);
+  v.field(19, "joint", e.joint);
+  v.field(20, "jointinparent", e.jointinparent);
+  v.field(21, "tendon", e.tendon);
+  v.field(22, "slidersite", e.slidersite);
+  v.field(23, "cranksite", e.cranksite);
+  v.field(24, "site", e.site);
+  v.field(25, "refsite", e.refsite);
+  v.field(26, "kp", e.kp);
+  v.field(27, "kv", e.kv);
+  v.field(28, "dampratio", e.dampratio);
   (void)v;
 }
 
@@ -2307,26 +2318,27 @@ template <class V> void Visit(const IntVelocity& e, V&& v) {
   v.field(5, "delay", e.delay);
   v.field(6, "ctrllimited", e.ctrllimited);
   v.field(7, "forcelimited", e.forcelimited);
-  v.field(8, "ctrlrange", e.ctrlrange);
-  v.field(9, "forcerange", e.forcerange);
-  v.field(10, "actrange", e.actrange);
-  v.field(11, "inheritrange", e.inheritrange);
-  v.field(12, "lengthrange", e.lengthrange);
-  v.field(13, "gear", e.gear);
-  v.field(14, "damping", e.damping);
-  v.field(15, "armature", e.armature);
-  v.field(16, "cranklength", e.cranklength);
-  v.field(17, "user", e.user);
-  v.field(18, "joint", e.joint);
-  v.field(19, "jointinparent", e.jointinparent);
-  v.field(20, "tendon", e.tendon);
-  v.field(21, "slidersite", e.slidersite);
-  v.field(22, "cranksite", e.cranksite);
-  v.field(23, "site", e.site);
-  v.field(24, "refsite", e.refsite);
-  v.field(25, "kp", e.kp);
-  v.field(26, "kv", e.kv);
-  v.field(27, "dampratio", e.dampratio);
+  v.field(8, "actlimited", e.actlimited);
+  v.field(9, "ctrlrange", e.ctrlrange);
+  v.field(10, "forcerange", e.forcerange);
+  v.field(11, "actrange", e.actrange);
+  v.field(12, "inheritrange", e.inheritrange);
+  v.field(13, "lengthrange", e.lengthrange);
+  v.field(14, "gear", e.gear);
+  v.field(15, "damping", e.damping);
+  v.field(16, "armature", e.armature);
+  v.field(17, "cranklength", e.cranklength);
+  v.field(18, "user", e.user);
+  v.field(19, "joint", e.joint);
+  v.field(20, "jointinparent", e.jointinparent);
+  v.field(21, "tendon", e.tendon);
+  v.field(22, "slidersite", e.slidersite);
+  v.field(23, "cranksite", e.cranksite);
+  v.field(24, "site", e.site);
+  v.field(25, "refsite", e.refsite);
+  v.field(26, "kp", e.kp);
+  v.field(27, "kv", e.kv);
+  v.field(28, "dampratio", e.dampratio);
   (void)v;
 }
 

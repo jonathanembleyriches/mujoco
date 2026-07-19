@@ -43,7 +43,7 @@ def _field(elem, name):
 
 def test_parses_clean():
     # A raising parse_spec would fail the module import fixtures; assert version.
-    assert parse_spec(SCHEMA).mujoco_version == "3.10.0"
+    assert parse_spec(SCHEMA).mujoco_version == "3.10.1"
 
 
 # --------------------------------------------------------------------------- #

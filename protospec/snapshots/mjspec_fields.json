@@ -1,7 +1,7 @@
 {
   "source": {
     "file": "include/mujoco/mjspec.h",
-    "mujoco_version": "3.10.0"
+    "mujoco_version": "3.10.1"
   },
   "handle_types": {
     "mjString": "std::string",
@@ -25,7 +25,7 @@
   "enums": [
     {
       "name": "mjtGeomInertia",
-      "tag": "mjtGeomInertia_",
+      "tag": "mjtGeomInertia",
       "doc": "type of inertia inference",
       "enumerators": [
         {
@@ -42,7 +42,7 @@
     },
     {
       "name": "mjtMeshInertia",
-      "tag": "mjtMeshInertia_",
+      "tag": "mjtMeshInertia",
       "doc": "type of mesh inertia",
       "enumerators": [
         {
@@ -69,7 +69,7 @@
     },
     {
       "name": "mjtMeshBuiltin",
-      "tag": "mjtMeshBuiltin_",
+      "tag": "mjtMeshBuiltin",
       "doc": "type of built-in procedural mesh",
       "enumerators": [
         {
@@ -116,7 +116,7 @@
     },
     {
       "name": "mjtBuiltin",
-      "tag": "mjtBuiltin_",
+      "tag": "mjtBuiltin",
       "doc": "type of built-in procedural texture",
       "enumerators": [
         {
@@ -143,7 +143,7 @@
     },
     {
       "name": "mjtMark",
-      "tag": "mjtMark_",
+      "tag": "mjtMark",
       "doc": "mark type for procedural textures",
       "enumerators": [
         {
@@ -170,7 +170,7 @@
     },
     {
       "name": "mjtLimited",
-      "tag": "mjtLimited_",
+      "tag": "mjtLimited",
       "doc": "type of limit specification",
       "enumerators": [
         {
@@ -192,7 +192,7 @@
     },
     {
       "name": "mjtAlignFree",
-      "tag": "mjtAlignFree_",
+      "tag": "mjtAlignFree",
       "doc": "whether to align free joints with the inertial frame",
       "enumerators": [
         {
@@ -214,7 +214,7 @@
     },
     {
       "name": "mjtInertiaFromGeom",
-      "tag": "mjtInertiaFromGeom_",
+      "tag": "mjtInertiaFromGeom",
       "doc": "whether to infer body inertias from child geoms",
       "enumerators": [
         {
@@ -236,7 +236,7 @@
     },
     {
       "name": "mjtOrientation",
-      "tag": "mjtOrientation_",
+      "tag": "mjtOrientation",
       "doc": "type of orientation specifier",
       "enumerators": [
         {
@@ -267,8 +267,30 @@
       ]
     },
     {
+      "name": "mjtConflict",
+      "tag": "mjtConflict",
+      "doc": "conflict resolution for attach",
+      "enumerators": [
+        {
+          "name": "mjCONFLICT_WARNING",
+          "value": "0",
+          "comment": "keep parent, warn on conflict"
+        },
+        {
+          "name": "mjCONFLICT_MERGE",
+          "value": null,
+          "comment": "merge: min/max/error per field"
+        },
+        {
+          "name": "mjCONFLICT_ERROR",
+          "value": null,
+          "comment": "error on any conflict"
+        }
+      ]
+    },
+    {
       "name": "mjtCTimer",
-      "tag": "mjtCTimer_",
+      "tag": "mjtCTimer",
       "doc": "compiler timing categories",
       "enumerators": [
         {
@@ -359,7 +381,7 @@
       "fields": [
         {
           "name": "autolimits",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "infer \"limited\" attribute based on range",
@@ -391,7 +413,7 @@
         },
         {
           "name": "balanceinertia",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "automatically impose A + B >= C rule",
@@ -399,7 +421,7 @@
         },
         {
           "name": "fitaabb",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "meshfit to aabb instead of inertia box",
@@ -407,7 +429,7 @@
         },
         {
           "name": "degree",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "angles in radians or degrees",
@@ -426,7 +448,7 @@
         },
         {
           "name": "discardvisual",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "discard visual geoms in parser",
@@ -434,7 +456,7 @@
         },
         {
           "name": "usethread",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "use multiple threads to speed up compiler",
@@ -442,7 +464,7 @@
         },
         {
           "name": "fusestatic",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "fuse static bodies with parent",
@@ -450,10 +472,10 @@
         },
         {
           "name": "inertiafromgeom",
-          "ctype": "int",
+          "ctype": "mjtInertiaFromGeom",
           "pointer": false,
           "array": null,
-          "comment": "use geom inertias (mjtInertiaFromGeom)",
+          "comment": "use geom inertias",
           "kind": "scalar"
         },
         {
@@ -469,7 +491,7 @@
         },
         {
           "name": "saveinertial",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "save explicit inertial clause for all bodies to XML",
@@ -477,10 +499,18 @@
         },
         {
           "name": "alignfree",
-          "ctype": "int",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "align free joints with inertial frame",
+          "kind": "scalar"
+        },
+        {
+          "name": "conflict",
+          "ctype": "mjtConflict",
+          "pointer": false,
+          "array": null,
+          "comment": "conflict resolution for attach",
           "kind": "scalar"
         },
         {
@@ -641,7 +671,7 @@
         },
         {
           "name": "strippath",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "automatically strip paths from mesh files",
@@ -809,7 +839,7 @@
         },
         {
           "name": "hasImplicitPluginElem",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "already encountered an implicit plugin sensor/actuator",
@@ -917,7 +947,7 @@
         },
         {
           "name": "active",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "is the plugin active",
@@ -1047,7 +1077,7 @@
         },
         {
           "name": "mocap",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "is this a mocap body",
@@ -1070,6 +1100,14 @@
           "kind": "scalar"
         },
         {
+          "name": "simple",
+          "ctype": "mjtByte",
+          "pointer": false,
+          "array": null,
+          "comment": "simple body optimization (0: false, 1: auto)",
+          "kind": "scalar"
+        },
+        {
           "name": "userdata",
           "ctype": "mjDoubleVec",
           "pointer": true,
@@ -1079,7 +1117,7 @@
         },
         {
           "name": "explicitinertial",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "whether to save the body with explicit inertial clause",
@@ -1219,10 +1257,10 @@
         },
         {
           "name": "align",
-          "ctype": "int",
+          "ctype": "mjtAlignFree",
           "pointer": false,
           "array": null,
-          "comment": "align free joint with body com (mjtAlignFree)",
+          "comment": "align free joint with body com",
           "kind": "scalar"
         },
         {
@@ -1257,10 +1295,10 @@
         },
         {
           "name": "limited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
-          "comment": "does joint have limits (mjtLimited)",
+          "comment": "does joint have limits",
           "kind": "scalar"
         },
         {
@@ -1306,10 +1344,10 @@
         },
         {
           "name": "actfrclimited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
-          "comment": "are actuator forces on joint limited (mjtLimited)",
+          "comment": "are actuator forces on joint limited",
           "kind": "scalar"
         },
         {
@@ -1382,7 +1420,7 @@
         },
         {
           "name": "actgravcomp",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "is gravcomp force applied via actuators",
@@ -1568,6 +1606,17 @@
           "array": null,
           "comment": "additional contact detection buffer",
           "kind": "scalar"
+        },
+        {
+          "name": "surfacevel",
+          "ctype": "double",
+          "pointer": false,
+          "array": {
+            "extent": "6",
+            "value": 6
+          },
+          "comment": "surface velocity in local frame: linear, angular",
+          "kind": "fixed_array"
         },
         {
           "name": "mass",
@@ -2049,7 +2098,7 @@
         },
         {
           "name": "active",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "is light active",
@@ -2073,7 +2122,7 @@
         },
         {
           "name": "castshadow",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "does light cast shadows",
@@ -2168,7 +2217,7 @@
           "ctype": "mjString",
           "pointer": true,
           "array": null,
-          "comment": "message appended to compiler errorsx",
+          "comment": "message appended to compiler errors",
           "kind": "string"
         }
       ]
@@ -2305,7 +2354,7 @@
         },
         {
           "name": "internal",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "enable internal collisions",
@@ -2313,7 +2362,7 @@
         },
         {
           "name": "flatskin",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "render flex skin with flat shading",
@@ -2321,7 +2370,7 @@
         },
         {
           "name": "selfcollide",
-          "ctype": "int",
+          "ctype": "mjtFlexSelf",
           "pointer": false,
           "array": null,
           "comment": "mode for flex self collision",
@@ -2584,7 +2633,7 @@
         },
         {
           "name": "smoothnormal",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "do not exclude large-angle faces from normals",
@@ -2592,7 +2641,7 @@
         },
         {
           "name": "needsdf",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "compute sdf from mesh",
@@ -2926,18 +2975,18 @@
         },
         {
           "name": "builtin",
-          "ctype": "int",
+          "ctype": "mjtBuiltin",
           "pointer": false,
           "array": null,
-          "comment": "builtin type (mjtBuiltin)",
+          "comment": "builtin type",
           "kind": "scalar"
         },
         {
           "name": "mark",
-          "ctype": "int",
+          "ctype": "mjtMark",
           "pointer": false,
           "array": null,
-          "comment": "mark type (mjtMark)",
+          "comment": "mark type",
           "kind": "scalar"
         },
         {
@@ -3061,7 +3110,7 @@
         },
         {
           "name": "hflip",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "horizontal flip",
@@ -3069,7 +3118,7 @@
         },
         {
           "name": "vflip",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "vertical flip",
@@ -3109,7 +3158,7 @@
         },
         {
           "name": "texuniform",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "make texture cube uniform",
@@ -3378,7 +3427,7 @@
         },
         {
           "name": "active",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "is equality initially active",
@@ -3527,15 +3576,15 @@
         },
         {
           "name": "limited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
-          "comment": "does tendon have limits (mjtLimited)",
+          "comment": "does tendon have limits",
           "kind": "scalar"
         },
         {
           "name": "actfrclimited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
           "comment": "does tendon have actuator force limits",
@@ -3759,7 +3808,7 @@
         },
         {
           "name": "actearly",
-          "ctype": "mjtByte",
+          "ctype": "mjtBool",
           "pointer": false,
           "array": null,
           "comment": "apply next activations to qfrc",
@@ -3856,10 +3905,10 @@
         },
         {
           "name": "ctrllimited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
-          "comment": "are control limits defined (mjtLimited)",
+          "comment": "are control limits defined",
           "kind": "scalar"
         },
         {
@@ -3875,10 +3924,10 @@
         },
         {
           "name": "forcelimited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
-          "comment": "are force limits defined (mjtLimited)",
+          "comment": "are force limits defined",
           "kind": "scalar"
         },
         {
@@ -3894,10 +3943,10 @@
         },
         {
           "name": "actlimited",
-          "ctype": "int",
+          "ctype": "mjtLimited",
           "pointer": false,
           "array": null,
-          "comment": "are activation limits defined (mjtLimited)",
+          "comment": "are activation limits defined",
           "kind": "scalar"
         },
         {

@@ -119,6 +119,15 @@ int RunTests() {
         p.model->do_update);
   CHECK(p.cam && p.cam->pre_compile);
 
+  // Assumption probe (2026-07 upstream sync): ModelPlugin grew pre_step/post_step
+  // hooks. The editor drives physics solely through the do_update freeze and must
+  // leave these null, so the host's new PreStep/PostStep dispatch is a no-op for
+  // us. If a future change wires them, this fires and DoUpdate's freeze reasoning
+  // must be re-derived against the new step path. (That these fields exist at all
+  // also exercises the ModelPlugin ABI the plugin_abi.h static_asserts pin.)
+  CHECK(p.model->pre_step == nullptr);
+  CHECK(p.model->post_step == nullptr);
+
   // --- pre_compile: camera conduit, never triggers host recompile --------- //
   mjvCamera cam;
   mjv_defaultCamera(&cam);

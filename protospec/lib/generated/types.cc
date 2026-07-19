@@ -472,6 +472,7 @@ std::unique_ptr<Attach> Clone(const Attach& src) {
   out->loc = src.loc;
   out->model = src.model;
   out->body = src.body;
+  out->frame = src.frame;
   out->prefix = src.prefix;
   return out;
 }
@@ -479,6 +480,7 @@ std::unique_ptr<Attach> Clone(const Attach& src) {
 bool operator==(const Attach& a, const Attach& b) {
   return a.model == b.model &&
          a.body == b.body &&
+         a.frame == b.frame &&
          a.prefix == b.prefix;
 }
 
@@ -546,6 +548,7 @@ std::unique_ptr<Body> Clone(const Body& src) {
   out->mocap = src.mocap;
   out->gravcomp = src.gravcomp;
   out->sleep = src.sleep;
+  out->simple = src.simple;
   out->user = src.user;
   out->inertial = ps::PtrVecClone(src.inertial);
   for (const auto& item : src.subtree)
@@ -561,6 +564,7 @@ bool operator==(const Body& a, const Body& b) {
          a.mocap == b.mocap &&
          a.gravcomp == b.gravcomp &&
          a.sleep == b.sleep &&
+         a.simple == b.simple &&
          a.user == b.user &&
          ps::PtrVecEq(a.inertial, b.inertial) &&
          a.subtree == b.subtree;
@@ -686,6 +690,7 @@ std::unique_ptr<Compiler> Clone(const Compiler& src) {
   out->saveinertial = src.saveinertial;
   out->assetdir = src.assetdir;
   out->alignfree = src.alignfree;
+  out->conflict = src.conflict;
   out->lengthRanges = ps::PtrVecClone(src.lengthRanges);
   return out;
 }
@@ -711,6 +716,7 @@ bool operator==(const Compiler& a, const Compiler& b) {
          a.saveinertial == b.saveinertial &&
          a.assetdir == b.assetdir &&
          a.alignfree == b.alignfree &&
+         a.conflict == b.conflict &&
          ps::PtrVecEq(a.lengthRanges, b.lengthRanges);
 }
 
@@ -771,6 +777,7 @@ std::unique_ptr<CompositeGeom> Clone(const CompositeGeom& src) {
   out->solimp = src.solimp;
   out->margin = src.margin;
   out->gap = src.gap;
+  out->surfacevel = src.surfacevel;
   return out;
 }
 
@@ -791,7 +798,8 @@ bool operator==(const CompositeGeom& a, const CompositeGeom& b) {
          a.solref == b.solref &&
          a.solimp == b.solimp &&
          a.margin == b.margin &&
-         a.gap == b.gap;
+         a.gap == b.gap &&
+         a.surfacevel == b.surfacevel;
 }
 
 std::unique_ptr<CompositeJoint> Clone(const CompositeJoint& src) {
@@ -2195,6 +2203,7 @@ std::unique_ptr<Geom> Clone(const Geom& src) {
   out->solimp = src.solimp;
   out->margin = src.margin;
   out->gap = src.gap;
+  out->surfacevel = src.surfacevel;
   out->hfield = src.hfield;
   out->mesh = src.mesh;
   out->fitscale = src.fitscale;
@@ -2229,6 +2238,7 @@ bool operator==(const Geom& a, const Geom& b) {
          a.solimp == b.solimp &&
          a.margin == b.margin &&
          a.gap == b.gap &&
+         a.surfacevel == b.surfacevel &&
          a.hfield == b.hfield &&
          a.mesh == b.mesh &&
          a.fitscale == b.fitscale &&
@@ -2349,6 +2359,7 @@ std::unique_ptr<IntVelocity> Clone(const IntVelocity& src) {
   out->delay = src.delay;
   out->ctrllimited = src.ctrllimited;
   out->forcelimited = src.forcelimited;
+  out->actlimited = src.actlimited;
   out->ctrlrange = src.ctrlrange;
   out->forcerange = src.forcerange;
   out->actrange = src.actrange;
@@ -2381,6 +2392,7 @@ bool operator==(const IntVelocity& a, const IntVelocity& b) {
          a.delay == b.delay &&
          a.ctrllimited == b.ctrllimited &&
          a.forcelimited == b.forcelimited &&
+         a.actlimited == b.actlimited &&
          a.ctrlrange == b.ctrlrange &&
          a.forcerange == b.forcerange &&
          a.actrange == b.actrange &&

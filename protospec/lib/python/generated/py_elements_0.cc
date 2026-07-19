@@ -174,6 +174,7 @@ void RegisterElements0(pybind11::module_& m) {
     ElementBase(c);
     OptField(c, "model", &Attach::model);
     OptField(c, "body", &Attach::body);
+    OptField(c, "frame", &Attach::frame);
     OptField(c, "prefix", &Attach::prefix);
     Augment(c);
   }
@@ -215,6 +216,7 @@ void RegisterElements0(pybind11::module_& m) {
     OptField(c, "mocap", &Body::mocap);
     OptField(c, "gravcomp", &Body::gravcomp);
     OptField(c, "sleep", &Body::sleep);
+    OptField(c, "simple", &Body::simple);
     OptField(c, "user", &Body::user);
     ChildList(c, "inertial", &Body::inertial);
     UnionList(c, "subtree", &Body::subtree);
@@ -293,6 +295,7 @@ void RegisterElements0(pybind11::module_& m) {
     OptField(c, "saveinertial", &Compiler::saveinertial);
     OptField(c, "assetdir", &Compiler::assetdir);
     OptField(c, "alignfree", &Compiler::alignfree);
+    OptField(c, "conflict", &Compiler::conflict);
     ChildList(c, "lengthRanges", &Compiler::lengthRanges);
     Augment(c);
   }
@@ -335,6 +338,7 @@ void RegisterElements0(pybind11::module_& m) {
     OptField(c, "solimp", &CompositeGeom::solimp);
     OptField(c, "margin", &CompositeGeom::margin);
     OptField(c, "gap", &CompositeGeom::gap);
+    OptField(c, "surfacevel", &CompositeGeom::surfacevel);
     Augment(c);
   }
   { pyb::class_<CompositeJoint> c(m, "CompositeJoint");

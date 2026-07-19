@@ -56,6 +56,7 @@ void ApplyDefault(Ballquat& e) {
 
 void ApplyDefault(Body& e) {
   e.pos = std::array<double, 3>{{0.0, 0.0, 0.0}};
+  e.simple = SimpleMode::auto_;
 }
 
 void ApplyDefault(Camera& e) {
@@ -74,7 +75,7 @@ void ApplyDefault(Clock& e) {
 }
 
 void ApplyDefault(Compiler& e) {
-  (void)e;
+  e.conflict = Conflict::warning;
 }
 
 void ApplyDefault(Composite& e) {

@@ -73,7 +73,7 @@ inline int TextureBuiltinToMjt(TextureBuiltin v) {
 
 inline void ApplyTextureSource(const TextureSource& source, mjsTexture* out) {
   if (const TextureBuiltin* b = std::get_if<TextureBuiltin>(&source)) {
-    out->builtin = TextureBuiltinToMjt(*b);
+    out->builtin = static_cast<mjtBuiltin>(TextureBuiltinToMjt(*b));
   } else if (const TexFile* f = std::get_if<TexFile>(&source)) {
     mjs_setString(out->file, f->file.c_str());
   }

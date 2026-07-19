@@ -219,6 +219,12 @@ enum class Cone {
   elliptic,
 };
 
+enum class Conflict {
+  warning,
+  merge,
+  error,
+};
+
 enum class ContactData {
   found,
   force,
@@ -410,6 +416,11 @@ enum class RayData {
   point,
   normal,
   depth,
+};
+
+enum class SimpleMode {
+  false_,
+  auto_,
 };
 
 enum class SolverType {
@@ -772,6 +783,7 @@ struct Attach {
   std::uint64_t serial = ps::detail::next_serial();
   ps::opt<ps::Ref<ModelAsset>> model = {};
   ps::opt<std::string> body = {};
+  ps::opt<std::string> frame = {};
   ps::opt<std::string> prefix = {};
 };
 
@@ -813,6 +825,7 @@ struct Body {
   ps::opt<bool> mocap = {};
   ps::opt<double> gravcomp = {};
   ps::opt<BodySleep> sleep = {};
+  ps::opt<SimpleMode> simple = {};
   ps::opt<std::vector<double>> user = {};
   std::vector<std::unique_ptr<Inertial>> inertial;
   std::vector<BodyChildAny> subtree;
@@ -891,6 +904,7 @@ struct Compiler {
   ps::opt<bool> saveinertial = {};
   ps::opt<std::string> assetdir = {};
   ps::opt<bool> alignfree = {};
+  ps::opt<Conflict> conflict = {};
   std::vector<std::unique_ptr<LengthRange>> lengthRanges;
 };
 
@@ -933,6 +947,7 @@ struct CompositeGeom {
   ps::opt<ps::InlineVec<double, 5>> solimp = {};
   ps::opt<double> margin = {};
   ps::opt<double> gap = {};
+  ps::opt<std::array<double, 6>> surfacevel = {};
 };
 
 struct CompositeJoint {
@@ -1670,6 +1685,7 @@ struct Geom {
   ps::opt<ps::InlineVec<double, 5>> solimp = {};
   ps::opt<double> margin = {};
   ps::opt<double> gap = {};
+  ps::opt<std::array<double, 6>> surfacevel = {};
   ps::opt<ps::Ref<Hfield>> hfield = {};
   ps::opt<ps::Ref<Mesh>> mesh = {};
   ps::opt<double> fitscale = {};
@@ -1743,6 +1759,7 @@ struct IntVelocity {
   ps::opt<double> delay = {};
   ps::opt<TriState> ctrllimited = {};
   ps::opt<TriState> forcelimited = {};
+  ps::opt<TriState> actlimited = {};
   ps::opt<std::array<double, 2>> ctrlrange = {};
   ps::opt<std::array<double, 2>> forcerange = {};
   ps::opt<std::array<double, 2>> actrange = {};

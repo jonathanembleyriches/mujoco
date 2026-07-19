@@ -94,27 +94,8 @@ void DrawLine3(ImDrawList* dl, const ViewProj& vp, const double a[3],
   if (pa.visible && pb.visible) dl->AddLine(pa.p, pb.p, col, thick);
 }
 
-// A wireframe box hugging the element, oriented by its world frame R (row-major,
-// world<-local). Replaces the OverlayPlugin mjvGeom box (deliverable 5), now on
-// the foreground draw list.
-void DrawWireBox(ImDrawList* dl, const ViewProj& vp, const double center[3],
-                 const double half[3], const double R[9], ImU32 col) {
-  const int c[8][3] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
-                       {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1}};
-  const int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
-                            {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
-  double v[8][3];
-  for (int i = 0; i < 8; ++i) {
-    const double local[3] = {c[i][0] * half[0], c[i][1] * half[1],
-                             c[i][2] * half[2]};
-    double rot[3];
-    mju_mulMatVec3(rot, R, local);
-    for (int k = 0; k < 3; ++k) v[i][k] = center[k] + rot[k];
-  }
-  for (int e = 0; e < 12; ++e) {
-    DrawLine3(dl, vp, v[edges[e][0]], v[edges[e][1]], col, 2.0f);
-  }
-}
+// (The old screen-space DrawWireBox is retired -- the selection box is now a
+// depth-occluded ScenePlugin outline; see AddSelectionOutlineGeoms below.)
 
 constexpr ImU32 kColHinge = IM_COL32(51, 230, 89, 255);
 constexpr ImU32 kColSlide = IM_COL32(64, 179, 255, 255);
@@ -162,38 +143,69 @@ void DrawJointsScreen(EditorContext& ctx, const mjModel* m, const mjData* d,
   }
 }
 
-// The selection outline: a projected wireframe box on the foreground draw list.
+// The selection overlay: joint rigging gizmos only. The selection BOX moved to
+// a real depth-occluded ScenePlugin (AddSelectionOutlineGeoms / EnhanceScene
+// below) now that upstream ships ScenePlugin (5637f743) -- so the outline is
+// occluded by nearer geometry instead of always drawing on top. This retires
+// the min-ask doc's worst accepted degradation (the non-occluded screen-space
+// box) at zero upstream ask.
 void DrawSelectionOverlay(EditorContext& ctx, const mjModel* m, const mjData* d,
                           const ViewProj& vp, ImDrawList* dl) {
   DrawJointsScreen(ctx, m, d, vp, dl);
-  if (ctx.selected_serial == 0) return;
-  const ImU32 col = IM_COL32(255, 217, 26, 255);
+}
+
+// Adds one mjGEOM_LINEBOX outline geom (world pos/half-extents/rotation) to the
+// host scene, honouring the scene's geom budget. mjCAT_DECOR keeps it out of
+// selection/segmentation passes.
+void AddOutlineBox(mjvScene* scn, const mjtNum pos[3], const mjtNum half[3],
+                   const mjtNum mat[9]) {
+  if (!scn || scn->ngeom >= scn->maxgeom) return;
+  const float rgba[4] = {1.0f, 0.85f, 0.1f, 1.0f};
+  mjvGeom* g = &scn->geoms[scn->ngeom];
+  mjv_initGeom(g, mjGEOM_LINEBOX, half, pos, mat, rgba);
+  g->category = mjCAT_DECOR;
+  ++scn->ngeom;
+}
+
+// ScenePlugin callback: draw the selected element's outline as a depth-occluded
+// wire box. Uses the HOST model/data (which, in Edit, is the editor's adopted &
+// forwarded compile, so binding ids/kinematics correspond) keyed by the
+// selection serial through the compiled Binding -- exactly the resolution the
+// old screen-space box used.
+void AddSelectionOutlineGeoms(EditorContext& ctx, const mjModel* m,
+                              const mjData* d, mjvScene* scn) {
+  if (!ctx.CanEdit() || ctx.selected_serial == 0 || !m || !d || !scn) return;
   for (const mj::Binding::Entry& e : ctx.compiled.binding.entries()) {
     if (e.serial != ctx.selected_serial || e.id < 0) continue;
     if (e.etype == mj::ElementType::Geom) {
       const int gid = e.id;
-      const double* R = d->geom_xmat + 9 * gid;
-      double half[3];
+      const mjtNum* R = d->geom_xmat + 9 * gid;
+      mjtNum half[3];
       for (int k = 0; k < 3; ++k) half[k] = m->geom_aabb[6 * gid + 3 + k] + 0.005;
-      double wc[3];
+      mjtNum wc[3];
       mju_mulMatVec3(wc, R, m->geom_aabb + 6 * gid);
       for (int k = 0; k < 3; ++k) wc[k] += d->geom_xpos[3 * gid + k];
-      DrawWireBox(dl, vp, wc, half, R, col);
+      AddOutlineBox(scn, wc, half, R);
       return;
     }
     if (e.etype == mj::ElementType::Body) {
-      const double half[3] = {0.06, 0.06, 0.06};
-      DrawWireBox(dl, vp, d->xpos + 3 * e.id, half, d->xmat + 9 * e.id, col);
+      const mjtNum half[3] = {0.06, 0.06, 0.06};
+      AddOutlineBox(scn, d->xpos + 3 * e.id, half, d->xmat + 9 * e.id);
       return;
     }
     if (e.etype == mj::ElementType::Site) {
-      double half[3];
+      mjtNum half[3];
       for (int k = 0; k < 3; ++k) half[k] = m->site_size[3 * e.id + k] + 0.01;
-      DrawWireBox(dl, vp, d->site_xpos + 3 * e.id, half, d->site_xmat + 9 * e.id,
-                  col);
+      AddOutlineBox(scn, d->site_xpos + 3 * e.id, half, d->site_xmat + 9 * e.id);
       return;
     }
   }
+}
+
+void EnhanceScene(ScenePlugin* self, const mjModel* m, mjData* d,
+                  mjvScene* scn) {
+  ViewportEditor* ve = ctx_cast<ViewportEditor>(self);
+  AddSelectionOutlineGeoms(*ve->ctx, m, d, scn);
 }
 
 // --- Picking (unchanged math on the editor's own model/data) --------------- //
@@ -624,6 +636,13 @@ void RegisterViewportEditor(EditorContext& ctx) {
   viewport.do_update = ViewportUpdate;  // per-tick draw/mouse; returns false
   viewport.data = ve;
   RegisterPlugin<ModelPlugin>(viewport);
+
+  // Depth-occluded selection outline (adopts upstream ScenePlugin, 5637f743).
+  ScenePlugin outline;
+  outline.name = "ProtoSpec Selection Outline";
+  outline.enhance_scene = EnhanceScene;
+  outline.data = ve;
+  RegisterPlugin<ScenePlugin>(outline);
 
   RegisterKey("Tool Select", ImGuiKey_Q,
               [](KeyHandlerPlugin* s) {
