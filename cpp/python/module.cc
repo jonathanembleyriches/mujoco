@@ -302,11 +302,12 @@ const char* TierName(validate::Tier t) {
     case validate::Tier::Structural: return "structural";
     case validate::Tier::Referential: return "referential";
     case validate::Tier::Semantic: return "semantic";
+    case validate::Tier::None: break;
   }
   return "";
 }
 
-pyb::dict DiagToDict(const validate::Diagnostic& d) {
+pyb::dict DiagToDict(const ps::Diagnostic& d) {
   pyb::dict out;
   out["tier"] = static_cast<int>(d.tier);
   out["tier_name"] = TierName(d.tier);
@@ -315,7 +316,7 @@ pyb::dict DiagToDict(const validate::Diagnostic& d) {
   out["message"] = d.message;
   out["file"] = d.loc.file;
   out["line"] = d.loc.line;
-  out["path"] = d.path;
+  out["path"] = d.tag;  // validator element path rides in the shared `tag` field
   return out;
 }
 

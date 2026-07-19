@@ -77,12 +77,12 @@ std::optional<std::uint64_t> SerialForValidatePath(const mj::Model& tree,
 
 // Fold a bridge compile Diagnostic into a Diagnostics-panel entry: severity
 // mapped, the pass tag kept inline, SourceLoc carried through when known.
-static DiagEntry FromCompileDiagnostic(const mj::Diagnostic& d) {
+static DiagEntry FromCompileDiagnostic(const ps::Diagnostic& d) {
   DiagEntry e;
-  e.severity = d.severity == mj::Diagnostic::Severity::Error
+  e.severity = d.severity == ps::Diagnostic::Severity::Error
                    ? DiagEntry::Severity::Error
                    : DiagEntry::Severity::Warning;
-  e.message = d.pass.empty() ? d.message : ("[" + d.pass + "] " + d.message);
+  e.message = d.source.empty() ? d.message : ("[" + d.source + "] " + d.message);
   if (!d.loc.file.empty()) {
     e.loc = d.loc;
   }
@@ -130,25 +130,25 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
   // The native compiler tolerates some of those silently, so surface them
   // honestly here: referential validation on the ACTUAL compile input.
   if (pruned) {
-    for (const validate::Diagnostic& d :
+    for (const ps::Diagnostic& d :
          validate::Validate(*to_compile, validate::kTierReferential)) {
       DiagEntry e;
       e.severity = d.severity == validate::Severity::Error
                        ? DiagEntry::Severity::Error
                        : DiagEntry::Severity::Warning;
       e.message = "[layers] pruned-input validation: " + d.message +
-                  (d.path.empty() ? std::string() : ("  (" + d.path + ")"));
+                  (d.tag.empty() ? std::string() : ("  (" + d.tag + ")"));
       if (!d.loc.file.empty()) e.loc = d.loc;
       ctx.Diagnose(std::move(e));
     }
   }
   mj::Compiled compiled = mj::Compile(*to_compile, opts);
-  for (const mj::Diagnostic& w : compiled.report.warnings) {
+  for (const ps::Diagnostic& w : compiled.report.warnings) {
     ctx.Diagnose(FromCompileDiagnostic(w));
   }
   if (!compiled.ok()) {
     ctx.Log(std::string(what) + " FAILED:");
-    for (const mj::Diagnostic& e : compiled.report.errors) {
+    for (const ps::Diagnostic& e : compiled.report.errors) {
       ctx.Diagnose(FromCompileDiagnostic(e));
     }
     ctx.status_line = std::string(what) + " failed (last good model kept)";
@@ -173,14 +173,14 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
   ctx.Log("load: " + path);
 
   io::ParseResult parsed = io::ParseMjcfFile(path);
-  for (const io::Diagnostic& w : parsed.warnings) {
+  for (const ps::Diagnostic& w : parsed.warnings) {
     DiagEntry e{DiagEntry::Severity::Warning, "[parse] " + w.message, {}, {}};
     if (!w.loc.file.empty()) e.loc = w.loc;
     ctx.Diagnose(std::move(e));
   }
   if (!parsed.ok()) {
     ctx.Log("parse FAILED:");
-    for (const io::Diagnostic& e : parsed.errors) {
+    for (const ps::Diagnostic& e : parsed.errors) {
       DiagEntry d{DiagEntry::Severity::Error, "[parse] " + e.message, {}, {}};
       if (!e.loc.file.empty()) d.loc = e.loc;
       ctx.Diagnose(std::move(d));
@@ -189,18 +189,18 @@ bool LoadModel(EditorContext& ctx, const std::string& path) {
     return false;
   }
 
-  const std::vector<validate::Diagnostic> diags = validate::Validate(
+  const std::vector<ps::Diagnostic> diags = validate::Validate(
       *parsed.model, validate::kTierStructural | validate::kTierReferential);
-  for (const validate::Diagnostic& d : diags) {
+  for (const ps::Diagnostic& d : diags) {
     DiagEntry e;
     e.severity = d.severity == validate::Severity::Error
                      ? DiagEntry::Severity::Error
                      : DiagEntry::Severity::Warning;
     e.message = "[validate] " + d.message +
-                (d.path.empty() ? std::string() : ("  (" + d.path + ")"));
+                (d.tag.empty() ? std::string() : ("  (" + d.tag + ")"));
     if (!d.loc.file.empty()) e.loc = d.loc;
     // Route the row back to the offending element where the path names one.
-    e.serial = SerialForValidatePath(*parsed.model, d.path);
+    e.serial = SerialForValidatePath(*parsed.model, d.tag);
     ctx.Diagnose(std::move(e));
   }
 

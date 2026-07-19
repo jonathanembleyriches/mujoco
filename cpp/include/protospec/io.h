@@ -13,6 +13,6 @@
 
 #include "protospec/model.h"
 
-#include "../../io/mjcf.h"  // ps::mjcf::io::{ParseMjcf*, WriteMjcf, ParseResult, Diagnostic}
+#include "../../io/mjcf.h"  // ps::mjcf::io::{ParseMjcf*, WriteMjcf, ParseResult}; ps::Diagnostic
 
 #endif  // PROTOSPEC_PUBLIC_IO_H

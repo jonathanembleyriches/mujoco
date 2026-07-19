@@ -909,7 +909,7 @@ static void CheckFlexcompBitIdentical(const char* label, const char* xml) {
   if (!model) { CHECK(false); return; }
   CompileOptions native;
   native.path = CompilePath::NativePath;
-  std::vector<ps::mjcf::Diagnostic> diags;
+  std::vector<ps::Diagnostic> diags;
   mjModel* nat = compile::BuildNativeModel(*model, native, diags);
   Compiled xmlc = Compile(*model, [] {
     CompileOptions o;

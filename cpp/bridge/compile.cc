@@ -17,6 +17,7 @@
 #include "mjcf.h"
 #include "native.h"
 #include "reflect.h"
+#include "validate.h"
 #include "visit.h"
 
 namespace ps::mjcf {
@@ -269,10 +270,13 @@ mjModel* LoadFromVfs(const std::string& xml, const CompileOptions& opts,
   return m;
 }
 
-Diagnostic MakeError(std::string pass, std::string msg,
-                     ps::SourceLoc loc = {}) {
-  return Diagnostic{Diagnostic::Severity::Error, std::move(pass),
-                    std::move(msg), std::move(loc)};
+ps::Diagnostic MakeError(std::string source, std::string msg,
+                         ps::SourceLoc loc = {}) {
+  ps::Diagnostic d;
+  d.source = std::move(source);
+  d.message = std::move(msg);
+  d.loc = std::move(loc);
+  return d;
 }
 
 // Build the Binding for a compiled model by resolving every effective name
@@ -302,9 +306,9 @@ void BuildNameBinding(const Model& model, mjModel* m, const CompileOptions& opts
 
     if (e.id < 0 && !pe.name.empty() && drop.any()) {
       const char* flag = drop.discardvisual ? "discardvisual" : "fusestatic";
-      Diagnostic d;
-      d.severity = Diagnostic::Severity::Warning;
-      d.pass = "bind";
+      ps::Diagnostic d;
+      d.severity = ps::Diagnostic::Severity::Warning;
+      d.source = "bind";
       d.message = "element '" + pe.name +
                   "' did not bind; likely removed by compiler flag '" + flag +
                   "'";
@@ -326,6 +330,24 @@ std::string CompileToXml(const Model& model, const CompileOptions& opts) {
 Compiled Compile(const Model& model, const CompileOptions& opts) {
   Compiled out;
   out.report.requested = opts.path;
+
+  // Opt-in pre-compile validation (default off keeps today's behavior, where
+  // the front-ends validate separately). Errors gate the compile per validate's
+  // own severity; warnings (tier-3 semantic lint) flow through into the report.
+  // The standalone validate::Validate entry point is unchanged for callers that
+  // drive validation themselves.
+  if (opts.validate) {
+    bool gated = false;
+    for (ps::Diagnostic& d : validate::Validate(model)) {
+      if (d.severity == ps::Diagnostic::Severity::Error) {
+        out.report.errors.push_back(std::move(d));
+        gated = true;
+      } else {
+        out.report.warnings.push_back(std::move(d));
+      }
+    }
+    if (gated) return out;
+  }
 
   // NativePath is forced: run the native compiler and never fall back to XML.
   // Today it always returns null with UnsupportedNatively (compile/native.cc);
@@ -366,10 +388,10 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
   collect(model);
 
   // Serialize with auto-name injection, then compile through the VFS.
-  std::vector<io::Diagnostic> write_errors;
+  std::vector<ps::Diagnostic> write_errors;
   const std::string xml = io::WriteMjcf(model, auto_names, &write_errors);
   if (xml.empty()) {
-    for (io::Diagnostic& d : write_errors)
+    for (ps::Diagnostic& d : write_errors)
       out.report.errors.push_back(MakeError("serialize", std::move(d.message),
                                             d.loc));
     if (out.report.errors.empty())
@@ -381,8 +403,8 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
   std::vector<std::string> load_warnings;
   mjModel* m = LoadFromVfs(xml, opts, load_err, load_warnings);
   for (std::string& w : load_warnings) {
-    out.report.warnings.push_back(Diagnostic{Diagnostic::Severity::Warning,
-                                             "load", std::move(w), {}});
+    out.report.warnings.push_back(ps::Diagnostic{
+        ps::Diagnostic::Severity::Warning, "load", std::move(w), {}});
   }
   if (!m) {
     out.report.errors.push_back(MakeError("load", std::move(load_err)));
@@ -482,10 +504,10 @@ Compiled Recompile(const Model& model, const Compiled& prev, const mjData* d,
   mjData* nd = mj_makeData(nm);
   if (!nd) {
     next.report.warnings.push_back(
-        Diagnostic{Diagnostic::Severity::Warning, "recompile",
-                   "mj_makeData failed on the recompiled model; no state "
-                   "migrated",
-                   {}});
+        ps::Diagnostic{ps::Diagnostic::Severity::Warning, "recompile",
+                       "mj_makeData failed on the recompiled model; no state "
+                       "migrated",
+                       {}});
     return next;
   }
 

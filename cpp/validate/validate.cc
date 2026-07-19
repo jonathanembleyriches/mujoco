@@ -292,7 +292,7 @@ struct NuserLimits {
 
 struct Ctx {
   TierMask tiers;
-  std::vector<Diagnostic> out;
+  std::vector<ps::Diagnostic> out;
   std::vector<std::string> path;
   std::array<std::unordered_map<std::string, ps::SourceLoc>,
              static_cast<std::size_t>(Ns::COUNT)>
@@ -318,11 +318,18 @@ struct Ctx {
   }
 
   void Emit(Tier tier, Severity sev, std::string msg, const ps::SourceLoc& loc) {
-    out.push_back({tier, sev, std::move(msg), loc, PathStr()});
+    EmitAt(tier, sev, std::move(msg), loc, PathStr());
   }
   void EmitAt(Tier tier, Severity sev, std::string msg, const ps::SourceLoc& loc,
               std::string path_override) {
-    out.push_back({tier, sev, std::move(msg), loc, std::move(path_override)});
+    ps::Diagnostic d;
+    d.severity = sev;
+    d.source = "validate";
+    d.message = std::move(msg);
+    d.loc = loc;
+    d.tag = std::move(path_override);
+    d.tier = tier;
+    out.push_back(std::move(d));
   }
 
   bool Resolvable(Ns ns, const std::string& name) const {
@@ -968,19 +975,7 @@ void PrepareContext(Ctx& ctx, const Model& model) {
 
 }  // namespace
 
-std::string Diagnostic::Render() const {
-  std::string s;
-  if (!loc.file.empty()) {
-    s += loc.file;
-    if (loc.line > 0) s += ":" + std::to_string(loc.line);
-    s += ": ";
-  }
-  s += "[tier" + std::to_string(static_cast<int>(tier)) + "] " + message;
-  if (!path.empty()) s += "  (" + path + ")";
-  return s;
-}
-
-std::vector<Diagnostic> Validate(const Model& model, TierMask tiers) {
+std::vector<ps::Diagnostic> Validate(const Model& model, TierMask tiers) {
   Ctx ctx;
   ctx.tiers = tiers;
   PrepareContext(ctx, model);

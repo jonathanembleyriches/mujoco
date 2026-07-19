@@ -28,7 +28,7 @@ namespace ps::mjcf::io {
 // Append a MalformedInput diagnostic for each default-tree class-name
 // violation, each carrying the offending <default>'s SourceLoc.
 void ValidateDefaultClasses(const Model& model,
-                            std::vector<Diagnostic>& errors);
+                            std::vector<ps::Diagnostic>& errors);
 
 }  // namespace ps::mjcf::io
 

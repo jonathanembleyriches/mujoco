@@ -33,27 +33,18 @@
 #include <vector>
 
 #include "protospec/core.h"
+#include "protospec/diag.h"
 #include "types.h"
 
 namespace ps::mjcf::validate {
 
-enum class Tier { Structural = 1, Referential = 2, Semantic = 3 };
-
-enum class Severity { Error, Warning };
-
-// A single validation finding. `path` is a human-readable element path such as
-// "model/worldbody/body[torso]/geom[shin]" (name in brackets when authored,
-// else a #index), independent of and complementary to the SourceLoc.
-struct Diagnostic {
-  Tier tier;
-  Severity severity;
-  std::string message;
-  ps::SourceLoc loc;
-  std::string path;
-
-  // "file:line: [tierN] message  (path)" (line/path omitted when empty).
-  std::string Render() const;
-};
+// Validation findings are the shared ps::Diagnostic (protospec/diag.h): source
+// "validate", `tier` carries the structural/referential/semantic tier, and the
+// element path ("model/worldbody/body[torso]/geom[shin]", name in brackets when
+// authored else a #index) rides in `tag`. Tier/Severity are aliased here so the
+// tier taxonomy keeps its home in the validator's namespace.
+using Tier = ps::Diagnostic::Tier;
+using Severity = ps::Diagnostic::Severity;
 
 // Tier selection bitmask. Combine the flags; kAllTiers runs everything.
 using TierMask = unsigned;
@@ -65,8 +56,8 @@ inline constexpr TierMask kAllTiers =
 
 // Validate `model`, running the tiers selected by `tiers`. Const in, vector
 // out: the model is never mutated. Diagnostics are returned in traversal order.
-std::vector<Diagnostic> Validate(const Model& model,
-                                 TierMask tiers = kAllTiers);
+std::vector<ps::Diagnostic> Validate(const Model& model,
+                                     TierMask tiers = kAllTiers);
 
 }  // namespace ps::mjcf::validate
 

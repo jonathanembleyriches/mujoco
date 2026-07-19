@@ -164,7 +164,7 @@ bool ContainsSpace(std::string_view s) {
 
 template <class E>
 void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
-                  const AutoNames* names, std::vector<Diagnostic>* errors);
+                  const AutoNames* names, std::vector<ps::Diagnostic>* errors);
 
 // Append ` name="value"` unless value is skipped.
 void AppendAttr(std::string& attrs, std::string_view name,
@@ -206,7 +206,7 @@ struct WriterVisitor {
   std::string* children;
   const AutoNames* names;
   const ps::SourceLoc* loc;
-  std::vector<Diagnostic>* errors;
+  std::vector<ps::Diagnostic>* errors;
 
   template <class T>
   void field(int id, const char*, T& value) {
@@ -242,8 +242,9 @@ struct WriterVisitor {
         if constexpr (is_ref<typename I::value_type>::value) {
           for (const auto& r : inner) {
             if (ContainsSpace(r.name)) {
-              Diagnostic d;
-              d.kind = Diagnostic::Kind::MalformedInput;
+              ps::Diagnostic d;
+              d.source = "write";
+              d.kind = ps::Diagnostic::Kind::MalformedInput;
               d.message = "ref list attribute '" + std::string(ab.attr) +
                           "' on <" + std::string(b->tag) + ">: name '" +
                           r.name +
@@ -301,7 +302,7 @@ struct WriterVisitor {
 
 template <class E>
 void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
-                  const AutoNames* names, std::vector<Diagnostic>* errors) {
+                  const AutoNames* names, std::vector<ps::Diagnostic>* errors) {
   const ElementBinding& b = Bind(element_type_of<E>::value);
   std::string attrs;
   std::string children;
@@ -345,9 +346,9 @@ void WriteElement(const E& e, std::string_view tag, int depth, std::string& out,
 namespace {
 
 std::string WriteChecked(const Model& model, const AutoNames* names,
-                         std::vector<Diagnostic>* errors) {
+                         std::vector<ps::Diagnostic>* errors) {
   std::string out;
-  std::vector<Diagnostic> local;
+  std::vector<ps::Diagnostic> local;
   WriteElement(model, Bind(ElementType::Model).tag, 0, out, names, &local);
   if (!local.empty()) {
     if (errors) {
@@ -361,12 +362,12 @@ std::string WriteChecked(const Model& model, const AutoNames* names,
 
 }  // namespace
 
-std::string WriteMjcf(const Model& model, std::vector<Diagnostic>* errors) {
+std::string WriteMjcf(const Model& model, std::vector<ps::Diagnostic>* errors) {
   return WriteChecked(model, nullptr, errors);
 }
 
 std::string WriteMjcf(const Model& model, const AutoNames& auto_names,
-                      std::vector<Diagnostic>* errors) {
+                      std::vector<ps::Diagnostic>* errors) {
   return WriteChecked(model, &auto_names, errors);
 }
 

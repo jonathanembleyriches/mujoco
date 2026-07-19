@@ -45,7 +45,7 @@ using ProvenanceMap =
 
 struct IncludeResult {
   ProvenanceMap provenance;
-  std::vector<Diagnostic> errors;  // MalformedInput on any include failure
+  std::vector<ps::Diagnostic> errors;  // MalformedInput on any include failure
 };
 
 // Expand every <include> in `doc` in place. `model_dir` is the directory of the

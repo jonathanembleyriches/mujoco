@@ -401,7 +401,7 @@ bool AddLayerFromFile(EditorContext& ctx, const std::string& path,
     return false;
   }
   io::ParseResult parsed = io::ParseMjcfFile(path);
-  for (const io::Diagnostic& w : parsed.warnings) {
+  for (const ps::Diagnostic& w : parsed.warnings) {
     DiagEntry e{DiagEntry::Severity::Warning, "[layer parse] " + w.message, {}, {}};
     if (!w.loc.file.empty()) e.loc = w.loc;
     ctx.Diagnose(std::move(e));
@@ -409,7 +409,7 @@ bool AddLayerFromFile(EditorContext& ctx, const std::string& path,
   if (!parsed.ok()) {
     std::string msg = parsed.errors.empty() ? "parse failed"
                                             : parsed.errors.front().message;
-    for (const io::Diagnostic& d : parsed.errors) {
+    for (const ps::Diagnostic& d : parsed.errors) {
       DiagEntry e{DiagEntry::Severity::Error, "[layer parse] " + d.message, {}, {}};
       if (!d.loc.file.empty()) e.loc = d.loc;
       ctx.Diagnose(std::move(e));

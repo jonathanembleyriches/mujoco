@@ -1502,7 +1502,7 @@ mjModel* NativeCompile(const Model& m, const ps::mjcf::CompileOptions& opts,
       if (synth) unsupported = CollectUnsupportedFeatures(*synth);
 
       if (unsupported.empty()) {
-        std::vector<ps::mjcf::Diagnostic> diags;
+        std::vector<ps::Diagnostic> diags;
         mjModel* built = BuildNativeModel(build_m, opts, diags);
         if (built) {
           report.fallback_reasons.clear();
@@ -1530,9 +1530,9 @@ mjModel* NativeCompile(const Model& m, const ps::mjcf::CompileOptions& opts,
     if (unsupported[i].count > 0)
       msg += "(x" + std::to_string(unsupported[i].count) + ")";
   }
-  ps::mjcf::Diagnostic d;
-  d.severity = ps::mjcf::Diagnostic::Severity::Error;
-  d.pass = "gate";
+  ps::Diagnostic d;
+  d.severity = ps::Diagnostic::Severity::Error;
+  d.source = "gate";
   d.message = std::move(msg);
   report.errors.push_back(std::move(d));
 

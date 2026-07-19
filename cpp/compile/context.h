@@ -24,7 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "report.h"   // ps::mjcf::Diagnostic sink (MuJoCo-free)
+#include "report.h"   // ps::Diagnostic sink (MuJoCo-free)
 #include "types.h"     // generated ProtoSpec element structs
 
 namespace ps::mjcf::compile {
@@ -78,7 +78,7 @@ struct CompileContext {
   SlotTable<Mesh>    meshes;
 
   // Diagnostics drained into the CompileReport at the end of NativeCompile.
-  std::vector<ps::mjcf::Diagnostic> diagnostics;
+  std::vector<ps::Diagnostic> diagnostics;
 };
 
 }  // namespace ps::mjcf::compile

@@ -11,6 +11,6 @@
 
 #include "protospec/model.h"
 
-#include "../../validate/validate.h"  // ps::mjcf::validate::{Validate, Diagnostic, Tier, Severity, ...}
+#include "../../validate/validate.h"  // ps::mjcf::validate::{Validate, Tier, Severity, ...}; ps::Diagnostic
 
 #endif  // PROTOSPEC_PUBLIC_VALIDATE_H

@@ -436,12 +436,12 @@ static void TestDiagnosticValidateMapsSerial() {
   mj::io::ParseResult parsed = mj::io::ParseMjcfString(xml, "planted.xml");
   CHECK(parsed.ok());
 
-  const std::vector<mj::validate::Diagnostic> diags = mj::validate::Validate(
+  const std::vector<ps::Diagnostic> diags = mj::validate::Validate(
       *parsed.model,
       mj::validate::kTierStructural | mj::validate::kTierReferential);
 
-  const mj::validate::Diagnostic* bad = nullptr;
-  for (const mj::validate::Diagnostic& d : diags) {
+  const ps::Diagnostic* bad = nullptr;
+  for (const ps::Diagnostic& d : diags) {
     if (d.severity == mj::validate::Severity::Error &&
         d.message.find("ghost") != std::string::npos) {
       bad = &d;
@@ -453,7 +453,7 @@ static void TestDiagnosticValidateMapsSerial() {
   const std::uint64_t want =
       ps::sdk::Find<mj::Jointpos>(*parsed.model, "badsensor")->serial;
   const std::optional<std::uint64_t> got =
-      SerialForValidatePath(*parsed.model, bad->path);
+      SerialForValidatePath(*parsed.model, bad->tag);
   CHECK(got.has_value() && *got == want);
 
   // And routing that serial (the click) selects the sensor on the live tree.

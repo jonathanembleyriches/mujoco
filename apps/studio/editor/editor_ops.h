@@ -15,7 +15,7 @@
 
 namespace ps::studio {
 
-// Resolve a validate::Diagnostic element path ("model/.../geom[shin]") to the
+// Resolve a validator diagnostic element path ("model/.../geom[shin]") to the
 // creation serial of the element it names, so a Diagnostics row can route a
 // click back to the offending element via SelectBySerial. Only the trailing
 // segment (the blamed element) is consulted; unnamed elements (rendered

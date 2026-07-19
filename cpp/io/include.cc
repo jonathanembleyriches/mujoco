@@ -59,8 +59,12 @@ class Expander {
 
  private:
   void Err(const XMLElement* e, std::string msg) {
-    errors_.push_back({Diagnostic::Kind::MalformedInput, std::move(msg),
-                       ps::SourceLoc{model_file_loc(e), e->GetLineNum()}, ""});
+    ps::Diagnostic d;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::MalformedInput;
+    d.message = std::move(msg);
+    d.loc = ps::SourceLoc{model_file_loc(e), e->GetLineNum()};
+    errors_.push_back(std::move(d));
   }
 
   // The source file for an include error: an <include> spliced from a nested
@@ -204,7 +208,7 @@ class Expander {
   int depth_ = 0;
   std::unordered_set<std::string> included_;
   ProvenanceMap provenance_;
-  std::vector<Diagnostic> errors_;
+  std::vector<ps::Diagnostic> errors_;
 };
 
 }  // namespace

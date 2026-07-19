@@ -75,6 +75,12 @@ struct CompileOptions {
 
   std::vector<VfsAsset> vfs_assets;
   Tolerance tolerance;
+
+  // Opt-in: run the validator (all tiers) before serialization and fold its
+  // findings into the report. Validate errors gate the compile (model == nullptr
+  // plus the errors in report.errors); tier-3 warnings flow through. Default
+  // false preserves today's behavior, where front-ends validate separately.
+  bool validate = false;
 };
 
 // Deletes an mjModel via mj_deleteModel (out-of-line so consumers do not pull in

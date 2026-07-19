@@ -16,44 +16,12 @@
 #include <vector>
 
 #include "protospec/core.h"
+#include "protospec/diag.h"
 
 namespace ps::mjcf {
 
-namespace detail {
-inline std::string RenderLoc(const ps::SourceLoc& loc) {
-  if (loc.file.empty()) return "";
-  std::string s = loc.file;
-  if (loc.line > 0) {
-    s += ':';
-    s += std::to_string(loc.line);
-  }
-  s += ": ";
-  return s;
-}
-}  // namespace detail
-
-// A single diagnostic. Mirrors the impl-plan's CDR-9 one-type-for-all shape so
-// the eventual native path and this XML path report identically.
-struct Diagnostic {
-  enum class Severity { Error, Warning };
-
-  Severity severity = Severity::Error;
-  std::string pass;      // stage that raised it ("serialize", "load", "bind", ...)
-  std::string message;
-  ps::SourceLoc loc;     // empty file for programmatic elements
-
-  // "file:line: [pass] message" (file/line omitted when unknown).
-  std::string Render() const {
-    std::string s = detail::RenderLoc(loc);
-    if (!pass.empty()) {
-      s += '[';
-      s += pass;
-      s += "] ";
-    }
-    s += message;
-    return s;
-  }
-};
+// Compile diagnostics are the shared ps::Diagnostic (protospec/diag.h): `source`
+// is the stage that raised it ("serialize", "load", "bind", "validate", ...).
 
 // Why a requested compile path was not taken (impl-plan CDR-2).
 struct FallbackReason {
@@ -71,8 +39,8 @@ struct CompileReport {
   CompilePath requested = CompilePath::Auto;
   CompilePath taken = CompilePath::XmlPath;         // the ratchet keys off this
   std::vector<FallbackReason> fallback_reasons;     // empty when taken == requested
-  std::vector<Diagnostic> errors;
-  std::vector<Diagnostic> warnings;                 // surfaced, never swallowed
+  std::vector<ps::Diagnostic> errors;
+  std::vector<ps::Diagnostic> warnings;             // surfaced, never swallowed
 
   bool ok() const { return errors.empty(); }
 };

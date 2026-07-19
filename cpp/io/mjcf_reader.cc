@@ -409,8 +409,8 @@ inline bool IsRegisteredResolver(std::string_view name) {
 // --------------------------------------------------------------------------- //
 class Reader {
  public:
-  Reader(std::string filename, std::vector<Diagnostic>& errors,
-         std::vector<Diagnostic>& warnings,
+  Reader(std::string filename, std::vector<ps::Diagnostic>& errors,
+         std::vector<ps::Diagnostic>& warnings,
          const ProvenanceMap* provenance = nullptr)
       : filename_(std::move(filename)),
         errors_(errors),
@@ -429,17 +429,29 @@ class Reader {
   }
 
   void Err(const XMLElement* e, std::string msg) {
-    errors_.push_back({Diagnostic::Kind::MalformedInput, std::move(msg), Loc(e),
-                       ""});
+    ps::Diagnostic d;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::MalformedInput;
+    d.message = std::move(msg);
+    d.loc = Loc(e);
+    errors_.push_back(std::move(d));
   }
   void Unsupported(const XMLElement* e, std::string tag) {
-    std::string msg = "unsupported element '" + tag + "'";
-    errors_.push_back(
-        {Diagnostic::Kind::UnsupportedElement, std::move(msg), Loc(e), tag});
+    ps::Diagnostic d;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::UnsupportedElement;
+    d.message = "unsupported element '" + tag + "'";
+    d.loc = Loc(e);
+    errors_.push_back(std::move(d));
   }
   void Warn(const XMLElement* e, std::string msg) {
-    warnings_.push_back({Diagnostic::Kind::MalformedInput, std::move(msg),
-                         Loc(e), ""});
+    ps::Diagnostic d;
+    d.severity = ps::Diagnostic::Severity::Warning;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::MalformedInput;
+    d.message = std::move(msg);
+    d.loc = Loc(e);
+    warnings_.push_back(std::move(d));
   }
 
   // Read a concrete element from an XML node: attributes + variants, the
@@ -1405,8 +1417,8 @@ class Reader {
   };
 
   std::string filename_;
-  std::vector<Diagnostic>& errors_;
-  std::vector<Diagnostic>& warnings_;
+  std::vector<ps::Diagnostic>& errors_;
+  std::vector<ps::Diagnostic>& warnings_;
   const ProvenanceMap* provenance_ = nullptr;
   std::vector<PendingOrient> pending_orient_;
 };
@@ -1430,8 +1442,9 @@ ParseResult ReadDocument(XMLDocument& doc, const std::string& filename,
 
   XMLElement* root = doc.RootElement();
   if (!root || std::strcmp(root->Value(), "mujoco") != 0) {
-    Diagnostic d;
-    d.kind = Diagnostic::Kind::MalformedInput;
+    ps::Diagnostic d;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::MalformedInput;
     d.loc = ps::SourceLoc{filename, root ? root->GetLineNum() : 0};
     d.message = "root element must be <mujoco>";
     result.errors.push_back(std::move(d));
@@ -1466,8 +1479,9 @@ ParseResult ParseMjcfString(const std::string& xml, const std::string& filename)
   ParseResult result;
   XMLDocument doc;
   if (doc.Parse(xml.c_str(), xml.size()) != tinyxml2::XML_SUCCESS) {
-    Diagnostic d;
-    d.kind = Diagnostic::Kind::MalformedInput;
+    ps::Diagnostic d;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::MalformedInput;
     d.loc = ps::SourceLoc{filename, doc.ErrorLineNum()};
     const char* what = doc.ErrorStr();
     d.message =
@@ -1485,8 +1499,9 @@ ParseResult ParseMjcfFile(const std::string& path) {
   ParseResult result;
   XMLDocument doc;
   if (doc.LoadFile(path.c_str()) != tinyxml2::XML_SUCCESS) {
-    Diagnostic d;
-    d.kind = Diagnostic::Kind::MalformedInput;
+    ps::Diagnostic d;
+    d.source = "parse";
+    d.kind = ps::Diagnostic::Kind::MalformedInput;
     d.loc = ps::SourceLoc{path, doc.ErrorLineNum()};
     const char* what = doc.ErrorStr();
     d.message = std::string("cannot read file: ") + (what ? what : "load error");
@@ -1495,12 +1510,6 @@ ParseResult ParseMjcfFile(const std::string& path) {
   }
   std::string dir = std::filesystem::path(path).parent_path().string();
   return ReadDocument(doc, path, dir);
-}
-
-std::string Diagnostic::Render() const {
-  std::string prefix = loc.file.empty() ? "<string>" : loc.file;
-  if (loc.line > 0) prefix += ":" + std::to_string(loc.line);
-  return prefix + ": " + message;
 }
 
 bool ResolverRegistryComplete(std::vector<std::string>* missing) {
@@ -1522,8 +1531,8 @@ bool ResolverRegistryComplete(std::vector<std::string>* missing) {
 bool ParseResult::unsupported_only() const {
   bool any_unsupported = false;
   for (const auto& e : errors) {
-    if (e.kind == Diagnostic::Kind::MalformedInput) return false;
-    if (e.kind == Diagnostic::Kind::UnsupportedElement) any_unsupported = true;
+    if (e.kind == ps::Diagnostic::Kind::MalformedInput) return false;
+    if (e.kind == ps::Diagnostic::Kind::UnsupportedElement) any_unsupported = true;
   }
   return any_unsupported;
 }

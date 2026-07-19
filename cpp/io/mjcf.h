@@ -7,8 +7,8 @@
 // tendon/actuator/sensor sections, custom/keyframe/extension, and the
 // deformable/macro pass-throughs (the full IsSupported set in mjcf_reader.cc). A
 // well-formed element outside those families is reported as a structured
-// "unsupported element" diagnostic (Diagnostic::Kind::UnsupportedElement) that a
-// harness can use to skip a file, kept distinct from malformed-input errors.
+// "unsupported element" diagnostic (ps::Diagnostic::Kind::UnsupportedElement)
+// that a harness can use to skip a file, kept distinct from malformed-input.
 //
 // This is the one module that links tinyxml2; the core ps library stays
 // dependency-free.
@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "protospec/core.h"
+#include "protospec/diag.h"
 #include "types.h"
 
 namespace ps::mjcf::io {
@@ -35,29 +36,17 @@ namespace ps::mjcf::io {
 // only enters unnamed elements).
 using AutoNames = std::unordered_map<std::uint64_t, std::string>;
 
-// A single reader diagnostic, always carrying file:line provenance.
-struct Diagnostic {
-  enum class Kind {
-    MalformedInput,     // syntax / unknown attribute / unknown element / bad value
-    UnsupportedElement  // a well-formed element outside the supported families
-  };
-
-  Kind kind;
-  std::string message;   // human-readable, prefixed with file:line on render
-  ps::SourceLoc loc;     // {file, line}
-  std::string element;   // for UnsupportedElement: the offending lowercase tag
-
-  // "file:line: message" (line omitted when unknown).
-  std::string Render() const;
-};
+// Reader diagnostics are the shared ps::Diagnostic (protospec/diag.h): source
+// "parse", kind MalformedInput for syntax/unknown/bad-value errors,
+// UnsupportedElement for a well-formed element outside the supported families.
 
 // The outcome of a parse: a Model on success, else a list of diagnostics. NaN
 // values raise non-fatal warnings (MuJoCo mju_warning parity) that do not fail
 // the parse.
 struct ParseResult {
   std::unique_ptr<Model> model;
-  std::vector<Diagnostic> errors;
-  std::vector<Diagnostic> warnings;
+  std::vector<ps::Diagnostic> errors;
+  std::vector<ps::Diagnostic> warnings;
 
   bool ok() const { return errors.empty() && model != nullptr; }
 
@@ -85,12 +74,12 @@ ParseResult ParseMjcfFile(const std::string& path);
 // successful write always starts with "<mujoco") and, when `errors` is
 // non-null, one diagnostic per offending entry is appended.
 std::string WriteMjcf(const Model& model,
-                      std::vector<Diagnostic>* errors = nullptr);
+                      std::vector<ps::Diagnostic>* errors = nullptr);
 
 // As above, but unnamed elements whose serial appears in `auto_names` are
 // emitted with the mapped reserved name. Used by the compile bridge.
 std::string WriteMjcf(const Model& model, const AutoNames& auto_names,
-                      std::vector<Diagnostic>* errors = nullptr);
+                      std::vector<ps::Diagnostic>* errors = nullptr);
 
 // Diagnostic self-check: true iff every resolver name carried by the generated
 // binding metadata (schema `resolver="..."`) has a handler in the reader's

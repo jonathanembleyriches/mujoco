@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "compile.h"  // ps::mjcf::CompileOptions
-#include "report.h"   // ps::mjcf::Diagnostic
+#include "report.h"   // ps::Diagnostic
 #include "types.h"    // ps::mjcf::Model
 
 struct mjModel_;
@@ -25,7 +25,7 @@ namespace ps::mjcf::compile {
 // returns the built mjModel; on an internal error (which for an admitted model
 // is a native-compiler bug) returns nullptr and appends an Error diagnostic.
 mjModel* BuildNativeModel(const Model& m, const ps::mjcf::CompileOptions& opts,
-                          std::vector<ps::mjcf::Diagnostic>& diags);
+                          std::vector<ps::Diagnostic>& diags);
 
 // Parse a <size memory> attribute string as mj_loadXML does (unsigned integer
 // with an optional {K,M,G,T,P,E} power-of-two suffix, or "-1"/empty for unset).

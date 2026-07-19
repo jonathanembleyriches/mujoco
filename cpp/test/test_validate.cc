@@ -19,7 +19,7 @@
 #include "validate.h"
 
 using namespace ps::mjcf;
-using validate::Diagnostic;
+using ps::Diagnostic;
 using validate::Severity;
 using validate::Tier;
 
@@ -321,7 +321,7 @@ static void ExpectLoc(const Diagnostic* d, const std::string& fname) {
   if (!d) return;
   CHECK(d->loc.file == fname);
   CHECK(d->loc.line > 0);
-  CHECK(!d->path.empty());
+  CHECK(!d->tag.empty());
 }
 
 static void TestSemanticKeyframe() {

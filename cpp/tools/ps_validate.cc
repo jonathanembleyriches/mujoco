@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     return skip ? 3 : 1;
   }
 
-  std::vector<ps::mjcf::validate::Diagnostic> diags =
+  std::vector<ps::Diagnostic> diags =
       ps::mjcf::validate::Validate(*parse.model);
 
   int t1 = 0, t2 = 0, t3 = 0;

@@ -379,7 +379,7 @@ static void TestMalformed() {
   </worldbody></mujoco>)");
   CHECK(!attr.ok());
   CHECK(!attr.unsupported_only());
-  CHECK(attr.errors[0].kind == Diagnostic::Kind::MalformedInput);
+  CHECK(attr.errors[0].kind == ps::Diagnostic::Kind::MalformedInput);
   CHECK(attr.errors[0].message.find("unknown attribute 'bogus'") !=
         std::string::npos);
   CHECK(attr.errors[0].loc.line > 0);
@@ -417,7 +417,7 @@ static void TestUnsupported() {
   CHECK(!bogus.unsupported_only());
   bool unknown = false;
   for (const auto& e : bogus.errors) {
-    if (e.kind == Diagnostic::Kind::MalformedInput &&
+    if (e.kind == ps::Diagnostic::Kind::MalformedInput &&
         e.message.find("unknown element") != std::string::npos)
       unknown = true;
   }

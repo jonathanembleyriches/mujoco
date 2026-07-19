@@ -6120,14 +6120,14 @@ bool TexLoadFile(const CompilerSettings& cs, const std::string& base_dir,
                  const std::string& file, int& nchannel, bool hflip, bool vflip,
                  std::vector<unsigned char>& image, int& w, int& h,
                  bool& is_srgb, const ps::SourceLoc& loc,
-                 std::vector<ps::mjcf::Diagnostic>& diags) {
+                 std::vector<ps::Diagnostic>& diags) {
   const std::string asset_type = TexExtContentType(file);
   const std::string combined = MeshCombine(cs.texturedir, file);
   char err[1024] = {0};
   mjResource* res = mju_openResource(base_dir.empty() ? nullptr : base_dir.c_str(),
                                      combined.c_str(), nullptr, err, sizeof(err));
   if (!res) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture",
+    diags.push_back({ps::Diagnostic::Severity::Error, "texture",
                      std::string("could not open texture file '") + combined + "'",
                      loc});
     return false;
@@ -6136,7 +6136,7 @@ bool TexLoadFile(const CompilerSettings& cs, const std::string& base_dir,
   int n = mju_readResource(res, &bytes);
   auto fail = [&](const std::string& msg) {
     mju_closeResource(res);
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture", msg, loc});
+    diags.push_back({ps::Diagnostic::Severity::Error, "texture", msg, loc});
     return false;
   };
   if (n < 0) return fail("could not read texture file '" + combined + "'");
@@ -6173,7 +6173,7 @@ bool TexLoadFile(const CompilerSettings& cs, const std::string& base_dir,
 // Cube-from-separate-files and an authored content_type stay gated (native.cc).
 bool TextureCompile(const Model& model, const Texture& tx, const CompilerSettings& cs,
                     const std::string& base_dir, CTexture& out,
-                    std::vector<ps::mjcf::Diagnostic>& diags) {
+                    std::vector<ps::Diagnostic>& diags) {
   std::unique_ptr<Texture> eff = ps::sdk::Effective(model, tx);
   out.src = &tx;
   out.name = tx.name;
@@ -6224,13 +6224,13 @@ bool TextureCompile(const Model& model, const Texture& tx, const CompilerSetting
     int gs0 = 1, gs1 = 1;
     if (eff->gridsize) { gs0 = (*eff->gridsize)[0]; gs1 = (*eff->gridsize)[1]; }
     if (gs0 < 1 || gs1 < 1 || gs0 * gs1 > 12) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture",
+      diags.push_back({ps::Diagnostic::Severity::Error, "texture",
                        "gridsize must be non-zero and no more than 12 squares "
                        "in texture", tx.loc});
       return false;
     }
     if (w / gs1 != h / gs0 || (w % gs1) || (h % gs0)) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture",
+      diags.push_back({ps::Diagnostic::Severity::Error, "texture",
                        "PNG size must be integer multiple of gridsize in texture",
                        tx.loc});
       return false;
@@ -6258,7 +6258,7 @@ bool TextureCompile(const Model& model, const Texture& tx, const CompilerSetting
           case 'F': i = 4; break; case 'B': i = 5; break;
           case '.': break;
           default:
-            diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture",
+            diags.push_back({ps::Diagnostic::Severity::Error, "texture",
                              "gridlayout symbol is not among '.RLUDFB' in texture",
                              tx.loc});
             return false;
@@ -6298,14 +6298,14 @@ bool TextureCompile(const Model& model, const Texture& tx, const CompilerSetting
 
   // dimension checks (mjCTexture::Compile:5652-5667).
   if (b.width < 1) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture",
+    diags.push_back({ps::Diagnostic::Severity::Error, "texture",
                      "Invalid width of builtin texture", tx.loc});
     return false;
   }
   if (out.type != 0 /* 2D */) {
     b.height = 6 * b.width;
   } else if (b.height < 1) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "texture",
+    diags.push_back({ps::Diagnostic::Severity::Error, "texture",
                      "Invalid height of builtin texture", tx.loc});
     return false;
   }
@@ -6431,7 +6431,7 @@ struct CHField {
 bool HfieldLoadFile(const CompilerSettings& cs, const std::string& base_dir,
                     const std::string& file, int& nrow, int& ncol,
                     std::vector<float>& data, const ps::SourceLoc& loc,
-                    std::vector<ps::mjcf::Diagnostic>& diags) {
+                    std::vector<ps::Diagnostic>& diags) {
   std::size_t dot = file.find_last_of('.');
   std::string ext = dot == std::string::npos ? "" : file.substr(dot);
   for (char& c : ext) c = static_cast<char>(std::tolower(c));
@@ -6441,7 +6441,7 @@ bool HfieldLoadFile(const CompilerSettings& cs, const std::string& base_dir,
   mjResource* res = mju_openResource(base_dir.empty() ? nullptr : base_dir.c_str(),
                                      combined.c_str(), nullptr, err, sizeof(err));
   if (!res) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "hfield",
+    diags.push_back({ps::Diagnostic::Severity::Error, "hfield",
                      std::string("could not open hfield file '") + combined + "'",
                      loc});
     return false;
@@ -6450,7 +6450,7 @@ bool HfieldLoadFile(const CompilerSettings& cs, const std::string& base_dir,
   int n = mju_readResource(res, &bytes);
   auto fail = [&](const std::string& msg) {
     mju_closeResource(res);
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "hfield", msg, loc});
+    diags.push_back({ps::Diagnostic::Severity::Error, "hfield", msg, loc});
     return false;
   };
   if (n < 1) return fail("could not read hfield file '" + combined + "'");
@@ -6490,7 +6490,7 @@ bool HfieldLoadFile(const CompilerSettings& cs, const std::string& base_dir,
 
 bool HfieldCompile(const Hfield& hf, const CompilerSettings& cs,
                    const std::string& base_dir, CHField& out,
-                   std::vector<ps::mjcf::Diagnostic>& diags) {
+                   std::vector<ps::Diagnostic>& diags) {
   out.src = &hf;
   out.name = hf.name;
   out.nrow = hf.nrow ? *hf.nrow : 0;
@@ -6504,7 +6504,7 @@ bool HfieldCompile(const Hfield& hf, const CompilerSettings& cs,
   if (hf.elevation && !hf.elevation->empty()) {
     const auto& e = *hf.elevation;
     if (out.nrow * out.ncol != static_cast<int>(e.size())) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "hfield",
+      diags.push_back({ps::Diagnostic::Severity::Error, "hfield",
                        "elevation data length must match nrow*ncol", hf.loc});
       return false;
     }
@@ -6520,7 +6520,7 @@ bool HfieldCompile(const Hfield& hf, const CompilerSettings& cs,
   // size parameters must be positive (checked before file load, as upstream).
   for (int k = 0; k < 4; ++k)
     if (out.size[k] <= 0) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "hfield",
+      diags.push_back({ps::Diagnostic::Severity::Error, "hfield",
                        "size parameter is not positive in hfield", hf.loc});
       return false;
     }
@@ -6546,7 +6546,7 @@ bool HfieldCompile(const Hfield& hf, const CompilerSettings& cs,
     out.data.assign(static_cast<std::size_t>(out.nrow) * out.ncol, 0.0f);
 
   if (out.nrow < 1 || out.ncol < 1 || out.data.empty()) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "hfield",
+    diags.push_back({ps::Diagnostic::Severity::Error, "hfield",
                      "hfield not specified", hf.loc});
     return false;
   }
@@ -6619,9 +6619,9 @@ struct CSkin {
 // [faces]{ name[40], bindpos[3], bindquat[4], vcount, vertid[], vertweight[] }.
 bool SkinLoadSKN(const unsigned char* buf, int n, CSkin& out,
                  std::vector<std::string>& bonename, const ps::SourceLoc& loc,
-                 std::vector<ps::mjcf::Diagnostic>& diags) {
+                 std::vector<ps::Diagnostic>& diags) {
   auto fail = [&](const std::string& msg) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "skin", msg, loc});
+    diags.push_back({ps::Diagnostic::Severity::Error, "skin", msg, loc});
     return false;
   };
   if (n < 16) return fail("missing header in SKN file");
@@ -6688,7 +6688,7 @@ bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
                  const std::string& base_dir,
                  const std::unordered_map<std::string, int>& bodyid_of,
                  const NameIdMap& matid_of, CSkin& out,
-                 std::vector<ps::mjcf::Diagnostic>& diags) {
+                 std::vector<ps::Diagnostic>& diags) {
   std::unique_ptr<Skin> eff = ps::sdk::Effective(model, sk);
   out.src = &sk;
   out.name = sk.name;
@@ -6706,7 +6706,7 @@ bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
     std::string ext = file.size() >= 4 ? file.substr(file.size() - 4) : "";
     for (char& c : ext) c = static_cast<char>(std::tolower(c));
     if (ext != ".skn") {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "skin",
+      diags.push_back({ps::Diagnostic::Severity::Error, "skin",
                        "Unknown skin file type: " + file, sk.loc});
       return false;
     }
@@ -6716,7 +6716,7 @@ bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
         base_dir.empty() ? nullptr : base_dir.c_str(), combined.c_str(), nullptr,
         err, sizeof(err));
     if (!res) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "skin",
+      diags.push_back({ps::Diagnostic::Severity::Error, "skin",
                        "could not open skin file '" + combined + "'", sk.loc});
       return false;
     }
@@ -6724,7 +6724,7 @@ bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
     int nb = mju_readResource(res, &bytes);
     if (nb < 0) {
       mju_closeResource(res);
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "skin",
+      diags.push_back({ps::Diagnostic::Severity::Error, "skin",
                        "could not read SKN file '" + combined + "'", sk.loc});
       return false;
     }
@@ -6760,7 +6760,7 @@ bool SkinCompile(const Model& model, const Skin& sk, const CompilerSettings& cs,
 
   const std::size_t nbone = bonename.size();
   auto fail = [&](const std::string& msg) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "skin", msg, sk.loc});
+    diags.push_back({ps::Diagnostic::Severity::Error, "skin", msg, sk.loc});
     return false;
   };
   if (out.vert.empty() || out.face.empty() || nbone == 0 ||
@@ -7039,17 +7039,17 @@ bool ResolvePluginRef(const Model& m, const PluginRef& pr, ResolvedPluginRef& ou
 // vert/normal/face feed the ordinary mesh pipeline (needreorient=false keeps the
 // plugin frame). Returns false on a non-SDF/unresolved plugin.
 bool LoadSdfMesh(const Model& model, const Mesh& mesh, lift::MeshInput& in,
-                 std::vector<ps::mjcf::Diagnostic>& diags) {
+                 std::vector<ps::Diagnostic>& diags) {
   ResolvedPluginRef rp;
   if (mesh.plugin.empty() || !mesh.plugin.front() ||
       !ResolvePluginRef(model, *mesh.plugin.front(), rp)) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+    diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                      "native: unresolved SDF mesh plugin", mesh.loc});
     return false;
   }
   const mjpPlugin* p = rp.p;
   if (!(p->capabilityflags & mjPLUGIN_SDF)) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+    diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                      "native: mesh plugin is not an SDF plugin", mesh.loc});
     return false;
   }
@@ -7113,7 +7113,7 @@ bool LoadSdfMesh(const Model& model, const Mesh& mesh, lift::MeshInput& in,
 bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& cs,
                  const std::string& base_dir,
                  const std::unordered_map<std::string, bool>& mesh_hull,
-                 CMesh& out, std::vector<ps::mjcf::Diagnostic>& diags) {
+                 CMesh& out, std::vector<ps::Diagnostic>& diags) {
   std::unique_ptr<Mesh> eff = ps::sdk::Effective(model, mesh);
   out.name = eff->name;
 
@@ -7161,7 +7161,7 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
       case MeshBuiltin::wedge:       kind = lift::MeshBuiltinKind::Wedge; break;
       case MeshBuiltin::plate:       kind = lift::MeshBuiltinKind::Plate; break;
       default:
-        diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+        diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                          "native: unsupported builtin mesh", mesh.loc});
         return false;
     }
@@ -7170,7 +7170,7 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
     lift::BuiltinMeshResult br;
     std::string berr;
     if (!lift::MakeBuiltinMesh(kind, params, br, berr)) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+      diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                        "native: builtin mesh: " + berr, mesh.loc});
       return false;
     }
@@ -7188,7 +7188,7 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
     mjResource* res = mju_openResource(base_dir.empty() ? nullptr : base_dir.c_str(),
                                        combined.c_str(), nullptr, err, sizeof(err));
     if (!res) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+      diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                        std::string("could not open mesh file '") + combined + "'",
                        mesh.loc});
       return false;
@@ -7197,7 +7197,7 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
     int n = mju_readResource(res, &bytes);
     if (n < 0) {
       mju_closeResource(res);
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+      diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                        std::string("could not read mesh file '") + combined + "'",
                        mesh.loc});
       return false;
@@ -7208,7 +7208,7 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
     else if (in.content_type == "model/stl") in.format = lift::MeshFormat::Stl;
     else {
       mju_closeResource(res);
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+      diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                        "unsupported mesh file format", mesh.loc});
       return false;
     }
@@ -7229,7 +7229,7 @@ bool MeshCompile(const Model& model, const Mesh& mesh, const CompilerSettings& c
 
   std::string err;
   if (!lift::CompileMesh(in, out.r, err)) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "mesh",
+    diags.push_back({ps::Diagnostic::Severity::Error, "mesh",
                      "mesh compile failed: " + err, mesh.loc});
     return false;
   }
@@ -8522,7 +8522,7 @@ bool FlexComputeUnrotatedNodePositions(const std::vector<double>& nodexpos,
                                        const std::vector<char>& cell_empty,
                                        std::vector<double>& nodexpos_local,
                                        double* R0_out,
-                                       std::vector<ps::mjcf::Diagnostic>& diags) {
+                                       std::vector<ps::Diagnostic>& diags) {
   nodexpos_local.assign(3*nnode, 0);
   if (nnode <= 0) return true;
   int ny_global = cellcount[1] * order + 1;
@@ -8573,7 +8573,7 @@ bool FlexComputeUnrotatedNodePositions(const std::vector<double>& nodexpos,
       double dot = lift::mjuu_dot3(R0 + 3*a, R0 + 3*b);
       double expected = (a == b) ? 1.0 : 0.0;
       if (std::abs(dot - expected) > 1e-8) {
-        diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "flex",
+        diags.push_back({ps::Diagnostic::Severity::Error, "flex",
                          "flex grid rotation R0 is not orthonormal", {}});
         return false;
       }
@@ -8598,7 +8598,7 @@ bool FlexComputeUnrotatedNodePositions(const std::vector<double>& nodexpos,
 bool FlexCreateFlapStencil(std::vector<StencilFlap>& flaps,
                            const std::vector<int>& simplex,
                            const std::vector<int>& edgeidx,
-                           std::vector<ps::mjcf::Diagnostic>& diags) {
+                           std::vector<ps::Diagnostic>& diags) {
   int ne = 0;
   const int nt = static_cast<int>(simplex.size()) / 3;
   std::vector<std::array<int, 3>> elem_verts(nt);
@@ -8626,7 +8626,7 @@ bool FlexCreateFlapStencil(std::vector<StencilFlap>& flaps,
         flaps[it->second].vertices[3] = v[(kFlapEdge[e][1] + 1) % 3];
       }
       if (!edgeidx.empty() && edge_id != edgeidx[3 * t + e]) {
-        diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "flex",
+        diags.push_back({ps::Diagnostic::Severity::Error, "flex",
                          "edge indices do not match in CreateFlapStencil", {}});
         return false;
       }
@@ -8745,12 +8745,12 @@ void FlexCreateShellPair(CFlex& f) {
 bool FlexCompile(const Flex& fl, const std::vector<CBody>& cbs,
                  const std::unordered_map<std::string, int>& bodyid_of,
                  const std::unordered_map<std::string, int>& matid_of,
-                 CFlex& out, std::vector<ps::mjcf::Diagnostic>& diags,
+                 CFlex& out, std::vector<ps::Diagnostic>& diags,
                  const std::vector<double>& node_local = {},
                  bool has_strain_eq = false,
                  const std::vector<char>& cell_empty = {}) {
   auto err = [&](const char* msg) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "flex", msg, fl.loc});
+    diags.push_back({ps::Diagnostic::Severity::Error, "flex", msg, fl.loc});
     return false;
   };
 
@@ -9573,7 +9573,7 @@ std::vector<char> PackPluginAttr(
 // bearing element to its instance id. Returns false + a diagnostic on an
 // unresolved plugin name.
 bool CollectPlugins(const Model& m, PluginCollection& pc,
-                    std::vector<ps::mjcf::Diagnostic>& diags) {
+                    std::vector<ps::Diagnostic>& diags) {
   auto slot_of = [&](const std::string& name, const ps::SourceLoc&) -> int {
     int slot = -1;
     if (!mjp_getPlugin(name.c_str(), &slot)) return -1;
@@ -9645,7 +9645,7 @@ bool CollectPlugins(const Model& m, PluginCollection& pc,
       if (!pd || !pd->plugin) continue;
       const int slot = slot_of(*pd->plugin, pd->loc);
       if (slot < 0) {
-        diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "plugin",
+        diags.push_back({ps::Diagnostic::Severity::Error, "plugin",
                          "native: unresolved plugin '" + *pd->plugin + "'", {}});
         return false;
       }
@@ -9678,7 +9678,7 @@ bool CollectPlugins(const Model& m, PluginCollection& pc,
     if (instance && !instance->name.empty()) {
       auto it = id_of_name.find(instance->name);
       if (it == id_of_name.end()) {
-        diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "plugin",
+        diags.push_back({ps::Diagnostic::Severity::Error, "plugin",
                          "native: unresolved plugin instance '" + instance->name + "'", {}});
         return false;
       }
@@ -9688,7 +9688,7 @@ bool CollectPlugins(const Model& m, PluginCollection& pc,
     const std::string pname = plugin_name ? *plugin_name : std::string();
     const int slot = slot_of(pname, loc);
     if (slot < 0) {
-      diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "plugin",
+      diags.push_back({ps::Diagnostic::Severity::Error, "plugin",
                        "native: unresolved plugin '" + pname + "'", {}});
       return false;
     }
@@ -9793,7 +9793,7 @@ void FillPlugins(mjModel* m, const PluginCollection& pc,
 }
 
 mjModel* BuildNativeModel(const Model& m, const ps::mjcf::CompileOptions& opts,
-                          std::vector<ps::mjcf::Diagnostic>& diags) {
+                          std::vector<ps::Diagnostic>& diags) {
   const CompilerSettings cs = ReadCompiler(m);
 
   // <visual><map znear> feeds a camera's intrinsic fallback (no sensorsize).
@@ -10484,7 +10484,7 @@ mjModel* BuildNativeModel(const Model& m, const ps::mjcf::CompileOptions& opts,
   // S11 Allocate.
   mjModel* out = lift::MakeModel(sizes);
   if (!out) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "alloc",
+    diags.push_back({ps::Diagnostic::Severity::Error, "alloc",
                      "native: mj_makeModel lift failed", {}});
     return nullptr;
   }
@@ -10568,7 +10568,7 @@ mjModel* BuildNativeModel(const Model& m, const ps::mjcf::CompileOptions& opts,
   // scratch mjData (public post-build pass; ledger 3.8).
   mjData* d = mj_makeData(out);
   if (!d) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "finalize",
+    diags.push_back({ps::Diagnostic::Severity::Error, "finalize",
                      "native: mj_makeData failed during finalize", {}});
     mj_deleteModel(out);
     return nullptr;
@@ -10632,7 +10632,7 @@ mjModel* BuildNativeModel(const Model& m, const ps::mjcf::CompileOptions& opts,
     }
   out->opt = saveopt;
   if (!lr_ok) {
-    diags.push_back({ps::mjcf::Diagnostic::Severity::Error, "finalize",
+    diags.push_back({ps::Diagnostic::Severity::Error, "finalize",
                      std::string("native: mj_setLengthRange failed: ") + lrerr,
                      {}});
     mj_deleteData(d);
