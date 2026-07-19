@@ -170,14 +170,23 @@ bool DoUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
 
   // Edit mode: freeze at the reset state. INVARIANT: returning true makes the
   // host skip StepControl::Advance (verified at merge-base app.cc UpdatePhysics:
-  // `if (do_update(...)) stepped=true;` then `if(!stepped){ ...Advance }`). A
-  // free-jointed gizmo drag previews live by copying the editor's patched qpos
-  // into the host; welded bodies ghost until the commit-on-release recompile.
+  // `if (do_update(...)) stepped=true;` then `if(!stepped){ ...Advance }`).
   if (host_model && host_data) {
-    if (c->gizmo_active && c->sim_data && c->compiled.model &&
-        host_model->nq == c->compiled.model->nq) {
-      mju_copy(host_data->qpos, c->sim_data->qpos, host_model->nq);
-      mj_forward(host_model, host_data);
+    if (c->gizmo_active) {
+      // A gizmo drag is in flight: the viewport plugin (dispatched AFTER this
+      // one, so it sees THIS frame's LivePatch) mirrors the live-patched
+      // kinematics onto host_data for every element kind. Do nothing here -- a
+      // bare mj_forward would recompute host_data from the host model's
+      // un-patched body_pos/geom_pos and snap a welded element back to its
+      // pre-drag pose, fighting the mirror (the old "geom only moves on release"
+      // regression). See MirrorDragKinematics in viewport_plugin.cc.
+    } else if (c->compile_generation != h->emitted_generation) {
+      // A fresh compile is queued but the host has NOT adopted it yet (the adopt
+      // runs next frame in ProcessPendingLoads -> get_model_to_load). host_model
+      // is the PREVIOUS model, so forwarding it now would render the stale pose
+      // for one frame before the adopt replaces it -- the visible flicker seen
+      // on a gizmo commit (drag pose -> pre-drag snap -> committed pose). Leave
+      // host_data untouched so the last good frame holds until the adopt lands.
     } else {
       // Hold the reset pose AND keep the render scene coherent. The host never
       // populates a freshly adopted mjData: ModelHolder makes data with

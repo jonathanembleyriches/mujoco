@@ -477,10 +477,54 @@ ViewportInput MakeInput(ViewportEditor& ve) {
   return in;
 }
 
+// Live gizmo-drag preview on the HOST scene. The gizmo's LivePatch keeps the
+// editor's own sim_data current (patches ctx.compiled.model + mj_kinematics) so
+// the outline tracks the drag, but the host owns a SEPARATE model/data copy since
+// bytes adoption -- the patch never reached it, so welded bodies/geoms only moved
+// on the commit reload. mjv_updateScene reads d->*_xpos / *_xmat directly (it does
+// not re-run kinematics), so mirroring the mj_kinematics outputs from sim_data
+// onto host_data makes the host track the drag for EVERY element kind, with no
+// host_model mutation and no host forward. Only called with matching dims (mid-
+// drag there is no structural change), so no copy ever spans a size mismatch.
+void MirrorDragKinematics(const mjModel* m, const mjData* src, mjData* dst) {
+  mju_copy(dst->xpos, src->xpos, 3 * m->nbody);
+  mju_copy(dst->xquat, src->xquat, 4 * m->nbody);
+  mju_copy(dst->xmat, src->xmat, 9 * m->nbody);
+  mju_copy(dst->xipos, src->xipos, 3 * m->nbody);
+  mju_copy(dst->ximat, src->ximat, 9 * m->nbody);
+  if (m->ngeom) {
+    mju_copy(dst->geom_xpos, src->geom_xpos, 3 * m->ngeom);
+    mju_copy(dst->geom_xmat, src->geom_xmat, 9 * m->ngeom);
+  }
+  if (m->nsite) {
+    mju_copy(dst->site_xpos, src->site_xpos, 3 * m->nsite);
+    mju_copy(dst->site_xmat, src->site_xmat, 9 * m->nsite);
+  }
+  if (m->ncam) {
+    mju_copy(dst->cam_xpos, src->cam_xpos, 3 * m->ncam);
+    mju_copy(dst->cam_xmat, src->cam_xmat, 9 * m->ncam);
+  }
+  if (m->nlight) {
+    mju_copy(dst->light_xpos, src->light_xpos, 3 * m->nlight);
+    mju_copy(dst->light_xdir, src->light_xdir, 3 * m->nlight);
+  }
+  if (m->njnt) {
+    mju_copy(dst->xanchor, src->xanchor, 3 * m->njnt);
+    mju_copy(dst->xaxis, src->xaxis, 3 * m->njnt);
+  }
+}
+
+// Whether the host's adopted model matches the editor's compiled model in every
+// dimension the drag-preview mirror touches (true mid-drag: no structural edit).
+bool DragDimsMatch(const mjModel* a, const mjModel* b) {
+  return a && b && a->nbody == b->nbody && a->ngeom == b->ngeom &&
+         a->nsite == b->nsite && a->ncam == b->ncam &&
+         a->nlight == b->nlight && a->njnt == b->njnt;
+}
+
 // The per-tick viewport driver (a ModelPlugin do_update; ImGui frame is active,
 // no window wrapper). Returns false: the model ModelPlugin owns Edit-mode freeze.
-bool ViewportUpdate(ModelPlugin* self, mjModel* /*host_model*/,
-                    mjData* /*host_data*/) {
+bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   ViewportEditor* ve = ctx_cast<ViewportEditor>(self);
   EditorContext& ctx = *ve->ctx;
 
@@ -506,6 +550,16 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* /*host_model*/,
   } else {
     ve->prev_left = in.left_down;  // no phantom press/release edges from a panel
     ve->prev_right = in.right_down;
+  }
+
+  // Live drag preview: HandleViewportMouse just ran the gizmo (LivePatch updated
+  // sim_data this frame), so push the patched kinematics onto the host scene now,
+  // BEFORE the host renders. Runs here (this plugin holds the gizmo + sim_data),
+  // not in the model plugin -- which dispatches first, one frame stale. The model
+  // plugin defers host writes while gizmo_active so this mirror is authoritative.
+  if (ctx.gizmo_active && host_model && host_data &&
+      DragDimsMatch(host_model, m)) {
+    MirrorDragKinematics(m, ctx.sim_data, host_data);
   }
 
   // Draw the gizmo + selection overlay + drop menu (foreground draw list).
@@ -557,6 +611,13 @@ void RegisterViewportEditor(EditorContext& ctx) {
   // Leaked for the app lifetime (mirrors the plugin registry's static storage).
   ViewportEditor* ve = new ViewportEditor{&ctx};
   mjv_defaultOption(&ve->vis_option);
+  // Pick honours ALL geom groups. mjv_defaultOption enables only groups 0-2
+  // (groups 3-5 off), which silently excludes them from mj_ray -- so a coacd-
+  // style body whose collision hulls sit in group 3 (or any group>=3 geom) was
+  // selectable in the Hierarchy but NOT by viewport click. The editor has no
+  // access to the host's live render vis_option (accepted R1 degradation), so
+  // the pick must not second-guess visibility by group: enable every group.
+  for (int i = 0; i < mjNGROUP; ++i) ve->vis_option.geomgroup[i] = 1;
 
   ModelPlugin viewport;
   viewport.name = "ProtoSpec Viewport";
