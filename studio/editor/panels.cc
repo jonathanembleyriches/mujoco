@@ -929,11 +929,10 @@ static void ShellToolbar(EditorContext* c) {
     ImGui::End();
     return;
   }
-  // Transport: ONE Edit toggle (there is no editor Play/pause -- MuJoCo Studio
-  // owns that). Edit ON freezes at qpos0; toggling OFF hands the sim to the
-  // host's own play/pause (toolbar / Space). Highlighted == Edit is ON. Space
-  // toggles the same thing; the host's built-in Space is shadowed while the
-  // editor is loaded (the host toolbar play/pause still governs Play mode).
+  // Transport: ONE Edit toggle. Edit ON freezes at qpos0; toggling OFF hands
+  // the sim to the host transport. Space is a separate three-state transport
+  // (Edit -> play -> pause -> resume; see the KeyHandler below) and does NOT
+  // re-enter Edit -- only this button does.
   const bool in_edit = c->mode == EditorMode::Edit;
   if (in_edit) {
     ImGui::PushStyleColor(ImGuiCol_Button,
@@ -943,9 +942,9 @@ static void ShellToolbar(EditorContext* c) {
   if (in_edit) ImGui::PopStyleColor();
   ImGui::SetItemTooltip(
       "%s", in_edit ? "Edit ON: physics frozen at qpos0, authoring enabled.\n"
-                      "Click or press Space to hand off to the host transport."
-                    : "Edit OFF: the host play/pause governs the sim.\n"
-                      "Click or press Space to re-enter Edit (resets to qpos0).");
+                      "Click to hand off to the sim (Space also plays)."
+                    : "Edit OFF: simulating; Space pauses/resumes.\n"
+                      "Click to re-enter Edit (resets to qpos0).");
   ImGui::SameLine();
   ImGui::TextUnformatted("|");
   ImGui::SameLine();
@@ -1091,17 +1090,19 @@ void RegisterEditorPanels(EditorContext& ctx) {
       },
       ctx);
 
-  // Space toggles the Edit transport (play/stop), matching the toolbar button.
-  // WHY a KeyHandler that CONSUMES Space (the host's own play/pause hotkey):
-  // KeyHandlerPlugins run before the host's built-in keys AND the host treats any
-  // matched plugin chord as handled (it early-returns, skipping its own Space).
-  // We must consume it: while the editor freezes in Edit the host sits UNPAUSED
-  // (verified -- our do_update returns true so the host never reaches
-  // StepControl::Advance), so *letting* the host process Space would toggle it to
-  // PAUSED, and exiting Edit would then show a paused sim, not a playing one.
-  // Consuming instead leaves the host unpaused, so Edit-OFF plays immediately --
-  // "host play wins over edit" in one press. The host toolbar play/pause is
-  // untouched and governs Play mode; only the Space KEY is repurposed.
+  // Space is a three-state transport: Edit -> play; playing -> paused
+  // (editor-emulated, mid-flight, no reset); paused -> resume. Re-entering
+  // Edit is the toolbar toggle's job. WHY a KeyHandler that CONSUMES Space
+  // (the host's own play/pause hotkey): KeyHandlerPlugins run before the
+  // host's built-in keys AND the host treats any matched plugin chord as
+  // handled (it early-returns, skipping its own Space) -- a plugin cannot
+  // decline a match, so pass-through is impossible. And while the editor
+  // freezes in Edit the host sits UNPAUSED (verified -- our do_update returns
+  // true so the host never reaches StepControl::Advance), so letting the host
+  // see Space would toggle it PAUSED and Edit-OFF would show a stopped sim.
+  // Hence the pause half of the transport is emulated editor-side
+  // (EditorContext::play_paused, honored by the model plugin's do_update).
+  // The host toolbar play/pause is untouched and still governs Play mode.
   // RESIDUAL GAP (unavoidable plugin-side): clicking the host toolbar PLAY button
   // while in Edit is invisible to us -- it only calls StepControl::SetPauseState
   // (host-internal, no plugin-visible signal) and our freeze already blocks
@@ -1109,10 +1110,10 @@ void RegisterEditorPanels(EditorContext& ctx) {
   // need a tiny studio-land hook (e.g. a plugin-visible transport-intent flag);
   // not landed.
   RegisterKey(
-      "Toggle Edit (Space)", ImGuiKey_Space,
+      "Transport (Space)", ImGuiKey_Space,
       [](KeyHandlerPlugin* self) {
         EditorContext* c = ctx_cast<EditorContext>(self);
-        if (c->model_ready) c->ToggleEditMode();
+        if (c->model_ready) c->SpaceTransport();
       },
       ctx);
 }

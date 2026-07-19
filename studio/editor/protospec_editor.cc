@@ -161,11 +161,14 @@ bool DoUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   ServiceEditorModel(*c);
 
   // Latch what physics is doing for CanEdit() (the editor owns the mode now).
-  c->sim_paused = (c->mode == EditorMode::Edit);
+  c->sim_paused = (c->mode == EditorMode::Edit) || c->play_paused;
   c->sim_time = host_data ? host_data->time : 0.0;
 
   if (c->mode != EditorMode::Edit) {
-    return false;  // Play: the host advances physics under its own StepControl.
+    // Play: the host advances physics under its own StepControl, unless the
+    // editor-emulated pause is on (Space mid-flight) -- then freeze in place:
+    // no reset, no forward needed (data holds the last stepped kinematics).
+    return c->play_paused;
   }
 
   // Edit mode: freeze at the reset state. INVARIANT: returning true makes the

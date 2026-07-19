@@ -372,6 +372,13 @@ struct EditorContext {
   // (== Edit mode at qpos0), so the panel greying follows this one toggle.
   EditorMode mode = EditorMode::Edit;
 
+  // Editor-emulated pause for Play mode. The host's own Space is shadowed while
+  // our KeyHandler is registered (a matched chord is always "handled" -- the
+  // plugin cannot decline), so Space-in-Play cannot reach the host's pause
+  // toggle. Instead the model plugin freezes the sim MID-FLIGHT (returns true,
+  // no reset) while this is set. Distinct from Edit: no reset, no CanEdit.
+  bool play_paused = false;
+
   // What physics is actually doing, latched each frame in the model ModelPlugin's
   // do_update (R1): sim_paused = (mode == Edit) since Edit-mode do_update freezes
   // the host (returns true, host skips StepControl::Advance); sim_time is the live
@@ -422,7 +429,10 @@ struct EditorContext {
   // pose the tree does not describe, so Play -- and a Play merely paused
   // mid-fall -- are both closed. Stop resets to qpos0 and reopens it.
   bool CanEdit() const {
-    return model_ready && sim_paused && sim_time == 0.0;
+    // mode check: Play merely paused at time 0 (play_paused before the first
+    // step) must NOT open editing -- only Edit mode does.
+    return model_ready && mode == EditorMode::Edit && sim_paused &&
+           sim_time == 0.0;
   }
 
   // --- Editor commit contract (SE1b codes against these exact signatures) --- //
@@ -474,9 +484,23 @@ struct EditorContext {
   // reset+forward+freeze.
   void ExitEditToHost() {
     mode = EditorMode::Play;
+    play_paused = false;  // exiting Edit always plays
     if (dirty) {
       apply_edits = true;
       RequestRecompile();
+    }
+  }
+
+  // Space: a three-state transport. In Edit it exits to Play (host plays
+  // immediately -- it sits unpaused under the Edit freeze); in Play it toggles
+  // the editor-emulated pause WITHOUT entering Edit or resetting, so a running
+  // sim can be paused mid-flight and resumed. Re-entering Edit is the toolbar
+  // toggle's job (ToggleEditMode), which resets to qpos0 on entry.
+  void SpaceTransport() {
+    if (mode == EditorMode::Edit) {
+      ExitEditToHost();
+    } else {
+      play_paused = !play_paused;
     }
   }
   void ToggleEditMode() {
