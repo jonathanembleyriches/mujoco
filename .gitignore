@@ -42,3 +42,7 @@ MUJOCO_LOG.TXT
 wasm/**/dist/
 **/node_modules/
 
+
+build_ps/
+build_ps_*.log
+.mujoco.ini
