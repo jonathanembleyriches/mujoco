@@ -59,6 +59,13 @@ WAIVERS = [
      "the portable Tier-0 build)."),
 ]
 
+# generated/mjs_binding.{h,cc} is the one sanctioned exception to "generated/ is
+# MuJoCo-free": it is the ProtoSpec->mjSpec field-mapping layer, compiled ONLY by
+# the MuJoCo-linked compile target (lib/CMakeLists.txt lists generated sources
+# explicitly and excludes it from the Tier-0 `protospec` library). Its MuJoCo
+# dependency is a `<mujoco/mujoco.h>` angle include, invisible to this gate's
+# quoted-include scanner; its only quoted includes are types.h (generated) and
+# compile/mjs_convert.h, neither of which is an attic edge -- so no rule fires.
 TIER0 = ("generated/", "core/", "io/", "validate/", "sdk/", "include/")
 ATTIC_NATIVE_BASENAMES = {"native.h", "build.h", "context.h", "native_supported.h"}
 
