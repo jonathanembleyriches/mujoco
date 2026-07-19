@@ -1201,7 +1201,9 @@ static void TestMacrosDeformable() {
   if (!df.ok())
     for (const auto& e : df.errors) std::printf("  err: %s\n", e.Render().c_str());
   const Flex& fx = *df.model->deformables.front()->flexs.front();
-  CHECK(*fx.body == "b0 b1 b2" && fx.element->size() == 3);
+  CHECK(fx.body && fx.body->size() == 3 && (*fx.body)[0].name == "b0" &&
+        (*fx.body)[1].name == "b1" && (*fx.body)[2].name == "b2" &&
+        fx.element->size() == 3);
   Fixpoint(df);
 
   // Body-subtree document order: a geom, then a frame holding a geom, then a
@@ -1361,7 +1363,22 @@ static void TestWaveBCanonicalization() {
   CHECK(cbad.errors[0].message.find("must be in order") != std::string::npos);
 }
 
+// Every schema `resolver="..."` name carried by the generated binding metadata
+// must have a handler in the reader's resolver registry. This guards the Task-2
+// contract: a new resolver added to the schema without a matching reader function
+// fails here loudly, instead of silently no-opping at parse time.
+static void TestResolverRegistryCoverage() {
+  std::vector<std::string> missing;
+  CHECK(ResolverRegistryComplete(&missing));
+  if (!missing.empty()) {
+    std::printf("  unregistered resolver(s):");
+    for (const auto& m : missing) std::printf(" %s", m.c_str());
+    std::printf("\n");
+  }
+}
+
 int main() {
+  TestResolverRegistryCoverage();
   TestFixpoint();
   TestAngle();
   TestOrient();

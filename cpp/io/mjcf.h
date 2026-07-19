@@ -92,6 +92,13 @@ std::string WriteMjcf(const Model& model,
 std::string WriteMjcf(const Model& model, const AutoNames& auto_names,
                       std::vector<Diagnostic>* errors = nullptr);
 
+// Diagnostic self-check: true iff every resolver name carried by the generated
+// binding metadata (schema `resolver="..."`) has a handler in the reader's
+// resolver registry. Unregistered names are appended to `missing` (if non-null).
+// A unit test asserts this, so a new schema resolver without a matching reader
+// function fails loudly at test time rather than silently no-opping at parse.
+bool ResolverRegistryComplete(std::vector<std::string>* missing = nullptr);
+
 }  // namespace ps::mjcf::io
 
 #endif  // PROTOSPEC_IO_MJCF_H

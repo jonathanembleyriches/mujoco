@@ -54,9 +54,13 @@ Grammar decisions beyond the plan
   to elements, must be unique, and a union may not contain another union.
 * Element body order is relaxed. The plan writes ``("use" NAME)* field* child*``.
   Members are instead dispatched by leading token (``use`` / ``children`` /
-  otherwise a field) and may interleave; flattening still injects mixin fields
-  before local fields, so semantics are unchanged. Source order of fields and of
-  children is preserved (it is significant for serialization/flattening).
+  otherwise a field) and may interleave. Flattening injects each mixin's fields
+  at its ``use`` position in source order: a ``use`` before all local fields
+  prepends (the historical all-mixins-first behaviour), one after them appends.
+  This positional injection is what lets a shared trailing block (the sensor and
+  actuator tails) sit after an element's own discriminating fields. Source order
+  of fields and of children is preserved (it is significant for
+  serialization/flattening).
 * Sized arity (``[N]`` / ``[N..M]``) attaches to primitives only, exactly as the
   grammar's ``prim "[" ... "]"`` productions state. ``NAME[3]`` on an enum/struct
   is a parse error. The one exception is the *unbounded* form: a bare ``NAME[]``
@@ -115,10 +119,11 @@ them, so ``to_json -> from_json -> to_json`` is a fixpoint.
                   kind=enum    -> {member}            # bare identifier
                   kind=array   -> {values[]}          # brace array of literals
 
-``fields[]`` on an element is the FLATTENED list: mixin-injected fields (in
-``use`` order, then mixin field order) precede local fields, and each injected
-field carries ``source_mixin`` naming its origin. ``from_json`` does not re-run
-validation or flattening -- the JSON is already the resolved AST.
+``fields[]`` on an element is the FLATTENED list: each mixin's fields are
+injected at its ``use`` position in source order (a ``use`` before all local
+fields prepends; one after them appends), and each injected field carries
+``source_mixin`` naming its origin. ``from_json`` does not re-run validation or
+flattening -- the JSON is already the resolved AST.
 
 Public API
 ----------
@@ -550,13 +555,18 @@ class ChildDef:
 class _Use:
     """An element's ``use MIXIN`` statement (provenance for flatten errors).
 
-    Serialized as a bare name in the element's ``uses`` list; line/col are not
-    part of the JSON contract.
+    Serialized as a bare name in the element's ``uses`` list; ``line``/``col``
+    and ``field_index`` are not part of the JSON contract. ``field_index`` is the
+    count of the element's local fields that precede this ``use`` in source order;
+    flattening injects the mixin's fields at that position (a ``use`` before all
+    local fields prepends, a ``use`` after them appends -- the trailing-mixin
+    form the sensor/actuator tails rely on).
     """
 
     name: str
     line: int
     col: int
+    field_index: int = 0
 
 
 @dataclass
@@ -927,7 +937,14 @@ class _Parser:
             if tok.type == "NAME" and tok.value == "use":
                 self._advance()
                 mixin = self._expect_name("a mixin name")
-                node.uses.append(_Use(name=mixin.value, line=mixin.line, col=mixin.col))
+                node.uses.append(
+                    _Use(
+                        name=mixin.value,
+                        line=mixin.line,
+                        col=mixin.col,
+                        field_index=len(node.fields),
+                    )
+                )
             elif tok.type == "NAME" and tok.value == "children":
                 node.children.append(self._parse_child())
             else:
@@ -1507,11 +1524,16 @@ def _validate_union(union: UnionDef, symbols: _Symbols, ctx: _SourceCtx) -> None
 
 
 def _flatten_element(elem: ElementDef, symbols: _Symbols, ctx: _SourceCtx) -> None:
-    """Inject mixin fields (in ``use`` order, then mixin field order) before the
-    element's local fields, detecting duplicate field names across the union."""
+    """Inject each mixin's fields at its ``use`` position in source order (a ``use``
+    before all local fields prepends; one after them appends), detecting duplicate
+    field names across the union. Field order defines the downstream Visit/reflect
+    field ids and XML attribute emission order, so this positional injection is
+    what lets a shared trailing block (the sensor/actuator tails) sit after an
+    element's own discriminating fields without renumbering them."""
     flattened: list[Field] = []
     seen: dict[str, Field] = {}
-    for use in elem.uses:
+
+    def inject(use: _Use) -> None:
         entry = symbols.get(use.name)
         if entry is None:
             raise ctx.error(
@@ -1538,7 +1560,8 @@ def _flatten_element(elem: ElementDef, symbols: _Symbols, ctx: _SourceCtx) -> No
             injected.source_mixin = use.name
             seen[src.name] = injected
             flattened.append(injected)
-    for f in elem.fields:
+
+    def place(f: Field) -> None:
         if f.name in seen:
             origin = seen[f.name].source_mixin
             where = f"mixin {origin!r}" if origin else "an earlier field"
@@ -1549,6 +1572,16 @@ def _flatten_element(elem: ElementDef, symbols: _Symbols, ctx: _SourceCtx) -> No
             )
         seen[f.name] = f
         flattened.append(f)
+
+    uses_at: dict[int, list[_Use]] = {}
+    for use in elem.uses:
+        uses_at.setdefault(use.field_index, []).append(use)
+    n = len(elem.fields)
+    for i in range(n + 1):
+        for use in uses_at.get(i, ()):
+            inject(use)
+        if i < n:
+            place(elem.fields[i])
     elem.fields = flattened
 
 

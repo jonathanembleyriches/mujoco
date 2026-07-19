@@ -103,6 +103,41 @@ def test_mixin_flattening_order_and_provenance():
     assert [f.source_mixin for f in elem.fields] == ["A", "A", "B", None]
 
 
+def test_mixin_injected_at_use_position():
+    # A `use` after local fields appends the mixin's fields (trailing mixin); a
+    # `use` between fields injects there. This positional injection is what the
+    # sensor/actuator tails rely on to sit after each element's own fields.
+    schema = parse_spec(
+        """
+        mujoco_version "3.10.0"
+        mixin Head { h : int32 }
+        mixin Tail { t1 : int32  t2 : int32 }
+        element E {
+          h0 : int32
+          use Head
+          mid : int32
+          use Tail
+        }
+        """
+    )
+    elem = next(e for e in schema.elements if e.name == "E")
+    assert [f.name for f in elem.fields] == ["h0", "h", "mid", "t1", "t2"]
+    assert [f.source_mixin for f in elem.fields] == [
+        None, "Head", None, "Tail", "Tail",
+    ]
+
+
+def test_trailing_mixin_duplicate_detected():
+    exc = _expect_error(
+        """
+        mujoco_version "3.10.0"
+        mixin Tail { dup : int32 }
+        element E { dup : int32  use Tail }
+        """
+    )
+    assert "mixin 'Tail'" in exc.message
+
+
 def test_use_of_undefined_mixin():
     exc = _expect_error(
         """

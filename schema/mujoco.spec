@@ -332,6 +332,50 @@ mixin Posed {
   quat : double[4] (aliases="euler axisangle xyaxes zaxis", resolver=orientation)   # orientation (canonical quat; also accepts euler/axisangle/xyaxes/zaxis)
 }
 
+# Shared trailing block of most <sensor> elements (appended via `use` after each
+# sensor's own discriminating ref fields; the three that diverge -- Tactile,
+# SensorUser, SensorPlugin -- spell their tails locally). Field order here is the
+# emitted attribute / field-id order, so it must stay verbatim.
+mixin SensorTail {
+  nsample  : int32
+  interp   : InterpType
+  delay    : double
+  interval : double[0..2]
+  cutoff   : double
+  noise    : double
+  user     : double[]
+}
+
+# Shared leading block of every <actuator> element except <plugin> (which
+# interposes plugin/instance): identity + history-buffer fields.
+mixin ActuatorHead {
+  name          : string   # element name
+  dclass        : ref<Default> (xml="class")   # default class
+  group         : int32   # group
+  nsample       : int32   # number of samples in history buffer
+  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
+  delay         : double   # delay time in seconds; 0: no delay
+}
+
+# Shared transmission block of the eight actuators that carry the full set, in the
+# canonical order between their limit fields and their element-specific tail.
+# Muscle (no site/refsite), Adhesion (no transmission) and <plugin> (reordered)
+# spell their transmissions locally.
+mixin Transmission {
+  gear          : double[0..6] = {1}   # length and transmitted force scaling
+  damping       : double[0..3]   # damping coefficients
+  armature      : double   # armature inertia
+  cranklength   : double   # crank length, for slider-crank
+  user          : double[]   # user data
+  joint         : ref<Joint>
+  jointinparent : ref<Joint>
+  tendon        : ref<TendonAny>
+  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
+  cranksite     : ref<Site>
+  site          : ref<Site>
+  refsite       : ref<Site>   # reference site, for site transmission
+}
+
 # --- Unions (ordered heterogeneous child lists / any-of refs) -------------
 
 union ActuatorAny =
@@ -1404,12 +1448,7 @@ element Actuator {
 }
 
 element ActuatorGeneral (xml="general") {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   actlimited    : TriState   # are activation limits defined (mjtLimited)
@@ -1417,18 +1456,7 @@ element ActuatorGeneral (xml="general") {
   forcerange    : double[2]   # force range
   actrange      : double[2]   # activation range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   body          : ref<Body>
   actdim        : int32   # number of activation variables
   dyntype       : DynType = none   # dynamics type
@@ -1441,56 +1469,24 @@ element ActuatorGeneral (xml="general") {
 }
 
 element Motor {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
 }
 
 element Position {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   inheritrange  : double   # automatic range setting for position and intvelocity
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   kp            : double   # position feedback gain
   kv            : double   # velocity feedback gain
   dampratio     : double   # damping ratio, in units of critical damping
@@ -1498,39 +1494,18 @@ element Position {
 }
 
 element Velocity {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   kv            : double   # velocity feedback gain
 }
 
 element IntVelocity {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
@@ -1538,85 +1513,37 @@ element IntVelocity {
   actrange      : double[2]   # activation range
   inheritrange  : double   # automatic range setting for position and intvelocity
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   kp            : double   # position feedback gain
   kv            : double   # velocity feedback gain
   dampratio     : double   # damping ratio, in units of critical damping
 }
 
 element Damper {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   kv            : double   # velocity feedback gain
 }
 
 element Cylinder {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   forcerange    : double[2]   # force range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   timeconst     : double   # time constant of the activation dynamics
   area          : double (aliases="diameter", resolver=cylinderarea)   # cylinder area (canonical; also accepts diameter, area = pi/4 d^2)
   bias          : double[3]   # cylinder bias parameters
 }
 
 element Muscle {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
@@ -1645,12 +1572,7 @@ element Muscle {
 }
 
 element Adhesion {
-  name         : string   # element name
-  dclass       : ref<Default> (xml="class")   # default class
-  group        : int32   # group
-  nsample      : int32   # number of samples in history buffer
-  interp       : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay        : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   forcelimited : TriState   # are force limits defined (mjtLimited)
   ctrlrange    : double[2]   # control range
   forcerange   : double[2]   # force range
@@ -1660,27 +1582,11 @@ element Adhesion {
 }
 
 element DcMotor {
-  name          : string   # element name
-  dclass        : ref<Default> (xml="class")   # default class
-  group         : int32   # group
-  nsample       : int32   # number of samples in history buffer
-  interp        : InterpType   # interpolation order (0=ZOH, 1=linear, 2=cubic)
-  delay         : double   # delay time in seconds; 0: no delay
+  use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   lengthrange   : double[2]   # transmission length range
-  gear          : double[0..6] = {1}   # length and transmitted force scaling
-  damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
-  cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
-  joint         : ref<Joint>
-  jointinparent : ref<Joint>
-  tendon        : ref<TendonAny>
-  slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  cranksite     : ref<Site>
-  site          : ref<Site>
-  refsite       : ref<Site>   # reference site, for site transmission
+  use Transmission
   motorconst    : double[0..2]   # motor torque constant
   resistance    : double   # armature resistance
   nominal       : double[0..3]   # nominal supply voltage
@@ -1734,98 +1640,50 @@ element Sensor {
 element Touch {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Accelerometer {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Velocimeter {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Gyro {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Force {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Torque {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Magnetometer {
   name     : string   # element name
   site     : ref<Site>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Camprojection {
   name     : string   # element name
   site     : ref<Site>
   camera   : ref<Camera>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Rangefinder {
@@ -1833,217 +1691,109 @@ element Rangefinder {
   site     : ref<Site>
   camera   : ref<Camera>
   data     : RayData[]
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Jointpos {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Jointvel {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tendonpos {
   name     : string   # element name
   tendon   : ref<TendonAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tendonvel {
   name     : string   # element name
   tendon   : ref<TendonAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Actuatorpos {
   name     : string   # element name
   actuator : ref<ActuatorAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Actuatorvel {
   name     : string   # element name
   actuator : ref<ActuatorAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Actuatorfrc {
   name     : string   # element name
   actuator : ref<ActuatorAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Jointactuatorfrc {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tendonactuatorfrc {
   name     : string   # element name
   tendon   : ref<TendonAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Ballquat {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Ballangvel {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Jointlimitpos {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Jointlimitvel {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Jointlimitfrc {
   name     : string   # element name
   joint    : ref<Joint>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tendonlimitpos {
   name     : string   # element name
   tendon   : ref<TendonAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tendonlimitvel {
   name     : string   # element name
   tendon   : ref<TendonAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tendonlimitfrc {
   name     : string   # element name
   tendon   : ref<TendonAny>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Framepos {
@@ -2052,13 +1802,7 @@ element Framepos {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Framequat {
@@ -2067,13 +1811,7 @@ element Framequat {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Framexaxis {
@@ -2082,13 +1820,7 @@ element Framexaxis {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Frameyaxis {
@@ -2097,13 +1829,7 @@ element Frameyaxis {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Framezaxis {
@@ -2112,13 +1838,7 @@ element Framezaxis {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Framelinvel {
@@ -2127,13 +1847,7 @@ element Framelinvel {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Frameangvel {
@@ -2142,75 +1856,39 @@ element Frameangvel {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Framelinacc {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Frameangacc {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Subtreecom {
   name     : string   # element name
   body     : ref<Body>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Subtreelinvel {
   name     : string   # element name
   body     : ref<Body>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Subtreeangmom {
   name     : string   # element name
   body     : ref<Body>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Insidesite {
@@ -2218,13 +1896,7 @@ element Insidesite {
   site     : ref<Site>
   objtype  : string
   objname  : string (target_from=objtype)
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Distance {
@@ -2233,13 +1905,7 @@ element Distance {
   geom2    : ref<Geom>
   body1    : ref<Body>
   body2    : ref<Body>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Normal {
@@ -2248,13 +1914,7 @@ element Normal {
   geom2    : ref<Geom>
   body1    : ref<Body>
   body2    : ref<Body>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Fromto {
@@ -2263,13 +1923,7 @@ element Fromto {
   geom2    : ref<Geom>
   body1    : ref<Body>
   body2    : ref<Body>
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element SensorContact (xml="contact") {
@@ -2284,46 +1938,22 @@ element SensorContact (xml="contact") {
   num      : int32
   data     : ContactData[]
   reduce   : ContactReduce
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element EPotential (xml="e_potential") {
   name     : string   # element name
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element EKinetic (xml="e_kinetic") {
   name     : string   # element name
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Clock {
   name     : string   # element name
-  nsample  : int32
-  interp   : InterpType
-  delay    : double
-  interval : double[0..2]
-  cutoff   : double
-  noise    : double
-  user     : double[]
+  use SensorTail
 }
 
 element Tactile {

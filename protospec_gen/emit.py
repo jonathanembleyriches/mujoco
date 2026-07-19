@@ -1085,9 +1085,12 @@ def emit_xml_binding_h(s: Schema) -> str:
     w("  bool unit_angle;              // deg->rad at IO (compiler.angle=degree)")
     w("  bool keyword_set;             // space-separated enum keyword set")
     w("  bool element_text;            // carried as element text, not attribute")
-    w("  bool resolved;                // canonicalized at parse end (Q-ORIENT/")
-    w("                                // Q-INERTIA): read via its resolver, not")
-    w("                                // the plain attr path; still emitted plain")
+    w('  std::string_view resolver;    // parse-end resolver name that canonicalizes')
+    w('                                // this field ("" = none). A non-empty name')
+    w("                                // means the plain attr read is skipped and")
+    w("                                // the reader's resolver registry (keyed by")
+    w("                                // this name) sets the field instead; the")
+    w("                                // writer still emits it plainly.")
     w("};")
     w("")
     w("// A read-only input-alias attribute (Q-ORIENT/Q-INERTIA): an MJCF attribute")
@@ -1185,7 +1188,7 @@ def emit_xml_binding_cc(s: Schema) -> str:
                     f"{'true' if _field_unit_angle(f) else 'false'}, "
                     f"{'true' if _field_keyword_set(t) else 'false'}, "
                     f"{'true' if _field_element_text(f) else 'false'}, "
-                    f"{'true' if _field_resolver(f) else 'false'}}},"
+                    f'"{_field_resolver(f) or ""}"}},'
                 )
             w("};")
 

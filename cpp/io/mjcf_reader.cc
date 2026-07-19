@@ -390,6 +390,20 @@ inline PairOpt* SpringlengthField(Spatial& e) { return &e.springlength; }
 inline PairOpt* SpringlengthField(Fixed& e) { return &e.springlength; }
 inline PairOpt* SpringlengthField(TendonDefault& e) { return &e.springlength; }
 
+// The reader's resolver registry: the single authority for which schema
+// `resolver="..."` names the reader handles. Reader::DispatchResolver maps each
+// of these to a canonicalization (some to a separate phase -- see there), and
+// ResolverRegistryComplete asserts every name in the generated binding metadata
+// is one of these. Adding a resolver name to the schema therefore requires a
+// matching entry here plus its DispatchResolver arm, or the coverage check fails
+// loudly. "orientation"/"materiallayer" are handled by their own phases
+// (CollectOrientation / MaterialTextureFixup); the rest are inline resolvers.
+inline bool IsRegisteredResolver(std::string_view name) {
+  return name == "orientation" || name == "materiallayer" ||
+         name == "inertia" || name == "springlength" || name == "lighttype" ||
+         name == "cylinderarea" || name == "numericdata";
+}
+
 // --------------------------------------------------------------------------- //
 // Reader                                                                        //
 // --------------------------------------------------------------------------- //
@@ -440,19 +454,22 @@ class Reader {
     Visit(out, av);
 
     // Q-ORIENT: collect the authored orientation (resolved at parse end against
-    // the folded compiler context). Orientation-bearing elements only.
+    // the folded compiler context). Orientation-bearing elements only. The
+    // "orientation" resolver is dispatched here, not through ApplyResolvers,
+    // because it defers to the document-order compiler fold.
     CollectOrientation(xml, out);
-    // Q-INERTIA: fullinertia/diaginertia have no angular context, so resolve
-    // inline (eigendecomposition for fullinertia -> diaginertia + iquat).
-    if constexpr (std::is_same_v<E, Inertial>) {
-      InertialOrientExclusion(xml);
-      ResolveInertiaAttrs(xml, out);
-    }
-    // Wave B canonicalizations resolved inline at read (no compiler context).
-    ResolveSpringlength(xml, out);  // #5: scalar or pair -> canonical pair
-    if constexpr (std::is_same_v<E, Light>) ResolveLightType(xml, out);
-    if constexpr (std::is_same_v<E, Cylinder>) ResolveCylinderArea(xml, out);
-    if constexpr (std::is_same_v<E, Numeric>) ResolveNumericData(xml, out);
+    // Q-INERTIA: the mutual-exclusion check is a hardcoded quirk (not a schema
+    // resolver); the fullinertia/diaginertia fold itself is the "inertia"
+    // resolver, dispatched below off the binding metadata.
+    if constexpr (std::is_same_v<E, Inertial>) InertialOrientExclusion(xml);
+    // Schema-declared canonicalizations (resolver="..." in the IDL, emitted into
+    // AttrBinding::resolver) are dispatched off the generated metadata, not a
+    // hardcoded per-element chain: adding a resolver in the schema wires it here
+    // automatically, and a name with no registered function fails loudly
+    // (DispatchResolver's default + the ResolverRegistryComplete coverage test).
+    ApplyResolvers(xml, out, b);
+    // The remaining hooks are NOT schema resolvers -- exclusion/pairing/fixup
+    // quirks with no `resolver=` in the IDL -- so they stay hardcoded by type.
     if constexpr (std::is_same_v<E, Camera>) CameraIntrinsicExclusion(xml);
     if constexpr (std::is_same_v<E, Size>) MemoryFixup(xml, out);
     if constexpr (std::is_same_v<E, Connect>) ConnectExclusion(xml);
@@ -538,10 +555,11 @@ class Reader {
     void field(int id, const char*, T& value) {
       for (std::size_t i = 0; i < b->attr_count; ++i) {
         if (b->attrs[i].field_id == id) {
-          // Resolved (canonicalized) fields -- quat/iquat/diaginertia -- are set
-          // by the parse-end orientation fold / inline inertia resolution, not
-          // the plain attr path (Q-ORIENT/Q-INERTIA).
-          if (b->attrs[i].resolved) return;
+          // Resolved (canonicalized) fields -- quat/iquat/diaginertia/area/... --
+          // are set by the parse-end orientation fold / the schema-declared
+          // resolver registry (ApplyResolvers), not the plain attr path
+          // (Q-ORIENT/Q-INERTIA/Wave B). A non-empty resolver name marks them.
+          if (!b->attrs[i].resolver.empty()) return;
           r->ReadAttr(xml, b->type, b->attrs[i], value);
           return;
         }
@@ -948,6 +966,46 @@ class Reader {
     const int copy = std::min<int>(size, static_cast<int>(data.size()));
     for (int i = 0; i < copy; ++i) materialized[i] = data[i];
     out.data = std::move(materialized);
+  }
+
+  // ---- schema-declared resolver registry --------------------------------- //
+  // A no-op template overload beside each type-specific resolver keeps
+  // DispatchResolver instantiable for every element E (the concrete overload
+  // wins for its own type; every other E binds the no-op). This mirrors the
+  // ResolveSpringlength / SpringlengthField pattern already used above.
+  template <class E> void ResolveInertiaAttrs(XMLElement*, E&) {}
+  template <class E> void ResolveLightType(XMLElement*, E&) {}
+  template <class E> void ResolveCylinderArea(XMLElement*, E&) {}
+  template <class E> void ResolveNumericData(XMLElement*, E&) {}
+
+  // Route one schema resolver name to its canonicalization. The name set must
+  // match IsRegisteredResolver; the default arm fails loudly on an unregistered
+  // name so a schema resolver without a reader function never silently no-ops.
+  template <class E>
+  void DispatchResolver(std::string_view name, XMLElement* xml, E& out) {
+    // Resolved by a separate phase, so a no-op here (kept in the registry for
+    // coverage): "orientation" -> the document-order compiler fold
+    // (CollectOrientation); "materiallayer" -> MaterialTextureFixup, post-children
+    // (and it never rides an AttrBinding, so ApplyResolvers never passes it).
+    if (name == "orientation" || name == "materiallayer") return;
+    if (name == "inertia")      { ResolveInertiaAttrs(xml, out); return; }
+    if (name == "springlength") { ResolveSpringlength(xml, out); return; }
+    if (name == "lighttype")    { ResolveLightType(xml, out); return; }
+    if (name == "cylinderarea") { ResolveCylinderArea(xml, out); return; }
+    if (name == "numericdata")  { ResolveNumericData(xml, out); return; }
+    Err(xml, "internal: no reader resolver registered for '" +
+                 std::string(name) + "'");
+  }
+
+  // Consult the generated binding metadata: canonicalize each field whose
+  // AttrBinding carries a resolver name. This is the dispatch that replaced the
+  // hardcoded per-element if-constexpr chain.
+  template <class E>
+  void ApplyResolvers(XMLElement* xml, E& out, const ElementBinding& b) {
+    for (std::size_t i = 0; i < b.attr_count; ++i) {
+      std::string_view name = b.attrs[i].resolver;
+      if (!name.empty()) DispatchResolver(name, xml, out);
+    }
   }
 
   // #7 material texture attr -> canonical <layer role="rgb">. The attribute is a
@@ -1443,6 +1501,22 @@ std::string Diagnostic::Render() const {
   std::string prefix = loc.file.empty() ? "<string>" : loc.file;
   if (loc.line > 0) prefix += ":" + std::to_string(loc.line);
   return prefix + ": " + message;
+}
+
+bool ResolverRegistryComplete(std::vector<std::string>* missing) {
+  bool complete = true;
+  for (std::size_t i = 0; i < xmlbind::BindingCount(); ++i) {
+    const xmlbind::ElementBinding& b = xmlbind::BindingAt(i);
+    auto check = [&](std::string_view name) {
+      if (name.empty() || IsRegisteredResolver(name)) return;
+      complete = false;
+      if (missing) missing->emplace_back(name);
+    };
+    for (std::size_t a = 0; a < b.attr_count; ++a) check(b.attrs[a].resolver);
+    for (std::size_t a = 0; a < b.input_alias_count; ++a)
+      check(b.input_aliases[a].resolver);
+  }
+  return complete;
 }
 
 bool ParseResult::unsupported_only() const {

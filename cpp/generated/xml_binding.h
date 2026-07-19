@@ -31,9 +31,12 @@ struct AttrBinding {
   bool unit_angle;              // deg->rad at IO (compiler.angle=degree)
   bool keyword_set;             // space-separated enum keyword set
   bool element_text;            // carried as element text, not attribute
-  bool resolved;                // canonicalized at parse end (Q-ORIENT/
-                                // Q-INERTIA): read via its resolver, not
-                                // the plain attr path; still emitted plain
+  std::string_view resolver;    // parse-end resolver name that canonicalizes
+                                // this field ("" = none). A non-empty name
+                                // means the plain attr read is skipped and
+                                // the reader's resolver registry (keyed by
+                                // this name) sets the field instead; the
+                                // writer still emits it plainly.
 };
 
 // A read-only input-alias attribute (Q-ORIENT/Q-INERTIA): an MJCF attribute

@@ -132,21 +132,23 @@ def test_xml_binding_routes_variant_arms_and_worldbody():
 def test_xml_binding_marks_angle_units():
     binding_cc = _generated()["xml_binding.cc"]
     # Joint reference angles carry the unit=angle flag (deg->rad at IO, Q-ANGLE).
-    # Row tail is unit_angle, keyword_set, element_text, resolved.
+    # Row tail is unit_angle, keyword_set, element_text, resolver (empty when the
+    # field is not canonicalized -- a plain angle ref has no resolver).
     start = binding_cc.index("kAttrs_Joint[]")
     body = binding_cc[start : binding_cc.index("};", start)]
     ref_row = [ln for ln in body.splitlines() if '"ref",' in ln][0]
-    assert ref_row.rstrip().endswith("true, false, false, false},")  # unit_angle set
+    assert ref_row.rstrip().endswith('true, false, false, ""},')  # unit_angle, no resolver
 
 
 def test_xml_binding_marks_resolved_and_input_aliases():
     binding_cc = _generated()["xml_binding.cc"]
-    # The canonical quat attribute is flagged resolved (parse-end canonicalization);
-    # its row tail is unit_angle, keyword_set, element_text, resolved.
+    # The canonical quat attribute carries its resolver name (parse-end
+    # canonicalization); the reader skips the plain read and dispatches off this
+    # name. Row tail is unit_angle, keyword_set, element_text, resolver.
     start = binding_cc.index("kAttrs_Body[]")
     body = binding_cc[start : binding_cc.index("};", start)]
     quat_row = [ln for ln in body.splitlines() if '"quat",' in ln][0]
-    assert quat_row.rstrip().endswith("false, false, false, true},")  # resolved set
+    assert quat_row.rstrip().endswith('false, false, false, "orientation"},')
     # Inertial routes fullinertia through the inertia resolver (-> diaginertia+iquat).
     assert '{"fullinertia", "inertia"}' in binding_cc
 
