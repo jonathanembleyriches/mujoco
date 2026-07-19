@@ -40,16 +40,9 @@ namespace xt = tinyxml2;
 
 // Visit every element of the tree EXCEPT the Model root (the root is the
 // document, not a layer member: its loc names whichever file happened to open
-// the stack and must never partition, prune, or gate anything).
-template <class Fn>
-void ForEachElement(mj::Model& m, Fn&& fn) {
-  sdk::WalkModel(m, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      fn(e);
-    }
-  });
-}
+// the stack and must never partition, prune, or gate anything). This walk is now
+// a promoted SDK verb; the editor consumes it directly.
+using ps::sdk::ForEachElement;
 
 std::string StemOf(const std::string& path) {
   std::filesystem::path p(path);

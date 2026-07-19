@@ -38,27 +38,6 @@ namespace reflect = ps::mjcf::reflect;
 
 namespace {
 
-// MuJoCo names are unique within an object category; every ProtoSpec element type
-// is its own category except the two joint spellings, which share one. (Actuator
-// and sensor spellings also share a category in MuJoCo, but each Add op derives a
-// distinct base name per spelling -- "motor" vs "position", "jointpos" vs "gyro"
-// -- so per-type uniquing never produces a cross-spelling clash there.)
-int CategoryId(mj::ElementType t) {
-  if (t == mj::ElementType::Joint || t == mj::ElementType::FreeJoint) return -1;
-  return static_cast<int>(t);
-}
-
-std::vector<mj::ElementType> CatOf(mj::ElementType t) {
-  if (t == mj::ElementType::Joint || t == mj::ElementType::FreeJoint)
-    return {mj::ElementType::Joint, mj::ElementType::FreeJoint};
-  return {t};
-}
-
-std::string UniqueNameFor(mj::Model& model, mj::ElementType type,
-                          const std::string& base) {
-  return UniqueName(model, CatOf(type), base);
-}
-
 // A body-context container: a Body, a Frame, or the world body (for a 0 serial).
 struct Container {
   mj::Body* body = nullptr;
@@ -87,22 +66,6 @@ Container FindContainer(mj::Model& tree, std::uint64_t serial) {
     c.frame = static_cast<mj::Frame*>(ptr);
   }
   return c;
-}
-
-// Sensible authoring sizes so a bare primitive geom compiles (a size-0 geom is a
-// compile error for every non-mesh type). Only `size` is stamped -- DR-1: nothing
-// else of the IDL default set is written.
-void StampGeomSize(mj::Geom& g, mj::GeomType t) {
-  using V = ps::InlineVec<double, 3>;
-  switch (t) {
-    case mj::GeomType::sphere: g.size = V{0.1}; break;
-    case mj::GeomType::capsule: g.size = V{0.05, 0.1}; break;
-    case mj::GeomType::cylinder: g.size = V{0.05, 0.1}; break;
-    case mj::GeomType::ellipsoid: g.size = V{0.1, 0.1, 0.1}; break;
-    case mj::GeomType::box: g.size = V{0.1, 0.1, 0.1}; break;
-    case mj::GeomType::plane: g.size = V{1, 1, 0.1}; break;
-    default: break;  // mesh / hfield / sdf: geometry comes from the asset
-  }
 }
 
 std::string GeomLabel(mj::GeomType t) {
@@ -137,42 +100,21 @@ std::uint64_t DoAdd(EditorContext& ctx, const std::string& label, Fn&& fn) {
   return s;
 }
 
-std::string JointNameBySerial(mj::Model& tree, std::uint64_t serial) {
-  std::string out;
-  if (serial == 0) return out;
-  sdk::WalkModel(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (std::is_same_v<E, mj::Joint> ||
-                  std::is_same_v<E, mj::FreeJoint>) {
-      if (out.empty() && e.serial == serial) {
-        if (const std::string* nm = sdk::Name(e)) out = *nm;
-      }
-    }
-  });
-  return out;
-}
-
 struct TargetRef {
   mj::ElementType type = mj::ElementType::Model;
   std::string name;
 };
 
+// The (type, name) of the element carrying `serial`, over the SDK's single
+// find-by-serial walk. `type` stays Model / `name` stays empty when unfound or
+// nameless.
 TargetRef TargetBySerial(mj::Model& tree, std::uint64_t serial) {
   TargetRef t;
-  if (serial == 0) return t;
-  sdk::WalkModel(tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if constexpr (requires { e.serial; }) {
-        if (t.name.empty() && e.serial == serial) {
-          if (const std::string* nm = sdk::Name(e)) {
-            t.type = mj::element_type_of<E>::value;
-            t.name = *nm;
-          }
-        }
-      }
-    }
-  });
+  const sdk::Located loc = sdk::FindBySerialTyped(tree, serial);
+  if (loc) {
+    t.type = loc.type;
+    t.name = sdk::NameOfSerial(tree, serial);
+  }
   return t;
 }
 
@@ -224,21 +166,13 @@ void WireSensorTarget(S& s, mj::ElementType ttype, const std::string& tname) {
 std::string UniqueName(mj::Model& model,
                        const std::vector<mj::ElementType>& category,
                        const std::string& base) {
-  std::unordered_set<std::string> used;
-  sdk::WalkModel(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      const mj::ElementType t = mj::element_type_of<E>::value;
-      if (std::find(category.begin(), category.end(), t) != category.end()) {
-        if (const std::string* nm = sdk::Name(e)) used.insert(*nm);
-      }
-    }
-  });
-  if (!used.count(base)) return base;
-  for (int k = 1;; ++k) {
-    std::string c = base + "_" + std::to_string(k);
-    if (!used.count(c)) return c;
-  }
+  // Thin adapter over the promoted `sdk::UniqueName(model, type, base)`. The SDK
+  // verb namespaces by MuJoCo name-category (detail::NameCategory), which already
+  // folds the two joint spellings (and each actuator / sensor / tendon / equality
+  // union) into one namespace -- so passing the first requested type reproduces
+  // the old vector semantics for every category the editor uses.
+  if (category.empty()) return sdk::UniqueName(model, mj::ElementType::Body, base);
+  return sdk::UniqueName(model, category.front(), base);
 }
 
 // --- Public: body-tree primitive adds ------------------------------------- //
@@ -247,7 +181,7 @@ std::uint64_t AddBodyOp(EditorContext& ctx, std::uint64_t parent_serial) {
   return DoAdd(ctx, "Add body", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Body, "body");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Body, "body");
     return c.body ? sdk::AddBody(*c.body, n).serial
                   : sdk::AddBody(*c.frame, n).serial;
   });
@@ -259,10 +193,10 @@ std::uint64_t AddGeomOp(EditorContext& ctx, std::uint64_t parent_serial,
                [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Geom, "geom");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Geom, "geom");
     mj::Geom& g =
         c.body ? sdk::AddGeom(*c.body, type, n) : sdk::AddGeom(*c.frame, type, n);
-    StampGeomSize(g, type);
+    sdk::SeedPrimitiveSize(g);
     return g.serial;
   });
 }
@@ -280,10 +214,10 @@ std::uint64_t AddGeomsOp(EditorContext& ctx, std::uint64_t parent_serial,
     std::uint64_t last = 0;
     for (int i = 0; i < n; ++i) {
       const std::string gn =
-          UniqueNameFor(tree, mj::ElementType::Geom, "geom");
+          sdk::UniqueName(tree, mj::ElementType::Geom, "geom");
       mj::Geom& g = c.body ? sdk::AddGeom(*c.body, type, gn)
                            : sdk::AddGeom(*c.frame, type, gn);
-      StampGeomSize(g, type);
+      sdk::SeedPrimitiveSize(g);
       if (i > 0) g.pos = std::array<double, 3>{i * kStep, 0.0, 0.0};
       last = g.serial;
     }
@@ -300,11 +234,11 @@ std::uint64_t AddJointOp(EditorContext& ctx, std::uint64_t parent_serial,
     if (!c.valid()) return 0;
     if (freejoint) {
       const std::string n =
-          UniqueNameFor(tree, mj::ElementType::FreeJoint, "freejoint");
+          sdk::UniqueName(tree, mj::ElementType::FreeJoint, "freejoint");
       return c.body ? sdk::AddFreeJoint(*c.body, n).serial
                     : sdk::AddFreeJoint(*c.frame, n).serial;
     }
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Joint, "joint");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Joint, "joint");
     return c.body ? sdk::AddJoint(*c.body, type, n).serial
                   : sdk::AddJoint(*c.frame, type, n).serial;
   });
@@ -316,7 +250,7 @@ std::uint64_t AddJointAxisOp(EditorContext& ctx, std::uint64_t parent_serial,
   return DoAdd(ctx, "Add joint", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Joint, "joint");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Joint, "joint");
     mj::Joint& j =
         c.body ? sdk::AddJoint(*c.body, type, n) : sdk::AddJoint(*c.frame, type, n);
     j.axis = ax;
@@ -328,7 +262,7 @@ std::uint64_t AddSiteOp(EditorContext& ctx, std::uint64_t parent_serial) {
   return DoAdd(ctx, "Add site", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Site, "site");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Site, "site");
     return c.body ? sdk::AddSite(*c.body, n).serial
                   : sdk::AddSite(*c.frame, n).serial;
   });
@@ -338,7 +272,7 @@ std::uint64_t AddCameraOp(EditorContext& ctx, std::uint64_t parent_serial) {
   return DoAdd(ctx, "Add camera", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Camera, "camera");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Camera, "camera");
     return c.body ? sdk::AddCamera(*c.body, n).serial
                   : sdk::AddCamera(*c.frame, n).serial;
   });
@@ -348,7 +282,7 @@ std::uint64_t AddLightOp(EditorContext& ctx, std::uint64_t parent_serial) {
   return DoAdd(ctx, "Add light", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Light, "light");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Light, "light");
     return c.body ? sdk::AddLight(*c.body, n).serial
                   : sdk::AddLight(*c.frame, n).serial;
   });
@@ -358,7 +292,7 @@ std::uint64_t AddFrameOp(EditorContext& ctx, std::uint64_t parent_serial) {
   return DoAdd(ctx, "Add frame", [&](mj::Model& tree) -> std::uint64_t {
     Container c = FindContainer(tree, parent_serial);
     if (!c.valid()) return 0;
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Frame, "frame");
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Frame, "frame");
     return c.body ? sdk::AddFrame(*c.body, n).serial
                   : sdk::AddFrame(*c.frame, n).serial;
   });
@@ -369,15 +303,15 @@ std::uint64_t AddDropBodyGeomOp(EditorContext& ctx, mj::GeomType type,
   return DoAdd(ctx, "Add " + GeomLabel(type),
                [&](mj::Model& tree) -> std::uint64_t {
     mj::Body& w = sdk::World(tree);
-    const std::string bn = UniqueNameFor(tree, mj::ElementType::Body, "body");
+    const std::string bn = sdk::UniqueName(tree, mj::ElementType::Body, "body");
     mj::Body& b = sdk::AddBody(w, bn);
     if (world_point) {
       b.pos = std::array<double, 3>{world_point[0], world_point[1],
                                     world_point[2]};
     }
-    const std::string gn = UniqueNameFor(tree, mj::ElementType::Geom, "geom");
+    const std::string gn = sdk::UniqueName(tree, mj::ElementType::Geom, "geom");
     mj::Geom& g = sdk::AddGeom(b, type, gn);
-    StampGeomSize(g, type);
+    sdk::SeedPrimitiveSize(g);
     return b.serial;
   });
 }
@@ -387,56 +321,56 @@ std::uint64_t AddDropBodyGeomOp(EditorContext& ctx, mj::GeomType type,
 std::uint64_t AddActuatorOp(EditorContext& ctx, ActuatorSpelling spelling,
                             std::uint64_t target_joint_serial) {
   return DoAdd(ctx, "Add actuator", [&](mj::Model& tree) -> std::uint64_t {
-    const std::string jn = JointNameBySerial(tree, target_joint_serial);
+    const std::string jn = sdk::NameOfSerial(tree, target_joint_serial);
     switch (spelling) {
       case ActuatorSpelling::Motor:
         return sdk::AddActuator<mj::Motor>(
-                   tree, jn, UniqueNameFor(tree, mj::ElementType::Motor, "motor"))
+                   tree, jn, sdk::UniqueName(tree, mj::ElementType::Motor, "motor"))
             .serial;
       case ActuatorSpelling::Position:
         return sdk::AddActuator<mj::Position>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::Position, "position"))
+                   sdk::UniqueName(tree, mj::ElementType::Position, "position"))
             .serial;
       case ActuatorSpelling::Velocity:
         return sdk::AddActuator<mj::Velocity>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::Velocity, "velocity"))
+                   sdk::UniqueName(tree, mj::ElementType::Velocity, "velocity"))
             .serial;
       case ActuatorSpelling::IntVelocity:
         return sdk::AddActuator<mj::IntVelocity>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::IntVelocity, "intvelocity"))
+                   sdk::UniqueName(tree, mj::ElementType::IntVelocity, "intvelocity"))
             .serial;
       case ActuatorSpelling::Damper:
         return sdk::AddActuator<mj::Damper>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::Damper, "damper"))
+                   sdk::UniqueName(tree, mj::ElementType::Damper, "damper"))
             .serial;
       case ActuatorSpelling::Cylinder:
         return sdk::AddActuator<mj::Cylinder>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::Cylinder, "cylinder"))
+                   sdk::UniqueName(tree, mj::ElementType::Cylinder, "cylinder"))
             .serial;
       case ActuatorSpelling::Muscle:
         return sdk::AddActuator<mj::Muscle>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::Muscle, "muscle"))
+                   sdk::UniqueName(tree, mj::ElementType::Muscle, "muscle"))
             .serial;
       case ActuatorSpelling::Adhesion:
         return sdk::AddActuator<mj::Adhesion>(
                    tree, "",
-                   UniqueNameFor(tree, mj::ElementType::Adhesion, "adhesion"))
+                   sdk::UniqueName(tree, mj::ElementType::Adhesion, "adhesion"))
             .serial;
       case ActuatorSpelling::DcMotor:
         return sdk::AddActuator<mj::DcMotor>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::DcMotor, "dcmotor"))
+                   sdk::UniqueName(tree, mj::ElementType::DcMotor, "dcmotor"))
             .serial;
       case ActuatorSpelling::General:
         return sdk::AddActuator<mj::ActuatorGeneral>(
                    tree, jn,
-                   UniqueNameFor(tree, mj::ElementType::ActuatorGeneral, "general"))
+                   sdk::UniqueName(tree, mj::ElementType::ActuatorGeneral, "general"))
             .serial;
     }
     return 0;
@@ -454,44 +388,44 @@ std::uint64_t AddSensorOp(EditorContext& ctx, SensorSpelling spelling,
     switch (spelling) {
       case SensorSpelling::Jointpos:
         return make(sdk::AddSensor<mj::Jointpos>(
-            tree, UniqueNameFor(tree, mj::ElementType::Jointpos, "jointpos")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Jointpos, "jointpos")));
       case SensorSpelling::Jointvel:
         return make(sdk::AddSensor<mj::Jointvel>(
-            tree, UniqueNameFor(tree, mj::ElementType::Jointvel, "jointvel")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Jointvel, "jointvel")));
       case SensorSpelling::Actuatorpos:
         return make(sdk::AddSensor<mj::Actuatorpos>(
             tree,
-            UniqueNameFor(tree, mj::ElementType::Actuatorpos, "actuatorpos")));
+            sdk::UniqueName(tree, mj::ElementType::Actuatorpos, "actuatorpos")));
       case SensorSpelling::Actuatorvel:
         return make(sdk::AddSensor<mj::Actuatorvel>(
             tree,
-            UniqueNameFor(tree, mj::ElementType::Actuatorvel, "actuatorvel")));
+            sdk::UniqueName(tree, mj::ElementType::Actuatorvel, "actuatorvel")));
       case SensorSpelling::Framepos:
         return make(sdk::AddSensor<mj::Framepos>(
-            tree, UniqueNameFor(tree, mj::ElementType::Framepos, "framepos")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Framepos, "framepos")));
       case SensorSpelling::Framequat:
         return make(sdk::AddSensor<mj::Framequat>(
-            tree, UniqueNameFor(tree, mj::ElementType::Framequat, "framequat")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Framequat, "framequat")));
       case SensorSpelling::Gyro:
         return make(sdk::AddSensor<mj::Gyro>(
-            tree, UniqueNameFor(tree, mj::ElementType::Gyro, "gyro")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Gyro, "gyro")));
       case SensorSpelling::Accelerometer:
         return make(sdk::AddSensor<mj::Accelerometer>(
-            tree, UniqueNameFor(tree, mj::ElementType::Accelerometer,
+            tree, sdk::UniqueName(tree, mj::ElementType::Accelerometer,
                                 "accelerometer")));
       case SensorSpelling::Velocimeter:
         return make(sdk::AddSensor<mj::Velocimeter>(
             tree,
-            UniqueNameFor(tree, mj::ElementType::Velocimeter, "velocimeter")));
+            sdk::UniqueName(tree, mj::ElementType::Velocimeter, "velocimeter")));
       case SensorSpelling::Force:
         return make(sdk::AddSensor<mj::Force>(
-            tree, UniqueNameFor(tree, mj::ElementType::Force, "force")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Force, "force")));
       case SensorSpelling::Torque:
         return make(sdk::AddSensor<mj::Torque>(
-            tree, UniqueNameFor(tree, mj::ElementType::Torque, "torque")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Torque, "torque")));
       case SensorSpelling::Touch:
         return make(sdk::AddSensor<mj::Touch>(
-            tree, UniqueNameFor(tree, mj::ElementType::Touch, "touch")));
+            tree, sdk::UniqueName(tree, mj::ElementType::Touch, "touch")));
     }
     return 0;
   });
@@ -499,7 +433,7 @@ std::uint64_t AddSensorOp(EditorContext& ctx, SensorSpelling spelling,
 
 std::uint64_t CreateMaterialOp(EditorContext& ctx, const MaterialSpec& spec) {
   return DoAdd(ctx, "Add material", [&](mj::Model& tree) -> std::uint64_t {
-    const std::string n = UniqueNameFor(
+    const std::string n = sdk::UniqueName(
         tree, mj::ElementType::Material,
         spec.name.empty() ? "material" : spec.name);
     mj::Material& m = sdk::AddMaterial(tree, n);
@@ -521,7 +455,7 @@ std::uint64_t CreateMaterialOp(EditorContext& ctx, const MaterialSpec& spec) {
 
 std::uint64_t CreateTextureOp(EditorContext& ctx, const TextureSpec& spec) {
   return DoAdd(ctx, "Add texture", [&](mj::Model& tree) -> std::uint64_t {
-    const std::string n = UniqueNameFor(
+    const std::string n = sdk::UniqueName(
         tree, mj::ElementType::Texture,
         spec.name.empty() ? "texture" : spec.name);
     mj::Texture& t = sdk::AddTexture(tree, n);
@@ -560,7 +494,7 @@ bool AssignGeomMaterialOp(EditorContext& ctx, std::uint64_t geom_serial,
 std::uint64_t AddTendonOp(EditorContext& ctx) {
   return DoAdd(ctx, "Add tendon", [&](mj::Model& tree) -> std::uint64_t {
     return sdk::AddTendon<mj::Fixed>(
-               tree, UniqueNameFor(tree, mj::ElementType::Fixed, "tendon"))
+               tree, sdk::UniqueName(tree, mj::ElementType::Fixed, "tendon"))
         .serial;
   });
 }
@@ -568,14 +502,14 @@ std::uint64_t AddTendonOp(EditorContext& ctx) {
 std::uint64_t AddEqualityWeldOp(EditorContext& ctx) {
   return DoAdd(ctx, "Add equality", [&](mj::Model& tree) -> std::uint64_t {
     return sdk::AddEquality<mj::Weld>(
-               tree, UniqueNameFor(tree, mj::ElementType::Weld, "weld"))
+               tree, sdk::UniqueName(tree, mj::ElementType::Weld, "weld"))
         .serial;
   });
 }
 
 std::uint64_t AddPairOp(EditorContext& ctx) {
   return DoAdd(ctx, "Add pair", [&](mj::Model& tree) -> std::uint64_t {
-    return sdk::AddPair(tree, UniqueNameFor(tree, mj::ElementType::Pair, "pair"))
+    return sdk::AddPair(tree, sdk::UniqueName(tree, mj::ElementType::Pair, "pair"))
         .serial;
   });
 }
@@ -583,21 +517,21 @@ std::uint64_t AddPairOp(EditorContext& ctx) {
 std::uint64_t AddExcludeOp(EditorContext& ctx) {
   return DoAdd(ctx, "Add exclude", [&](mj::Model& tree) -> std::uint64_t {
     return sdk::AddExclude(
-               tree, UniqueNameFor(tree, mj::ElementType::Exclude, "exclude"))
+               tree, sdk::UniqueName(tree, mj::ElementType::Exclude, "exclude"))
         .serial;
   });
 }
 
 std::uint64_t AddKeyframeOp(EditorContext& ctx) {
   return DoAdd(ctx, "Add keyframe", [&](mj::Model& tree) -> std::uint64_t {
-    return sdk::AddKey(tree, UniqueNameFor(tree, mj::ElementType::Key, "key"))
+    return sdk::AddKey(tree, sdk::UniqueName(tree, mj::ElementType::Key, "key"))
         .serial;
   });
 }
 
 std::uint64_t AddDefaultClassOp(EditorContext& ctx, const std::string& name) {
   return DoAdd(ctx, "Add default class", [&](mj::Model& tree) -> std::uint64_t {
-    const std::string n = UniqueNameFor(tree, mj::ElementType::Default,
+    const std::string n = sdk::UniqueName(tree, mj::ElementType::Default,
                                         name.empty() ? "class" : name);
     return sdk::AddDefault(tree, n).serial;
   });
@@ -605,42 +539,18 @@ std::uint64_t AddDefaultClassOp(EditorContext& ctx, const std::string& name) {
 
 // --- Public: Duplicate ---------------------------------------------------- //
 
-namespace {
-
-// A type-erased element pointer (or nullptr) by creation serial. Used to resolve
-// the target/parent of a structural op before handing it to a runtime-pointer SDK
-// verb.
-const void* FindPtrBySerial(mj::Model& model, std::uint64_t serial) {
-  return FindSerial(model, serial);
-}
-
-// The creation serial of the element at `ptr` (sdk::Duplicate returns the clone's
-// pointer; the editor selects by serial), or 0.
-std::uint64_t SerialOfPtr(mj::Model& model, const void* ptr) {
-  std::uint64_t out = 0;
-  sdk::WalkModel(model, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model>) {
-      if constexpr (requires { e.serial; }) {
-        if (!out && static_cast<const void*>(&e) == ptr) out = e.serial;
-      }
-    }
-  });
-  return out;
-}
-
-}  // namespace
-
 std::uint64_t DuplicateOp(EditorContext& ctx, std::uint64_t serial) {
   if (!ctx.tree || serial == 0) return 0;
-  const void* target = FindPtrBySerial(*ctx.tree, serial);
+  const void* target = sdk::FindBySerial(*ctx.tree, serial);
   if (!target) return 0;
 
   ctx.BeginEdit();
   // The public runtime-pointer SDK verb: deep-clone as the next sibling with fresh
-  // serials, re-unique names, and remap the clone's internal refs.
-  void* clone = sdk::Duplicate(*ctx.tree, target);
-  const std::uint64_t new_serial = clone ? SerialOfPtr(*ctx.tree, clone) : 0;
+  // serials, re-unique names, and remap the clone's internal refs. sdk::SerialOf
+  // recovers the clone's serial (the identity the editor selects by).
+  const sdk::DuplicateResult dup = sdk::Duplicate(*ctx.tree, target);
+  const std::uint64_t new_serial =
+      dup.ok ? sdk::SerialOf(*ctx.tree, dup.clone) : 0;
   if (new_serial == 0) {
     ctx.CancelEdit();
     return 0;
@@ -680,7 +590,7 @@ ReparentResult ReparentOp(EditorContext& ctx, std::uint64_t elem_serial,
     r.error = "no model";
     return r;
   }
-  const void* elem = FindPtrBySerial(*ctx.tree, elem_serial);
+  const void* elem = sdk::FindBySerial(*ctx.tree, elem_serial);
   if (!elem) {
     r.error = "element not found";
     return r;

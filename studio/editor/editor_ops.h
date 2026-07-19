@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "editor/editor_context.h"
+#include "protospec/refs.h"  // ps::sdk::RenameResult
 #include "types.h"  // ps::mjcf::Model
 
 namespace ps::studio {
@@ -92,13 +93,16 @@ ElementRef FindBySerial(EditorContext& ctx, std::uint64_t serial);
 bool SelectBySerial(EditorContext& ctx, std::uint64_t serial);
 
 // Rename the element with `serial` and rewrite every typed referrer
-// (sdk::Rename). Returns the number of referrer fields updated, or -1 (tree
-// untouched) when the serial does not resolve or the new name is rejected:
-// empty, inside the reserved `_ps:` auto-name prefix, or already held by a
-// different element in the same name namespace. Caller wraps this in
-// BeginEdit/CommitEdit and must not commit on -1.
-int RenameBySerial(EditorContext& ctx, std::uint64_t serial,
-                   const std::string& new_name);
+// (sdk::Rename). Returns the SDK RenameResult: `ok` with `updated` referrer
+// count on success (including an accepted no-op / nameless element gaining its
+// first name, both `updated == 0`); `ok == false` with a `reason` and the tree
+// untouched when the serial does not resolve or the new name is rejected (empty,
+// inside the reserved `_ps:` auto-name prefix, or already held by a different
+// element in the same name namespace). Caller wraps this in BeginEdit/CommitEdit
+// and must commit only when `ok`. Consuming `.ok` replaces the former fragile
+// `>= 0` sentinel test on the old `int` return.
+ps::sdk::RenameResult RenameBySerial(EditorContext& ctx, std::uint64_t serial,
+                                     const std::string& new_name);
 
 // Outcome of a delete, with dangling referrers rendered for the confirm modal.
 struct DeleteResult {

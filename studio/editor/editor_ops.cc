@@ -452,14 +452,14 @@ bool SelectBySerial(EditorContext& ctx, std::uint64_t serial) {
   return true;
 }
 
-int RenameBySerial(EditorContext& ctx, std::uint64_t serial,
-                   const std::string& new_name) {
+sdk::RenameResult RenameBySerial(EditorContext& ctx, std::uint64_t serial,
+                                 const std::string& new_name) {
   if (!ctx.tree) {
-    return -1;
+    return {false, 0, "no model"};
   }
   ElementRef ref = FindBySerial(ctx, serial);
   if (!ref) {
-    return -1;
+    return {false, 0, "element not found"};
   }
   // The public runtime-pointer SDK verb: rename + rewrite every typed referrer.
   return sdk::Rename(*ctx.tree, ref.ptr, new_name);

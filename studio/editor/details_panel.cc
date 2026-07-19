@@ -25,6 +25,7 @@
 #include "editor/layers.h"
 #include "editor/plugin_abi.h"
 #include "platform/ux/plugin.h"
+#include "protospec/builders.h"  // sdk::AddMaterialLayer / SetLayer* / RemoveMaterialLayer
 #include "protospec/classes.h"
 
 namespace ps::studio::details {
@@ -642,7 +643,7 @@ void RenderNameRow(EditorContext& ctx, E& e) {
     ImGui::InputText("##name", &work);
     if (GestureShouldCommit(ctx)) {
       if (!work.empty() && work != cur &&
-          ps::studio::RenameBySerial(ctx, e.serial, work) >= 0) {
+          ps::studio::RenameBySerial(ctx, e.serial, work).ok) {
         EditCommit(ctx, "rename");
         ps::studio::SelectBySerial(ctx, e.serial);
       } else {
@@ -695,13 +696,13 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
     if (ImGui::BeginCombo("##tex", cur.empty() ? "(none)" : cur.c_str())) {
       if (ImGui::Selectable("(none)", cur.empty())) {
         EditBegin(ctx);
-        SetLayerTexture(*layer, "");
+        sdk::SetLayerTexture(*layer, "");
         EditCommit(ctx, "edit layer texture");
       }
       for (const std::string& c : cands) {
         if (ImGui::Selectable(c.c_str(), c == cur)) {
           EditBegin(ctx);
-          SetLayerTexture(*layer, c);
+          sdk::SetLayerTexture(*layer, c);
           EditCommit(ctx, "edit layer texture");
         }
       }
@@ -721,7 +722,7 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
         if (ImGui::Selectable(std::string(roles[r]).c_str(),
                               static_cast<int>(r) == role_cur)) {
           EditBegin(ctx);
-          SetLayerRole(*layer, static_cast<mj::TexRole>(r));
+          sdk::SetLayerRole(*layer, static_cast<mj::TexRole>(r));
           EditCommit(ctx, "edit layer role");
         }
       }
@@ -734,13 +735,14 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
 
   if (remove_idx >= 0) {
     EditBegin(ctx);
-    RemoveMaterialLayer(mat, static_cast<std::size_t>(remove_idx));
+    sdk::RemoveMaterialLayer(mat, static_cast<std::size_t>(remove_idx));
     EditCommit(ctx, "remove texture layer");
     return;  // mat.layers mutated; stop iterating it this frame
   }
   if (ImGui::SmallButton("+ Add layer")) {
     EditBegin(ctx);
-    AddMaterialLayer(mat, cands.empty() ? std::string_view{} : cands.front());
+    sdk::AddMaterialLayer(mat, mj::TexRole::rgb,
+                       cands.empty() ? std::string() : cands.front());
     EditCommit(ctx, "add texture layer");
   }
 }
@@ -802,9 +804,8 @@ void DetailsUpdate(GuiPlugin* self) {
   // and render it once the traversal has finished.
   std::function<void()> render;
   std::string elem_layer_key;
-  sdk::WalkModel(*c->tree, [&](auto& e) {
-    using E = std::decay_t<decltype(e)>;
-    if constexpr (!std::is_same_v<E, mj::Model> && requires { e.serial; }) {
+  sdk::ForEachElement(*c->tree, [&](auto& e) {
+    if constexpr (requires { e.serial; }) {
       if (!render && e.serial == c->selected_serial) {
         render = [c, &e] { RenderElement(*c, e); };
         elem_layer_key = e.loc.file;

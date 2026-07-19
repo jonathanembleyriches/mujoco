@@ -340,10 +340,12 @@ inline std::string_view PresenceBadge(Presence p) {
 // A Material's <layer> children are an owned vector<unique_ptr<MaterialLayer>>,
 // so the generic field visitor -- which walks scalar/array fields only -- never
 // reaches them: this is the one appearance surface the reflection panel misses.
-// These pure mutators are the whole editing contract the Details panel drives for
-// a material's texture layers. The panel wraps each in one BeginEdit/CommitEdit
-// so it is a single undo step; keeping the mutation here (not inside the ImGui
-// callback) lets the exact same code be exercised windowless.
+// The MUTATION contract (add / remove / set-texture / set-role) is the SDK's
+// (protospec/builders.h): `sdk::AddMaterialLayer`, `sdk::RemoveMaterialLayer`,
+// `sdk::SetLayerTexture`, `sdk::SetLayerRole`. The panel drives those directly,
+// each wrapped in one BeginEdit/CommitEdit so it is a single undo step. Only the
+// two DISPLAY reads below stay here -- they format a layer for the ImGui widgets
+// and have no SDK equivalent.
 
 // The display name of a layer's texture reference ("" when unset).
 inline std::string LayerTextureName(const mj::MaterialLayer& layer) {
@@ -354,39 +356,6 @@ inline std::string LayerTextureName(const mj::MaterialLayer& layer) {
 // a freshly added layer carries.
 inline int LayerRoleIndex(const mj::MaterialLayer& layer) {
   return layer.role ? static_cast<int>(*layer.role) : 0;
-}
-
-// Point a layer at a texture by name; an empty name clears the reference.
-inline void SetLayerTexture(mj::MaterialLayer& layer, std::string_view texture) {
-  if (texture.empty()) {
-    layer.texture.reset();
-  } else {
-    layer.texture = ps::Ref<mj::Texture>(std::string(texture));
-  }
-}
-
-inline void SetLayerRole(mj::MaterialLayer& layer, mj::TexRole role) {
-  layer.role = role;
-}
-
-// Append a texture layer (role rgb, referencing `texture` when non-empty) and
-// return its index.
-inline std::size_t AddMaterialLayer(mj::Material& mat,
-                                    std::string_view texture = {}) {
-  auto layer = std::make_unique<mj::MaterialLayer>();
-  layer->role = mj::TexRole::rgb;
-  if (!texture.empty()) {
-    layer->texture = ps::Ref<mj::Texture>(std::string(texture));
-  }
-  mat.layers.push_back(std::move(layer));
-  return mat.layers.size() - 1;
-}
-
-// Remove the layer at `idx`; a no-op returning false when out of range.
-inline bool RemoveMaterialLayer(mj::Material& mat, std::size_t idx) {
-  if (idx >= mat.layers.size()) return false;
-  mat.layers.erase(mat.layers.begin() + idx);
-  return true;
 }
 
 // --- Panel registration ---------------------------------------------------- //

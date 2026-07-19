@@ -148,10 +148,10 @@ int main() {
   // --- 5c. STRUCTURAL SDK VERBS (public, runtime-typed) ------------------- //
   // Duplicate / Rename / Reparent / DeleteSubtree keyed on runtime pointers --
   // the binding is a snapshot, so these follow the compile (they invalidate it).
-  auto* box_copy = static_cast<mj::Body*>(sdk::Duplicate(model, &box));
+  auto* box_copy = sdk::Duplicate(model, &box).As<mj::Body>();
   CHECK(box_copy != nullptr);
   CHECK(sdk::Find<mj::Body>(model, "box_1") == box_copy);  // re-uniqued name
-  CHECK(sdk::Rename(model, box_copy, "box_copy") >= 0);    // runtime rename
+  CHECK(sdk::Rename(model, box_copy, "box_copy").ok);      // runtime rename
   CHECK(sdk::Find<mj::Body>(model, "box_copy") == box_copy);
   CHECK(sdk::Reparent(model, box_copy, &world).ok);        // pure-tree move
   auto del = sdk::DeleteSubtree(model, box_copy, /*cascade=*/true);

@@ -7,7 +7,9 @@
 #ifndef PROTOSPEC_SDK_TRAVERSAL_H
 #define PROTOSPEC_SDK_TRAVERSAL_H
 
+#include <cassert>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -66,6 +68,26 @@ void WalkModel(mj::Model& model, Fn&& fn) {
 template <class Fn>
 void WalkModel(const mj::Model& model, Fn&& fn) {
   detail::WalkModelAll(model, std::forward<Fn>(fn));
+}
+
+// Invoke `fn(element&)` for every element of the model EXCEPT the Model root:
+// the root is the document, not a selectable/prunable element, and it carries
+// no serial. This is the guarded "walk every element" the editor spelled out at
+// six call sites as `WalkModel(...) { if constexpr (!is_same<E, Model>) ... }`;
+// promoting it here removes that boilerplate and its easy-to-misplace guard.
+template <class Fn>
+void ForEachElement(mj::Model& model, Fn&& fn) {
+  detail::WalkModelAll(model, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model>) fn(e);
+  });
+}
+template <class Fn>
+void ForEachElement(const mj::Model& model, Fn&& fn) {
+  detail::WalkModelAll(model, [&](const auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model>) fn(e);
+  });
 }
 
 // A parent lookup + path index over a Model, built once and queried many times.
@@ -265,6 +287,86 @@ inline void* FindBySerial(mj::Model& model, std::uint64_t serial) {
 }
 inline const void* FindBySerial(const mj::Model& model, std::uint64_t serial) {
   return FindBySerialTyped(const_cast<mj::Model&>(model), serial).ptr;
+}
+
+// Typed pointer to the element carrying `serial`, iff it is a `T` (else
+// nullptr). The typed slice of FindBySerialTyped: serials are process-unique, so
+// the element carrying `serial` is a `T` exactly when its runtime type is T's.
+template <class T>
+T* FindBySerialAs(mj::Model& model, std::uint64_t serial) {
+  const Located loc = FindBySerialTyped(model, serial);
+  if (loc && loc.type == mj::element_type_of<T>::value)
+    return static_cast<T*>(loc.ptr);
+  return nullptr;
+}
+template <class T>
+const T* FindBySerialAs(const mj::Model& model, std::uint64_t serial) {
+  return FindBySerialAs<T>(const_cast<mj::Model&>(model), serial);
+}
+
+// The creation serial of the element at `ptr`, or 0 when `ptr` is null, the
+// Model root, or not an element of `model`. The inverse of FindBySerial: a UI
+// holding a raw element pointer (e.g. straight off a structural verb that
+// returns one) recovers the stable serial identity to persist across edits.
+inline std::uint64_t SerialOf(const mj::Model& model, const void* ptr) {
+  if (!ptr) return 0;
+  std::uint64_t out = 0;
+  ForEachElement(model, [&](const auto& e) {
+    if (out) return;
+    if constexpr (requires { e.serial; }) {
+      if (static_cast<const void*>(&e) == ptr) out = e.serial;
+    }
+  });
+  return out;
+}
+
+// The authored name of the element carrying `serial`, or "" when unfound or
+// nameless. The serial->name read the editor open-coded per element kind.
+inline std::string NameOfSerial(const mj::Model& model, std::uint64_t serial) {
+  std::string out;
+  if (serial == 0) return out;
+  ForEachElement(model, [&](const auto& e) {
+    if (!out.empty()) return;
+    if constexpr (requires { e.serial; }) {
+      if (e.serial == serial)
+        if (const std::string* nm = detail::NameOf(e)) out = *nm;
+    }
+  });
+  return out;
+}
+
+// A deep clone of `src` whose every element carries the SAME serial as its
+// source counterpart. The generated `Clone` MINTS FRESH serials
+// (`make_unique<T>` runs the `serial = next_serial()` initializer); this pairs
+// source and clone in lockstep document order -- identical by construction,
+// since a structural clone reproduces the walk exactly -- and copies each
+// serial across. A snapshot is thus serial-identical to the tree it came from,
+// which is what a UI needs for undo/redo (selection and unnamed-element auto-
+// naming both key on the serial). Only safe when the clone REPLACES the source
+// wholesale (never coexists with it): duplicate serials in one live model would
+// break Clone's fresh-serial invariant.
+inline std::unique_ptr<mj::Model> CloneModelWithSerials(const mj::Model& src) {
+  std::unique_ptr<mj::Model> dst = mj::Clone(src);
+  std::vector<std::uint64_t> serials;
+  std::vector<std::uint64_t*> slots;
+  ForEachElement(src, [&](const auto& e) {
+    if constexpr (requires { e.serial; }) serials.push_back(e.serial);
+  });
+  ForEachElement(*dst, [&](auto& e) {
+    if constexpr (requires { e.serial; }) slots.push_back(&e.serial);
+  });
+  // The clone reproduces the source walk exactly, so the serial list and the
+  // slot list are a bijection. ASSERT it rather than silently min()-truncating a
+  // mismatch: a divergence would leave some clone serials fresh, corrupting
+  // selection and compile-state migration far from the cause. A structural clone
+  // that broke this invariant is a generator/Clone bug we want to fail loudly.
+  assert(serials.size() == slots.size() &&
+         "CloneModelWithSerials: clone walk diverged from source "
+         "(serial/slot count mismatch) -- structural-clone invariant violated");
+  const std::size_t n =
+      serials.size() < slots.size() ? serials.size() : slots.size();
+  for (std::size_t i = 0; i < n; ++i) *slots[i] = serials[i];
+  return dst;
 }
 
 // --- Typed visitors ------------------------------------------------------- //

@@ -146,7 +146,7 @@ void DrawRenameInput(EditorContext& ctx, const HierNode& node, HierUiState& st) 
   if (enter) {
     if (!st.rename_buf.empty() && st.rename_buf != node.name) {
       ctx.BeginEdit();
-      if (RenameBySerial(ctx, node.serial, st.rename_buf) >= 0) {
+      if (RenameBySerial(ctx, node.serial, st.rename_buf).ok) {
         ctx.CommitEdit("Rename " + node.name + " -> " + st.rename_buf);
         SelectBySerial(ctx, node.serial);
       } else {

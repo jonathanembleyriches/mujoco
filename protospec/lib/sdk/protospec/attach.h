@@ -43,6 +43,8 @@ struct AttachResult {
                                         // null when the source had none)
   bool ok = false;                      // false when a collision blocked it
   std::vector<std::string> collisions;  // "type:name" clashes with the host
+  // Uniform result-object contract (see refs.h): truthy when the splice applied.
+  explicit operator bool() const { return ok; }
 };
 
 namespace detail {
@@ -163,6 +165,21 @@ inline AttachResult AttachModel(mj::Model& model, mj::Body& parent,
 }
 
 // --- Duplicate (same-model deep clone) ------------------------------------ //
+
+// Uniform result-object for Duplicate (see the convention note in refs.h). `ok`
+// with `clone` (the clone's root element, ElementType matching the source) on
+// success; `ok == false` with a `reason` when the source was not found.
+struct DuplicateResult {
+  bool ok = false;
+  void* clone = nullptr;
+  std::string reason;
+  explicit operator bool() const { return ok; }
+  // Convenience for the common "I know the concrete type" case.
+  template <class T>
+  T* As() const {
+    return static_cast<T*>(clone);
+  }
+};
 
 namespace detail {
 
@@ -321,18 +338,19 @@ inline void RemapClone(mj::Model& model, const void* clone) {
 // Deep-clone `elem` (a whole subtree) as its next sibling in the same model,
 // with fresh serials. Names in the clone are re-uniqued against the rest of the
 // model, and references INTERNAL to the clone are remapped to the new names;
-// references pointing outside the clone are preserved. Returns the clone's root
-// element (type-erased; its ElementType matches `elem`'s), or nullptr when
-// `elem` is not found. Unlike Attach, this is a same-model, unprefixed
-// duplicate -- the everyday "copy this element" verb.
-inline void* Duplicate(mj::Model& model, const void* elem) {
+// references pointing outside the clone are preserved. On success `ok` is true
+// and `clone` is the clone's root element (type-erased; its ElementType matches
+// `elem`'s); on failure `ok` is false with a `reason` when `elem` is not found.
+// Unlike Attach, this is a same-model, unprefixed duplicate -- the everyday
+// "copy this element" verb.
+inline DuplicateResult Duplicate(mj::Model& model, const void* elem) {
   void* clone = nullptr;
   bool done = false;
   detail::Duplicator d{elem, &clone, &done};
   mj::Visit(model, d);
-  if (!done || !clone) return nullptr;
+  if (!done || !clone) return {false, nullptr, "element is not in the model"};
   detail::RemapClone(model, clone);
-  return clone;
+  return {true, clone, ""};
 }
 
 // --- Reparent (pure-tree move) -------------------------------------------- //
@@ -340,6 +358,8 @@ inline void* Duplicate(mj::Model& model, const void* elem) {
 struct ReparentResult {
   bool ok = false;
   std::string reason;  // why the move was rejected (empty on success)
+  // Uniform result-object contract (see refs.h): truthy when the move applied.
+  explicit operator bool() const { return ok; }
 };
 
 namespace detail {

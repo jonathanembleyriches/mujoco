@@ -50,7 +50,53 @@ struct EditorModelHost {
   std::uint64_t emitted_generation = 0;
   mjvCamera saved_camera;
   bool saved_camera_valid = false;
+  std::uint64_t diagnosed_bad_generation = 0;  // dim-assert dedup (see DoUpdate)
 };
+
+// The mjModel dimension/count fields a correct adopt MUST reproduce exactly.
+// Written against the CURRENT pin's field set (MuJoCo 3.10.1, see
+// docs/SYNC_STATE.md) -- note `nu`/`nactuator`/`nout`, the post-3.10.0 MIMO
+// actuator count split. Returns true when `host` matches `ref` on every field;
+// on the first divergence returns false and (when `diag`) names the field with
+// both values.
+bool AdoptDimsMatch(const mjModel* host, const mjModel* ref, std::string* diag) {
+  if (!host || !ref) return true;  // nothing to compare yet
+  const struct {
+    const char* name;
+    long long h;
+    long long r;
+  } dims[] = {
+      {"nq", host->nq, ref->nq},
+      {"nv", host->nv, ref->nv},
+      {"na", host->na, ref->na},
+      {"nu", host->nu, ref->nu},
+      {"nactuator", host->nactuator, ref->nactuator},
+      {"nout", host->nout, ref->nout},
+      {"nbody", host->nbody, ref->nbody},
+      {"njnt", host->njnt, ref->njnt},
+      {"ngeom", host->ngeom, ref->ngeom},
+      {"nsite", host->nsite, ref->nsite},
+      {"ncam", host->ncam, ref->ncam},
+      {"nlight", host->nlight, ref->nlight},
+      {"nmesh", host->nmesh, ref->nmesh},
+      {"nhfield", host->nhfield, ref->nhfield},
+      {"nmat", host->nmat, ref->nmat},
+      {"neq", host->neq, ref->neq},
+      {"ntendon", host->ntendon, ref->ntendon},
+      {"nsensor", host->nsensor, ref->nsensor},
+      {"nkey", host->nkey, ref->nkey},
+  };
+  for (const auto& d : dims) {
+    if (d.h != d.r) {
+      if (diag) {
+        *diag = std::string(d.name) + " host=" + std::to_string(d.h) +
+                " compiled=" + std::to_string(d.r);
+      }
+      return false;
+    }
+  }
+  return true;
+}
 
 std::string AbsBaseDir(const std::string& base) {
   std::error_code ec;
@@ -163,6 +209,33 @@ bool DoUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   // Latch what physics is doing for CanEdit() (the editor owns the mode now).
   c->sim_paused = (c->mode == EditorMode::Edit) || c->play_paused;
   c->sim_time = host_data ? host_data->time : 0.0;
+
+  // ADOPTION DIM-ASSERT (silent-corruption self-check). Once the host has adopted
+  // the current generation (compile_generation == emitted_generation), its
+  // freshly reparsed mjModel must have the same dimensions/counts as
+  // ctx.compiled -- both were compiled from the same authored tree. A mismatch
+  // means the adopt silently corrupted: an asset that failed to resolve on the
+  // host's dir-less reparse, a VFS gap, or an engine count-model change. Rendering
+  // or stepping physics on it would show garbage keyed to the wrong dimensions.
+  // Refuse it -- freeze on the last good frame (return true skips
+  // StepControl::Advance) and surface a loud diagnostic, once per generation.
+  if (host_model && c->compiled.model &&
+      c->compile_generation == h->emitted_generation) {
+    std::string diag;
+    if (!AdoptDimsMatch(host_model, c->compiled.model.get(), &diag)) {
+      if (h->diagnosed_bad_generation != c->compile_generation) {
+        h->diagnosed_bad_generation = c->compile_generation;
+        const std::string msg =
+            "ADOPT DIM MISMATCH: host mjModel disagrees with the compiled tree "
+            "(" + diag + ") -- refusing to render the adopted model (likely an "
+            "unresolved asset on the host's dir-less reparse, or an engine "
+            "count-model change).";
+        c->Log(msg);
+        std::fprintf(stderr, "[protospec] %s\n", msg.c_str());
+      }
+      return true;  // freeze; never forward/step a dimensionally-corrupt model
+    }
+  }
 
   if (c->mode != EditorMode::Edit) {
     // Play: the host advances physics under its own StepControl, unless the

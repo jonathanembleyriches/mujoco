@@ -6,51 +6,20 @@
 #include <utility>
 #include <vector>
 
-#include "protospec/traversal.h"  // ps::sdk::WalkModel
+#include "protospec/traversal.h"  // ps::sdk::CloneModelWithSerials
 #include "types.h"
 
 namespace ps::studio {
 
 namespace mj = ps::mjcf;
 
-namespace {
-
-// Collect every element's serial in document order. Only concrete elements (and
-// the Model root) carry a serial; the union wrapper types the walk descends
-// through do not and are transparently skipped by the `requires` guard.
-void CollectSerials(const mj::Model& m, std::vector<std::uint64_t>& out) {
-  ps::sdk::WalkModel(m, [&](const auto& e) {
-    if constexpr (requires { e.serial; }) {
-      out.push_back(e.serial);
-    }
-  });
-}
-
-void CollectSerialSlots(mj::Model& m, std::vector<std::uint64_t*>& out) {
-  ps::sdk::WalkModel(m, [&](auto& e) {
-    if constexpr (requires { e.serial; }) {
-      out.push_back(&e.serial);
-    }
-  });
-}
-
-}  // namespace
-
 std::unique_ptr<mj::Model> CloneWithSerials(const mj::Model& src) {
-  std::unique_ptr<mj::Model> dst = mj::Clone(src);
-
-  std::vector<std::uint64_t> src_serials;
-  std::vector<std::uint64_t*> dst_slots;
-  CollectSerials(src, src_serials);
-  CollectSerialSlots(*dst, dst_slots);
-
-  // Structural clone => identical walk order and count; pair one-to-one.
-  const std::size_t n =
-      src_serials.size() < dst_slots.size() ? src_serials.size() : dst_slots.size();
-  for (std::size_t i = 0; i < n; ++i) {
-    *dst_slots[i] = src_serials[i];
-  }
-  return dst;
+  // The serial-preserving clone is a promoted SDK verb (ps::sdk::traversal): it
+  // deep-clones then copies each source serial onto its clone counterpart, and
+  // ASSERTS the source/clone walks are a bijection instead of silently
+  // min()-truncating a mismatch (the old fail-open). See the mechanism note in
+  // undo.h and the contract in protospec/traversal.h.
+  return ps::sdk::CloneModelWithSerials(src);
 }
 
 void UndoStack::BeginEdit(const mj::Model& live) {

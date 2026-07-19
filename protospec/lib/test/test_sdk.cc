@@ -14,6 +14,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "mjcf.h"
@@ -721,7 +722,7 @@ static void TestDuplicate() {
   CHECK(thigh != nullptr);
   const std::uint64_t thigh_serial = thigh->serial;
 
-  auto* clone = static_cast<Body*>(sdk::Duplicate(*m, thigh));
+  auto* clone = sdk::Duplicate(*m, thigh).As<Body>();
   CHECK(clone != nullptr);
   CHECK(clone->serial != thigh_serial);  // fresh serials (generated Clone)
 
@@ -759,7 +760,7 @@ static void TestDuplicate() {
   Position* act = sdk::Find<Position>(*m, "act_hip");
   CHECK(act && act->joint->name == "hip");
 
-  CHECK(sdk::Duplicate(*m, nullptr) == nullptr);  // unknown pointer
+  CHECK(!sdk::Duplicate(*m, nullptr).ok);  // unknown pointer
 }
 
 // --- Duplicate remaps an intra-subtree reference to the clone's new name --- //
@@ -773,7 +774,7 @@ static void TestDuplicateInternalRef() {
   Camera& eye = sdk::AddCamera(rig, "eye");
   eye.target = ps::Ref<Body>("watched");  // internal: targets a body in the rig
 
-  auto* clone = static_cast<Body*>(sdk::Duplicate(*m, &rig));
+  auto* clone = sdk::Duplicate(*m, &rig).As<Body>();
   CHECK(clone != nullptr);
   CHECK(sdk::Find<Body>(*m, "rig_1") == clone);
   Body* watched_1 = sdk::Find<Body>(*m, "watched_1");
@@ -875,8 +876,134 @@ static void TestSchemaInvariants() {
   CHECK(thigh->material.has_value() && thigh->material->name == "steel");
 }
 
+// --- Promoted-from-editor helpers now in the SDK -------------------------- //
+// The editor's generic model helpers (non-root walk, serial<->ptr<->name, unique
+// naming, serial-preserving clone) are now public SDK verbs; the editor consumes
+// these copies. Guard their contracts here.
+static void TestEditorPromotions() {
+  auto m = BuildRobot();
+
+  // ForEachElement visits every element but NEVER the Model root.
+  int roots = 0, elems = 0;
+  sdk::ForEachElement(*m, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (std::is_same_v<E, Model>) ++roots;
+    ++elems;
+  });
+  CHECK(roots == 0 && elems > 0);
+
+  Geom* shin = sdk::Find<Geom>(*m, "shin_geom");
+  CHECK(shin != nullptr);
+  const std::uint64_t s = shin->serial;
+
+  // SerialOf is the inverse of FindBySerial; the root and null map to 0.
+  CHECK(sdk::SerialOf(*m, shin) == s);
+  CHECK(sdk::SerialOf(*m, nullptr) == 0);
+  CHECK(sdk::SerialOf(*m, m.get()) == 0);
+
+  // FindBySerialAs<T> is the typed slice of the serial walk.
+  CHECK(sdk::FindBySerialAs<Geom>(*m, s) == shin);
+  CHECK(sdk::FindBySerialAs<Body>(*m, s) == nullptr);  // wrong type
+
+  // NameOfSerial recovers an element's authored name from its serial.
+  CHECK(sdk::NameOfSerial(*m, s) == "shin_geom");
+  CHECK(sdk::NameOfSerial(*m, 0).empty());
+
+  // UniqueName namespaces by MuJoCo category: a free base is returned as-is; a
+  // taken one is suffixed; joint spellings share one namespace.
+  CHECK(sdk::UniqueName(*m, ElementType::Geom, "brand_new") == "brand_new");
+  CHECK(sdk::UniqueName(*m, ElementType::Geom, "shin_geom") == "shin_geom_1");
+  CHECK(sdk::UniqueName(*m, ElementType::FreeJoint, "hip") == "hip_1");
+
+  // CloneModelWithSerials reproduces every serial (generated Clone mints fresh
+  // ones) and preserves structure -- the undo-snapshot contract.
+  std::unique_ptr<Model> snap = sdk::CloneModelWithSerials(*m);
+  Geom* shin_c = sdk::Find<Geom>(*snap, "shin_geom");
+  CHECK(shin_c != nullptr);
+  CHECK(shin_c->serial == s);   // serial preserved
+  CHECK(shin_c != shin);        // distinct object
+  std::vector<std::uint64_t> a, b;
+  sdk::ForEachElement(*m, [&](auto& e) {
+    if constexpr (requires { e.serial; }) a.push_back(e.serial);
+  });
+  sdk::ForEachElement(*snap, [&](auto& e) {
+    if constexpr (requires { e.serial; }) b.push_back(e.serial);
+  });
+  CHECK(a.size() == b.size() && a == b);  // bijection of serials
+}
+
+// --- Rename result-object contract (error-convention alignment) ----------- //
+static void TestRenameResult() {
+  auto m = BuildRobot();
+  Joint* hip = sdk::Find<Joint>(*m, "hip");
+  CHECK(hip != nullptr);
+
+  // Success: ok, updated == referrer count, empty reason. Deprecated int/bool
+  // conversions still hold for one-release source compat.
+  sdk::RenameResult r = sdk::Rename(*m, *hip, "hip2");
+  CHECK(r.ok && r.updated == 2 && r.reason.empty());
+  CHECK(static_cast<bool>(r));
+  CHECK(static_cast<int>(r) == 2);
+
+  // Rejection: onto a name held by another element of the joint category.
+  Joint* knee = sdk::Find<Joint>(*m, "knee");
+  CHECK(knee != nullptr);
+  sdk::RenameResult bad = sdk::Rename(*m, *knee, "hip2");
+  CHECK(!bad.ok && !bad.reason.empty());
+  CHECK(static_cast<int>(bad) == -1);        // legacy -1 sentinel preserved
+  CHECK(knee->name.value() == "knee");        // model untouched
+
+  // Runtime-pointer form: a pointer not in the model reports ok=false.
+  int not_in_model = 0;
+  sdk::RenameResult nf =
+      sdk::Rename(*m, static_cast<const void*>(&not_in_model), "x");
+  CHECK(!nf.ok && !nf.reason.empty());
+}
+
+// --- SetRef: positives and the negatives validation (not SetRef) catches --- //
+static void TestSetRefNegatives() {
+  auto m = BuildRobot();
+  Geom* thigh = sdk::Find<Geom>(*m, "thigh_geom");
+  CHECK(thigh != nullptr);
+
+  // By name (string_view overload): a name is stored verbatim (no lookup here);
+  // an EMPTY name clears the field.
+  sdk::SetRef(thigh->material, std::string_view("steel"));
+  CHECK(thigh->material.has_value() && thigh->material->name == "steel");
+  CHECK(sdk::ResolveTo<Material>(*m, *thigh->material) != nullptr);
+  sdk::SetRef(thigh->material, std::string_view{});
+  CHECK(!thigh->material.has_value());
+
+  // By name to a NON-EXISTENT target: SetRef sets it (it does no lookup); Resolve
+  // reports nothing -- the negative the validator, not SetRef, is meant to catch.
+  sdk::SetRef(thigh->material, std::string_view("no_such_material"));
+  CHECK(thigh->material.has_value());
+  CHECK(sdk::ResolveTo<Material>(*m, *thigh->material) == nullptr);
+  sdk::ClearRef(thigh->material);
+  CHECK(!thigh->material.has_value());
+
+  // By target element: an UNNAMED target returns false and leaves the field
+  // untouched (an unnamed element cannot be named in MJCF).
+  Material& unnamed = sdk::AddMaterial(*m);  // no name
+  CHECK(!sdk::SetRef(thigh->material, unnamed));
+  CHECK(!thigh->material.has_value());
+
+  // By target element: a valid named target returns true and sets the ref.
+  Material* steel = sdk::Find<Material>(*m, "steel");
+  CHECK(steel != nullptr);
+  CHECK(sdk::SetRef(thigh->material, *steel));
+  CHECK(thigh->material->name == "steel");
+
+  // The mismatched-target overload -- e.g. sdk::SetRef(thigh->material, someBody)
+  // -- is a COMPILE error (static_assert ref_accepts_target), documented in
+  // public_api.md and therefore not exercisable at runtime.
+}
+
 int main() {
   TestBuilders();
+  TestEditorPromotions();
+  TestRenameResult();
+  TestSetRefNegatives();
   TestFixpoint();
   TestSaveRoundtrip();
   TestSaveAsExternalizesAssets();

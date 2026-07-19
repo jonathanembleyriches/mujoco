@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -263,28 +264,75 @@ std::vector<Referrer> FindReferrers(mj::Model& model, const E& elem) {
   return FindReferrers(model, *nm, mj::element_type_of<E>::value);
 }
 
-// --- Rename --------------------------------------------------------------- //
+// --- UniqueName ----------------------------------------------------------- //
 
-// Rename an element and rewrite every referrer to match. Returns the number of
-// referrer fields updated -- 0 when the new name equals the old (a no-op) or
-// when the element was nameless (it gains the name; nothing can have referred
-// to it). Returns -1, leaving the model untouched, when `newname` is invalid:
-// empty, inside the reserved auto-name prefix (ps::kReservedNamePrefix), or
-// already held by a DIFFERENT element in the same shared name namespace
+// A name unique within `type`'s MuJoCo name namespace: returns `base` when free,
+// else `base_1`, `base_2`, ... MuJoCo namespaces names by category, not by exact
+// element type -- the two joint spellings share one namespace, and every
+// actuator / sensor / tendon / equality spelling shares its union's namespace
+// (detail::NameCategory) -- so a name unique here cannot collide at compile time.
+// This is the generic form of the editor's per-add name uniquing.
+inline std::string UniqueName(mj::Model& model, mj::ElementType type,
+                             std::string_view base) {
+  const int cat = detail::NameCategory(type);
+  std::unordered_set<std::string> used;
+  detail::WalkModelAll(model, [&](auto& e) {
+    using E = std::decay_t<decltype(e)>;
+    if constexpr (!std::is_same_v<E, mj::Model>) {
+      if (detail::NameCategory(mj::element_type_of<E>::value) == cat)
+        if (const std::string* nm = detail::NameOf(e)) used.insert(*nm);
+    }
+  });
+  std::string b(base);
+  if (!used.count(b)) return b;
+  for (int k = 1;; ++k) {
+    std::string c = b + "_" + std::to_string(k);
+    if (!used.count(c)) return c;
+  }
+}
+
+// --- Rename --------------------------------------------------------------- //
+//
+// RESULT-OBJECT CONVENTION. The structural verbs (Rename, Duplicate, Reparent,
+// DeleteSubtree, Attach) all report through a small result object carrying `bool
+// ok` (contextually convertible: `if (auto r = sdk::Rename(...))`) and, where a
+// failure has a cause, a `std::string reason`. RenameResult additionally carries
+// `updated` (referrer fields rewritten). The former scalar returns (`int` for
+// Rename, `void*` for Duplicate) survive one release as deprecated conversions
+// on the result object so existing call sites keep compiling; prefer `.ok` /
+// `.updated` / `.clone`.
+struct RenameResult {
+  bool ok = false;         // the rename applied (or was an accepted no-op)
+  int updated = 0;         // referrer fields rewritten (0 for a no-op / nameless
+                           // element gaining its first name)
+  std::string reason;      // why it was rejected (empty on success)
+  explicit operator bool() const { return ok; }
+  // DEPRECATED one-release compat with the former `int` return: the referrer
+  // count on success, or -1 on rejection. Prefer `.ok` / `.updated`.
+  operator int() const { return ok ? updated : -1; }  // NOLINT
+};
+
+// Rename an element and rewrite every referrer to match. On success `ok` is
+// true and `updated` is the number of referrer fields rewritten -- 0 when the
+// new name equals the old (an accepted no-op) or when the element was nameless
+// (it gains the name; nothing can have referred to it). On rejection `ok` is
+// false, `reason` says why, and the model is left untouched: `newname` is
+// invalid (empty, inside the reserved auto-name prefix ps::kReservedNamePrefix)
+// or already held by a DIFFERENT element in the same shared name namespace
 // (renaming onto it would silently fuse the two elements' referrer sets). The
 // pointer is excluded from this template so the runtime
 // `Rename(model, const void*, newname)` below wins for a type-erased element
 // pointer.
 template <class E, std::enable_if_t<!std::is_pointer_v<E>, int> = 0>
-int Rename(mj::Model& model, E& elem, const std::string& newname) {
+RenameResult Rename(mj::Model& model, E& elem, const std::string& newname) {
   const std::string* cur = detail::NameOf(elem);
   const std::string oldname = cur ? *cur : std::string();
-  if (oldname == newname) return 0;
+  if (oldname == newname) return {true, 0, ""};
   const mj::ElementType targetType = mj::element_type_of<E>::value;
-  if (!detail::AssignableName(newname) ||
-      detail::NameTakenByOther(model, &elem, targetType, newname)) {
-    return -1;
-  }
+  if (!detail::AssignableName(newname))
+    return {false, 0, "name is empty or inside the reserved auto-name prefix"};
+  if (detail::NameTakenByOther(model, &elem, targetType, newname))
+    return {false, 0, "name already held by another element of this category"};
 
   int updated = 0;
   detail::WalkModelAll(model, [&](auto& other) {
@@ -297,7 +345,7 @@ int Rename(mj::Model& model, E& elem, const std::string& newname) {
     });
   });
   detail::SetName(elem, newname);
-  return updated;
+  return {true, updated, ""};
 }
 
 // --- DeleteRecursive ------------------------------------------------------ //
@@ -306,6 +354,9 @@ struct DeleteReport {
   bool removed = false;               // was the element found and unlinked
   std::vector<Referrer> dangling;     // references left pointing at nothing
   bool cascaded = false;              // dangling refs were cleared
+  // Uniform result-object contract: truthy when the delete found and removed the
+  // target (`if (sdk::DeleteSubtree(...)) ...`); `dangling` details the fallout.
+  explicit operator bool() const { return removed; }
 };
 
 namespace detail {
@@ -508,14 +559,13 @@ DeleteReport DeleteRecursive(mj::Model& model, E& elem, bool cascade = false) {
 // `<E>` templates only when the static type is already in hand.
 
 // Rename the element at `elem` (any element owned by `model`) to `newname` and
-// rewrite every typed referrer. Returns the number of referrer fields updated.
-// Returns 0 when `newname` equals the current name (a no-op) or the element
-// was nameless (it gains the name). Returns -1, leaving the model untouched,
-// when `elem` is not found in the model or `newname` is invalid: empty, inside
-// the reserved auto-name prefix (ps::kReservedNamePrefix), or already held by
-// a DIFFERENT element in the same shared name namespace.
-inline int Rename(mj::Model& model, const void* elem,
-                  const std::string& newname) {
+// rewrite every typed referrer. Same RenameResult contract as the `<E>` form:
+// `ok` with `updated` referrer count on success (0 for a no-op / nameless gain),
+// `ok == false` with a `reason` and the model untouched when `elem` is not in
+// the model or `newname` is invalid (empty, reserved prefix, or already held by
+// a DIFFERENT element in the same shared name namespace).
+inline RenameResult Rename(mj::Model& model, const void* elem,
+                          const std::string& newname) {
   bool found = false;
   std::string oldname;
   mj::ElementType type = mj::ElementType::Model;
@@ -531,12 +581,12 @@ inline int Rename(mj::Model& model, const void* elem,
       set_name = [ep, &newname] { detail::SetName(*ep, newname); };
     }
   });
-  if (!found) return -1;
-  if (oldname == newname) return 0;
-  if (!detail::AssignableName(newname) ||
-      detail::NameTakenByOther(model, elem, type, newname)) {
-    return -1;
-  }
+  if (!found) return {false, 0, "element is not in the model"};
+  if (oldname == newname) return {true, 0, ""};
+  if (!detail::AssignableName(newname))
+    return {false, 0, "name is empty or inside the reserved auto-name prefix"};
+  if (detail::NameTakenByOther(model, elem, type, newname))
+    return {false, 0, "name already held by another element of this category"};
 
   int updated = 0;
   detail::WalkModelAll(model, [&](auto& other) {
@@ -549,7 +599,7 @@ inline int Rename(mj::Model& model, const void* elem,
     });
   });
   set_name();
-  return updated;
+  return {true, updated, ""};
 }
 
 // Remove the subtree rooted at `elem` from `model`. Any reference elsewhere
