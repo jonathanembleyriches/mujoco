@@ -1,0 +1,20 @@
+<mujoco model="flexcomp_material_texcoord">
+  <!-- GATED (mjs.flexcomp_material_texcoord). A flexcomp with a material and no
+       inline texcoord (and no file supplying UVs) makes mjCFlexcomp::Make
+       auto-generate texture coordinates (needtex), which requires the material
+       set on the flex def BEFORE generation -- mjs_makeFlex has no such hook, so
+       the mjSpec leg produces zero flex texcoords (nflextexcoord divergence).
+       Forced MjsPath must error loudly; Auto must fall back to XmlPath. -->
+  <asset>
+    <texture name="tex" type="2d" builtin="checker" rgb1=".2 .3 .4"
+             rgb2=".1 .15 .2" width="128" height="128"/>
+    <material name="matsponge" texture="tex" texrepeat="4 4"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.1"/>
+    <flexcomp name="softbox" type="box" count="5 5 5" spacing=".04 .04 .04"
+              radius="0.01" dim="3" material="matsponge" dof="radial" pos="0 0 1">
+      <contact internal="false" selfcollide="none"/>
+    </flexcomp>
+  </worldbody>
+</mujoco>

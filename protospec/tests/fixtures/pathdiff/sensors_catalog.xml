@@ -3,12 +3,11 @@
        pos/vel/limit triads, actuator pos/vel/frc (+ jointactuatorfrc /
        tendonactuatorfrc), ball quat/angvel, all eight frame* sensors, subtree
        com/linvel/angmom, magnetometer, torque, camprojection, e_potential,
-       e_kinetic and clock. Sensors fold into mjModel sensor_* tables
-       (type/objtype/objid/dim/adr) and must agree on both compile legs.
-       NOTE: distance/normal/fromto/insidesite are deliberately absent -- they
-       have no branch in mjs_builder.cc's sensor dispatch, so MjsPath leaves
-       s->type unset and mj_compile fails "invalid type in sensor". Add them
-       here once the bridge dispatch covers the collision-sensor family. -->
+       e_kinetic and clock, plus the geometric-distance family (distance/normal/
+       fromto with geom/body objects) and insidesite. Sensors fold into mjModel
+       sensor_* tables (type/objtype/objid/dim/adr) and must agree on both legs.
+       The distance family + insidesite gained their mjs_builder dispatch here
+       (previously s->type stayed unset and mj_compile failed "invalid type"). -->
   <compiler autolimits="true"/>
   <worldbody>
     <geom name="floor" type="plane" size="3 3 0.1"/>
@@ -76,5 +75,9 @@
     <e_potential name="e_pot"/>
     <e_kinetic name="e_kin"/>
     <clock name="clk"/>
+    <distance name="d_gg" geom1="base_g" geom2="ball_g"/>
+    <normal name="n_bb" body1="base" body2="ball"/>
+    <fromto name="ft_gb" geom1="mid_g" body2="ball"/>
+    <insidesite name="ins" site="s_ball" objtype="body" objname="ball"/>
   </sensor>
 </mujoco>

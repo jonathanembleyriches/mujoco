@@ -57,6 +57,10 @@ PROTOSPEC = Path(__file__).resolve().parents[1]
 LIB = PROTOSPEC / "lib"
 HARNESS = LIB / "harness"
 FIXTURES = PROTOSPEC / "tests" / "fixtures" / "pathdiff"
+# Fixtures that CANNOT reach XmlPath-vs-MjsPath parity: either the mjSpec API
+# genuinely cannot reproduce them (gated -> forced MjsPath errors, Auto falls
+# back to XmlPath) or they document an upstream stock bug we refuse to replicate.
+GATED_FIXTURES = PROTOSPEC / "tests" / "fixtures" / "pathdiff_gated"
 
 # Overridable locations of the prebuilt studio libraries and MuJoCo headers.
 DEFAULT_BUILD_PS_LIB = Path(
@@ -385,3 +389,215 @@ def test_corpus_identity(ps_path_diff: Path):
     assert not divergences, "identity divergences (path disagreed with itself):\n" + "\n".join(
         divergences[:20]
     )
+
+
+# --------------------------------------------------------------------------- #
+# Gated fixtures: content the mjSpec API cannot reproduce                      #
+# --------------------------------------------------------------------------- #
+# Each gated fixture is a VALID model (against-stock passes) that the mjs builder
+# cannot reproduce. Forced MjsPath must error loudly with a "[gate]" diagnostic;
+# CompilePath::Auto must fall back to the XML path and match it bit-for-bit. The
+# one exception is cylinder_bias_upstream.xml -- an upstream stock bug we refuse
+# to replicate, so it diverges by design (handled in its own test below).
+def _gated_fixtures() -> list[Path]:
+    if not GATED_FIXTURES.is_dir():
+        return []
+    return sorted(
+        p for p in GATED_FIXTURES.glob("*.xml") if p.name != "cylinder_bias_upstream.xml"
+    )
+
+
+GATED_FILES = _gated_fixtures()
+GATED_IDS = [p.stem for p in GATED_FILES]
+
+
+@pytest.mark.skipif(not GATED_FILES, reason="no gated pathdiff fixtures found")
+@pytest.mark.parametrize("model", GATED_FILES, ids=GATED_IDS or ["<none>"])
+def test_gated_fixture_against_stock(ps_path_diff: Path, model: Path, plugin_libs_ready: bool):
+    """A gated fixture is a valid model: its XmlPath result matches stock."""
+    if _needs_plugins(model) and not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
+    r = _run(ps_path_diff, "--against-stock", str(model))
+    assert r.returncode == 0, f"against-stock FAILED:\n{r.stdout}\n{r.stderr}"
+    assert any(l.startswith("PASS") for l in r.stdout.splitlines()), r.stdout
+
+
+@pytest.mark.skipif(not GATED_FILES, reason="no gated pathdiff fixtures found")
+@pytest.mark.parametrize("model", GATED_FILES, ids=GATED_IDS or ["<none>"])
+def test_gated_fixture_mjspath_errors(ps_path_diff: Path, model: Path, plugin_libs_ready: bool):
+    """Forced MjsPath must refuse a gated model with a loud [gate] diagnostic --
+    never a silent wrong model."""
+    if _needs_plugins(model) and not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
+    r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(model))
+    assert r.returncode != 0, f"gated model unexpectedly compiled on MjsPath:\n{r.stdout}"
+    assert "[gate]" in r.stdout, f"expected a [gate] diagnostic:\n{r.stdout}"
+
+
+@pytest.mark.skipif(not GATED_FILES, reason="no gated pathdiff fixtures found")
+@pytest.mark.parametrize("model", GATED_FILES, ids=GATED_IDS or ["<none>"])
+def test_gated_fixture_auto_falls_back(ps_path_diff: Path, model: Path, plugin_libs_ready: bool):
+    """Auto must fall back to XmlPath for a gated model, matching it exactly."""
+    if _needs_plugins(model) and not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
+    r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "Auto", str(model))
+    assert r.returncode == 0, f"Auto fallback diff FAILED:\n{r.stdout}\n{r.stderr}"
+    assert any(l.startswith("PASS") for l in r.stdout.splitlines()), r.stdout
+    assert not any(l.startswith("FAIL") for l in r.stdout.splitlines()), r.stdout
+
+
+def test_cylinder_bias_upstream_documented(ps_path_diff: Path):
+    """Documented upstream-bug exception. Stock's OneActuator reads a cylinder's
+    3-valued bias into a scalar and overruns it, zeroing the adjacent gainprm
+    "area". The mjs leg is faithful to spec (keeps area), so XmlPath vs MjsPath
+    diverges on actuator_gainprm by design -- we refuse to replicate the bug.
+    Both legs compile; XmlPath still matches stock (the bug lives in stock)."""
+    model = GATED_FIXTURES / "cylinder_bias_upstream.xml"
+    if not model.is_file():
+        pytest.skip("cylinder_bias_upstream.xml not present")
+    # The divergence is expected (nonzero exit), and it is a *field* divergence
+    # (both legs compiled), specifically actuator_gainprm.
+    r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(model))
+    assert r.returncode != 0, f"expected the documented divergence:\n{r.stdout}"
+    assert "actuator_gainprm" in r.stdout, r.stdout
+    assert "compile failed" not in r.stdout, "both legs must compile: " + r.stdout
+    # XmlPath still reproduces stock (the overrun is stock's own behavior).
+    s = _run(ps_path_diff, "--against-stock", str(model))
+    assert s.returncode == 0, f"XmlPath must match stock:\n{s.stdout}\n{s.stderr}"
+
+
+# --------------------------------------------------------------------------- #
+# Big-corpus mjs-parity gate (env-gated / studio-model autodetect)            #
+# --------------------------------------------------------------------------- #
+# XmlPath vs MjsPath over a whole model corpus: every model the reader/bridge can
+# handle must reach byte-identical parity EXCEPT an explicit, justified skiplist.
+# The skiplist is the gated flexcomp families (pin/direct/material-texcoord) --
+# forced MjsPath errors for them and Auto falls back to XmlPath, which the
+# separate Auto pass below asserts. There is NO upstream-bug corpus exception
+# (the cylinder-overrun bug appears only in the gated fixture). Point
+# PROTOSPEC_CORPUS at a model dir, or drop the studio checkout beside this repo.
+_DEFAULT_STUDIO_MODELS = Path("/home/buzz/Documents/proto/mujoco-studio/model")
+
+
+def _corpus_dir() -> Path | None:
+    env = os.environ.get("PROTOSPEC_CORPUS")
+    if env:
+        p = Path(env)
+        return p if p.is_dir() else None
+    return _DEFAULT_STUDIO_MODELS if _DEFAULT_STUDIO_MODELS.is_dir() else None
+
+
+# Corpus models whose flexcomp content the mjSpec API cannot reproduce. Forced
+# MjsPath gates them (loud); CompilePath::Auto compiles them on XmlPath. Keyed by
+# basename with the reason.
+_CORPUS_MJS_SKIP = {
+    "gripper.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
+    "gripper_2d.xml": "flexcomp <pin> + type=direct (no makeFlex surface)",
+    "gripper_trilinear.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
+    "strain.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
+    "trampoline.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
+    "hammock.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
+    "poncho.xml": "flexcomp type=direct (no makeFlex point/element surface)",
+    "poncho_edgeequality.xml": "flexcomp type=direct (no makeFlex point/element surface)",
+    "softbox.xml": "flexcomp material auto-texcoord (no makeFlex material-before-gen hook)",
+}
+
+
+def _corpus_models(corpus: Path) -> list[Path]:
+    return [
+        p
+        for p in sorted(corpus.rglob("*.xml"))
+        if "build" not in {s.lower() for s in p.parts}
+        and not p.name.startswith("._ps_")
+    ]
+
+
+@pytest.mark.skipif(
+    _corpus_dir() is None,
+    reason="set PROTOSPEC_CORPUS (or place the studio checkout beside this repo) "
+    "to run the big-corpus mjs-parity gate",
+)
+def test_corpus_mjs_parity(ps_path_diff: Path):
+    """XmlPath vs MjsPath across the corpus: all in-scope, non-skiplisted models
+    reach byte-identical parity. Gated flexcomp families are skiplisted here and
+    their fallback is asserted by test_corpus_mjs_parity_via_auto."""
+    corpus = _corpus_dir()
+    assert corpus is not None
+    models = _corpus_models(corpus)
+    if not models:
+        pytest.skip(f"no models under {corpus}")
+
+    divergences: list[str] = []
+    gated: list[str] = []
+    out_of_scope = 0
+    passed = 0
+    for m in models:
+        if m.name in _CORPUS_MJS_SKIP:
+            # Confirm the skip is real: forced MjsPath must gate it loudly.
+            r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(m))
+            if "[gate]" in r.stdout:
+                gated.append(f"{m.name}: {_CORPUS_MJS_SKIP[m.name]}")
+            else:
+                divergences.append(
+                    f"{m.name}: on skiplist but did NOT gate:\n{r.stdout[:400]}"
+                )
+            continue
+        r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(m))
+        if r.returncode == 0 and any(l.startswith("PASS") for l in r.stdout.splitlines()):
+            passed += 1
+            continue
+        # A real parity divergence (both legs compiled) vs out-of-scope (reader
+        # reject / missing asset / compile error owned by other harnesses).
+        if "first divergence:" in r.stdout or "SIZE INTS" in r.stdout or (
+            "NAME TABLES" in r.stdout and "compile failed" not in r.stdout
+        ):
+            divergences.append(f"{m}: {r.stdout.strip().splitlines()[0]}")
+        else:
+            out_of_scope += 1
+
+    print(
+        f"\n[corpus mjs-parity] {passed} pass, {len(gated)} gated (skiplisted), "
+        f"{out_of_scope} out-of-scope, {len(divergences)} divergence(s) of "
+        f"{len(models)} models"
+    )
+    for g in gated:
+        print(f"  gated: {g}")
+    assert not divergences, "mjs-parity divergences:\n" + "\n".join(divergences[:20])
+
+
+@pytest.mark.skipif(
+    _corpus_dir() is None,
+    reason="set PROTOSPEC_CORPUS (or place the studio checkout beside this repo) "
+    "to run the big-corpus mjs-parity gate",
+)
+def test_corpus_mjs_parity_via_auto(ps_path_diff: Path):
+    """XmlPath vs Auto across the corpus: EVERY in-scope model matches XmlPath --
+    clean models via the mjSpec path, gated models via the recorded XML fallback.
+    This is the end-to-end guarantee the editor's Auto compiles are always correct.
+    """
+    corpus = _corpus_dir()
+    assert corpus is not None
+    models = _corpus_models(corpus)
+    if not models:
+        pytest.skip(f"no models under {corpus}")
+
+    divergences: list[str] = []
+    out_of_scope = 0
+    passed = 0
+    for m in models:
+        r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "Auto", str(m))
+        if r.returncode == 0 and any(l.startswith("PASS") for l in r.stdout.splitlines()):
+            passed += 1
+            continue
+        if "first divergence:" in r.stdout or "SIZE INTS" in r.stdout or (
+            "NAME TABLES" in r.stdout and "compile failed" not in r.stdout
+        ):
+            divergences.append(f"{m}: {r.stdout.strip().splitlines()[0]}")
+        else:
+            out_of_scope += 1
+
+    print(
+        f"\n[corpus Auto-parity] {passed} pass, {out_of_scope} out-of-scope, "
+        f"{len(divergences)} divergence(s) of {len(models)} models"
+    )
+    assert not divergences, "Auto-vs-XmlPath divergences:\n" + "\n".join(divergences[:20])

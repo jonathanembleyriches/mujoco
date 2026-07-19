@@ -1,0 +1,22 @@
+<mujoco model="cylinder_bias_upstream">
+  <!-- DOCUMENTED EXCEPTION (upstream bug, NOT gated). A <cylinder> actuator with
+       a 3-valued bias: stock's xml_native_reader.cc OneActuator reads the bias
+       array into a scalar slot and overruns it, clobbering the adjacent gainprm
+       "area" to 0 (a stack-overrun bug). The mjSpec leg is faithful to spec and
+       keeps area=0.02, so XmlPath vs MjsPath diverges on actuator_gainprm. We
+       deliberately do NOT replicate the bug; both legs compile successfully and
+       the divergence is the ONLY corpus-wide mjs-parity exception (reported for
+       an upstream fix). See test_path_diff_gated.py::test_cylinder_bias_upstream.
+       -->
+  <compiler autolimits="true"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.1"/>
+    <body name="arm" pos="0 0 1">
+      <joint name="wrist" type="hinge" axis="0 1 0" range="-90 90"/>
+      <geom name="arm_g" type="capsule" size="0.03" fromto="0 0 0 0.3 0 0"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <cylinder name="a_cyl" joint="wrist" timeconst="0.5" area="0.02" bias="0 -1 0"/>
+  </actuator>
+</mujoco>

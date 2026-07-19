@@ -282,14 +282,41 @@ ps::Diagnostic MakeError(std::string source, std::string msg,
   return d;
 }
 
-// The mjSpec fallback scan now returns only always-error guards (content that is
-// invalid on every compile path). Turn a guard into a clean model diagnostic --
-// the same failure both paths give, surfaced without routing to XML to fail.
+// A scan guard is "always-error" when its content is invalid on EVERY compile
+// path (both XML and mjs reject it) -- gated as a clean model error. The rest are
+// "fallbackable": XmlPath reproduces them but the mjs_makeFlex/mjSpec API cannot,
+// so Auto routes them to XmlPath and only forced MjsPath errors.
+bool IsAlwaysError(const FallbackReason& r) {
+  return r.feature == "mjs.global_coordinates";
+}
+
+bool AnyAlwaysError(const std::vector<FallbackReason>& rs) {
+  for (const FallbackReason& r : rs)
+    if (IsAlwaysError(r)) return true;
+  return false;
+}
+
+// Turn a scan guard into a diagnostic. Always-error guards read as the failure
+// both paths give; fallbackable guards (only reached on forced MjsPath) read as
+// "not reproducible on the mjSpec path".
 ps::Diagnostic GateError(const FallbackReason& r) {
   std::string msg;
   if (r.feature == "mjs.global_coordinates")
     msg = "global coordinates are not supported (removed in MuJoCo 2.3.3+); "
           "convert by loading and saving in MuJoCo 2.3.3 or older";
+  else if (r.feature == "mjs.flexcomp_pin")
+    msg = "flexcomp <pin> is not reproducible on the mjSpec compile path "
+          "(mjs_makeFlex exposes no pin surface); use CompilePath::Auto, which "
+          "falls back to the XML path, or CompilePath::XmlPath";
+  else if (r.feature == "mjs.flexcomp_direct")
+    msg = "flexcomp type=direct (inline point/element topology) is not "
+          "reproducible on the mjSpec compile path (mjs_makeFlex has no "
+          "point/element surface); use CompilePath::Auto or CompilePath::XmlPath";
+  else if (r.feature == "mjs.flexcomp_material_texcoord")
+    msg = "flexcomp with a material and auto-generated texture coordinates is "
+          "not reproducible on the mjSpec compile path (mjs_makeFlex cannot set "
+          "the material on the flex before generation); use CompilePath::Auto or "
+          "CompilePath::XmlPath";
   else
     msg = "unsupported model feature '" + r.feature + "'";
   return MakeError("gate", std::move(msg));
@@ -440,8 +467,9 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
     if (gated) return out;
   }
 
-  // MjsPath (forced): the fallback scan gates always-error content as a clean
-  // model error (invalid on every path); admitted models compile through the
+  // MjsPath (forced): the fallback scan gates BOTH always-error content and
+  // content the mjSpec API cannot reproduce (flexcomp pin/direct) as an error --
+  // forced MjsPath never silently falls back. Admitted models compile through the
   // mjSpec route (CompileViaMjs).
   if (opts.path == CompilePath::MjsPath) {
     std::vector<FallbackReason> reasons = compile::MjsFallbackScan(model);
@@ -455,10 +483,12 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
     return out;
   }
 
-  // Auto (mjSpec-first): the mjSpec route now compiles every admitted model with
-  // full parity (the standing ps_path_diff gate), so the scan returns only
-  // always-error guards. When it does, the model is invalid on the XML path too;
-  // surface the model error directly rather than routing to XML to fail there.
+  // Auto (mjSpec-first): the mjSpec route compiles every admitted model with full
+  // parity (the standing ps_path_diff gate). The scan returns two kinds of guard:
+  //   * always-error (coordinate=global): invalid on the XML path too -- surface
+  //     the model error directly rather than routing to XML to fail there.
+  //   * fallbackable (flexcomp pin/direct): XmlPath reproduces it but the mjSpec
+  //     API cannot -- route to XmlPath (recording the reasons), NOT an error.
   // A model the scan admits but that then fails mj_compile is a genuine model
   // error reported once from the mjs attempt.
   if (opts.path == CompilePath::Auto) {
@@ -467,10 +497,14 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
       CompileViaMjs(model, opts, out);
       return out;
     }
-    out.report.taken = CompilePath::MjsPath;
+    if (AnyAlwaysError(reasons)) {
+      out.report.taken = CompilePath::MjsPath;
+      out.report.fallback_reasons = reasons;
+      out.report.errors.push_back(GateError(reasons.front()));
+      return out;
+    }
+    // Fallbackable-only: record the reasons and fall through to the XML path.
     out.report.fallback_reasons = reasons;
-    out.report.errors.push_back(GateError(reasons.front()));
-    return out;
   }
 
 #ifdef PROTOSPEC_NATIVE

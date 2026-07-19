@@ -247,6 +247,8 @@ class Builder {
 
   template <class A>
   void ApplyActuatorTail(const A& e, mjsActuator* out);
+  template <class T>
+  void ApplyActuatorShortcut(const T& e, mjsActuator* a);
 
   // Macro expansion (replicate/composite) via mjs_attach requires deep copy so a
   // self-contained copy is grafted; the reader holds it true across the whole
@@ -467,7 +469,18 @@ void Builder::BuildVisual(const Visual& v) {
 void Builder::BuildDefaultNode(const Default& d, mjsDefault* into) {
   // Apply each authored per-family template onto the matching mjsDefault slot.
   for (const auto& x : d.joint) if (x) ApplyMjs(*x, into->joint);
-  for (const auto& x : d.geom) if (x) ApplyMjs(*x, into->geom);
+  for (const auto& x : d.geom) {
+    if (!x) continue;
+    ApplyMjs(*x, into->geom);
+    // shellinertia/fluidshape are emitter-waived keyword->enum conversions
+    // applied to real geoms in BuildSubtree; OneGeom applies them to default
+    // templates too, so a class-level fluidshape="ellipsoid" (balloons/cards)
+    // propagates to inheriting geoms.
+    if (x->shellinertia.has_value())
+      into->geom->typeinertia = *x->shellinertia ? mjINERTIA_SHELL : mjINERTIA_VOLUME;
+    if (x->fluidshape.has_value())
+      into->geom->fluid_ellipsoid = (*x->fluidshape == FluidShape::ellipsoid) ? 1 : 0;
+  }
   for (const auto& x : d.site) if (x) ApplyMjs(*x, into->site);
   for (const auto& x : d.camera) if (x) ApplyMjs(*x, into->camera);
   for (const auto& x : d.light) if (x) ApplyMjs(*x, into->light);
@@ -477,16 +490,22 @@ void Builder::BuildDefaultNode(const Default& d, mjsDefault* into) {
   for (const auto& x : d.equality) if (x) ApplyMjs(*x, into->equality);
   for (const auto& x : d.tendon) if (x) ApplyMjs(*x, into->tendon);
   // Actuator-family templates all fold onto the single mjsDefault::actuator.
+  // Each runs ApplyMjs then the gain/bias shortcut, mirroring OneActuator on a
+  // <default> entry, so class-level shortcut params (kp/kv/...) propagate.
   for (const auto& x : d.general) if (x) ApplyActuatorTail(*x, into->actuator);
-  for (const auto& x : d.motor) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.position) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.velocity) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.intvelocity) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.damper) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.cylinder) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.muscle) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.adhesion) if (x) ApplyMjs(*x, into->actuator);
-  for (const auto& x : d.dcmotor) if (x) ApplyMjs(*x, into->actuator);
+  auto def_act = [&](const auto& list) {
+    for (const auto& x : list) if (x) { ApplyMjs(*x, into->actuator);
+                                        ApplyActuatorShortcut(*x, into->actuator); }
+  };
+  def_act(d.motor);
+  def_act(d.position);
+  def_act(d.velocity);
+  def_act(d.intvelocity);
+  def_act(d.damper);
+  def_act(d.cylinder);
+  def_act(d.muscle);
+  def_act(d.adhesion);
+  def_act(d.dcmotor);
 
   for (const auto& sub : d.subclasses) {
     if (!sub) continue;
@@ -647,8 +666,27 @@ void Builder::BuildAssets(const Model& m) {
       if (!hf) continue;
       mjsHField* h = mjs_addHField(spec_);
       // Hfield.elevation aliases userdata (float); ApplyMjs handles name/file/
-      // nrow/ncol/size and the elevation buffer.
+      // nrow/ncol/size and copies elevation verbatim.
       ApplyMjs(*hf, h);
+      // OneHField: for a procedural hfield (no file, nrow/ncol > 0) stock builds
+      // userdata itself -- elevation copied in REVERSE row order (so the XML
+      // string reads top-to-bottom), or zero-filled when no elevation is given.
+      // ApplyMjs's verbatim copy matches neither; redo it to match stock.
+      const bool has_file = hf->file.has_value() && !hf->file->empty();
+      const int nrow = hf->nrow.value_or(0);
+      const int ncol = hf->ncol.value_or(0);
+      if (!has_file && nrow > 0 && ncol > 0) {
+        std::vector<float> buf(static_cast<std::size_t>(nrow) * ncol, 0.0f);
+        if (hf->elevation.has_value() &&
+            static_cast<int>(hf->elevation->size()) == nrow * ncol) {
+          const auto& src = *hf->elevation;
+          for (int i = 0; i < nrow; ++i)
+            for (int j = 0; j < ncol; ++j)
+              buf[(nrow - 1 - i) * ncol + j] =
+                  static_cast<float>(src[i * ncol + j]);
+        }
+        mjs_setFloat(h->userdata, buf.data(), static_cast<int>(buf.size()));
+      }
     }
     // <skin> is also accepted under <asset> (legacy location); same builder as
     // the <deformable> one.
@@ -845,19 +883,21 @@ void Builder::ExpandReplicate(mjsBody* body, const Replicate& e, mjsFrame* frame
 // Composites have no mjsComposite; the parser expands them into plain bodies
 // during mj_parseXMLString (which also surfaces the deprecated-type / non-1D
 // errors from user_composite.cc -- only "cable" survives). Emit a minimal
-// complete fragment (compiler + defaults + extensions + assets + a holder body
-// carrying this one composite), parse it, register it, and attach the expanded
-// chain under a frame in `body`. The holder sits at the origin; `body` carries
-// the world placement, exactly as the inline composite would. ps_path_diff is
-// the drift net. Only asset-free composites (cable) are exercised; a composite
-// referencing on-disk assets would need the fragment parsed against a VFS.
+// complete fragment (compiler + defaults + extensions + a holder body carrying
+// this one composite), parse it, register it, and attach the expanded chain
+// under a frame in `body`. The holder sits at the origin; `body` carries the
+// world placement, exactly as the inline composite would. ps_path_diff is the
+// drift net. Assets are NOT copied into the fragment: mjs_addSpec merges the
+// fragment into spec_ (which already holds every asset), and a duplicated
+// asset name (e.g. a shared "texplane" from an <include>d scene) would collide
+// at compile ("repeated name"); the composite geometry resolves any material
+// against the parent spec after the merge.
 void Builder::GraftComposite(mjsBody* body, const Composite& e, mjsFrame* frame) {
   Model frag;
   if (model_) {
     for (const auto& c : model_->compilers) if (c) frag.compilers.push_back(Clone(*c));
     for (const auto& d : model_->defaults) if (d) frag.defaults.push_back(Clone(*d));
     for (const auto& x : model_->extensions) if (x) frag.extensions.push_back(Clone(*x));
-    for (const auto& a : model_->assets) if (a) frag.assets.push_back(Clone(*a));
   }
   auto holder = std::make_unique<Body>();
   holder->name = "holder";
@@ -951,12 +991,31 @@ void Builder::BuildFlexcomp(mjsBody* body, const Flexcomp& e) {
   if (e.group.has_value()) f->group = *e.group;
   AutoName(f->element, e.serial);
 
-  // <edge>: stiffness/damping onto the flex (equality/solref/solimp already fed
-  // to makeFlex / handled by the generated equality path).
+  // <edge>: stiffness/damping onto the flex. equality feeds makeFlex; solref/
+  // solimp cannot (mjs_makeFlex has no edge-solref surface), so post-set them on
+  // the equalities makeFlex just generated for THIS flex (matched by name1 ==
+  // flex name; flex names are unique). OneFlexcomp routes edge solref/solimp to
+  // fcomp.def.spec.equality, from which Make seeds every generated equality.
   for (const auto& ed : e.flexcompEdges) {
     if (!ed) continue;
     if (ed->stiffness.has_value()) f->edgestiffness = *ed->stiffness;
     if (ed->damping.has_value()) f->edgedamping = *ed->damping;
+    if (!ed->solref.has_value() && !ed->solimp.has_value()) continue;
+    for (mjsElement* el = mjs_firstElement(spec_, mjOBJ_EQUALITY); el;
+         el = mjs_nextElement(spec_, el)) {
+      mjsEquality* q = mjs_asEquality(el);
+      if (!q) continue;
+      if (q->type != mjEQ_FLEX && q->type != mjEQ_FLEXVERT &&
+          q->type != mjEQ_FLEXSTRAIN)
+        continue;
+      if (name != mjs_getString(q->name1)) continue;
+      if (ed->solref.has_value())
+        for (std::size_t i = 0; i < ed->solref->size() && i < mjNREF; ++i)
+          q->solref[i] = (*ed->solref)[i];
+      if (ed->solimp.has_value())
+        for (std::size_t i = 0; i < ed->solimp->size() && i < mjNIMP; ++i)
+          q->solimp[i] = (*ed->solimp)[i];
+    }
   }
   // <elasticity>
   for (const auto& el : e.flexElasticitys) {
@@ -1184,9 +1243,31 @@ void Builder::BuildActuators(const Model& m) {
           SetTransmission(a, joint, jip, tendon, cranksite, site, body);
         }
 
-        // gain/bias shortcut: read the current mjs field as the class default,
-        // override with the authored value, then invoke mjs_setTo* -- exactly
-        // as MuJoCo's XML reader does (xml_native_reader.cc OneActuator).
+        // gain/bias shortcut (mjs_setTo*): shared with the default-template path.
+        ApplyActuatorShortcut(e, a);
+        // ActuatorGeneral: gaintype/biastype/dyntype/gainprm/biasprm/dynprm are
+        // written directly by ApplyMjs -- no shortcut needed.
+        if constexpr (std::is_same_v<T, ActuatorPlugin>) {
+          // Plugin actuator: standard transmission (set above) + dyntype/actdim/
+          // dynprm/actearly (ApplyMjs) + the plugin sub-struct.
+          SetPluginFields(e.plugin.has_value() ? e.plugin->c_str() : nullptr,
+                          (e.instance.has_value() && !e.instance->name.empty())
+                              ? e.instance->name.c_str() : nullptr,
+                          e.config, &a->plugin);
+        }
+        AutoName(a->element, e.serial);
+      }, any.node);
+    }
+  }
+}
+
+// gain/bias shortcut chain (xml_native_reader.cc OneActuator): read the current
+// mjs field as the class-default base, override with the authored value, then
+// invoke the matching mjs_setTo*. Shared by real actuators and default templates
+// (OneActuator runs it for <default> actuator entries too), so a class-level
+// kp/kv (e.g. slider_crank's <position kp="30"/>) reaches inheriting actuators.
+template <class T>
+void Builder::ApplyActuatorShortcut(const T& e, mjsActuator* a) {
         if constexpr (std::is_same_v<T, Motor>) {
           mjs_setToMotor(a);
         } else if constexpr (std::is_same_v<T, Position> ||
@@ -1289,20 +1370,6 @@ void Builder::BuildActuators(const Model& m) {
                            inductance, cogging, controller, thermal, lugre,
                            input_mode);
         }
-        // ActuatorGeneral: gaintype/biastype/dyntype/gainprm/biasprm/dynprm are
-        // written directly by ApplyMjs -- no shortcut needed.
-        if constexpr (std::is_same_v<T, ActuatorPlugin>) {
-          // Plugin actuator: standard transmission (set above) + dyntype/actdim/
-          // dynprm/actearly (ApplyMjs) + the plugin sub-struct.
-          SetPluginFields(e.plugin.has_value() ? e.plugin->c_str() : nullptr,
-                          (e.instance.has_value() && !e.instance->name.empty())
-                              ? e.instance->name.c_str() : nullptr,
-                          e.config, &a->plugin);
-        }
-        AutoName(a->element, e.serial);
-      }, any.node);
-    }
-  }
 }
 
 // --- sensors ------------------------------------------------------------- //
@@ -1470,6 +1537,34 @@ void Builder::BuildSensors(const Model& m) {
             s->objtype = static_cast<mjtObj>(mju_str2Type(e.objtype->c_str()));
           if (e.reftype.has_value())
             s->reftype = static_cast<mjtObj>(mju_str2Type(e.reftype->c_str()));
+        }
+        else if constexpr (std::is_same_v<T, Insidesite>) {
+          // The sensorized object is (objtype,objname); the site is the ref.
+          s->type = mjSENS_INSIDESITE;
+          s->reftype = mjOBJ_SITE;
+          if (const char* n = RefCStr(e.site)) mjs_setString(s->refname, n);
+          if (e.objtype.has_value())
+            s->objtype = static_cast<mjtObj>(mju_str2Type(e.objtype->c_str()));
+          // objname exact-mapped by ApplyMjs.
+        }
+        else if constexpr (std::is_same_v<T, Distance> ||
+                           std::is_same_v<T, Normal> ||
+                           std::is_same_v<T, Fromto>) {
+          // Geometric-distance family: exactly one of (geom1,body1) is the
+          // object, one of (geom2,body2) the ref (validated on both paths).
+          if constexpr (std::is_same_v<T, Distance>) s->type = mjSENS_GEOMDIST;
+          else if constexpr (std::is_same_v<T, Normal>) s->type = mjSENS_GEOMNORMAL;
+          else s->type = mjSENS_GEOMFROMTO;
+          if (const char* n = RefCStr(e.body1)) {
+            s->objtype = mjOBJ_BODY; mjs_setString(s->objname, n);
+          } else if (const char* n = RefCStr(e.geom1)) {
+            s->objtype = mjOBJ_GEOM; mjs_setString(s->objname, n);
+          }
+          if (const char* n = RefCStr(e.body2)) {
+            s->reftype = mjOBJ_BODY; mjs_setString(s->refname, n);
+          } else if (const char* n = RefCStr(e.geom2)) {
+            s->reftype = mjOBJ_GEOM; mjs_setString(s->refname, n);
+          }
         }
         AutoName(s->element, e.serial);
       }, any.node);
@@ -1639,19 +1734,26 @@ void Builder::Build(const Model& m, const CompileOptions& opts) {
   for (const auto& s : m.sizes) if (s) BuildSize(*s);
   for (const auto& s : m.statistics) if (s) BuildStatistic(*s);
   for (const auto& v : m.visuals) if (v) BuildVisual(*v);
+  // Section order mirrors mjXReader::Parse EXACTLY (xml_native_reader.cc):
+  // every standalone section is parsed BEFORE <worldbody>, which comes last.
+  // This is load-bearing for element-array ordering: worldbody macros generate
+  // section elements (flexcomp/composite append <equality> entries; replicate's
+  // mjs_attach rewrites references in already-built <tendon> wraps), and stock
+  // emits those AFTER the user's own section entries because worldbody runs
+  // last. Building worldbody first (as before) inverted that order.
   BuildDefaults(m);
   BuildExtensions(m);
+  BuildCustom(m);
   BuildAssets(m);
-  BuildDeformables(m);
-  BuildModelAssets(m);
-  BuildWorldbody(m);
   BuildContact(m);
+  BuildDeformables(m);
   BuildEquality(m);
   BuildTendons(m);
   BuildActuators(m);
   BuildSensors(m);
-  BuildCustom(m);
   BuildKeyframes(m);
+  BuildModelAssets(m);
+  BuildWorldbody(m);
 }
 
 // --- fallback scan ------------------------------------------------------- //
@@ -1665,25 +1767,67 @@ void AddReason(std::vector<FallbackReason>& out, const char* feature) {
   out.push_back(std::move(r));
 }
 
+// Walk a body subtree (recursing through nested Body/Frame/Replicate) flagging
+// any Flexcomp the mjs_makeFlex API cannot reproduce: (a) <pin> subelements --
+// mjs_makeFlex takes no pinid/pinrange/pingrid arguments, so the generated flex
+// keeps every vertex a free dof (a SILENT wrong model); (b) type="direct" (and
+// mesh/gmsh without a file) -- the inline point/element topology also has no
+// makeFlex surface ("Point and element required" at build time).
+void ScanFlexcompSubtree(const std::vector<BodyChildAny>& subtree,
+                         std::vector<FallbackReason>& out) {
+  for (const auto& item : subtree) {
+    std::visit([&](const auto& p) {
+      if (!p) return;
+      using T = std::decay_t<decltype(*p)>;
+      const T& e = *p;
+      if constexpr (std::is_same_v<T, Flexcomp>) {
+        if (!e.flexcompPins.empty())
+          AddReason(out, "mjs.flexcomp_pin");
+        const bool has_file = e.file.has_value() && !e.file->empty();
+        if (e.type.has_value() &&
+            (*e.type == FlexcompType::direct ||
+             ((*e.type == FlexcompType::mesh || *e.type == FlexcompType::gmsh) &&
+              !has_file)))
+          AddReason(out, "mjs.flexcomp_direct");
+        // A material with no inline texcoord (and no file supplying UVs) makes
+        // mjCFlexcomp::Make auto-generate texcoord (needtex), which needs the
+        // material on the flex def BEFORE Make -- mjs_makeFlex has no such hook.
+        const bool has_texcoord = e.texcoord.has_value() && !e.texcoord->empty();
+        if (e.material.has_value() && !e.material->name.empty() &&
+            !has_texcoord && !has_file)
+          AddReason(out, "mjs.flexcomp_material_texcoord");
+      } else if constexpr (std::is_same_v<T, Body> ||
+                           std::is_same_v<T, Frame> ||
+                           std::is_same_v<T, Replicate>) {
+        ScanFlexcompSubtree(e.subtree, out);
+      }
+    }, item.node);
+  }
+}
+
 }  // namespace
 
-// The scan now holds ONLY always-error guards: content that is invalid on BOTH
-// compile paths, surfaced as a clean model error instead of a silent divergence
-// (the mjs path would otherwise drop it). Every former fallback family --
-// macros (replicate/composite/flexcomp), builtin meshes, URDF/MJB child models,
-// plugins, deformables, exotic sensors/textures -- is now built directly by the
-// mjs builder with full parity (ps_path_diff is the net), so none appear here.
-//   * coordinate="global": removed from MuJoCo (2.3.3+); mjsCompiler has no
-//     global field, so the mjs build would silently reinterpret it as local.
-//     Deprecated composite types (particle/grid/rope/loop/cloth) are NOT guarded
-//     here -- they surface their own reader error when GraftComposite parses the
-//     fragment (user_composite.cc), matching the XML path.
+// The scan holds guards for content that either is invalid on BOTH compile paths
+// (always-error, surfaced as a clean model error) or that the mjs_makeFlex/mjSpec
+// API cannot reproduce (fallbackable: Auto routes those to XmlPath, forced
+// MjsPath errors loudly). Every other former fallback family -- replicate/
+// composite macros, builtin meshes, URDF/MJB child models, plugins, deformables,
+// exotic sensors/textures -- is now built directly with full parity (ps_path_diff
+// is the net), so none appear here.
+//   * coordinate="global" [always-error]: removed from MuJoCo (2.3.3+);
+//     mjsCompiler has no global field, so the mjs build would silently
+//     reinterpret it as local. Deprecated composite types are NOT guarded here --
+//     they surface their own reader error when GraftComposite parses the fragment.
+//   * flexcomp <pin> / type=direct [fallbackable]: no mjs_makeFlex surface (see
+//     ScanFlexcompSubtree). XmlPath reproduces them exactly.
 std::vector<FallbackReason> MjsFallbackScan(const Model& m) {
   std::vector<FallbackReason> out;
   for (const auto& c : m.compilers) {
     if (c && c->coordinate.has_value() && *c->coordinate == Coordinate::global)
       AddReason(out, "mjs.global_coordinates");
   }
+  for (const auto& wb : m.worldbody)
+    if (wb) ScanFlexcompSubtree(wb->subtree, out);
   return out;
 }
 
