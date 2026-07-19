@@ -76,9 +76,9 @@ static const char* kPendulum =
     "    </body>\n"
     "  </worldbody>\n"
     "  <actuator>\n"
-    // dcmotor is a still-gated actuator spelling, so the native path falls back
-    // (TestNativePathRejected) while other bridge tests drive the XML path; named
-    // m1 so the actuator Binding cross-check is unchanged.
+    // Named m1 so the actuator Binding cross-check has a stable name. The default
+    // Compile (Auto) now drives the mjSpec path, which supports dcmotor
+    // (mjs_setToDCMotor); TestNativePathRejected forces NativePath separately.
     "    <dcmotor name='m1' joint='j1' motorconst='0.1 0.1' resistance='1'/>\n"
     "  </actuator>\n"
     "</mujoco>\n";
@@ -322,6 +322,89 @@ static void TestRecompileStateMigration() {
   mj_deleteData(d0);
 }
 
+// Full recompile cycle on a FORCED path: compile the pendulum, seed joint state
+// + a nonzero time, append a body, recompile migrating state, step once. Returns
+// the migrated slices so the two paths can be compared element-for-element.
+// Recompile is path-agnostic (it re-enters Compile with the same opts), so the
+// mjSpec and XML paths must migrate identical state.
+struct RecompileResult {
+  bool ok = false;
+  double q1 = 0, q2 = 0, v1 = 0, v2 = 0, q3 = 0, time = 0;
+  bool j3_bound = false;
+  bool stepped_finite = false;
+};
+
+static RecompileResult RunRecompileCycle(CompilePath path) {
+  RecompileResult r;
+  auto model = ParseOrDie(kPendulum);
+  if (!model) return r;
+  CompileOptions opts;
+  opts.path = path;
+
+  Compiled c0 = Compile(*model, opts);
+  if (!c0.ok() || c0.report.taken != path) return r;  // forced path honored
+
+  const Body* b1 = FirstOf<Body>(*World(*model));
+  const Body* b2 = FirstOf<Body>(*b1);
+  const Joint* j1 = FirstOf<Joint>(*b1);
+  const Joint* j2 = FirstOf<Joint>(*b2);
+
+  mjData* d0 = mj_makeData(c0.model.get());
+  if (!d0) return r;
+  const int qa1 = *c0.binding.QposAdr(*j1), qa2 = *c0.binding.QposAdr(*j2);
+  const int da1 = *c0.binding.DofAdr(*j1), da2 = *c0.binding.DofAdr(*j2);
+  d0->qpos[qa1] = 0.3;
+  d0->qpos[qa2] = -0.4;
+  d0->qvel[da1] = 0.7;
+  d0->qvel[da2] = 1.1;
+  d0->time = 1.25;
+
+  const Joint* j3 = AppendBody(*model);
+  mjData* d1 = nullptr;
+  Compiled c1 = Recompile(*model, c0, d0, &d1, opts);
+  if (c1.ok() && d1 && c1.report.taken == path) {
+    const int nqa1 = *c1.binding.QposAdr(*j1), nqa2 = *c1.binding.QposAdr(*j2);
+    const int nda1 = *c1.binding.DofAdr(*j1), nda2 = *c1.binding.DofAdr(*j2);
+    r.q1 = d1->qpos[nqa1];
+    r.q2 = d1->qpos[nqa2];
+    r.v1 = d1->qvel[nda1];
+    r.v2 = d1->qvel[nda2];
+    auto j3id = c1.binding.Id(*j3);
+    r.j3_bound = j3id.has_value();
+    if (r.j3_bound) r.q3 = d1->qpos[*c1.binding.QposAdr(*j3)];
+    r.time = d1->time;
+    mj_step(c1.model.get(), d1);
+    r.stepped_finite = std::isfinite(d1->qpos[nqa1]);
+    r.ok = true;
+  }
+  if (d1) mj_deleteData(d1);
+  mj_deleteData(d0);
+  return r;
+}
+
+static void TestRecompileParityBothPaths() {
+  RecompileResult x = RunRecompileCycle(CompilePath::XmlPath);
+  RecompileResult s = RunRecompileCycle(CompilePath::MjsPath);
+  CHECK(x.ok);
+  CHECK(s.ok);
+  if (!x.ok || !s.ok) return;
+
+  // Each path migrated the seeded state to its recompiled addresses.
+  CHECK(Near(x.q1, 0.3) && Near(s.q1, 0.3));
+  CHECK(Near(x.q2, -0.4) && Near(s.q2, -0.4));
+  CHECK(Near(x.v1, 0.7) && Near(s.v1, 0.7));
+  CHECK(Near(x.v2, 1.1) && Near(s.v2, 1.1));
+  CHECK(x.j3_bound && s.j3_bound);
+  CHECK(Near(x.q3, 0.0) && Near(s.q3, 0.0));
+  CHECK(Near(x.time, 1.25) && Near(s.time, 1.25));
+  CHECK(x.stepped_finite && s.stepped_finite);
+
+  // Path-agnostic Recompile: the two forced paths agree element-for-element.
+  CHECK(Near(x.q1, s.q1) && Near(x.q2, s.q2));
+  CHECK(Near(x.v1, s.v1) && Near(x.v2, s.v2));
+  CHECK(Near(x.q3, s.q3) && Near(x.time, s.time));
+}
+
 // First element of type T directly under any container with a `subtree` (Body
 // or Frame); the generated union subtree holds Body/Geom/Site/... nodes.
 template <class T, class P>
@@ -513,6 +596,7 @@ int main() {
   TestPurityGate();
   TestNativePathRejected();
   TestRecompileStateMigration();
+  TestRecompileParityBothPaths();
   TestPosePatchMeshGeom();
   TestPosePatchFreeBody();
   TestPosePatchFrameNested();

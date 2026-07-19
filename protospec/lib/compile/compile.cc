@@ -320,6 +320,81 @@ void BuildNameBinding(const Model& model, mjModel* m, const CompileOptions& opts
   }
 }
 
+// Runs the mjSpec route: build a throwaway mjSpec from the tree, mj_compile it
+// through the same VFS the XML path uses, and construct the name-based Binding.
+// The caller must have already confirmed MjsFallbackScan admits the model (this
+// does not scan). Sets report.taken = MjsPath. Success is out.model != nullptr;
+// otherwise the failure is a genuine model error in out.report.errors -- for a
+// scan-admitted model the two paths agree on validity (the ps_path_diff parity
+// gate), so a failure here is not a path disagreement and the XML path is not
+// retried.
+void CompileViaMjs(const Model& model, const CompileOptions& opts, Compiled& out) {
+  out.report.taken = CompilePath::MjsPath;
+
+  // Same serial-keyed auto-name map the XML path injects, so the Binding sees
+  // identical names on both paths.
+  std::vector<PreEntry> pre;
+  io::AutoNames auto_names;
+  Collector collect(opts, pre, auto_names);
+  collect(model);
+
+  std::string build_err;
+  mjSpec* spec = compile::BuildSpec(model, opts, auto_names, build_err);
+  if (!spec) {
+    out.report.errors.push_back(MakeError("build", std::move(build_err)));
+    return;
+  }
+
+  // VFS built from vfs_assets exactly as the XML path (by basename); on-disk
+  // meshdir/texturedir resolve via the spec's modelfiledir (set to base_dir in
+  // the builder), reproducing the XML path's asset resolution.
+  mjVFS vfs;
+  mj_defaultVFS(&vfs);
+  bool vfs_ok = true;
+  for (const VfsAsset& a : opts.vfs_assets) {
+    if (mj_addBufferVFS(&vfs, a.name.c_str(), a.bytes.data(),
+                        static_cast<int>(a.bytes.size())) != 0) {
+      out.report.errors.push_back(
+          MakeError("build", "mj_addBufferVFS failed for asset '" + a.name + "'"));
+      vfs_ok = false;
+      break;
+    }
+  }
+
+  mjModel* m = nullptr;
+  if (vfs_ok) {
+    std::vector<std::string> warnings;
+    void (*prev)(const char*) = mju_user_warning;
+    if (prev == CollectWarning) prev = nullptr;
+    t_warning_sink = &warnings;
+    mju_user_warning = CollectWarning;
+    m = mj_compile(spec, &vfs);
+    mju_user_warning = prev;
+    t_warning_sink = nullptr;
+    for (std::string& w : warnings) {
+      out.report.warnings.push_back(ps::Diagnostic{
+          ps::Diagnostic::Severity::Warning, "compile", std::move(w), {}});
+    }
+    if (!m) {
+      const char* e = mjs_getError(spec);
+      out.report.errors.push_back(
+          MakeError("compile", e && e[0] ? e : "mj_compile failed (no message)"));
+    } else if (mjs_isWarning(spec)) {
+      const char* e = mjs_getError(spec);
+      if (e && e[0])
+        out.report.warnings.push_back(ps::Diagnostic{
+            ps::Diagnostic::Severity::Warning, "compile", e, {}});
+    }
+  }
+  mj_deleteVFS(&vfs);
+
+  if (m) {
+    out.model.reset(m);
+    BuildNameBinding(model, m, opts, out);  // name-based, same as the XML path
+  }
+  mj_deleteSpec(spec);
+}
+
 }  // namespace
 
 std::string CompileToXml(const Model& model, const CompileOptions& opts) {
@@ -352,16 +427,13 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
     if (gated) return out;
   }
 
-  // MjsPath (forced): build a throwaway mjSpec and mj_compile it. Auto never
-  // routes here yet (XmlPath-first until parity holds), so this is reached only
-  // by an explicit request.
+  // MjsPath (forced): the fallback scan gates unsupported content as a clean
+  // error rather than a silent divergence; admitted models compile through the
+  // mjSpec route (CompileViaMjs).
   if (opts.path == CompilePath::MjsPath) {
-    out.report.taken = CompilePath::MjsPath;
-
-    // Fallback scan first: unsupported content on a forced path is a clean
-    // error, not a silent divergence.
     std::vector<FallbackReason> reasons = compile::MjsFallbackScan(model);
     if (!reasons.empty()) {
+      out.report.taken = CompilePath::MjsPath;
       out.report.fallback_reasons = reasons;
       out.report.errors.push_back(MakeError(
           "gate", "mjSpec path does not support this model (feature '" +
@@ -369,76 +441,34 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
                       "'); force XmlPath or use Auto"));
       return out;
     }
+    CompileViaMjs(model, opts, out);
+    return out;
+  }
 
-    // Same serial-keyed auto-name map the XML path injects, so the Binding sees
-    // identical names on both paths.
-    std::vector<PreEntry> pre;
-    io::AutoNames auto_names;
-    Collector collect(opts, pre, auto_names);
-    collect(model);
-
-    std::string build_err;
-    mjSpec* spec = compile::BuildSpec(model, opts, auto_names, build_err);
-    if (!spec) {
-      out.report.errors.push_back(MakeError("build", std::move(build_err)));
+  // Auto (mjSpec-first): the mjSpec route is preferred whenever the fallback
+  // scan admits the model -- it is faster and produces a bit-identical mjModel
+  // (the standing ps_path_diff parity gate). A scan reason routes to the XML
+  // oracle up front (recorded in fallback_reasons; taken becomes XmlPath below).
+  // A model the scan admits but that then fails mj_compile is a genuine model
+  // error, not a path disagreement: for scan-admitted models the two paths agree
+  // on validity, so the error is reported once from the mjs attempt and the XML
+  // path is NOT retried (no double compile of a model both paths reject).
+  if (opts.path == CompilePath::Auto) {
+    std::vector<FallbackReason> reasons = compile::MjsFallbackScan(model);
+    if (reasons.empty()) {
+      CompileViaMjs(model, opts, out);
       return out;
     }
-
-    // VFS built from vfs_assets exactly as the XML path (by basename); on-disk
-    // meshdir/texturedir resolve via the spec's modelfiledir (set to base_dir in
-    // the builder), reproducing the XML path's asset resolution.
-    mjVFS vfs;
-    mj_defaultVFS(&vfs);
-    bool vfs_ok = true;
-    for (const VfsAsset& a : opts.vfs_assets) {
-      if (mj_addBufferVFS(&vfs, a.name.c_str(), a.bytes.data(),
-                          static_cast<int>(a.bytes.size())) != 0) {
-        out.report.errors.push_back(
-            MakeError("build", "mj_addBufferVFS failed for asset '" + a.name + "'"));
-        vfs_ok = false;
-        break;
-      }
-    }
-
-    mjModel* m = nullptr;
-    if (vfs_ok) {
-      std::vector<std::string> warnings;
-      void (*prev)(const char*) = mju_user_warning;
-      if (prev == CollectWarning) prev = nullptr;
-      t_warning_sink = &warnings;
-      mju_user_warning = CollectWarning;
-      m = mj_compile(spec, &vfs);
-      mju_user_warning = prev;
-      t_warning_sink = nullptr;
-      for (std::string& w : warnings) {
-        out.report.warnings.push_back(ps::Diagnostic{
-            ps::Diagnostic::Severity::Warning, "compile", std::move(w), {}});
-      }
-      if (!m) {
-        const char* e = mjs_getError(spec);
-        out.report.errors.push_back(
-            MakeError("compile", e && e[0] ? e : "mj_compile failed (no message)"));
-      } else if (mjs_isWarning(spec)) {
-        const char* e = mjs_getError(spec);
-        if (e && e[0])
-          out.report.warnings.push_back(ps::Diagnostic{
-              ps::Diagnostic::Severity::Warning, "compile", e, {}});
-      }
-    }
-    mj_deleteVFS(&vfs);
-
-    if (m) {
-      out.model.reset(m);
-      BuildNameBinding(model, m, opts, out);  // name-based, same as the XML path
-    }
-    mj_deleteSpec(spec);
-    return out;
+    out.report.fallback_reasons = reasons;
+    // fall through to the XML path below (taken := XmlPath)
   }
 
 #ifdef PROTOSPEC_NATIVE
   // NativePath is forced: run the native compiler and never fall back to XML.
   // Today it always returns null with UnsupportedNatively (attic/compile/native.cc);
   // when NC1 lands stages it will return a model + native-constructed Binding.
+  // Auto no longer routes here -- it prefers the mjSpec path above; the native
+  // compiler stays parked in attic and is only reached when explicitly forced.
   if (opts.path == CompilePath::NativePath) {
     mjModel* nm = compile::NativeCompile(model, opts, out.report);
     if (nm) {
@@ -447,49 +477,25 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
     }
     return out;
   }
-
-  // Auto: try native first; on any unsupported feature, fall back LOUDLY to the
-  // XML oracle -- the fallback reasons are carried into the report, the native
-  // "UnsupportedNatively" error is not (the XML compile is what actually ran).
-  if (opts.path == CompilePath::Auto) {
-    CompileReport probe;
-    probe.requested = opts.path;
-    mjModel* nm = compile::NativeCompile(model, opts, probe);
-    if (nm) {
-      out.model.reset(nm);
-      out.report.taken = CompilePath::NativePath;
-      out.report.fallback_reasons = probe.fallback_reasons;  // empty on success
-      BuildNameBinding(model, nm, opts, out);
-      return out;
-    }
-    out.report.fallback_reasons = probe.fallback_reasons;
-  }
 #else
   // The native compiler lives in attic/ and is not built (PROTOSPEC_NATIVE off).
-  // This matches today's *runtime* behavior, where the native gate admits nothing
-  // and every model routes to the XML oracle -- so nothing observable changes.
-  //   * NativePath (forced) reports UnsupportedNatively and does NOT fall back,
-  //     honoring its "never silently fall back" contract.
-  //   * Auto records the reason and falls through to the XML path below.
-  {
+  // NativePath (forced) reports UnsupportedNatively and does NOT fall back,
+  // honoring its "never silently fall back" contract. Auto never reaches here
+  // (handled above, mjSpec-first with XML fallback).
+  if (opts.path == CompilePath::NativePath) {
+    out.report.taken = CompilePath::NativePath;
     FallbackReason nr;
     nr.feature = "native.not_built";
     nr.count = 1;
-    if (opts.path == CompilePath::NativePath) {
-      out.report.taken = CompilePath::NativePath;
-      out.report.fallback_reasons.push_back(nr);
-      ps::Diagnostic d;
-      d.severity = ps::Diagnostic::Severity::Error;
-      d.source = "gate";
-      d.message =
-          "native compile unsupported (UnsupportedNatively): the native compiler "
-          "is not built (PROTOSPEC_NATIVE off; sources parked in attic/)";
-      out.report.errors.push_back(std::move(d));
-      return out;
-    }
-    if (opts.path == CompilePath::Auto) {
-      out.report.fallback_reasons.push_back(nr);
-    }
+    out.report.fallback_reasons.push_back(nr);
+    ps::Diagnostic d;
+    d.severity = ps::Diagnostic::Severity::Error;
+    d.source = "gate";
+    d.message =
+        "native compile unsupported (UnsupportedNatively): the native compiler "
+        "is not built (PROTOSPEC_NATIVE off; sources parked in attic/)";
+    out.report.errors.push_back(std::move(d));
+    return out;
   }
 #endif  // PROTOSPEC_NATIVE
 

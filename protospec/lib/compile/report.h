@@ -33,8 +33,9 @@ struct FallbackReason {
 // Which compile path was requested / actually taken. NativePath exists so the
 // contract is stable, but the native implementation lands later: requesting it
 // today yields an UnsupportedNatively error (no silent fallback). MjsPath builds
-// a throwaway mjSpec and calls mj_compile (Wave 2 shim); Auto stays XmlPath-first
-// until parity is proven, so it is reached only when forced.
+// a throwaway mjSpec and calls mj_compile (Wave 2/3 shim). Auto prefers MjsPath,
+// falling back to XmlPath for models the mjSpec fallback scan does not admit; it
+// never routes to NativePath.
 enum class CompilePath { Auto, XmlPath, NativePath, MjsPath };
 
 struct CompileReport {

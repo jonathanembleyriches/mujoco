@@ -93,6 +93,8 @@ static const char* CompilePathName(mj::CompilePath p) {
   switch (p) {
     case mj::CompilePath::XmlPath:
       return "xml";
+    case mj::CompilePath::MjsPath:
+      return "mjs";
     case mj::CompilePath::NativePath:
       return "native";
     case mj::CompilePath::Auto:
