@@ -154,7 +154,9 @@ add_library(protospec_editor STATIC
   ${PROTOSPEC_EDITOR}/transform_math.cc
   ${PROTOSPEC_EDITOR}/undo.cc
   ${PROTOSPEC_EDITOR}/viewport_plugin.cc
-  host/shell.cc
+  # R1: host/shell.cc is gone -- the File/Edit menus, transform toolbar, Edit/Play
+  # mode and native file dialog collapsed into the editor's own plugins (panels.cc),
+  # so the fork glue registers only the four upstream plugin types.
 )
 
 # Include order matters: this fork directory is searched FIRST so the platform

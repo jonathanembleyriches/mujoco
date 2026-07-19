@@ -33,7 +33,6 @@
 
 #ifdef MUJOCO_STUDIO_PROTOSPEC
 #include "editor/plugins.h"
-#include "host/shell.h"
 #endif
 
 ABSL_FLAG(int, window_width, 1400, "Window width");
@@ -147,9 +146,11 @@ int main(int argc, char** argv, char** envp) {
 
 #ifdef MUJOCO_STUDIO_PROTOSPEC
   // The editor plugin cluster shares one context that must outlive the loop.
+  // R1: the whole editor (model adoption, viewport, menus/toolbar, mode, dialogs)
+  // registers through the four upstream plugin types via RegisterEditorPlugins;
+  // the former host-side EditorShell seams are gone.
   static ps::studio::EditorContext protospec_editor_context;
   ps::studio::RegisterEditorPlugins(protospec_editor_context);
-  ps::studio::RegisterEditorShell(protospec_editor_context);
 #endif
 
   const int width = absl::GetFlag(FLAGS_window_width);
