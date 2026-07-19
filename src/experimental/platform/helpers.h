@@ -39,6 +39,11 @@ std::string ResolveFile(const std::string& filename,
 void SaveToWebp(int width, int height, const std::byte* data,
                 const std::string& filename);
 
+// Exports the given image (assumed to be RGB888, top row first) to a PNG file.
+// Returns false and logs a warning on encode/write failure.
+bool SaveToPng(int width, int height, const std::byte* data,
+               const std::string& filename);
+
 // Returns a pointer to the value of the given field in the given data.
 // Returns nullptr if the field is not found or the index is out of bounds.
 const void* GetValue(const mjModel* model, const mjData* data,

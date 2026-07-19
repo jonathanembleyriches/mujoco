@@ -88,6 +88,12 @@ class Renderer {
   int UploadImage(int texture_id, const std::byte* pixels, int width,
                   int height, int bpp);
 
+  // Reads the on-screen window framebuffer into `rgb` (RGB888, top row first).
+  // Only the classic OpenGL backend composites the ImGui UI onto the default
+  // framebuffer, so capture is supported there and returns false otherwise.
+  // Call after Render() and before the window swaps its buffers.
+  bool CaptureWindowRGB(int width, int height, unsigned char* rgb);
+
   // Rendering flags.
   mjtByte* GetRenderFlags() { return scene_.flags; }
 
