@@ -12,7 +12,7 @@ model. This file is deliberately authored by a different agent than the IO code
 it exercises (plan Section 12): it drives the tools only through their stable
 process contract, never their internals.
 
-Two tools cooperate, located under ``cpp/**`` in any config directory:
+Two tools cooperate, located under ``protospec/lib/**`` in any config directory:
 
 * ``ps_roundtrip in.xml``  (owned by the IO pathfinder) -- prints the
   ProtoSpec-roundtripped MJCF to stdout. Exit 0 = ok, 3 = file uses elements
@@ -100,7 +100,7 @@ def _corpus_root() -> Path | None:
 
 
 def _find_binary(name: str) -> Path | None:
-    """Locate a built exe under cpp/** in any config dir, newest first."""
+    """Locate a built exe under protospec/lib/** in any config dir, newest first."""
     matches = sorted(
         (ROOT / "lib").rglob(name),
         key=lambda p: p.stat().st_mtime,
@@ -225,7 +225,7 @@ _SELF_MJCF = """<mujoco>
 
 @pytest.mark.skipif(
     not _mujoco_available(),
-    reason="mj_model_diff.exe / mujoco.dll not built (cmake -S cpp/harness)",
+    reason="mj_model_diff.exe / mujoco.dll not built (cmake -S protospec/lib/harness)",
 )
 def test_self_identical(tmp_path):
     a = tmp_path / "a.xml"
@@ -241,7 +241,7 @@ def test_self_identical(tmp_path):
 
 @pytest.mark.skipif(
     not _mujoco_available(),
-    reason="mj_model_diff.exe / mujoco.dll not built (cmake -S cpp/harness)",
+    reason="mj_model_diff.exe / mujoco.dll not built (cmake -S protospec/lib/harness)",
 )
 def test_self_geom_pos_diff(tmp_path):
     a = tmp_path / "a.xml"
@@ -262,7 +262,7 @@ def test_self_geom_pos_diff(tmp_path):
 
 @pytest.mark.skipif(
     not _mujoco_available(),
-    reason="mj_model_diff.exe / mujoco.dll not built (cmake -S cpp/harness)",
+    reason="mj_model_diff.exe / mujoco.dll not built (cmake -S protospec/lib/harness)",
 )
 def test_self_load_error(tmp_path):
     a = tmp_path / "a.xml"

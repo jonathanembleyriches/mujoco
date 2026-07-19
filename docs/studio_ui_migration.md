@@ -1,3 +1,8 @@
+> **SUPERSEDED by the 4-type plugin retarget** (`docs/studio_plugin_min_ask.md`).
+> The fork plugin surface investigated here (ViewportPlugin/OverlayPlugin/
+> ModelSourcePlugin/...) was abandoned; the editor now runs on upstream Studio's
+> four stock plugin types. Kept as the investigation record.
+
 # Hosting the ProtoSpec editor in the real MuJoCo Studio UI
 
 Investigation + build spike. Goal: replace our thin-shell studio (bare ImGui panels

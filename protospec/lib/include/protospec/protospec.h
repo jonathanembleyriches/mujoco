@@ -19,7 +19,7 @@
 #include "protospec/validate.h"
 
 // The SDK umbrella + save surface live under the SDK's own protospec/ include
-// root (cpp/sdk/protospec/); reached here by relative path so this all-in-one
+// root (protospec/lib/sdk/protospec/); reached here by relative path so this all-in-one
 // header needs nothing beyond the physical repo layout.
 #include "../../sdk/protospec/sdk.h"   // ps::sdk builders / traversal / refs / classes / attach
 #include "../../sdk/protospec/save.h"  // ps::sdk::{Save, SaveAs, ExternalizeAssets}

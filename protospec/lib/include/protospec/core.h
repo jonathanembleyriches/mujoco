@@ -5,7 +5,7 @@
 // vector for variable-arity attributes, structured source provenance, the typed
 // reference wrapper, the creation-serial source, and the deep container
 // equality/clone helpers the generated code calls. Everything schema-shaped is
-// generated (see cpp/generated); nothing here knows about MuJoCo.
+// generated (see protospec/lib/generated); nothing here knows about MuJoCo.
 #ifndef PROTOSPEC_CORE_H
 #define PROTOSPEC_CORE_H
 

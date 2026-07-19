@@ -1,3 +1,9 @@
+> **HISTORICAL (pre-plugin architecture).** This plan describes the standalone
+> thin-shell host now parked in `attic/studio_host/`. The editor has since been
+> retargeted onto upstream Studio's four stock plugin types (see
+> `docs/studio_plugin_min_ask.md`); SE0-SE3 are DONE per `docs/plan.md`. Kept
+> for the editor's design rationale, not its architecture.
+
 # ProtoSpec Studio: a new ProtoSpec-native model editor (Unity/Unreal idiom)
 
 Companion to `docs/plan.md`. A new interactive editor for MuJoCo models whose data model is

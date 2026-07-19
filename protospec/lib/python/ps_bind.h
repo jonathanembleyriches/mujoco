@@ -1,5 +1,5 @@
 // ProtoSpec Python bindings: hand-written pybind11 support the generated glue
-// (cpp/python/generated/) builds on. Three things live here:
+// (protospec/lib/python/generated/) builds on. Three things live here:
 //
 //   1. pybind type_casters that make ProtoSpec's storage types Pythonic:
 //        * every IDL enum  <-> its MJCF keyword string ("sphere", "hinge", ...)

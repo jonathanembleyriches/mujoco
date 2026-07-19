@@ -1,0 +1,22 @@
+<mujoco model="hfield_terrain">
+  <!-- Covers: the <hfield> asset (PNG file source) and a geom of type
+       "hfield" referencing it. Exercises mjModel hfield_* arrays and the
+       asset-to-geom binding on both legs.
+       NOTE: procedural hfields (nrow/ncol, with or without inline `elevation`)
+       are deliberately absent -- the mjs leg neither zero-fills userdata for
+       an elevation-less grid (stock's OneHfield does, so MjsPath fails
+       "hfield not specified") nor applies stock's reverse-row-order flip to
+       inline elevation data (silent divergence). Move those cases in here
+       once the bridge handles them. -->
+  <compiler texturedir="assets"/>
+  <asset>
+    <hfield name="terrain" file="assets/terrain.png" size="2 1.5 0.5 0.1"/>
+  </asset>
+  <worldbody>
+    <geom name="ground" type="hfield" hfield="terrain" pos="0 0 0"/>
+    <body name="ball" pos="0 0 2">
+      <freejoint/>
+      <geom name="ball_g" type="sphere" size="0.1"/>
+    </body>
+  </worldbody>
+</mujoco>

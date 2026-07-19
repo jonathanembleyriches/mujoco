@@ -5,7 +5,7 @@ These guard the Python->C++ codegen contract without a compiler: the checked-in
 must be present, and a few load-bearing shapes (the Geom struct's fields, the
 ActuatorAny union child-list type, presence wrapping, the field-count constant)
 must appear in the output. The C++ side (compile, run, property tests) is driven
-by cpp/CMakeLists.txt and cpp/test/test_model.cc.
+by protospec/lib/CMakeLists.txt and protospec/lib/test/test_model.cc.
 """
 
 from __future__ import annotations

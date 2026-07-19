@@ -17,12 +17,14 @@ bindings. MJCF is a wire format handled by one IO module; models compile to `mjM
 either of two interchangeable paths behind one pure `Compile()`:
 
 - **XML path** — form-preserving writer → `mj_loadXML` (the reference oracle, always available)
-- **Native path** — a raw ProtoSpec→`mjModel` compiler (no `mjSpec`/`mjs_*` anywhere), reusing
-  MuJoCo's math via a drift-gated lifted-code registry
+- **Mjs path** — builds a throwaway `mjSpec` and calls `mj_compile`; the default (`Auto`)
+  route, held bit-identical to the XML path by the standing `ps_path_diff` fixture gate
+
+(A third, raw ProtoSpec→`mjModel` native compiler — no `mjSpec`/`mjs_*` anywhere — is
+parked under `attic/compile/` and is off the default build.)
 
 Verified against every model in the MuJoCo repository: the XML round-trip compiles
-**359/387** corpus files bit-identical to a direct load; the native path compiles **201/387**
-bit-identical to the XML path (self-arming ratchet — regressions fail CI). The remaining
+**376/387** corpus files bit-identical to a direct load. The remaining
 corpus files are enumerated skips/fallbacks with written reasons, tracked in the plans below.
 
 Also here: **ProtoSpec Studio** (`studio`) — an interactive editor (Unity/Unreal idiom:

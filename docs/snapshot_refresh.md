@@ -2,7 +2,7 @@
 
 The generator does **not** parse MuJoCo's C/C++ sources directly. Instead, one-shot
 extractors under `tools/bootstrap/` lift the facts we depend on out of a MuJoCo source
-checkout into JSON snapshots under `snapshots/`, and the rest of the pipeline
+checkout into JSON snapshots under `protospec/snapshots/`, and the rest of the pipeline
 (`protospec/schema/mujoco.spec`, the drafting tools, the tests) reads those snapshots. This keeps
 the build reproducible and free of a MuJoCo source dependency.
 
@@ -23,7 +23,7 @@ unset they skip and collection still succeeds.
 
 ## Regenerate the JSON snapshots
 
-Each extractor takes `--mujoco-src` and writes its default snapshot under `snapshots/`:
+Each extractor takes `--mujoco-src` and writes its default snapshot under `protospec/snapshots/`:
 
 ```bash
 # mjspec.h field inventory  -> snapshots/mjspec_fields.json

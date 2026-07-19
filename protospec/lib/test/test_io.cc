@@ -1,7 +1,7 @@
 // MJCF IO tests: fixpoint round-trips plus a quirk-by-quirk battery over
 // embedded snippets and the matching negative cases. The reader/writer are
 // exercised end to end; the differential-against-MuJoCo dimension belongs to the
-// harness (cpp/harness/, separate owner).
+// harness (protospec/lib/harness/, separate owner).
 
 #include <chrono>
 #include <cmath>

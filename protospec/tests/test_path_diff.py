@@ -87,6 +87,68 @@ BUILD_PS_LIB = _build_ps_lib()
 MJ_INCLUDE = _mj_include()
 CXX = os.environ.get("CXX", "g++")
 
+# First-party engine plugins (must match harness/plugin_registry.cc). They are
+# NOT dependencies of the default studio build target, so a cmake reconfigure
+# quietly drops their .so's from build_ps/lib and every <extension>-bearing
+# fixture then fails with an opaque "unknown plugin" compile error. Guard that
+# here: try to rebuild just the plugin targets, else skip those fixtures with a
+# reason that says what happened.
+PLUGIN_LIBS = ("elasticity", "sdf_plugin", "sensor", "actuator")
+
+
+def _missing_plugin_libs() -> list[str]:
+    if BUILD_PS_LIB is None:
+        return list(PLUGIN_LIBS)
+    return [
+        n
+        for n in PLUGIN_LIBS
+        if not (
+            (BUILD_PS_LIB / f"lib{n}.so").is_file()
+            or (BUILD_PS_LIB / f"{n}.dll").is_file()
+            or (BUILD_PS_LIB / f"lib{n}.dylib").is_file()
+        )
+    ]
+
+
+@pytest.fixture(scope="session")
+def plugin_libs_ready() -> bool:
+    """True when all four first-party plugin libs sit in BUILD_PS_LIB.
+
+    If any are missing, attempt a targeted ``cmake --build`` of just the plugin
+    targets in the studio build tree (cheap; they have no dependency on the
+    monolithic studio exe). Returns False when they still cannot be found so
+    plugin-bearing tests can skip with an actionable reason.
+    """
+    if not _missing_plugin_libs():
+        return True
+    build_dir = BUILD_PS_LIB.parent if BUILD_PS_LIB is not None else None
+    if (
+        build_dir is not None
+        and (build_dir / "CMakeCache.txt").is_file()
+        and shutil.which("cmake")
+    ):
+        subprocess.run(
+            ["cmake", "--build", str(build_dir), "--target", *PLUGIN_LIBS],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    return not _missing_plugin_libs()
+
+
+def _needs_plugins(model: Path) -> bool:
+    """A fixture needs the engine plugins iff it declares an <extension> block."""
+    try:
+        return "<extension" in model.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+
+PLUGIN_SKIP_REASON = (
+    "first-party plugin libs missing from build_ps/lib and targeted "
+    f"auto-build failed (targets: {', '.join(PLUGIN_LIBS)})"
+)
+
 
 def _skip_reason() -> str:
     if shutil.which(CXX) is None:
@@ -169,8 +231,10 @@ def _run(exe: Path, *args: str) -> subprocess.CompletedProcess:
 # --------------------------------------------------------------------------- #
 @pytest.mark.skipif(not FIXTURE_FILES, reason="no pathdiff fixtures found")
 @pytest.mark.parametrize("model", FIXTURE_FILES, ids=FIXTURE_IDS or ["<none>"])
-def test_identity_fixture(ps_path_diff: Path, model: Path):
+def test_identity_fixture(ps_path_diff: Path, model: Path, plugin_libs_ready: bool):
     """XmlPath vs XmlPath must be bit-identical for every fixture."""
+    if _needs_plugins(model) and not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
     r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "XmlPath", str(model))
     assert r.returncode == 0, f"identity diff FAILED:\n{r.stdout}\n{r.stderr}"
     # Per-model verdict lines start with PASS/FAIL; the trailing summary line
@@ -181,20 +245,24 @@ def test_identity_fixture(ps_path_diff: Path, model: Path):
 
 @pytest.mark.skipif(not FIXTURE_FILES, reason="no pathdiff fixtures found")
 @pytest.mark.parametrize("model", FIXTURE_FILES, ids=FIXTURE_IDS or ["<none>"])
-def test_mjs_parity_fixture(ps_path_diff: Path, model: Path):
+def test_mjs_parity_fixture(ps_path_diff: Path, model: Path, plugin_libs_ready: bool):
     """XmlPath vs MjsPath must be bit-identical for every fixture: the mjSpec
     shim (CompilePath::MjsPath) compiles the same model to the same mjModel the
     XML oracle does. Any divergence is a builder bug (mjs_builder.cc)."""
+    if _needs_plugins(model) and not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
     r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(model))
     assert r.returncode == 0, f"mjs parity diff FAILED:\n{r.stdout}\n{r.stderr}"
     assert any(l.startswith("PASS") for l in r.stdout.splitlines()), r.stdout
     assert not any(l.startswith("FAIL") for l in r.stdout.splitlines()), r.stdout
 
 
-def test_whole_corpus_mjs_parity_one_shot(ps_path_diff: Path):
+def test_whole_corpus_mjs_parity_one_shot(ps_path_diff: Path, plugin_libs_ready: bool):
     """One invocation over the whole fixture dir: XmlPath vs MjsPath, all PASS."""
     if not FIXTURE_FILES:
         pytest.skip("no pathdiff fixtures found")
+    if not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
     r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(FIXTURES))
     assert r.returncode == 0, r.stdout + r.stderr
     assert f"{len(FIXTURE_FILES)} PASS, 0 FAIL" in r.stdout, r.stdout
@@ -202,26 +270,32 @@ def test_whole_corpus_mjs_parity_one_shot(ps_path_diff: Path):
 
 @pytest.mark.skipif(not FIXTURE_FILES, reason="no pathdiff fixtures found")
 @pytest.mark.parametrize("model", FIXTURE_FILES, ids=FIXTURE_IDS or ["<none>"])
-def test_against_stock_fixture(ps_path_diff: Path, model: Path):
+def test_against_stock_fixture(ps_path_diff: Path, model: Path, plugin_libs_ready: bool):
     """ProtoSpec XmlPath must match stock mj_loadXML of the original file."""
+    if _needs_plugins(model) and not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
     r = _run(ps_path_diff, "--against-stock", str(model))
     assert r.returncode == 0, f"against-stock diff FAILED:\n{r.stdout}\n{r.stderr}"
     assert any(l.startswith("PASS") for l in r.stdout.splitlines()), r.stdout
     assert not any(l.startswith("FAIL") for l in r.stdout.splitlines()), r.stdout
 
 
-def test_whole_corpus_identity_one_shot(ps_path_diff: Path):
+def test_whole_corpus_identity_one_shot(ps_path_diff: Path, plugin_libs_ready: bool):
     """One invocation over the whole fixture dir: every model PASSes, exit 0."""
     if not FIXTURE_FILES:
         pytest.skip("no pathdiff fixtures found")
+    if not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
     r = _run(ps_path_diff, str(FIXTURES))
     assert r.returncode == 0, r.stdout + r.stderr
     assert f"{len(FIXTURE_FILES)} PASS, 0 FAIL" in r.stdout, r.stdout
 
 
-def test_whole_corpus_against_stock_one_shot(ps_path_diff: Path):
+def test_whole_corpus_against_stock_one_shot(ps_path_diff: Path, plugin_libs_ready: bool):
     if not FIXTURE_FILES:
         pytest.skip("no pathdiff fixtures found")
+    if not plugin_libs_ready:
+        pytest.skip(PLUGIN_SKIP_REASON)
     r = _run(ps_path_diff, "--against-stock", str(FIXTURES))
     assert r.returncode == 0, r.stdout + r.stderr
     assert f"{len(FIXTURE_FILES)} PASS, 0 FAIL" in r.stdout, r.stdout

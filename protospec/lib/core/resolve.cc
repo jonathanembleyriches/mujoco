@@ -6,7 +6,7 @@
 // mjuu_* dependencies). This module is MuJoCo-free (no mujoco.h) so the reader
 // (protospec_io) can canonicalize orientation/inertia at parse end without
 // linking MuJoCo (plan.md Section 3 core/resolve). The mjuu_* helpers are a
-// self-contained copy of the same functions in cpp/compile/lifted/mjuu_util.cc;
+// self-contained copy of the same functions in attic/compile/lifted/mjuu_util.cc;
 // they carry no state and are drift-gated against the upstream originals.
 #include "resolve.h"
 

@@ -19,8 +19,7 @@ Paths below use two placeholders — substitute your checkouts:
 | `<protospec>/attic/studio_host/test/` | The 8 editor test batteries — parked with the pre-plugin standalone host (see `attic/studio_host/README.md`); worth re-pointing at the plugin shape someday. |
 | `<protospec>/attic/studio_host/platform/ux/{plugin,ps_plugin_ext}.h` | The old standalone `ps::studio` plugin structs — parked; stale against the 4-type retarget. |
 | `<studio>/.../protospec/platform/ux/*.h` | Fork host shims mapping the ps::studio plugin names onto the real `mujoco::platform` registry. |
-| `<studio>/.../protospec/host/shell.{cc,h}` | Host-only SE4 shell (File/Edit menu, transform toolbar, Play/Stop bridge). |
-| `<studio>/.../studio/main.cc` | Fork entry point; registers the editor cluster + host shell under `MUJOCO_STUDIO_PROTOSPEC`. |
+| `<studio>/.../studio/main.cc` | Fork entry point; registers the editor cluster (the four upstream plugin types; the old host shell collapsed into the editor's own panels) under `MUJOCO_STUDIO_PROTOSPEC`. |
 
 ## Prerequisites
 

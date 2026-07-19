@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Buildable both standalone (`cmake -S cpp/harness`) and as a subdirectory of
+# Buildable both standalone (`cmake -S protospec/lib/harness`) and as a subdirectory of
 # the root project (which does add_subdirectory(harness) once this file exists).
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(protospec_harness CXX)

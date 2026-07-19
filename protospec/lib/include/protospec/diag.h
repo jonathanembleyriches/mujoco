@@ -1,7 +1,7 @@
 // ProtoSpec diagnostics: one structured finding shape shared by every layer.
 //
-// The MJCF reader/writer (cpp/io), the validator (cpp/validate), and the compile
-// bridge (cpp/bridge) all raise findings with the same fields, so a front-end
+// The MJCF reader/writer (protospec/lib/io), the validator (protospec/lib/validate),
+// and the compile bridge (protospec/lib/compile) all raise findings with the same fields, so a front-end
 // handles errors uniformly and diagnostics flow across layers without
 // hand-translation. `source` names the producing pass/layer ("parse", "write",
 // "validate", "serialize", "load", "bind", ...). Layer-specific classification

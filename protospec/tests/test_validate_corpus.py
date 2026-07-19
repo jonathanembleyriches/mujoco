@@ -24,7 +24,7 @@ only files allowed to exit 2, each with a reviewed reason (silence is not
 allowed, matching the corpus-coverage gate's KNOWN_GAPS convention).
 
 Discovery mirrors ``test_differential.py``: the binary is found via the
-``PS_VALIDATE`` env var or an ``rglob`` under ``cpp/**``; the corpus root via
+``PS_VALIDATE`` env var or an ``rglob`` under ``protospec/lib/**``; the corpus root via
 ``PROTOSPEC_CORPUS`` or the vendored plugin path. Absent either, the module
 skips wholesale.
 """

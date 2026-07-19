@@ -14,8 +14,8 @@
 //
 // The compile bridge lives directly in `ps::mjcf` (there is no `bridge`
 // sub-namespace): a consumer writes `ps::mjcf::Compile`, `ps::mjcf::Binding`,
-// `ps::mjcf::PosePatch`, etc. `cpp/bridge` and `cpp/compile` are the
-// implementation directories, not a namespace a consumer names.
+// `ps::mjcf::PosePatch`, etc. `protospec/lib/compile` is the
+// implementation directory, not a namespace a consumer names.
 #ifndef PROTOSPEC_PUBLIC_COMPILE_H
 #define PROTOSPEC_PUBLIC_COMPILE_H
 

@@ -1,6 +1,6 @@
 // ProtoSpec Python module: the top-level `protospec` extension.
 //
-// Ties the generated typed element classes (cpp/python/generated) to the
+// Ties the generated typed element classes (protospec/lib/python/generated) to the
 // hand-written surface the owner drives from Python:
 //   * IO           load / loads / write / save
 //   * validation   validate(model, tiers) -> list of diagnostic dicts

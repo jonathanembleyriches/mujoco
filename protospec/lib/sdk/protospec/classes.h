@@ -136,7 +136,7 @@ inline std::vector<mj::ElementType> DefaultFamilyCoverageGaps() {
 // --- Shared class-layering surface (ps::sdk::internal) -------------------- //
 // The <default> class index and class-name resolution the in-tree native
 // compiler shares with the SDK (contract in model_core.h: changes update both
-// cpp/sdk and cpp/compile). These live in classes.h rather than model_core.h
+// protospec/lib/sdk and protospec/lib/compile). These live in classes.h rather than model_core.h
 // because ResolveClassName is defined over ParentMap (traversal.h), which sits
 // above model_core in the include order.
 

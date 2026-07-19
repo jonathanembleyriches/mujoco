@@ -1,7 +1,7 @@
 // ProtoSpec: shared model-core machinery (ps::sdk::internal).
 //
 // This is the internal seam SHARED between the ProtoSpec SDK's public verbs and
-// the in-tree native compiler (cpp/compile/{native,build}.cc). It is NOT a
+// the native compiler (parked: attic/compile/{native,build}.cc). It is NOT a
 // stable public surface -- external consumers program against the public verbs
 // aggregated in sdk.h (Name, WalkModel, WalkSubtree, Rename, ...). But unlike
 // detail.h (genuinely private to the SDK), this header is a real, named contract
@@ -11,7 +11,7 @@
 //
 // CONTRACT: any change to a symbol here must update BOTH consumers in the same
 // change -- the SDK headers (traversal.h / refs.h / classes.h / attach.h /
-// builders.h) and cpp/compile. It carries no compatibility guarantee beyond
+// builders.h) and protospec/lib/compile. It carries no compatibility guarantee beyond
 // that; it is not versioned and not exported.
 //
 // The object model is plain owned values (DR-2) with a generated Visit(elem, V)
