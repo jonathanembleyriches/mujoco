@@ -24,8 +24,10 @@ def _find_exe() -> Path | None:
     env = os.environ.get("PROTOSPEC_STUDIO_EXE")
     if env and Path(env).is_file():
         return Path(env)
+    # The standalone host is parked under attic/studio_host/ (pre-plugin, off the
+    # default build); this smoke test skips cleanly unless that host is built.
     matches = sorted(
-        (ROOT / "apps" / "studio").rglob("protospec_studio.exe"),
+        (ROOT / "attic" / "studio_host").rglob("protospec_studio.exe"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -52,7 +54,7 @@ CORPUS_ROOT = _corpus_root()
 
 pytestmark = pytest.mark.skipif(
     STUDIO_EXE is None,
-    reason="protospec_studio.exe not built (cmake --build apps/studio/build)",
+    reason="protospec_studio.exe not built (parked host: attic/studio_host/)",
 )
 
 

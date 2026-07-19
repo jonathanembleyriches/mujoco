@@ -2,11 +2,10 @@
 
 ## Studio (interactive editor)
 
-```bash
-cmake -S studio -B studio/build -G "Visual Studio 17 2022"
-cmake --build studio/build --config Release
-studio/build/Release/protospec_studio.exe path\to\model.xml   # or drag-drop a file
-```
+The editor is a plugin for the real MuJoCo Studio app (Filament) — see
+[docs/studio_build.md](docs/studio_build.md) for the fork build. (The old
+standalone SDL2 host is parked at `attic/studio_host/`, pre-plugin and stale.)
+Once running, the editor UX is:
 
 Edit mode (default, paused at the spec pose): click to select, **W/E/R** translate/rotate/
 scale gizmos, **Q** select, **F** frame selection, Local/World + snap in the toolbar.

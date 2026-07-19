@@ -74,9 +74,15 @@ def _headers(root):
     out = []
     for base, _, names in os.walk(os.path.join(REPO_ROOT, root)):
         # Skip build trees, VCS, and provenance snapshots (frozen upstream copies
-        # under */snapshots/ are reference data, not buildable source).
+        # under */snapshots/ are reference data, not buildable source). Also skip
+        # the parked standalone host (attic/studio_host/): it is a self-contained
+        # application whose sources legitimately include their own editor/ host/
+        # platform/ relative paths -- it depends on the editor by design, which is
+        # exactly what R2 forbids for the *reusable* library/native-compiler, not
+        # for a parked host app. It is off the default build.
         if ("__pycache__" in base or f"{os.sep}build" in base
-                or f"{os.sep}.git" in base or f"{os.sep}snapshots" in base):
+                or f"{os.sep}.git" in base or f"{os.sep}snapshots" in base
+                or f"{os.sep}studio_host" in base):
             continue
         for n in names:
             if n.endswith((".cc", ".cpp", ".h", ".hpp")):

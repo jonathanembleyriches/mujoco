@@ -12,11 +12,12 @@ uv run python attic/tools/lift_registry.py check
 
 ## ProtoSpec Studio (the MuJoCo Studio fork)
 
-One source for the editor: `studio/editor/` + `studio/test/`. Two hosts
-consume it — no copies:
+One source for the editor: `studio/editor/`. The editor is now purely a plugin;
+the fork is its only live host:
 
-- **Standalone** `studio/` — thin SDL2 + classic-renderer host. Builds the
-  editor and the 8 test batteries; this is the CI / ASan surface.
+- **Standalone** — PARKED at `attic/studio_host/` (host + `platform/` + the 8 test
+  batteries at `attic/studio_host/test/`). Pre-plugin; stale against the 4-type
+  retarget. See `attic/studio_host/README.md`.
 - **Fork** `mujoco-studio` (branch `studio`) — the real MuJoCo Studio app (Filament).
   Compiles the editor + ProtoSpec core live from this repo via `PROTOSPEC_ROOT`
   (the live repo, not a snapshot). It keeps only host glue: the `platform/ux` plugin

@@ -104,17 +104,12 @@ save session (paths in TRYME are Windows; the Python API is identical on every O
 
 ### Studio (the interactive editor)
 
-Two hosts consume one editor source (`studio/`):
+The editor (`studio/editor/`) is now purely a plugin; the MuJoCo Studio fork is its
+only live host:
 
-- **Standalone shell** — SDL2 + classic OpenGL renderer, the CI/test surface. Builds anywhere:
-
-  ```sh
-  cmake -S studio -B studio/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-        -DMUJOCO_ROOT=/path/to/mujoco
-  cmake --build studio/build
-  ctest --test-dir studio/build --output-on-failure    # 8 windowless batteries
-  ./studio/build/protospec_studio "/path/to/model.xml"  # .exe on Windows
-  ```
+- **Standalone shell** — PARKED at `attic/studio_host/` (SDL2 + classic OpenGL renderer,
+  plus the 8 windowless test batteries). It predates the plugin arrangement and is stale
+  against the 4-type plugin retarget; see `attic/studio_host/README.md`.
 
 - **Real MuJoCo Studio (Filament)** — the full-featured app, on the `studio` branch of the
   MuJoCo fork; it compiles this repo's editor live via `PROTOSPEC_ROOT`. Because it builds

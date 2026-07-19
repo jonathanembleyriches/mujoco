@@ -1321,7 +1321,7 @@
       "line_span": "1-603",
       "content_hash": "493c4dafaf33d8c7203217a3edca752a57aa03edc14c0794fc51623a98252ace",
       "snapshot": "attic/snapshots/lifted_upstream/interaction.cc",
-      "local_path": "studio/platform/ux/interaction.cc",
+      "local_path": "attic/studio_host/platform/ux/interaction.cc",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
     },
@@ -1332,7 +1332,7 @@
       "line_span": "1-85",
       "content_hash": "f27589016eb57384783d5838ea5b39cc984f05f5a835d0dc9ac523fa3d2e6a55",
       "snapshot": "attic/snapshots/lifted_upstream/interaction.h",
-      "local_path": "studio/platform/ux/interaction.h",
+      "local_path": "attic/studio_host/platform/ux/interaction.h",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
     },
@@ -1343,7 +1343,7 @@
       "line_span": "1-127",
       "content_hash": "6dbff186d4fb9108f53c81e3265a6759b789b013ee281fe9173fad2e7943a9df",
       "snapshot": "attic/snapshots/lifted_upstream/plugin.h",
-      "local_path": "studio/platform/ux/plugin.h",
+      "local_path": "attic/studio_host/platform/ux/plugin.h",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
     },
@@ -1354,7 +1354,7 @@
       "line_span": "1-374",
       "content_hash": "2cf2eed2c3b04537ac4329ef79a3d547663f8808ad44e70bcd94dec89569a9d8",
       "snapshot": "attic/snapshots/lifted_upstream/renderer.cc",
-      "local_path": "studio/platform/hal/renderer.cc",
+      "local_path": "attic/studio_host/platform/hal/renderer.cc",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
     },
@@ -1365,7 +1365,7 @@
       "line_span": "1-131",
       "content_hash": "740a42bf368bcab4eb1572d6b53b86fb2d77684b9deb3ccd89b75c52ac3b86b2",
       "snapshot": "attic/snapshots/lifted_upstream/renderer.h",
-      "local_path": "studio/platform/hal/renderer.h",
+      "local_path": "attic/studio_host/platform/hal/renderer.h",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
     },
@@ -1376,7 +1376,7 @@
       "line_span": "1-253",
       "content_hash": "d3da46c3c4d7243127f1b2413b7c144f6b949e4c615bb007cf788fe2d777f5ce",
       "snapshot": "attic/snapshots/lifted_upstream/step_control.cc",
-      "local_path": "studio/platform/sim/step_control.cc",
+      "local_path": "attic/studio_host/platform/sim/step_control.cc",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
     },
@@ -1387,7 +1387,7 @@
       "line_span": "1-128",
       "content_hash": "f54b2cac2f695a42e15af291841fddb8faa74e32e856181f129edb2b74f07abe",
       "snapshot": "attic/snapshots/lifted_upstream/step_control.h",
-      "local_path": "studio/platform/sim/step_control.h",
+      "local_path": "attic/studio_host/platform/sim/step_control.h",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio)"
     },
@@ -1398,7 +1398,7 @@
       "line_span": "1-280",
       "content_hash": "5c08ef6f134bb2dad3ed401008c1fc6b5c0648a8968b639888a39cdd2c26a427",
       "snapshot": "attic/snapshots/lifted_upstream/window.cc",
-      "local_path": "studio/platform/hal/window.cc",
+      "local_path": "attic/studio_host/platform/hal/window.cc",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
     },
@@ -1409,7 +1409,7 @@
       "line_span": "1-111",
       "content_hash": "68a4d843fe4d8f0314408e593e96657ce899e7db98d6c47fa22ce461f0f36393",
       "snapshot": "attic/snapshots/lifted_upstream/window.h",
-      "local_path": "studio/platform/hal/window.h",
+      "local_path": "attic/studio_host/platform/hal/window.h",
       "lifted": "2026-07-13",
       "notes": "SE0 thin-shell vendor (adapted to ps::studio, classic-only)"
     },
