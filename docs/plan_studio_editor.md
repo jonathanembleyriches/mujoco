@@ -209,12 +209,12 @@ one function.
 
 ## 7. Where the code lives, what it builds against
 
-**DR-S4: `apps/studio/` in the protospec repo.** Vendored thin-shell sources (~2-3k lines:
+**DR-S4: `studio/` in the protospec repo.** Vendored thin-shell sources (~2-3k lines:
 hal window/renderer, step control, pick math) with provenance headers + lift-registry
 entries so MuJoCo bumps diff cleanly; the editor itself is new code under
-`apps/studio/editor/`. Builds against protospec libs + prebuilt `mujoco.lib` via
+`studio/editor/`. Builds against protospec libs + prebuilt `mujoco.lib` via
 `MUJOCO_ROOT` (+ vendored `src/` includes for the pick math's engine headers — same
-situation as `cpp/harness`). FetchContent: SDL2, Dear ImGui (docking, Studio's pinned
+situation as `protospec/lib/harness`). FetchContent: SDL2, Dear ImGui (docking, Studio's pinned
 commit), ImPlot.
 
 **DR-S5: classic `mjr` renderer first.** Filament(+webp) is the heaviest dependency
@@ -239,7 +239,7 @@ surface). USD, WASM, keyframe timeline, CoACD decomposition on import.
 
 ## 10. Milestones
 
-- **SE0 — thin shell.** `apps/studio` builds standalone: window+imgui+classic renderer+
+- **SE0 — thin shell.** `studio` builds standalone: window+imgui+classic renderer+
   step control+pick math vendored, none of the old editor code. Loads a corpus model via
   `ParseMjcf`+`Compile` (ProtoSpec from day one — no temporary mjSpec loading), renders,
   simulates, ray-pick prints the hit element. Exit: humanoid loads, runs, picks.

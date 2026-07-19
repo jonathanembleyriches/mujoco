@@ -8,7 +8,7 @@ notice.
 
 ## The public include set
 
-A consumer adds `cpp/include` and the relevant subsystem include roots to its
+A consumer adds `protospec/lib/include` and the relevant subsystem include roots to its
 include path (all four existing consumers already do) and includes **only** the
 `<protospec/...>` umbrella headers below. Each umbrella re-exports the supported
 types from the implementation headers; the implementation headers are internal.
@@ -25,8 +25,8 @@ types from the implementation headers; the implementation headers are internal.
 | `protospec/save.h` | Model persistence: `ps::sdk::{Save, SaveAs, ExternalizeAssets, ModelAssetDir, InMemoryAsset}` | `protospec_sdk_io` |
 | `protospec/protospec.h` | All of the above in one include (links the whole library + MuJoCo) | all |
 
-`protospec/sdk.h` and `protospec/save.h` physically live under `cpp/sdk/protospec/`
-(the SDK's own include root); the rest live under `cpp/include/protospec/`. Both
+`protospec/sdk.h` and `protospec/save.h` physically live under `protospec/lib/sdk/protospec/`
+(the SDK's own include root); the rest live under `protospec/lib/include/protospec/`. Both
 resolve as `protospec/<name>.h`.
 
 ### Namespace scheme (final)
@@ -41,8 +41,8 @@ resolve as `protospec/<name>.h`.
 | `ps::sdk` | The ergonomic authoring layer over `ps::mjcf` |
 
 The compile bridge is **not** a consumer-facing namespace: it is written as
-`ps::mjcf::Compile` / `ps::mjcf::Binding`, never `ps::mjcf::bridge::...`. `cpp/bridge`
-and `cpp/compile` are the implementation directories behind it, not a namespace a
+`ps::mjcf::Compile` / `ps::mjcf::Binding`, never `ps::mjcf::bridge::...`. `protospec/lib/compile`
+and `attic/compile` are the implementation directories behind it, not a namespace a
 consumer names. Nested `detail` namespaces (`ps::mjcf::detail`, `ps::sdk::detail`,
 ...), the SDK/compiler shared core `ps::sdk::internal`, and the internal headers
 below are **not** public.
@@ -50,7 +50,7 @@ below are **not** public.
 ## Hello world (public headers only)
 
 Load → edit → validate → compile → step → save, touching nothing internal. This
-is exactly what `cpp/test/test_public_api.cc` compiles and runs.
+is exactly what `protospec/lib/test/test_public_api.cc` compiles and runs.
 
 ```cpp
 #include <mujoco/mujoco.h>          // the simulation engine YOU bring
@@ -105,24 +105,24 @@ int main() {
 The include graph makes the boundary unambiguous: if it is not a
 `<protospec/...>` umbrella header, it is internal.
 
-- **Generated headers** — `cpp/generated/{types,keywords,defaults,reflect,visit,xml_binding}.h`.
+- **Generated headers** — `protospec/lib/generated/{types,keywords,defaults,reflect,visit,xml_binding}.h`.
   The object model and its value/reflection ops. Reach them through
   `protospec/model.h` and `protospec/reflect.h`, never directly. (These are
   emitted by `protospec_gen`; the umbrellas are the stable façade over them.)
-- **IO internals** — `cpp/io/{numeric,include,defaults}.h`.
-- **Validate internals** — `cpp/validate/sizes.h`.
-- **Compile internals** — `cpp/compile/**` (native compiler, build, lifted MuJoCo
-  code) and `cpp/core/resolve.h`. The supported compile surface is
+- **IO internals** — `protospec/lib/io/{numeric,include,defaults}.h`.
+- **Validate internals** — `protospec/lib/validate/sizes.h`.
+- **Compile internals** — `attic/compile/**` (native compiler, build, lifted MuJoCo
+  code) and `protospec/lib/core/resolve.h`. The supported compile surface is
   `protospec/compile.h` only.
-- **SDK internals** — `cpp/sdk/protospec/detail.h` (`ps::sdk::detail::*`):
+- **SDK internals** — `protospec/lib/sdk/protospec/detail.h` (`ps::sdk::detail::*`):
   genuinely SDK-private reflection helpers (type-erased element `Handle`, the
   union/ref-accepts descriptors, MuJoCo name-category folding, the dynamic-keyword
-  table and its drift guard). No in-tree consumer outside `cpp/sdk` refers to a
+  table and its drift guard). No in-tree consumer outside `protospec/lib/sdk` refers to a
   symbol that stays private here. Its broadly-useful primitives are re-exported as
   public `ps::sdk` verbs (see below).
-- **SDK / compiler shared core** — `cpp/sdk/protospec/model_core.h`
+- **SDK / compiler shared core** — `protospec/lib/sdk/protospec/model_core.h`
   (`ps::sdk::internal::*`): the generic tree machinery the SDK's public verbs AND
-  the in-tree native compiler (`cpp/compile/{native,build}.cc`) both program
+  the in-tree native compiler (`attic/compile/{native,build}.cc`) both program
   against — the whole-tree walk, name access, reference-shape traits, per-field
   probes, ref-target sets, the reference prefixer, plus the `<default>` class
   index / class-name resolution (the last defined in `classes.h`, over
@@ -268,10 +268,10 @@ deferred — `PosePatch` moves a light's position; its direction is left as auth
 
 Four independent builds consume this surface; all stay green:
 
-- `cpp/CMakeLists.txt` — the library + tests (`ctest`), including the new
+- `protospec/lib/CMakeLists.txt` — the library + tests (`ctest`), including the new
   `protospec_public_api_tests` that includes only the umbrella headers.
-- `cpp/python/` — the pybind module (compiles the sources directly).
-- `apps/studio/` — the standalone editor host (compiles the sources directly).
+- `protospec/lib/python/` — the pybind module (compiles the sources directly).
+- `studio/` — the standalone editor host (compiles the sources directly).
 - The MuJoCo Studio fork — compiles the editor + core live from this repo via
   `PROTOSPEC_ROOT` (see `docs/studio_build.md`).
 
@@ -280,6 +280,6 @@ The umbrella headers reach their implementation headers by **repo-relative path*
 every one of these builds without new `-I` entries.
 
 The compile surface was hoisted from `ps::mjcf::bridge` up to `ps::mjcf` as a real
-rename (no compatibility aliases): the definitions in `cpp/bridge` and every caller
-across `cpp/**`, `cpp/python`, `apps/studio`, and the fork were updated in lockstep,
+rename (no compatibility aliases): the definitions in `protospec/lib/compile` and every caller
+across `protospec/lib/**`, `protospec/lib/python`, `studio`, and the fork were updated in lockstep,
 so `ps::mjcf::bridge` no longer exists anywhere. `ps::mjcf::Compile` is the name.

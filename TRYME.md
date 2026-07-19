@@ -3,9 +3,9 @@
 ## Studio (interactive editor)
 
 ```bash
-cmake -S apps/studio -B apps/studio/build -G "Visual Studio 17 2022"
-cmake --build apps/studio/build --config Release
-apps/studio/build/Release/protospec_studio.exe path\to\model.xml   # or drag-drop a file
+cmake -S studio -B studio/build -G "Visual Studio 17 2022"
+cmake --build studio/build --config Release
+studio/build/Release/protospec_studio.exe path\to\model.xml   # or drag-drop a file
 ```
 
 Edit mode (default, paused at the spec pose): click to select, **W/E/R** translate/rotate/
@@ -22,15 +22,15 @@ Build the `protospec` extension (pybind11 + MuJoCo, from the repo's uv venv):
 
 ```bash
 uv sync                                         # installs pybind11 + numpy (dev deps)
-cmake -S cpp/python -B cpp/python/build         # finds the venv Python + pybind11 + MuJoCo
-cmake --build cpp/python/build --config Release  # -> cpp/python/build/Release/protospec.*.pyd (+ mujoco.dll)
+cmake -S protospec/lib/python -B protospec/lib/python/build         # finds the venv Python + pybind11 + MuJoCo
+cmake --build protospec/lib/python/build --config Release  # -> protospec/lib/python/build/Release/protospec.*.pyd (+ mujoco.dll)
 ```
 
 Then, from the repo root, `uv run python`:
 
 ```python
 import os, sys
-d = os.path.abspath("cpp/python/build/Release")   # Linux: "cpp/python/build"
+d = os.path.abspath("protospec/lib/python/build/Release")   # Linux: "protospec/lib/python/build"
 os.add_dll_directory(d); sys.path.insert(0, d)    # (add_dll_directory is Windows-only)
 import protospec as ps
 

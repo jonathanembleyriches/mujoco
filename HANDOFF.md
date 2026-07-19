@@ -4,18 +4,18 @@ Thin index; the living state lives in the STATUS tables of the plan docs. Verify
 
 ```
 uv run pytest                                     # ~1660 passed
-ctest --test-dir cpp/build -C Release             # 6/6
-ctest --test-dir apps/studio/build -C Release     # 8/8
+ctest --test-dir protospec/lib/build -C Release             # 6/6
+ctest --test-dir studio/build -C Release     # 8/8
 uv run python -m protospec_gen.emit --check
-uv run python tools/lift_registry.py check
+uv run python attic/tools/lift_registry.py check
 ```
 
 ## ProtoSpec Studio (the MuJoCo Studio fork)
 
-One source for the editor: `apps/studio/editor/` + `apps/studio/test/`. Two hosts
+One source for the editor: `studio/editor/` + `studio/test/`. Two hosts
 consume it — no copies:
 
-- **Standalone** `apps/studio/` — thin SDL2 + classic-renderer host. Builds the
+- **Standalone** `studio/` — thin SDL2 + classic-renderer host. Builds the
   editor and the 8 test batteries; this is the CI / ASan surface.
 - **Fork** `mujoco-studio` (branch `studio`) — the real MuJoCo Studio app (Filament).
   Compiles the editor + ProtoSpec core live from this repo via `PROTOSPEC_ROOT`
@@ -29,9 +29,9 @@ Build dir: `C:\Users\jonat\Documents\mujoco-studio\build_ps`
 (`PROTOSPEC_ROOT=C:/Users/jonat/Documents/protospec`). Exact commands, run, and
 self-screenshot in `docs/studio_build.md`. On the live core, humanoid.xml takes the
 fast native compile path (`path=native`); verify with
-`cpp/build/Release/ps_compile.exe <model.xml>` -> `"path_taken": "native"`.
+`protospec/lib/build/Release/ps_compile.exe <model.xml>` -> `"path_taken": "native"`.
 
-## SDK save surface (cpp/sdk/protospec/save.h)
+## SDK save surface (protospec/lib/sdk/protospec/save.h)
 
 First-class model persistence on the SDK (previously only the studio could save):
 
@@ -49,8 +49,8 @@ First-class model persistence on the SDK (previously only the studio could save)
   deep-equal `operator==` + byte-fixpoint) and `TestSaveAsExternalizesAssets`
   (in-memory bytes -> file under meshdir, byte-exact, list drained, reload parses
   + mesh resolves). `protospec_sdk_tests` needs `/bigobj` now.
-- **FOLLOW-UP (editor agent, apps/studio):** point `ExternalizeVfsAssets`
-  (apps/studio/editor/asset_import.cc) at the shared impl — loop
+- **FOLLOW-UP (editor agent, studio):** point `ExternalizeVfsAssets`
+  (studio/editor/asset_import.cc) at the shared impl — loop
   `sdk::WriteAssetFile(sdk::ModelAssetDir(*ctx.tree, xml), a.name, a.bytes.data(),
   a.bytes.size())` over `ctx.vfs_assets` (zero-copy; `bridge::VfsAsset` has the
   same `.name`/`.bytes` shape), then keep the studio-only `vfs_assets.clear()` +
@@ -59,7 +59,7 @@ First-class model persistence on the SDK (previously only the studio could save)
 
 ## ASan (tools/run_asan.ps1 + .sh; `pytest -m asan`)
 
-Separate instrumented tree in `cpp/build_asan` (never touches `cpp/build`):
+Separate instrumented tree in `protospec/lib/build_asan` (never touches `protospec/lib/build`):
 `cmake -DCMAKE_CXX_FLAGS="/fsanitize=address /Zi" -DCMAKE_TRY_COMPILE_CONFIGURATION=Release`
 (the last flag keeps `/RTC1`, incompatible with ASan, out of CMake's Debug-default
 compiler probe). The clang_rt ASan runtime DLL is copied beside the test exes
@@ -82,12 +82,12 @@ across the 4 instrumented suites (676 checks) + 60 diverse corpus files under
 
 1. **Never integrate anything into UnrealRoboticsLab.** This repo stays standalone.
 2. **No mjSpec/mjs_*/mjC* in the native path or the editor.** Reuse = public API + lifted code
-   (registered in `snapshots/lifted_code.json`, drift-gated).
+   (registered in `attic/snapshots/lifted_code.json`, drift-gated).
 3. **Compile is pure; Binding is a snapshot object** (no mutation counter — rejected; see
-   `cpp/bridge/binding.h`).
+   `protospec/lib/compile/binding.h`).
 4. **Zero-divergence discipline**: native claims require bit-identity vs the XML path
    (`tests/native_ratchet.json` is the floor); descopes need written reasons (gates in
-   `cpp/compile/native.cc`).
+   `attic/compile/native.cc`).
 5. **Minimal representation**: typed semantics preserved (actuator/equality spellings);
    redundant encodings canonicalized at read (orientation → quat decided; inventory in
    `docs/plan_canonicalization.md`). Joint angle fields stay authored-form (per-consumer
@@ -159,7 +159,7 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
    authored content_type; light.texture; `hfield`/`skin` authored content_type.
 3. **NC6c attach FULL-IMPORT — LANDED (ratchet 315 -> 323, +8 attach files, 0 divergences).** The
    full `mjs_attach` import is now reproduced into the synth model
-   (`ExpandAttaches`/`ImportChildSections`/`ImportChildKeyframes` in `cpp/compile/native.cc`):
+   (`ExpandAttaches`/`ImportChildSections`/`ImportChildKeyframes` in `attic/compile/native.cc`):
    child `<default>` tree grafted as a **prefix-named subclass under the parent root** (a class-free
    child element resolves `prefix -> root` == child-main -> parent-main; a named child class
    `prefix_cls -> prefix -> root`; graft bodies get an injected `childclass=prefix` and class-free
@@ -189,7 +189,7 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
    above.** ProtoSpec stores `<model file=...>` as a `ModelAsset` (file ref only) and
    `<attach model=.. body=.. prefix=..>` as an `Attach` element; the reader passes both unexpanded,
    so leg B relies on `mj_loadXML` to recursively parse the child and run `mjs_attach`.
-   **Landed** (`ExpandAttaches` in `cpp/compile/native.cc`, "attach"/"model" admitted in
+   **Landed** (`ExpandAttaches` in `attic/compile/native.cc`, "attach"/"model" admitted in
    `native_supported.h`): at native compile, parse the child model (`io::ParseMjcfFile`; child path
    = parent-model dir + `file`, `..` normalized; a nameless `<model>` is indexed by its child
    `<mujoco model=..>` name per reader :3624), deep-clone the named child body, prefix-namespace
@@ -259,14 +259,14 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
    equality_kind -- SINCE LANDED in NC5 wave 6; the histogram's "flexcomp.interpolated 13" line is
    now retired, leaving only the single-file flexcomp.document_order descope).
 7. **Plugins** — DONE (XML route). First-party engine plugins registered at harness startup
-   (`cpp/harness/plugin_registry.{h,cc}`, shared by mj_model_diff/ps_native_diff/ps_compile;
+   (`protospec/lib/harness/plugin_registry.{h,cc}`, shared by mj_model_diff/ps_native_diff/ps_compile;
    default DLL dir beside mujoco.dll, `--plugin-dir`/`PROTOSPEC_PLUGIN_DIR` override). The 17
    plugin corpus models now round-trip byte-identical: **differential 376/387**, floor guarded
    by `test_xml_parity_floor`. Remaining 11 skips are non-loadable fixtures (10 malformed + 1
    engine-fail). Native plugin support (flex.plugin etc.) is still gated → NC7+.
 8. **NC7b native plugins + delay — LANDED (ratchet 335 → 339, 0 divergences).** The
    `<extension><plugin><instance><config>` machinery + actuator/sensor plugin refs compile
-   native (`CollectPlugins`/`FillPlugins`/`PackPluginAttr` in `cpp/compile/build.cc`): instances
+   native (`CollectPlugins`/`FillPlugins`/`PackPluginAttr` in `attic/compile/build.cc`): instances
    resolve to registry slots via the PUBLIC `mjp_getPlugin`/`mjp_getPluginAtSlot` (the harness
    loads the first-party plugin DLLs process-wide), config packs into `plugin_attr` in the
    plugin's declared attribute order (mjCPlugin::Compile), and `nplugin`/`npluginattr`/`plugin[]`/
@@ -297,7 +297,7 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
      `mjCMesh::LoadSDF` reproduced (`LoadSdfMesh`, build.cc): resolve the plugin instance, call the
      public `sdf_attribute`/`sdf_aabb`/`sdf_staticdistance` callbacks, sample a regular grid
      (`floor(300/total*aabb)+1` per axis), marching-cube it via the **vendored MarchingCubeCpp**
-     single header (`cpp/compile/lifted/marching_cube.{h,cc}`, `MC_IMPLEM_ENABLE` instantiated once),
+     single header (`attic/compile/lifted/marching_cube.{h,cc}`, `MC_IMPLEM_ENABLE` instantiated once),
      rescale the verts back to geom-local, and feed the generated vert/normal/face to the ordinary
      mesh pipeline with a new `MeshInput.needreorient=false` (nulls the CoM/principal-axis transform,
      `mjCMesh::Process` :1511). geom `type="sdf"` binds bounds/inertia exactly like a mesh geom
@@ -311,7 +311,7 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
      checking it is a plugin (SDF) mesh.
    - **Builtin procedural meshes (+2: makemesh/spheremesh).** The `mjCMesh::Make{Sphere,Hemisphere,
      Supersphere,Supertorus,Wedge,Rect,Cone}` generators + the `mjs_makeMesh` dispatch/validation
-     lifted verbatim into `cpp/compile/lifted/builtin_mesh.{h,cc}` (with the file-local
+     lifted verbatim into `attic/compile/lifted/builtin_mesh.{h,cc}` (with the file-local
      Fovea/LinSpace/BinEdges/SphericalToCartesian/TangentFrame/aux_c/aux_s helpers); wired into
      MeshCompile (generate vert/normal/face -> pipeline; plate sets `mjMESH_INERTIA_SHELL`).
    - **Free-joint alignment (+2: dzhanibekov/freejoint).** `mjCBody::Compile` phase 1/2 (user_objects.cc
@@ -365,7 +365,7 @@ now **wave 6 full interpolated FE + strain equality** are DONE and on the ratche
 3. Owner-waivable: G5 layout persistence (manual step M27 covers it).
 4. Known punts if wanted later: OS file dialogs for editor Save As, multi-select ops,
    keyframe timeline, perturb-in-Play firewall polish.
-5. Editor source of truth: protospec repo apps/studio == mujoco-studio protospec/ (7 identical
+5. Editor source of truth: protospec repo studio == mujoco-studio protospec/ (7 identical
    batteries; keep them in lockstep — sync direction protospec -> mujoco-studio).
 
 ## Upstream MuJoCo bugs (owner files these personally — do not fix here)

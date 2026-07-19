@@ -6,12 +6,12 @@
   Everything under `C:\Users\jonat\Documents\protospec`.
 - **`studio`** — MuJoCo Studio (real app + Filament) with the ProtoSpec editor integrated. This
   is the interactive editor you run/test. It consumes the editor sources live from this repo
-  (`apps/studio/`) — no forked copy. Checkout: `C:\Users\jonat\Documents\mujoco-studio`; build
+  (`studio/`) — no forked copy. Checkout: `C:\Users\jonat\Documents\mujoco-studio`; build
   steps in `docs/studio_build.md`.
 
 ---
 
-A single, clean object model for MuJoCo models. One IDL schema (`schema/mujoco.spec`) is the
+A single, clean object model for MuJoCo models. One IDL schema (`protospec/schema/mujoco.spec`) is the
 source of truth; generators emit the C++ types, serialization, reflection tables, and XML
 bindings. MJCF is a wire format handled by one IO module; models compile to `mjModel` through
 either of two interchangeable paths behind one pure `Compile()`:
@@ -25,22 +25,32 @@ Verified against every model in the MuJoCo repository: the XML round-trip compil
 bit-identical to the XML path (self-arming ratchet — regressions fail CI). The remaining
 corpus files are enumerated skips/fallbacks with written reasons, tracked in the plans below.
 
-Also here: **ProtoSpec Studio** (`apps/studio`) — an interactive editor (Unity/Unreal idiom:
+Also here: **ProtoSpec Studio** (`studio`) — an interactive editor (Unity/Unreal idiom:
 hierarchy, generated inspector, transform gizmos, live recompile) built as plugins against
 MuJoCo Studio's plugin interfaces.
 
 ## Layout
 
-- `schema/` — the `mujoco.spec` IDL (single source of truth)
-- `protospec_gen/` — Python: IDL parser + code emitters (build-time only)
-- `cpp/` — the C++ library: `generated/` (emitted object model), `include/`+`sdk/` (core +
-  ergonomic SDK), `io/` (MJCF reader/writer), `validate/`, `bridge/` (Compile/Binding/
-  Recompile), `compile/` (native compiler + lifted code), `harness/` (mjModel differ),
-  `python/` (pybind11 module), `test/`, `tools/`
-- `apps/studio/` — the editor (thin vendored shell + ProtoSpec editor plugins)
-- `tools/` — bootstrap extractors, lift registry, corpus study
-- `snapshots/` — extracted MuJoCo-surface snapshots + lifted-code registry (drift gates)
-- `tests/` — pytest suites (generator, corpus differential, native ratchet, bridge, studio smoke)
+Top level is five directories: the product (`protospec/`), the editor (`studio/`),
+the parked native compiler (`attic/`), plus `tools/` and `docs/`.
+
+- `protospec/` — **the product**:
+  - `schema/` — the `mujoco.spec` IDL (single source of truth)
+  - `protospec_gen/` — Python: IDL parser + code emitters (build-time only; import
+    path unchanged — `python -m protospec_gen.emit`)
+  - `lib/` — the C++ library: `generated/` (emitted object model), `include/`+`sdk/`
+    (core + ergonomic SDK), `io/` (MJCF reader/writer), `validate/`, `compile/`
+    (the Compile/Binding/Recompile bridge — was `bridge/`), `harness/` (mjModel
+    differ), `python/` (pybind11 module), `test/`, `tools/`
+  - `snapshots/` — extracted MuJoCo-surface snapshots (drift gates)
+  - `tests/` — pytest suites (generator, corpus differential, bridge, studio smoke,
+    boundary gate)
+- `studio/` — the editor (thin vendored shell + ProtoSpec editor plugins)
+- `attic/` — **the native compiler, parked and off the default build** (opt-in via
+  `-DPROTOSPEC_BUILD_NATIVE=ON`): `compile/` (native + lifted code), its harness/
+  ctest/native pytest, the lifted-code provenance registry + snapshots, and the
+  native-compiler docs. See `attic/ATTIC.md`.
+- `tools/` — bootstrap extractors, corpus study, ASan runner
 - `docs/` — the plans; start with `docs/plan.md` (living STATUS table)
 
 ## Build & test
@@ -72,10 +82,10 @@ uv run pytest            # generator, corpus differential, native ratchet, bridg
 
 ```sh
 # Windows: run inside a vcvars64 developer shell.  Linux/macOS: a plain shell.
-cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+cmake -S protospec/lib -B protospec/lib/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DMUJOCO_ROOT=/path/to/mujoco
-cmake --build cpp/build
-ctest --test-dir cpp/build --output-on-failure   # object model, IO, validate, bridge, native, SDK
+cmake --build protospec/lib/build
+ctest --test-dir protospec/lib/build --output-on-failure   # object model, IO, validate, bridge, native, SDK
 ```
 
 (Windows alternative generator: `-G "Visual Studio 17 2022"`, then add `--config Release` to the
@@ -84,9 +94,9 @@ build/ctest commands.)
 ### Python module (pybind11)
 
 ```sh
-cmake -S cpp/python -B cpp/python/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+cmake -S protospec/lib/python -B protospec/lib/python/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DMUJOCO_ROOT=/path/to/mujoco
-cmake --build cpp/python/build
+cmake --build protospec/lib/python/build
 ```
 
 Then `import protospec` — see **[TRYME.md](TRYME.md)** for the load → edit → compile → step →
@@ -94,16 +104,16 @@ save session (paths in TRYME are Windows; the Python API is identical on every O
 
 ### Studio (the interactive editor)
 
-Two hosts consume one editor source (`apps/studio/`):
+Two hosts consume one editor source (`studio/`):
 
 - **Standalone shell** — SDL2 + classic OpenGL renderer, the CI/test surface. Builds anywhere:
 
   ```sh
-  cmake -S apps/studio -B apps/studio/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  cmake -S studio -B studio/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DMUJOCO_ROOT=/path/to/mujoco
-  cmake --build apps/studio/build
-  ctest --test-dir apps/studio/build --output-on-failure    # 8 windowless batteries
-  ./apps/studio/build/protospec_studio "/path/to/model.xml"  # .exe on Windows
+  cmake --build studio/build
+  ctest --test-dir studio/build --output-on-failure    # 8 windowless batteries
+  ./studio/build/protospec_studio "/path/to/model.xml"  # .exe on Windows
   ```
 
 - **Real MuJoCo Studio (Filament)** — the full-featured app, on the `studio` branch of the
@@ -118,10 +128,10 @@ Two hosts consume one editor source (`apps/studio/`):
 ### Regeneration (CI-gated, `--check`-reproducible on every OS)
 
 ```sh
-uv run python -m protospec_gen.emit          # regenerate cpp/generated + cpp/python/generated
+uv run python -m protospec_gen.emit          # regenerate protospec/lib/generated + protospec/lib/python/generated
 ```
 
-`schema/mujoco.spec` is the source of truth and is edited directly.
+`protospec/schema/mujoco.spec` is the source of truth and is edited directly.
 `tools/bootstrap/draft_schema.py` is the one-time bootstrap DRAFTER, not a
 regenerator: running it over the snapshots discards the schema's hand
 refinements (the BodyChildAny union, resolvers, aliases, typed refs). Keep its

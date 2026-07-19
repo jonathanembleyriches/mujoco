@@ -365,7 +365,7 @@ cannot absorb.
   git-subtree'd from the protospec repo. This is how DeepMind expects Studio forks to be
   extended, and it makes the "candidate for upstreaming" note in our `ps_plugin_ext.h`
   real — the four extension seams can be PR'd upstream later.
-- **(c) Vendor the full studio + platform + filament source into `apps/studio`.**
+- **(c) Vendor the full studio + platform + filament source into `studio`.**
   Self-contained and no second repo, but it drags the entire Filament build into
   protospec CI, balloons the repo, and forces us to manually track upstream Studio changes
   by hand — heavier than the thin shell it replaces, and it buries the engine patch inside
@@ -384,12 +384,12 @@ seams factored exactly as in `ps_plugin_ext.h` so they remain upstreamable.
 
 ## 4. Migration cost table (per SE0-SE3 deliverable)
 
-Our `apps/studio` is ~36 source files. The split that matters: the `editor/` cluster
+Our `studio` is ~36 source files. The split that matters: the `editor/` cluster
 (~5,900 LOC) is deliberately **windowless-core + thin ImGui skin** and built against the
 verbatim plugin ABI, so it ports as-is. The `platform/` + `host/` substrate (~1,400 LOC)
 was always a stand-in for Studio and is what gets replaced.
 
-| Deliverable | Files (apps/studio) | Ports as-is | Rework | Dies |
+| Deliverable | Files (studio) | Ports as-is | Rework | Dies |
 |---|---|---|---|---|
 | **SE0 host / substrate** | `host/app.*`, `platform/hal/window.*`, `platform/hal/renderer.*`, `main.cc` | — | The frame loop, overlay-hook fan-out, model-adopt, viewport-input dispatch become the **§2 Studio patch** (~80-150 lines in their `app.cc`/`renderer.*`/`model_holder.*`). Logic is a direct port of `host/app.cc`. | The window/GL/context code (Studio's SDL2+Filament HAL supersedes our `hal/`); our classic-`mjr` `Renderer::Render`; our `main.cc` entry (Studio owns `main`). |
 | **SE0 pick math** | `platform/ux/interaction.*` | Pick-ray / camera math is a copy of MuJoCo's; Studio already has `interaction.cc` `Pick`/`MakePickRay`. | Point our `ViewportPlugin` at Studio's pick helpers instead of our copy. | Our vendored `interaction.cc` copy (Studio's is the original). |

@@ -45,7 +45,7 @@ MJCF spelling** (the bridge and the user-facing writer emit it back onto the wir
 | 7 | Material `texture` attr vs `<layer role="rgb">` | **ENCODING → layers** | `texture=` is literally `textures[mjTEXROLE_RGB]` (`xml_native_reader.cc:1844`), layers set the same slots; reader forbids mixing (`:1849-1852`); one `mat_texid[]` per role |
 | 8 | Numeric `size` > data length (zero padding) | **ENCODING → materialized data** | Reader pads data to `size` (`xml_native_reader.cc:3200-3217`); identical `numeric_adr/size/data` |
 | 9 | Keyword-set attrs: Camera `output`, Rangefinder `data` (order/duplicates); SensorContact `data` | **ENCODING → enum-order, deduped** (contact: already single-spelling) | `MapValues` ORs keywords into one bitmask (`xml_native_reader.cc:2078-2084`, rangefinder branch) — order-insensitive; the contact sensor *rejects* out-of-order data ("data attributes must be in order", `:4517-4530`), so enum order is the only legal spelling there and our reader/writer must enforce/emit exactly it |
-| 10 | Size `memory` K/M/G suffixes | **ENCODING — already canonical bytes** (record) | ProtoSpec reader already parses the suffix and stores the byte count (`cpp/io/mjcf_reader.cc:776-796`); MuJoCo parity at `xml_native_reader.cc:1365-1395` |
+| 10 | Size `memory` K/M/G suffixes | **ENCODING — already canonical bytes** (record) | ProtoSpec reader already parses the suffix and stores the byte count (`protospec/lib/io/mjcf_reader.cc:776-796`); MuJoCo parity at `xml_native_reader.cc:1365-1395` |
 | 11 | `fromto` vs pos/quat/size (geom + site) | **KEEP — blocker found** (reverses the owner's lean; §5.2) | Class-authored fromto is corpus-real and its size packing is geom-**type**-dependent (`user_objects.cc:3992-4007`) → per-consumer through the defaults layer; element-level canonicalization bakes class-inherited `type`/`size[0]` and breaks inheritance |
 | 12 | Camera `fovy` vs `focal`/`sensorsize` physical family | **KEEP** | Distinct mjModel state that renderers branch on: `cam_fovy` AND `cam_intrinsic`/`cam_sensorsize`/`cam_resolution` coexist (`mjmodel.h:501-506`); sensorsize presence changes `intrinsic` and recomputes fovy (`user_objects.cc:4419-4456`) |
 | 13 | Camera `focalpixel`/`principalpixel` vs `focal`/`principal` (length) | **KEEP** | Pixel→length conversion needs the *consumer's* `resolution`+`sensorsize` (`user_objects.cc:4438-4449`); MJCF allows class-level `focalpixel` (`xml_native_reader.cc:244-246`) → per-consumer, the criterion's SEMANTICS branch verbatim |
@@ -63,7 +63,7 @@ MJCF spelling** (the bridge and the user-facing writer emit it back onto the wir
 | 25 | Keyframe `qpos` vs `mpos`/`mquat` | **KEEP** | Different state, different arrays: `key_qpos` vs `key_mpos`/`key_mquat`; not alternative spellings at all |
 | 26 | Skin `bindpos`/`bindquat` | **KEEP** | Per-bone bind data, single spelling; nothing to canonicalize |
 | 27 | FreeJoint element vs Joint `type="free"` | **KEEP** | Different compile behavior: `<freejoint>` is created *without* defaults (`mjs_addFreeJoint`, `xml_native_reader.cc:3701-3712`), `<joint type="free">` gets the full class merge (damping, armature, …) |
-| 28 | Replicate `euler` | **KEEP** | Only spelling (wire constraint) AND a family parameterization, not one rotation: copy *i* re-resolves `i·euler` (`xml_native_reader.cc:3845-3858`, mirrored in `cpp/compile/build.cc:1251-1257`); `resolve(i·euler) ≠ resolve(euler)^i` for non-commuting sequences |
+| 28 | Replicate `euler` | **KEEP** | Only spelling (wire constraint) AND a family parameterization, not one rotation: copy *i* re-resolves `i·euler` (`xml_native_reader.cc:3845-3858`, mirrored in `attic/compile/build.cc:1251-1257`); `resolve(i·euler) ≠ resolve(euler)^i` for non-commuting sequences |
 | 29 | Composite `quat` | **KEEP** | Single spelling in 3.10's reduced composite; pass-through macro anyway |
 | 30 | Geom `mass` vs `density` | **KEEP** | Different parameterizations coupled through compile-time volume (`mjCGeom::SetInertia`, `user_objects.cc:3493+`; body accumulation `:2469-2514`); baking density→mass freezes the size dependence |
 | 31 | Macros (`replicate`/`attach`/`composite`/`flexcomp`) | **KEEP** (resolved; DR-7) | Generative, not redundant encodings |
@@ -81,7 +81,7 @@ Schema-hygiene riders discovered during the audit (in scope for the wave, not en
   (compile error at `user_objects.cc:4426-4435`).
 - **R2 — drop `(unit=angle)` from `Camera.fovy`.** fovy is never subject to `compiler.angle`; it
   is degrees always — and a *length* for orthographic cameras (`mjmodel.h:501` "(ortho ? len :
-  deg)"; no conversion anywhere in the reader). `cpp/io/mjcf_reader.cc:742` already documents
+  deg)"; no conversion anywhere in the reader). `protospec/lib/io/mjcf_reader.cc:742` already documents
   this; the schema annotation is wrong metadata.
 - **R3 — unify springlength arity** (`TendonDefault double[2]` vs `Spatial/Fixed double[0..2]`):
   after #5 all three store `double[2]`; the wire accepts 1-or-2 values.
@@ -102,7 +102,7 @@ context leakage is possible.
 
 **With what math.** The resolvers are the lifted originals, registered in the existing lift
 registry (provenance + drift gate, as NC0 did for the native compiler): `ResolveOrientation`
-(`user_objects.cc:241-330` — already lifted as `ResolveQuat`, `cpp/compile/build.cc:264-267`;
+(`user_objects.cc:241-330` — already lifted as `ResolveQuat`, `attic/compile/build.cc:264-267`;
 relocate to `core/resolve.cc` so reader and native compiler share it) and `mjuu_fullInertia`
 (eigendecomposition). Bit-identical resolution is what makes the differential harness a valid
 gate: the canonical quat we write is the quat MuJoCo would have computed from the authored form.
@@ -112,7 +112,7 @@ gate: the canonical quat we write is the quat MuJoCo would have computed from th
 `springlength`, `texture=`, `size=` on numeric. The IDL loses the variant structs and gains a
 binding annotation (new codegen rule shape) marking "these wire attributes feed this canonical
 field through resolver X"; `xml_binding.cc`'s current variant-arm tables
-(`cpp/generated/xml_binding.cc:208,1018,1063,…`) become resolver-routing tables. Corpus attribute
+(`protospec/lib/generated/xml_binding.cc:208,1018,1063,…`) become resolver-routing tables. Corpus attribute
 coverage (`tools/corpus_study.py`, `tests/test_corpus_coverage.py`) stays 100% because coverage
 counts accepted input attributes; the study's attr→field mapping gains the wire-only rows
 (euler→orient, fullinertia→{diaginertia,iquat}, directional→type, …).
@@ -205,7 +205,7 @@ reader already enforces strict enum order (`xml_native_reader.cc:4517-4530`) —
 the same read error and the writer's enum-order emission is the only legal output anyway. Pure
 value normalization; no schema change.
 
-**#10 Memory.** Already done (`cpp/io/mjcf_reader.cc:776-796`). Record in the quirk register;
+**#10 Memory.** Already done (`protospec/lib/io/mjcf_reader.cc:776-796`). Record in the quirk register;
 optional follow-up: type the field `uint64` instead of a stringified byte count (deferred, not
 load-bearing).
 
@@ -244,7 +244,7 @@ blockers are all in the defaults layer:
    orientation (MuJoCo: fromto wins; canonical: element wins).
 
 Consequence of KEEP: the `GeomShape` variant stays; the fromto gizmo special-casing in
-`apps/studio/editor/transform_math.cc:346-505` (endpoint translate/rotate) stays — the promised
+`studio/editor/transform_math.cc:346-505` (endpoint translate/rotate) stays — the promised
 deletion does not happen. If the owner still wants element-level-only canonicalization, it must
 carry the class exception + an `Effective(type)` parse-end lookup + two tier-3 lints to preserve
 MuJoCo's error surface — recorded as the rejected halfway option (non-uniform, keeps both forms
@@ -303,7 +303,7 @@ STATUS (Wave B): DONE. Per-row landing:
   differential/roundtrip do not move.
 - **#10 Memory** — already canonical bytes (mjcf_reader.cc MemoryFixup); recorded, no change.
 - **R1 CameraIntrinsics tier-3 lint** — `focal/principal require a positive sensorsize` (a MuJoCo
-  compile error, user_objects.cc:4426-4435) added to cpp/validate tier 3 on the authored form
+  compile error, user_objects.cc:4426-4435) added to protospec/lib/validate tier 3 on the authored form
   (the same-element `fovy+sensorsize` reader error landed in Wave A).
 
 Baselines held: pytest 1625/120, differential 359/387 identical (0 differ, 28 skips), native

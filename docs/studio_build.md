@@ -2,7 +2,7 @@
 
 ProtoSpec Studio is the real MuJoCo Studio app (Filament renderer) with the
 ProtoSpec editor integrated. There is ONE copy of the editor sources — this repo,
-under `apps/studio/`. The fork does not hold a copy; it compiles the editor and
+under `studio/`. The fork does not hold a copy; it compiles the editor and
 the ProtoSpec core live from this repo via `PROTOSPEC_ROOT`.
 
 Paths below use two placeholders — substitute your checkouts:
@@ -15,9 +15,9 @@ Paths below use two placeholders — substitute your checkouts:
 
 | Location | Contents |
 | --- | --- |
-| `<protospec>/apps/studio/editor/` | The editor cluster — single source. Standalone host AND fork build from here. |
-| `<protospec>/apps/studio/test/` | The 8 editor test batteries — run in the standalone build (CI / ASan surface). |
-| `<protospec>/apps/studio/platform/ux/{plugin,ps_plugin_ext}.h` | The plugin interface contract (ps::studio structs). |
+| `<protospec>/studio/editor/` | The editor cluster — single source. Standalone host AND fork build from here. |
+| `<protospec>/studio/test/` | The 8 editor test batteries — run in the standalone build (CI / ASan surface). |
+| `<protospec>/studio/platform/ux/{plugin,ps_plugin_ext}.h` | The plugin interface contract (ps::studio structs). |
 | `<studio>/.../protospec/platform/ux/*.h` | Fork host shims mapping the ps::studio plugin names onto the real `mujoco::platform` registry. |
 | `<studio>/.../protospec/host/shell.{cc,h}` | Host-only SE4 shell (File/Edit menu, transform toolbar, Play/Stop bridge). |
 | `<studio>/.../studio/main.cc` | Fork entry point; registers the editor cluster + host shell under `MUJOCO_STUDIO_PROTOSPEC`. |
@@ -32,7 +32,7 @@ is large); later builds are incremental. Editing an editor source in `<protospec
 only `protospec_core` / `protospec_editor` and relinks the executable.
 
 `PROTOSPEC_ROOT` points at this live repo (NOT a snapshot). `PROTOSPEC_STUDIO_ROOT` defaults to
-`${PROTOSPEC_ROOT}/apps/studio`; override only if the studio tree moves.
+`${PROTOSPEC_ROOT}/studio`; override only if the studio tree moves.
 
 The common configure flags (all platforms):
 
@@ -141,6 +141,6 @@ mujoco_studio --gfx=classic \
 
 ## Editor tests (the 8 batteries)
 
-The editor's tests live and run with the single source, in the standalone `apps/studio` build
+The editor's tests live and run with the single source, in the standalone `studio` build
 (the CI / ASan surface), not in this fork — see the **Studio** section of the top-level
 `README.md` for the cross-platform commands.

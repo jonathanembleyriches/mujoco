@@ -23,6 +23,13 @@ jobs:
       - name: Generator drift gate
         run: uv run python -m protospec_gen.emit --check
 
+      # Layering boundary gate (build-free include scan): the editor may only
+      # reach the sanctioned library surface; the library/attic never include the
+      # studio; the default (Tier-0) surface never includes the atticked native
+      # compiler. Fails the job on any new un-waivered edge.
+      - name: Boundary gate
+        run: uv run python protospec/tests/test_boundaries.py
+
       # Full Python suite. The extractor integration tests skip cleanly here because
       # PROTOSPEC_MUJOCO_SRC is unset (no MuJoCo source checkout on the runner);
       # collection still succeeds everywhere.

@@ -103,5 +103,5 @@ name entries in the process-global plugin registry, not model elements.
 running it over the current snapshots discards hand-refinements the committed
 schema carries (the `BodyChildAny` union, resolvers, aliases). The README's
 "Regeneration" section listing it as `--check`-reproducible is wrong and should
-be corrected. `schema/mujoco.spec` is the source of truth; edit it directly and
+be corrected. `protospec/schema/mujoco.spec` is the source of truth; edit it directly and
 mirror ref-target knowledge into `REFS` so future drafts start closer.

@@ -31,9 +31,9 @@ recompiling only on drag release. Report-only; no production code changed.
 
 ## 1. How the compiler bakes a pose (the `A ∘ L ∘ B` structure)
 
-`cpp/compile/build.cc` builds each spatial element's compiled pose by starting
+`attic/compile/build.cc` builds each spatial element's compiled pose by starting
 from the authored `pos/quat` and accumulating frames. Two accumulation
-primitives (`cpp/compile/lifted/mjuu_util.cc:481,495`):
+primitives (`attic/compile/lifted/mjuu_util.cc:481,495`):
 
 - `mjuu_frameaccum(T, Child)` → `T = T ∘ Child` — **Child is a right-suffix**.
 - `mjuu_frameaccumChild(P, Child)` → `Child = P ∘ Child` — **P is a left-prefix**.

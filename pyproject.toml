@@ -13,7 +13,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["protospec/tests", "attic/tests"]
 markers = [
     "asan: AddressSanitizer pass (opt-in; needs an ASan build). Run with `pytest -m asan` and PROTOSPEC_RUN_ASAN=1; see tools/run_asan.ps1 / tools/run_asan.sh.",
 ]
@@ -23,4 +23,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["protospec_gen"]
+packages = ["protospec/protospec_gen"]

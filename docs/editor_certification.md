@@ -9,7 +9,7 @@ Section 2 step PASS in one sitting + the Section 3 statement signed.**
 
 **Canonical code under test:** the `studio` branch of `C:\Users\jonat\Documents\mujoco-studio`
 (real Studio host + editor cluster at `src/experimental/studio/protospec/`). The batteries also
-live in the protospec repo at `apps/studio/test/`; note `test_gizmo.cc` has **diverged** — the
+live in the protospec repo at `studio/test/`; note `test_gizmo.cc` has **diverged** — the
 studio-branch copy adds the joint-rig battery and the Q-ORIENT sync (7ebe3a08) and is the copy
 that counts. Sync-back is a gap item (G9).
 
@@ -19,7 +19,7 @@ that counts. Sync-back is a gap item (G9).
 
 All eight batteries plus the core-repo suites must exit 0 at the certification commit.
 Every battery below runs **identically in both trees** (studio branch + protospec
-`apps/studio/test/`); the parenthesised check counts are the current identical totals.
+`studio/test/`); the parenthesised check counts are the current identical totals.
 
 | Battery | Binary | Test fns |
 |---|---|---|
@@ -52,7 +52,7 @@ Every battery below runs **identically in both trees** (studio branch + protospe
 | A14 | **Reparent**: keep-world-pose invariant (plain and frame-wrapped), cycle rejection leaves the model untouched | `test_authoring.cc` TestReparent* |
 | A15 | **Delete/rename referrer safety**: rename rewrites every typed referrer atomically; delete previews the referrers that would dangle (read-only) and cascades on confirm | `test_studio.cc` TestRenameUpdatesReferrers, TestDeleteSurfacesReferrers |
 | A16 | **Mesh import**: unsaved model → compile-VFS bytes, auto mesh geom, compiles; save externalizes bytes to disk next to the .xml and a fresh disk load compiles | `test_authoring.cc` TestMeshImportVfsAndExternalize |
-| A17 | **Save round-trip fidelity**: editor save is a byte-stable WriteMjcf fixpoint + deep-equal reload; the SE3 exit story (blank → build → simulate → save → reload → deep compare); the writer's own fixpoint battery + differential-vs-MuJoCo harness | `test_studio.cc` TestSaveRoundTripFixpoint; `test_authoring.cc` TestExitStory; `cpp/test/test_io.cc`; `cpp/harness` |
+| A17 | **Save round-trip fidelity**: editor save is a byte-stable WriteMjcf fixpoint + deep-equal reload; the SE3 exit story (blank → build → simulate → save → reload → deep compare); the writer's own fixpoint battery + differential-vs-MuJoCo harness | `test_studio.cc` TestSaveRoundTripFixpoint; `test_authoring.cc` TestExitStory; `protospec/lib/test/test_io.cc`; `protospec/lib/harness` |
 | A18 | **Load/pick/registry core**: clean failure on bad path (tree untouched, diagnostics populated); humanoid loads via ParseMjcf→Compile; every bound geom/body id resolves back to its authored element with the same serial; plugin registry order + name-dedup + pointer mutation | `test_studio.cc` TestLoadFailureIsClean, TestLoadHumanoid, TestPickResolvesToElement, TestRegistryOrderAndDedup |
 | A19 | **Mode-machine recompile gate (DR-S2)**: Edit services queued recompiles; Play defers them; the one-shot `apply_edits` (Play transition) forces one | `test_gizmo.cc` TestModeMachineRecompileGate |
 | A20 | **Display-value fidelity**: every value the panel shows is drawn from a real layer — the authored value, the class/IDL effective value, or the type's defined zero — never an uninitialised temp; and every numeric drag widget is exactly as wide as its storage (`NumericWidgetOf` == `sizeof`), so an int32 field can never be read as a 64-bit word and shown as a garbage "super big number". Swept over all group-bearing families instantiated fresh + every element of the corpus-loaded humanoid. | `test_details.cc` TestNumericWidgetWidths, TestDisplayFidelityFresh, TestDisplayFidelityHumanoid |
@@ -71,7 +71,7 @@ Each row is a checklist item: **add the test** (or the owner initials the Waived
 | G6 | **Performance bound.** Recompile perf is informational only (`ReportHumanoidRecompilePerf` prints ~3 ms, never fails); no threshold enforced; nothing larger than humanoid ever measured. | Perf gate: humanoid ≤ 10 ms/compile hard fail; add one large corpus model (e.g. a scene-scale MJCF) with a measured, recorded budget | **CLOSED** — `test_gizmo.cc` `TestRecompilePerfGate`. Median over N recompiles, **enforced**: humanoid (nbody≈17) ≤ **10 ms** (measured ~3.3 ms), and a larger corpus model **humanoid200** (nbody≈217, 627 DOF — humanoid + 200 free objects, `test/benchmark/testdata/humanoid200.xml`) ≤ **120 ms** documented bound (measured ~74 ms Ninja / ~93 ms MSVC-Release; ~1.6x headroom). Each arm skips only when its corpus model is absent. Both trees. |
 | G7 | **Delete-confirm dialog flow.** A15 tests preview/cascade logic; the `delete_request_serial` → dialog → confirm/cancel UI path is untested. | Host-level test or fold into manual step M25 (owner call) | **CLOSED** — `test_host.cc` `TestDeleteConfirmFlow`. Drives the referrer-confirm state machine (`shell.cc:104` request → `hierarchy_panel` preview → confirm/cancel) over the real ops: a joint with a `jointpos` referrer yields a non-empty `PreviewDeleteReferrers` (dialog warranted), **Cancel** leaves the tree intact + compiling, **Confirm** cascades (`DeleteBySerial(cascade=true)`) with no referrer left dangling; a leaf geom with no referrers takes the immediate-delete arm. Both trees. |
 | G8 | **Diagnostics navigation.** Failed-compile errors reach the Diagnostics panel (movability's excused path proves the report exists) but click-to-select-from-diagnostic has no test. | Windowless test: diagnostic row → SourceLoc → selection serial | **CLOSED** — the feature was **built** and tested. `EditorContext::diagnostics` is now a `std::deque<DiagEntry>` — `{severity, message, opt<serial>, opt<SourceLoc>}` — with a retained plain-string `Log()` append path for legacy call sites. Producers stamp what they know: `LoadModel` maps each tier-1/2 `validate::Diagnostic` to its element serial via `SerialForValidatePath` (path → name → serial) and carries the `SourceLoc`; compile/parse errors carry the `SourceLoc`; pick / joint-pick / focus / undo / redo lines carry the acting element's serial. `panels.cc DiagnosticsUpdate` renders severity-coloured rows: a serial-bearing row is a `Selectable` that `SelectBySerial`s the element (Hierarchy/viewport highlight), a `SourceLoc` row shows `file:line`, plus a **Clear** button; the deque is ring-capped at `kMaxDiagnostics`. Tested by `test_host.cc` `TestDiagnosticStructuredAppend` (structured/legacy append + ring cap), `TestDiagnosticClickSelectsElement` (a real producer stamps the serial → the exact `SelectBySerial` the row's Selectable calls reselects it, per the G7 state-machine pattern), and `TestDiagnosticValidateMapsSerial` (a planted tier-2 referential error → `SerialForValidatePath` resolves the offending element's serial → click selects it). Both trees, **82 checks each**. |
-| G9 | **Battery divergence.** `test_gizmo.cc` in the protospec repo lacks the joint-rig battery (studio branch is ahead). One source of truth or CI on both. | Sync studio-branch tests back to `apps/studio/test/` (or subtree them) and run both in CI | **CLOSED** — the studio-branch joint-rig battery (`TestJointTranslateAnchor / ReorientAxis / AxisSnap / BallFreeNoAxis / CollectJointVis`) plus the Q-ORIENT sync is now byte-identical in both trees (`test_gizmo.cc`, **170 checks each**). Closing it required syncing the underlying joint-rig implementation into `apps/studio/editor/` (`joint_overlay.{h,cc}`, the joint functions in `transform_math.{h,cc}`, `editor_context.h show_all_joints`, and — to run the host-UI battery there — the canonical `viewport_plugin.cc`/`gizmo.{cc,h}` + the `ViewportGuiPlugin::Context::camera` mutable shim). Both trees build and pass all seven batteries. |
+| G9 | **Battery divergence.** `test_gizmo.cc` in the protospec repo lacks the joint-rig battery (studio branch is ahead). One source of truth or CI on both. | Sync studio-branch tests back to `studio/test/` (or subtree them) and run both in CI | **CLOSED** — the studio-branch joint-rig battery (`TestJointTranslateAnchor / ReorientAxis / AxisSnap / BallFreeNoAxis / CollectJointVis`) plus the Q-ORIENT sync is now byte-identical in both trees (`test_gizmo.cc`, **170 checks each**). Closing it required syncing the underlying joint-rig implementation into `studio/editor/` (`joint_overlay.{h,cc}`, the joint functions in `transform_math.{h,cc}`, `editor_context.h show_all_joints`, and — to run the host-UI battery there — the canonical `viewport_plugin.cc`/`gizmo.{cc,h}` + the `ViewportGuiPlugin::Context::camera` mutable shim). Both trees build and pass all seven batteries. |
 
 ---
 
@@ -164,7 +164,7 @@ enabled (Windows: **Ninja + MSVC**, never the VS generator or clang-cl — see
 
 Behaviours common to both trees unless a row is marked *(studio branch)* — those depend
 on the MuJoCo-Studio host chrome (merged FontAwesome font, menu-bar File/Edit) the
-standalone `apps/studio` host does not carry.
+standalone `studio` host does not carry.
 
 | # | Action | Expected | P/F |
 |---|---|---|---|
@@ -199,7 +199,7 @@ standalone `apps/studio` host does not carry.
 
 ### Exit criteria
 
-1. All eight batteries + `cpp/test` suites exit 0 at the certification commit (both repos).
+1. All eight batteries + `protospec/lib/test` suites exit 0 at the certification commit (both repos).
 2. Every §1.2 gap row marked Closed (test added and green) or Waived with owner initials.
 3. All 44 manual steps PASS in one sitting on a fresh Ninja+MSVC build.
 4. The statement below signed.
@@ -212,7 +212,7 @@ standalone `apps/studio` host does not carry.
 | Composite beyond select-only; plugin-requiring models | Deferred until the plugin wave |
 | Multi-select operations | SE4 QoL item, not landed |
 | Keyframe timeline, USD, WASM, CoACD decomposition | Deferred (plan §9) |
-| OS-native file dialogs (standalone `apps/studio` host) | The MuJoCo-Studio host (studio branch) wires Open / Save As / Import to the **native OS dialog** via a `FileDialogPlugin` host hook, with the inline path field kept as a fallback. The standalone `apps/studio` host still uses the inline path fields; porting the hook there is deferred |
+| OS-native file dialogs (standalone `studio` host) | The MuJoCo-Studio host (studio branch) wires Open / Save As / Import to the **native OS dialog** via a `FileDialogPlugin` host hook, with the inline path field kept as a fallback. The standalone `studio` host still uses the inline path fields; porting the hook there is deferred |
 | Python Studio | Separate surface (`protospec` pybind module) |
 | Filament-vs-classic visual parity | Rendering look, not editor correctness |
 | Perturb-to-tree | There is deliberately no path from Play-mode perturb to the model (DR-S2 firewall) |

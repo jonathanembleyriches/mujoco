@@ -3,7 +3,7 @@
 The generator does **not** parse MuJoCo's C/C++ sources directly. Instead, one-shot
 extractors under `tools/bootstrap/` lift the facts we depend on out of a MuJoCo source
 checkout into JSON snapshots under `snapshots/`, and the rest of the pipeline
-(`schema/mujoco.spec`, the drafting tools, the tests) reads those snapshots. This keeps
+(`protospec/schema/mujoco.spec`, the drafting tools, the tests) reads those snapshots. This keeps
 the build reproducible and free of a MuJoCo source dependency.
 
 Refresh the snapshots whenever you bump the pinned MuJoCo version.
@@ -42,15 +42,15 @@ with a file:line rather than emitting a silently-wrong snapshot.
 
 ## Lifted-code snapshots
 
-Verbatim-lifted symbols (under `snapshots/lifted_upstream/`, tracked in the lift
+Verbatim-lifted symbols (under `attic/snapshots/lifted_upstream/`, tracked in the lift
 registry) are refreshed separately, because they re-extract against the full studio
 superproject build tree rather than a bare MuJoCo source checkout:
 
 ```bash
 # Point at the tree the lifted code was taken from, then re-add drifted symbols:
 export PROTOSPEC_MUJOCO_ROOT=/path/to/studio/superproject
-uv run python tools/lift_registry.py check      # report drift
-uv run python tools/lift_registry.py add ...     # refresh a symbol's snapshot + hash
+uv run python attic/tools/lift_registry.py check      # report drift
+uv run python attic/tools/lift_registry.py add ...     # refresh a symbol's snapshot + hash
 ```
 
 ## Verify
