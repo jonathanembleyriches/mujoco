@@ -226,6 +226,8 @@ if(EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h" AND EXISTS "${MUJOCO_IMPORT_LI
     compile/compile.cc
     compile/binding.cc
     compile/pose.cc
+    compile/mjs_builder.cc
+    generated/mjs_binding.cc   # MuJoCo-linked (mjSpec); not in the Tier-0 protospec lib
   )
   target_include_directories(protospec_bridge
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/compile

@@ -213,6 +213,7 @@ GLOBAL_ALIAS = {
 # ELEM_ALIAS is (element, field) -> mjs field for element-specific renames.
 ELEM_ALIAS = {
     ("Frame", "dclass"): "childclass",
+    ("Inertial", "pos"): "ipos",   # inertial-frame position folds into mjsBody.ipos
     ("Inertial", "diaginertia"): "inertia",
     ("Joint", "actuatorgravcomp"): "actgravcomp",
     ("Geom", "hfield"): "hfieldname",

@@ -869,7 +869,7 @@ void ApplyMjs(const Hfield& e, mjsHField* out) {
 }
 
 void ApplyMjs(const Inertial& e, mjsBody* out) {
-  if (e.pos.has_value()) { for (int i = 0; i < 3; ++i) out->pos[i] = (*e.pos)[i]; }
+  if (e.pos.has_value()) { for (int i = 0; i < 3; ++i) out->ipos[i] = (*e.pos)[i]; }
   if (e.mass.has_value()) { out->mass = (*e.mass); }
   if (e.iquat.has_value()) { for (int i = 0; i < 4; ++i) out->iquat[i] = (*e.iquat)[i]; }
   if (e.diaginertia.has_value()) { for (int i = 0; i < 3; ++i) out->inertia[i] = (*e.diaginertia)[i]; }

@@ -15,6 +15,7 @@
 #include <mujoco/mujoco.h>
 
 #include "mjcf.h"
+#include "mjs_builder.h"   // Wave 2: ProtoSpec -> mjSpec builder (MjsPath)
 #ifdef PROTOSPEC_NATIVE
 #include "native.h"   // attic/compile native compiler; built only when PROTOSPEC_NATIVE
 #endif
@@ -349,6 +350,89 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
       }
     }
     if (gated) return out;
+  }
+
+  // MjsPath (forced): build a throwaway mjSpec and mj_compile it. Auto never
+  // routes here yet (XmlPath-first until parity holds), so this is reached only
+  // by an explicit request.
+  if (opts.path == CompilePath::MjsPath) {
+    out.report.taken = CompilePath::MjsPath;
+
+    // Fallback scan first: unsupported content on a forced path is a clean
+    // error, not a silent divergence.
+    std::vector<FallbackReason> reasons = compile::MjsFallbackScan(model);
+    if (!reasons.empty()) {
+      out.report.fallback_reasons = reasons;
+      out.report.errors.push_back(MakeError(
+          "gate", "mjSpec path does not support this model (feature '" +
+                      reasons.front().feature +
+                      "'); force XmlPath or use Auto"));
+      return out;
+    }
+
+    // Same serial-keyed auto-name map the XML path injects, so the Binding sees
+    // identical names on both paths.
+    std::vector<PreEntry> pre;
+    io::AutoNames auto_names;
+    Collector collect(opts, pre, auto_names);
+    collect(model);
+
+    std::string build_err;
+    mjSpec* spec = compile::BuildSpec(model, opts, auto_names, build_err);
+    if (!spec) {
+      out.report.errors.push_back(MakeError("build", std::move(build_err)));
+      return out;
+    }
+
+    // VFS built from vfs_assets exactly as the XML path (by basename); on-disk
+    // meshdir/texturedir resolve via the spec's modelfiledir (set to base_dir in
+    // the builder), reproducing the XML path's asset resolution.
+    mjVFS vfs;
+    mj_defaultVFS(&vfs);
+    bool vfs_ok = true;
+    for (const VfsAsset& a : opts.vfs_assets) {
+      if (mj_addBufferVFS(&vfs, a.name.c_str(), a.bytes.data(),
+                          static_cast<int>(a.bytes.size())) != 0) {
+        out.report.errors.push_back(
+            MakeError("build", "mj_addBufferVFS failed for asset '" + a.name + "'"));
+        vfs_ok = false;
+        break;
+      }
+    }
+
+    mjModel* m = nullptr;
+    if (vfs_ok) {
+      std::vector<std::string> warnings;
+      void (*prev)(const char*) = mju_user_warning;
+      if (prev == CollectWarning) prev = nullptr;
+      t_warning_sink = &warnings;
+      mju_user_warning = CollectWarning;
+      m = mj_compile(spec, &vfs);
+      mju_user_warning = prev;
+      t_warning_sink = nullptr;
+      for (std::string& w : warnings) {
+        out.report.warnings.push_back(ps::Diagnostic{
+            ps::Diagnostic::Severity::Warning, "compile", std::move(w), {}});
+      }
+      if (!m) {
+        const char* e = mjs_getError(spec);
+        out.report.errors.push_back(
+            MakeError("compile", e && e[0] ? e : "mj_compile failed (no message)"));
+      } else if (mjs_isWarning(spec)) {
+        const char* e = mjs_getError(spec);
+        if (e && e[0])
+          out.report.warnings.push_back(ps::Diagnostic{
+              ps::Diagnostic::Severity::Warning, "compile", e, {}});
+      }
+    }
+    mj_deleteVFS(&vfs);
+
+    if (m) {
+      out.model.reset(m);
+      BuildNameBinding(model, m, opts, out);  // name-based, same as the XML path
+    }
+    mj_deleteSpec(spec);
+    return out;
   }
 
 #ifdef PROTOSPEC_NATIVE

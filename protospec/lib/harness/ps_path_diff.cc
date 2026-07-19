@@ -67,10 +67,8 @@ using Path = ps::mjcf::CompilePath;
 bool ParsePath(const std::string& s, Path& out) {
   if (s == "XmlPath" || s == "xml") { out = Path::XmlPath; return true; }
   if (s == "NativePath" || s == "native") { out = Path::NativePath; return true; }
+  if (s == "MjsPath" || s == "mjs") { out = Path::MjsPath; return true; }
   if (s == "Auto" || s == "auto") { out = Path::Auto; return true; }
-  // Forward-compatible: MjsPath is accepted by name so a shim build that adds
-  // the enum value works with this tool unchanged. Mapped to Auto until the
-  // enum ships (a build with the value will shadow this branch harmlessly).
   return false;
 }
 
@@ -79,6 +77,7 @@ const char* PathName(Path p) {
     case Path::Auto: return "auto";
     case Path::XmlPath: return "xml";
     case Path::NativePath: return "native";
+    case Path::MjsPath: return "mjs";
   }
   return "?";
 }

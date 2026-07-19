@@ -175,6 +175,27 @@ def test_identity_fixture(ps_path_diff: Path, model: Path):
 
 @pytest.mark.skipif(not FIXTURE_FILES, reason="no pathdiff fixtures found")
 @pytest.mark.parametrize("model", FIXTURE_FILES, ids=FIXTURE_IDS or ["<none>"])
+def test_mjs_parity_fixture(ps_path_diff: Path, model: Path):
+    """XmlPath vs MjsPath must be bit-identical for every fixture: the mjSpec
+    shim (CompilePath::MjsPath) compiles the same model to the same mjModel the
+    XML oracle does. Any divergence is a builder bug (mjs_builder.cc)."""
+    r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(model))
+    assert r.returncode == 0, f"mjs parity diff FAILED:\n{r.stdout}\n{r.stderr}"
+    assert any(l.startswith("PASS") for l in r.stdout.splitlines()), r.stdout
+    assert not any(l.startswith("FAIL") for l in r.stdout.splitlines()), r.stdout
+
+
+def test_whole_corpus_mjs_parity_one_shot(ps_path_diff: Path):
+    """One invocation over the whole fixture dir: XmlPath vs MjsPath, all PASS."""
+    if not FIXTURE_FILES:
+        pytest.skip("no pathdiff fixtures found")
+    r = _run(ps_path_diff, "--path-a", "XmlPath", "--path-b", "MjsPath", str(FIXTURES))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"{len(FIXTURE_FILES)} PASS, 0 FAIL" in r.stdout, r.stdout
+
+
+@pytest.mark.skipif(not FIXTURE_FILES, reason="no pathdiff fixtures found")
+@pytest.mark.parametrize("model", FIXTURE_FILES, ids=FIXTURE_IDS or ["<none>"])
 def test_against_stock_fixture(ps_path_diff: Path, model: Path):
     """ProtoSpec XmlPath must match stock mj_loadXML of the original file."""
     r = _run(ps_path_diff, "--against-stock", str(model))
