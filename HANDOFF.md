@@ -3,12 +3,19 @@
 Thin index; the living state lives in the STATUS tables of the plan docs. Verify health first:
 
 ```
-uv run pytest                                     # ~1660 passed
-ctest --test-dir protospec/lib/build -C Release             # 6/6
-ctest --test-dir studio/build -C Release     # 8/8
+uv run pytest                        # 301 passed / 43 skipped without the python
+                                     # .so + MuJoCo corpus; ~1660 with them.
+                                     # Includes the windowless plugin test when
+                                     # the fork's build_ps libs are present.
+ctest --test-dir protospec/lib/build -C Release   # 6/6 (Windows box; the cache
+                                     # is per-machine -- reconfigure elsewhere)
 uv run python -m protospec_gen.emit --check
 uv run python attic/tools/lift_registry.py check
 ```
+
+(The former `ctest --test-dir studio/build` 8-battery suite is parked with the
+standalone host under `attic/studio_host/test/`; the live editor gates are the
+windowless plugin test plus the headless smoke in `docs/studio_build.md`.)
 
 ## ProtoSpec Studio (the MuJoCo Studio fork)
 
@@ -20,14 +27,14 @@ the fork is its only live host:
   retarget. See `attic/studio_host/README.md`.
 - **Fork** `mujoco-studio` (branch `studio`) — the real MuJoCo Studio app (Filament).
   Compiles the editor + ProtoSpec core live from this repo via `PROTOSPEC_ROOT`
-  (the live repo, not a snapshot). It keeps only host glue: the `platform/ux` plugin
-  shims and `host/shell.{cc,h}` (the SE4 File/Edit menu + toolbar + Play/Stop bridge,
-  which bind to Studio-only plugin types the standalone host lacks). The error-chip
-  is rendered host-side; the editor cluster exposes the `DiagnosticErrorCount`
-  predicate it reads.
+  (the live repo, not a snapshot). The fork's whole delta vs the pinned upstream is
+  three files (`.gitignore`, the ~15-line CMake mount block, and the
+  plugin-keyhandlers-first hunk in `app.cc`); every other former fork seam now lives
+  here — build logic + plugin-API shim + registration TU in `studio/glue/`, the
+  curated dock layout in `studio/editor/dock_layout.cc`, and the env-driven
+  self-screenshot in `studio/editor/screenshot_service.cc`.
 
-Build dir: `C:\Users\jonat\Documents\mujoco-studio\build_ps`
-(`PROTOSPEC_ROOT=C:/Users/jonat/Documents/protospec`). Exact commands, run, and
+Build dir: `<fork>/build_ps` (`-DPROTOSPEC_ROOT=<this repo>`). Exact commands, run, and
 self-screenshot in `docs/studio_build.md`. On the live core, humanoid.xml takes the
 fast native compile path (`path=native`); verify with
 `protospec/lib/build/Release/ps_compile.exe <model.xml>` -> `"path_taken": "native"`.

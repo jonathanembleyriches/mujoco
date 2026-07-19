@@ -7,8 +7,9 @@ editor being **certified** — this document defines certified so it can be sign
 Certified = **all Section 1 rows green + every Section 1 gap closed or owner-waived + every
 Section 2 step PASS in one sitting + the Section 3 statement signed.**
 
-**Canonical code under test:** the `studio` branch of `C:\Users\jonat\Documents\mujoco-studio`
-(real Studio host + editor cluster at `src/experimental/studio/protospec/`). The batteries also
+**Canonical code under test:** the `studio` branch of the `mujoco-studio` fork (real Studio
+host) building the editor cluster live from THIS repo (`studio/editor/` + the `studio/glue/`
+host-mount; see `docs/studio_build.md`). The batteries also
 live in the protospec repo at `attic/studio_host/test/` (parked with the standalone host,
 pre-plugin); note `test_gizmo.cc` has **diverged** — the
 studio-branch copy adds the joint-rig battery and the Q-ORIENT sync (7ebe3a08) and is the copy
@@ -180,7 +181,7 @@ standalone `studio` host does not carry.
 | M35 | Read the Hierarchy rows; type a name fragment into the filter, then click the clear-x | Every element row leads with a **FontAwesome family glyph** (body/geom/joint/site/camera/light/frame/actuator/sensor/tendon/equality/asset; sections show a folder); the selected row's text is the brightest; while filtering, a **clear-x** button and a live **"N matches"** count show; clear-x empties the filter | ☐ |
 | M36 | Select an **angled** limb geom (e.g. `upper_arm_right` on the humanoid), orbit around it | The selection outline is a **tight box oriented to the geom's own frame** (its edges run along the shape, not axis-aligned) and the selected geom carries a **subtle emissive tint**; a selected joint keeps its highlighted axis/anchor overlay | ☐ |
 | M37 | Load a model with a planted validation error (e.g. a duplicate joint name), then click the status-bar error chip | A compact **red chip** with the error **count** appears in the status bar whenever Diagnostics hold errors; clicking it **reveals + focuses the Diagnostics panel** (which is otherwise folded away in the two-panel default); the chip clears when the diagnostics are cleared | ☐ |
-| M38 | *(studio branch)* Launch classic (`--gfx=classic --screenshot_seq=<dir>`) and press **F12** (or pass `--screenshot_after=<N> --screenshot_count=<K>`) | A PNG of the **composited UI** (menu bar + panels + viewport) is written to `<dir>` — a host-side self-capture that bypasses OS screen grab; images are non-black with the full chrome visible | ☐ |
+| M38 | *(studio branch)* Launch classic (`MUJOCO_SCREENSHOT_DIR=<dir> mujoco_studio <model> --gfx=classic`) and press **F12** (or set `MUJOCO_SCREENSHOT_AFTER=<N> MUJOCO_SCREENSHOT_COUNT=<K> MUJOCO_SCREENSHOT_EXIT=1`) | A PNG of the **composited UI** (menu bar + panels + viewport) is written to `<dir>` — the plugin-side self-capture (`studio/editor/screenshot_service.cc`) that bypasses OS screen grab; images are non-black with the full chrome visible | ☐ |
 
 ### SE5 authoring richness (multi-import, primitives, materials/textures, defaults)
 

@@ -219,8 +219,9 @@ static void TestRename() {
   auto m = BuildRobot();
   Joint* hip = sdk::Find<Joint>(*m, "hip");
 
-  int updated = sdk::Rename(*m, *hip, "hip_renamed");
-  CHECK(updated == 2);  // actuator + sensor
+  sdk::RenameResult renamed = sdk::Rename(*m, *hip, "hip_renamed");
+  CHECK(renamed.ok);
+  CHECK(renamed.updated == 2);  // actuator + sensor
   CHECK(hip->name.value() == "hip_renamed");
 
   // Old name resolves to nothing; new name resolves; referrers followed it.
@@ -675,15 +676,17 @@ static void TestRuntimeRenameDelete() {
     auto m = BuildRobot();
     Joint* hip = sdk::Find<Joint>(*m, "hip");
     const void* p = hip;
-    int updated = sdk::Rename(*m, p, "hip2");
-    CHECK(updated == 2);  // act_hip + sens_hip followed
+    sdk::RenameResult renamed = sdk::Rename(*m, p, "hip2");
+    CHECK(renamed.ok);
+    CHECK(renamed.updated == 2);  // act_hip + sens_hip followed
     CHECK(hip->name.value() == "hip2");
     CHECK(sdk::Find<Joint>(*m, "hip") == nullptr);
     Position* act = sdk::Find<Position>(*m, "act_hip");
     CHECK(act && act->joint->name == "hip2");
-    CHECK(sdk::Rename(*m, p, "hip2") == 0);  // same name: no-op
+    sdk::RenameResult noop = sdk::Rename(*m, p, "hip2");  // same name: no-op
+    CHECK(noop.ok && noop.updated == 0);
     int not_in_model = 0;
-    CHECK(sdk::Rename(*m, &not_in_model, "x") == -1);  // unknown pointer
+    CHECK(!sdk::Rename(*m, &not_in_model, "x").ok);  // unknown pointer
   }
 
   // DeleteSubtree reports dangling referrers and (with cascade) clears them.

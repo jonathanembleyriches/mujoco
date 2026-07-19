@@ -6,8 +6,9 @@
 //
 // Windowless and header-only (templates over the generated tree); no ImGui, no
 // EditorContext, so both the pure gizmo math (transform_math) and the ctx-aware
-// ops (editor_ops / authoring_ops) can share it. FindSerial is the single walk a
-// later swap to the SDK's own find verb collapses to.
+// ops (editor_ops / authoring_ops) can share it. The serial finders are thin
+// const-correct wrappers over the SDK's own find verb
+// (ps::sdk::FindBySerialTyped) -- the SDK owns the walk.
 
 #ifndef PS_STUDIO_EDITOR_ELEMENT_ACCESS_H_
 #define PS_STUDIO_EDITOR_ELEMENT_ACCESS_H_
@@ -16,7 +17,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "protospec/traversal.h"  // ps::sdk::FindBySerial / FindBySerialTyped
+#include "protospec/traversal.h"  // ps::sdk::FindBySerialTyped, ps::sdk::Located
 #include "types.h"                // mj::Model, element_type_of, ElementType
 
 namespace ps::studio {

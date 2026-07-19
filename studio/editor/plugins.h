@@ -27,6 +27,15 @@ void RegisterEditorPanels(EditorContext& ctx);
 // (mouse + draw hooks), the selection outline, and the QWER/Del key handlers.
 void RegisterViewportEditor(EditorContext& ctx);
 
+// Host-service plugins. Live-host only (they drive ImGui/SDL, not the model),
+// so they take no EditorContext; windowless harnesses never call them.
+// Curated default dock layout — pre-empts the host's stock first-run layout
+// under the same "Root" dockspace id (dock_layout.cc).
+void RegisterDockLayoutService();
+// Env-driven composited-framebuffer self-screenshot + F12 capture, classic
+// backend (screenshot_service.cc).
+void RegisterScreenshotService();
+
 // Model-level creation menu items (actuator/sensor spellings; tendon, equality,
 // contact pair/exclude, keyframe). Defined in panels.cc, shared with the
 // Hierarchy's per-section context menus so an EMPTY family can be bootstrapped
@@ -41,13 +50,18 @@ namespace details {
 void RegisterDetailsPanel(EditorContext& ctx);
 }  // namespace details
 
-// Registers the whole cluster.
+// Registers the whole cluster. The screenshot service registers LAST so its
+// foreground-draw-list capture callback is appended after the gizmo's own
+// foreground draws within a frame (ModelPlugins dispatch in registration
+// order).
 inline void RegisterEditorPlugins(EditorContext& ctx) {
   RegisterProtoSpecEditorPlugin(ctx);
   RegisterHierarchyPanel(ctx);
   details::RegisterDetailsPanel(ctx);
   RegisterEditorPanels(ctx);
   RegisterViewportEditor(ctx);
+  RegisterDockLayoutService();
+  RegisterScreenshotService();
 }
 
 }  // namespace ps::studio

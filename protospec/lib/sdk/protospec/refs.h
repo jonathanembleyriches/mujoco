@@ -297,10 +297,12 @@ inline std::string UniqueName(mj::Model& model, mj::ElementType type,
 // DeleteSubtree, Attach) all report through a small result object carrying `bool
 // ok` (contextually convertible: `if (auto r = sdk::Rename(...))`) and, where a
 // failure has a cause, a `std::string reason`. RenameResult additionally carries
-// `updated` (referrer fields rewritten). The former scalar returns (`int` for
-// Rename, `void*` for Duplicate) survive one release as deprecated conversions
-// on the result object so existing call sites keep compiling; prefer `.ok` /
-// `.updated` / `.clone`.
+// `updated` (referrer fields rewritten). Rename's former scalar `int` return
+// survives one release as a deprecated conversion on RenameResult so existing
+// call sites keep compiling; Duplicate's former `void*` return deliberately did
+// NOT become a conversion operator (an implicit pointer conversion would win
+// over the explicit `operator bool` in `if (r)`) -- its clone is the plain
+// `.clone` field / `As<T>()`. Prefer `.ok` / `.updated` / `.clone`.
 struct RenameResult {
   bool ok = false;         // the rename applied (or was an accepted no-op)
   int updated = 0;         // referrer fields rewritten (0 for a no-op / nameless

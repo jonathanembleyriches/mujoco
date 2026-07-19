@@ -57,9 +57,12 @@ def _mj_include() -> Path | None:
 
 
 def _studio_src() -> Path | None:
+    # The ps::studio plugin-name shim now lives in-repo (studio/glue); the fork
+    # src tree is still needed for the real experimental/platform/ux/plugin.h
+    # structs the shim forwards to.
     p = Path(os.environ.get("PROTOSPEC_STUDIO_SRC", str(DEFAULT_STUDIO_SRC)))
-    shim = p / "experimental" / "studio" / "protospec" / "platform" / "ux" / "plugin.h"
-    return p if shim.is_file() else None
+    real = p / "experimental" / "platform" / "ux" / "plugin.h"
+    return p if real.is_file() else None
 
 
 BUILD_PS_LIB = _build_ps_lib()
@@ -101,7 +104,7 @@ def plugin_test_exe(tmp_path_factory) -> Path:
         f"-I{LIB / 'compile'}",
         f"-I{LIB / 'io'}",
         f"-I{ROOT / 'studio'}",
-        f"-I{STUDIO_SRC / 'experimental' / 'studio' / 'protospec'}",
+        f"-I{ROOT / 'studio' / 'glue'}",
         f"-I{STUDIO_SRC}",
         f"-I{MJ_INCLUDE}",
         str(BUILD_PS_LIB / "libprotospec_core.a"),

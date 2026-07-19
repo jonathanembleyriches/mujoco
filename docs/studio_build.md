@@ -16,10 +16,10 @@ Paths below use two placeholders — substitute your checkouts:
 | Location | Contents |
 | --- | --- |
 | `<protospec>/studio/editor/` | The editor cluster — single source. The plugin fork builds from here. |
-| `<protospec>/attic/studio_host/test/` | The 8 editor test batteries — parked with the pre-plugin standalone host (see `attic/studio_host/README.md`); worth re-pointing at the plugin shape someday. |
+| `<protospec>/studio/glue/` | The host-mount build: `CMakeLists.txt` (all build logic), the `platform/ux/plugin.h` shim mapping the `ps::studio` plugin names onto the real `mujoco::platform` registry, and `register_editor.cc` (the `mjPLUGIN_LIB_INIT` self-registration TU the fork compiles into the executable). |
+| `<protospec>/attic/studio_host/test/` | The 8 editor test batteries — parked with the pre-plugin standalone host (see `attic/studio_host/README.md`); worth re-pointing at the plugin shape someday. The live windowless coverage is `protospec/tests/test_plugin_windowless.py`. |
 | `<protospec>/attic/studio_host/platform/ux/{plugin,ps_plugin_ext}.h` | The old standalone `ps::studio` plugin structs — parked; stale against the 4-type retarget. |
-| `<studio>/.../protospec/platform/ux/*.h` | Fork host shims mapping the ps::studio plugin names onto the real `mujoco::platform` registry. |
-| `<studio>/.../studio/main.cc` | Fork entry point; registers the editor cluster (the four upstream plugin types; the old host shell collapsed into the editor's own panels) under `MUJOCO_STUDIO_PROTOSPEC`. |
+| `<studio>/src/experimental/studio/CMakeLists.txt` | The fork's ONLY editor wiring: the `MUJOCO_STUDIO_PROTOSPEC` option and the ~15-line mount block (`add_subdirectory` of `studio/glue` + `target_sources` of `register_editor.cc`). `main.cc` is stock upstream. |
 
 ## Prerequisites
 
@@ -30,8 +30,9 @@ Filament + SDL2 + Dear ImGui + abseil + lodepng into `<studio>/build_ps/_deps` (
 is large); later builds are incremental. Editing an editor source in `<protospec>` recompiles
 only `protospec_core` / `protospec_editor` and relinks the executable.
 
-`PROTOSPEC_ROOT` points at this live repo (NOT a snapshot). `PROTOSPEC_STUDIO_ROOT` defaults to
-`${PROTOSPEC_ROOT}/studio`; override only if the studio tree moves.
+`PROTOSPEC_ROOT` points at this live repo (NOT a snapshot); everything else is derived from it
+(the fork mounts `${PROTOSPEC_ROOT}/studio/glue`, which locates the editor and core relative to
+itself).
 
 The common configure flags (all platforms):
 
@@ -120,26 +121,33 @@ that way upstream).
 **Quote model paths that contain spaces**, e.g. `--model_file="…/Unreal Projects/…/humanoid.xml"` —
 an unquoted path splits at the space and the model silently fails to load.
 
-Only the Hierarchy and Details panels dock open by default (plus the central Viewport) — the
-two-panel layout. Assets folds into the Hierarchy (its section's right-click and the header
-"+ Asset" button create materials / textures / import meshes); Diagnostics folds into the
-status-bar error chip (click it to reveal the log). Both remain toggleable from the Plugins/View
-menu. After a load or a drag, the Diagnostics log records the compile path, e.g.
+The default layout is curated plugin-side (`studio/editor/dock_layout.cc`): Hierarchy left,
+Viewport centre, Details right with Layers beneath it. The host's stock Options / Explorer /
+Inspector panels stay at their upstream defaults and dock as background tabs behind the curated
+panels; Assets / Diagnostics / File / + Add dock hidden and are toggleable from the Plugins/View
+menu. The curated layout only applies when no saved layout exists — a `~/.mujoco.ini` from a
+pre-glue build (the old versioned `RootV3` dockspace) leaves windows floating; delete the ini
+once to re-curate. After a load or a drag, the Diagnostics log records the compile path, e.g.
 `… ok  path=native  nq=27  nbody=14`. `path=native` = the fast native compiler (no XML round-trip);
 large or unsupported-feature models fall back to `path=xml`.
 
 ### Self-screenshot (headless capture)
 
-The classic backend can capture frames without interaction (absl flags use underscores):
+The screenshot service is plugin-side too (`studio/editor/screenshot_service.cc`) and is
+configured from the environment (no launcher flags, so it works through the stock
+`LaunchStudio` path). Classic backend only. F12 captures on demand; the auto mode is:
 
 ```sh
-mujoco_studio --gfx=classic \
-  --screenshot_seq <out_dir> --screenshot_after 90 --screenshot_exit \
-  "<path>/model/humanoid/humanoid.xml"
+MUJOCO_SCREENSHOT_DIR=<out_dir> MUJOCO_SCREENSHOT_AFTER=90 MUJOCO_SCREENSHOT_EXIT=1 \
+  mujoco_studio "<path>/model/humanoid/humanoid.xml" --gfx=classic
 ```
 
-## Editor tests (the 8 batteries)
+`MUJOCO_SCREENSHOT_COUNT=N` takes N consecutive frames; shots are `shot_%04d.png`. Note the
+model path must be the FIRST argument (or passed via `--model_file=`) — `main.cc` only promotes
+`argv[1]` to a model path.
 
-The editor's tests live and run with the single source, in the standalone `studio` build
-(the CI / ASan surface), not in this fork — see the **Studio** section of the top-level
-`README.md` for the cross-platform commands.
+## Editor tests
+
+The live windowless coverage of the plugin surface is `protospec/tests/test_plugin_windowless.py`
+(builds `studio/editor/test/test_plugin_windowless.cc` against the `build_ps` libs). The 8
+pre-plugin batteries are parked with the standalone host under `attic/studio_host/test/`.

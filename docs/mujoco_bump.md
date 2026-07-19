@@ -17,10 +17,13 @@ First executed 2026-07-19 (67a1ea6d -> 3990305, 234 commits, MuJoCo 3.10.0-dev
    `mjspecmacro.h`, `src/user/user_api.cc`, `src/xml/xml_native_reader.cc`,
    `src/experimental/platform/ux/*`, `src/experimental/studio/*`, engine fields
    walked by `mj_model_diff`, filament.
-2. **Rebase** the fork's curated patch series (currently 4 thematic patches; see
-   `git log studio` — protospec subtree/registration, keyhandler+screenshot,
-   dock layout, housekeeping) onto the pin, on a working branch
-   `studio-sync-<shortsha>`. Drop any patch upstream obsoleted. The delta stat
+2. **Rebase** the fork's curated patch series onto the pin, on a working branch
+   `studio-sync-<shortsha>` (see `git log studio` — after the plugin-side moves
+   the whole delta is three files: `.gitignore`, the CMake mount block, and the
+   keyhandlers-first hunk in `app.cc`; the dock layout and screenshot machinery
+   live in this repo as editor plugins). Drop any patch upstream obsoleted —
+   re-check the keyhandler hunk especially (it retires the day upstream
+   dispatches plugin KeyHandlers before its built-in chords). The delta stat
    must come out **no larger** than the previous sync's — growth is a red flag.
    NOTE: stale `MUJOCO_DEP_VERSION_*` entries in `build_ps/CMakeCache.txt`
    override the pin's dep SHAs and break dep patches — unset them and clear the

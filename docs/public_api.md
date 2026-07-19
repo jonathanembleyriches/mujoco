@@ -219,12 +219,14 @@ The structural verbs report through a small **result object**, uniformly: a
 truthy `explicit operator bool` (`if (auto r = sdk::Reparent(...)) ...`) and,
 where a failure has a cause, a `std::string reason` (empty on success). This
 replaces the former mix of `void*`, `int` sentinels, and ad-hoc structs the deep
-audit flagged. The two verbs whose scalar returns changed — `Rename` (`int` → a
-`RenameResult`) and `Duplicate` (`void*` → a `DuplicateResult`) — keep the old
-return shape as a **deprecated one-release conversion** on the result object, so
-existing call sites keep compiling for a transition period; new code should read
-`.ok` / `.updated` / `.clone`. The `int`/`void*` conversions are removed in the
-next minor release.
+audit flagged. `Rename` (`int` → a `RenameResult`) keeps the old return shape as
+a **deprecated one-release `operator int`** on the result object, so existing
+call sites keep compiling for a transition period. `Duplicate` (`void*` → a
+`DuplicateResult`) deliberately has **no** deprecated pointer conversion — an
+implicit `operator void*` would beat the explicit `operator bool` in `if (r)` —
+its clone is the plain `.clone` field / `.As<T>()`. New code should read `.ok` /
+`.updated` / `.clone`. The `int` conversion is removed in the next minor
+release.
 
 | Verb | Result object | Fields |
 | --- | --- | --- |
@@ -470,7 +472,7 @@ change in any commit; the include graph is the boundary (if it is not a
 | `protospec/io.h` | **stable** | MJCF parse/write |
 | `protospec/validate.h` | **stable** | three-tier validation |
 | `protospec/compile.h` | **stable (pin-versioned)** | byte-exactness is versioned against the MuJoCo pin — see below |
-| `protospec/sdk.h` | **stable** | builders, traversal, refs, classes, attach. *Provisional within it:* the deprecated `int`/`void*` conversions on `RenameResult`/`DuplicateResult` (removed next minor); the promoted editor helpers (`ForEachElement`, `SerialOf`, `FindBySerialAs`, `NameOfSerial`, `UniqueName`, `CloneModelWithSerials`) are stable |
+| `protospec/sdk.h` | **stable** | builders, traversal, refs, classes, attach. *Provisional within it:* the deprecated `int` conversion on `RenameResult` (removed next minor); the promoted editor helpers (`ForEachElement`, `SerialOf`, `FindBySerial`, `FindBySerialTyped`, `FindBySerialAs`, `NameOfSerial`, `UniqueName`, `CloneModelWithSerials`) are stable |
 | `protospec/save.h` | **stable** | model persistence |
 | `protospec/protospec.h` | **stable** | the aggregate umbrella |
 
@@ -504,8 +506,8 @@ surface freeze:
 - **MINOR** — additive changes (new verbs, new stable-ified provisional surface,
   new schema attributes flowing from a MuJoCo bump) and the **removal of a
   deprecated shim** that shipped deprecated in the prior minor (e.g. the
-  `int`/`void*` conversions on `RenameResult`/`DuplicateResult`). Deprecations
-  ship for **one minor release** before removal.
+  `int` conversion on `RenameResult`). Deprecations ship for **one minor
+  release** before removal.
 - **PATCH** — bug fixes with no surface change. A patch **may re-pin MuJoCo** (and
   thus move the byte-exactness version string) only via a full ritual run; the
   pin and exception ledger are named in the release notes.
