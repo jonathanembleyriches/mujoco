@@ -21,6 +21,14 @@
 #include "editor/undo.h"
 #include "types.h"    // ps::Model
 
+// MuJoCo forward decls: this windowless header holds only pointers to host/live
+// MuJoCo state (the cached camera and the editor's own preview mjData), never
+// their definitions, so it stays free of <mujoco/mujoco.h>.
+struct mjvCamera_;
+struct mjData_;
+typedef struct mjvCamera_ mjvCamera;
+typedef struct mjData_ mjData;
+
 namespace ps::studio {
 
 // A type-erased reference to a tree element: the mutable element pointer plus its
@@ -313,6 +321,20 @@ struct EditorContext {
   bool fresh_load = false;   // one-shot: the last adopt was a file load, not a
                             // drag recompile (host resets the free camera)
 
+  // R1 adoption plumbing (the editor operates through the 4 upstream plugin
+  // types only). `camera` is the host's live mjvCamera*, cached once from the
+  // SpecEditorPlugin::pre_compile dispatch (a stable &App::camera_) and used for
+  // pick-ray / gizmo projection and flicker-free restore across bytes adoptions.
+  // `sim_data` is the editor's OWN preview mjData built on ctx.compiled.model
+  // (remade every successful compile): the viewport math runs on it, id-consistent
+  // with ctx.compiled.binding and decoupled from the host's model-reload latency.
+  // `compile_generation` bumps on every successful compile so the ModelPlugin
+  // knows when a fresh artifact is ready to serialize into the host as bytes.
+  mjvCamera* camera = nullptr;
+  bool camera_ready = false;
+  mjData* sim_data = nullptr;
+  std::uint64_t compile_generation = 0;
+
   // Diagnostics panel log (validation tiers 1-2, compile report, pick events).
   std::deque<DiagEntry> diagnostics;
   std::string status_line;   // compile path taken + timing + dirty state
@@ -345,11 +367,11 @@ struct EditorContext {
   EditorMode mode = EditorMode::Edit;
   bool play_paused = false;           // ⏸ within Play mode
 
-  // What physics is actually doing, latched each frame from the host's
-  // ViewportGuiPlugin::Context (the host owns run/pause and the live mjData;
-  // `mode` alone does not track it -- Space and the host's StepControl widget
-  // move the pause state without telling the editor).
-  bool sim_paused = true;             // host has physics paused
+  // What physics is actually doing, latched each frame in the model ModelPlugin's
+  // do_update (R1): sim_paused = (mode == Edit) since Edit-mode do_update freezes
+  // the host (returns true, host skips StepControl::Advance); sim_time is the live
+  // host mjData time (held at 0 in Edit). CanEdit() reads both.
+  bool sim_paused = true;             // physics frozen (Edit mode)
   double sim_time = 0.0;              // live mjData time; 0 == the reset state
 
   // One-shot post-compile correction after a NON-uniform mesh-scale drag: the

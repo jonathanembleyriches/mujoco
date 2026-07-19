@@ -4,8 +4,9 @@
 // list over the mjr-rendered scene (deliverable 3). It owns the drag interaction
 // state machine and defers the actual tree edit to transform_math (the DR-S6
 // delta rule) so the load-bearing math stays windowless and tested. One
-// GizmoController instance is shared between the ViewportPlugin (mouse, before
-// camera handling) and the ViewportGuiPlugin (drawing, during the ImGui frame).
+// GizmoController instance is shared by the viewport's per-tick driver: HandleMouse
+// (mouse) and Draw (screen-space drawing), both run from the viewport ModelPlugin
+// do_update inside the active ImGui frame.
 
 #ifndef PS_STUDIO_EDITOR_GIZMO_H_
 #define PS_STUDIO_EDITOR_GIZMO_H_
@@ -17,7 +18,7 @@
 #include "editor/gizmo_math.h"
 #include "editor/placement.h"
 #include "editor/transform_math.h"
-#include "platform/ux/ps_plugin_ext.h"
+#include "editor/viewport_input.h"  // ps::studio::ViewportInput / ViewportContext
 #include "pose.h"  // ps::mjcf::PosePatch / ApplyPosePatch (the drag fast path)
 
 namespace ps::studio {
@@ -51,9 +52,13 @@ class GizmoController {
 
   // Draws the gizmo + hover highlight into the active ImGui frame. Also services
   // an Esc-cancel of an in-progress drag.
-  void Draw(EditorContext& ctx, const ViewportGuiPlugin::Context& vc);
+  void Draw(EditorContext& ctx, const ViewportContext& vc);
 
   bool dragging() const { return dragging_; }
+  // Whether the last Draw found the cursor over a handle (not yet dragging). The
+  // viewport do_update reads this to SetNextFrameWantCaptureMouse so the press
+  // lands on the gizmo instead of orbiting the host camera (1-frame handoff).
+  bool hot() const { return hot_; }
 
  private:
   void Begin(EditorContext& ctx, const ViewportInput& in, const ViewProj& vp,
@@ -75,6 +80,7 @@ class GizmoController {
 
   bool prev_left_ = false;
   bool dragging_ = false;
+  bool hot_ = false;  // cursor over a handle at last Draw (see hot())
   GizmoHandle grabbed_;
   std::uint64_t drag_serial_ = 0;
 

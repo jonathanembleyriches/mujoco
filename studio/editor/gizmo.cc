@@ -792,7 +792,8 @@ void DrawStatusToast(EditorContext& ctx) {
 
 }  // namespace
 
-void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context& vc) {
+void GizmoController::Draw(EditorContext& ctx, const ViewportContext& vc) {
+  hot_ = false;  // recomputed once the hover hit-test runs below
   if (vc.edit_mode) DrawStatusToast(ctx);
   if (!vc.edit_mode || !ctx.tree || ctx.selected_serial == 0 || !vc.data ||
       vc.model != ctx.compiled.model.get() ||
@@ -847,6 +848,7 @@ void GizmoController::Draw(EditorContext& ctx, const ViewportGuiPlugin::Context&
   const ImVec2 mp = ImGui::GetIO().MousePos;
   GizmoHandle hover =
       dragging_ ? grabbed_ : HitTest(f, ctx.gizmo, vp, m, size, mp);
+  hot_ = !dragging_ && hover.kind != HandleKind::None;
 
   ImDrawList* dl = ImGui::GetForegroundDrawList();
   double ax[3][3];

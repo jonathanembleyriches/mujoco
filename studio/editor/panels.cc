@@ -4,6 +4,7 @@
 // (load / save), and the Ctrl+Z / Ctrl+Y / Ctrl+S key handlers.
 
 #include <array>
+#include <cstdio>
 #include <string>
 #include <variant>
 #include <vector>
@@ -701,6 +702,338 @@ static void FileMenuUpdate(GuiPlugin* self) {
   ImGui::EndDisabled();
 }
 
+// ==========================================================================
+// SE4 editor shell (R1: collapsed from the fork's host/shell.cc into the editor).
+// The File/Edit menus, the transform toolbar + Edit/Play mode + status chip, and
+// the native file dialog all live here now, driven from a ModelPlugin do_update
+// that runs INSIDE the active ImGui frame with no window wrapper -- so it can call
+// ImGui::BeginMainMenuBar (appends to the host's real menu bar; the host's own
+// File menu remains alongside, an accepted degradation) without the nested
+// Begin/End a GuiPlugin window would impose. The dialog is serviced in-plugin
+// (Linux zenity subprocess) instead of a host FileDialogPlugin.
+// ==========================================================================
+
+static void ShellSaveExternalize(EditorContext* c, const std::string& path) {
+  if (SaveModel(*c, path)) ExternalizeVfsAssets(*c, path);
+}
+
+// Blocking zenity subprocess (mirrors the host's own file_dialog_zenity popen;
+// a whole-frame stall is acceptable and no worse than upstream). A missing zenity
+// delivers a clean rejection + a diagnostic. Behind FileDialogState so a future
+// host/remote service can replace it. Linux only (the fork build target).
+static void ServiceFileDialog(EditorContext* c) {
+  const FileDialogState::Kind k = c->file_dialog.Poll();
+  if (k == FileDialogState::Kind::None) return;
+#ifdef __linux__
+  std::string cmd = "zenity --file-selection";
+  switch (k) {
+    case FileDialogState::Kind::SaveAs:
+      cmd += " --save --confirm-overwrite";
+      break;
+    case FileDialogState::Kind::ImportMeshes:
+      cmd += " --multiple --separator='\\n'";
+      break;
+    case FileDialogState::Kind::ImportFolder:
+      cmd += " --directory";
+      break;
+    default:
+      break;
+  }
+  const std::string& hint = c->file_dialog.start_hint();
+  if (!hint.empty()) cmd += " --filename=\"" + hint + "\"";
+  cmd += " 2>/dev/null";
+  FILE* p = popen(cmd.c_str(), "r");
+  if (!p) {
+    c->file_dialog.Deliver("", false);
+    c->status_toast.Post("file dialog unavailable (install zenity)",
+                         StatusToast::Kind::Error, ImGui::GetTime());
+    return;
+  }
+  std::string out;
+  char buf[4096];
+  std::size_t n;
+  while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, n);
+  const int rc = pclose(p);
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) {
+    out.pop_back();
+  }
+  c->file_dialog.Deliver(out, rc == 0 && !out.empty());
+#else
+  c->file_dialog.Deliver("", false);
+  c->status_toast.Post("native file dialog is Linux-only in this build",
+                       StatusToast::Kind::Error, ImGui::GetTime());
+#endif
+}
+
+// Dispatch a delivered dialog outcome (once per delivered result).
+static void DrainFileDialog(EditorContext* c) {
+  if (!c->file_dialog.HasResult()) return;
+  const FileDialogState::Result r = c->file_dialog.TakeResult();
+  if (!r.accepted || r.path.empty()) return;
+  switch (r.kind) {
+    case FileDialogState::Kind::Open:
+      c->pending.Request(r.path);  // serviced by the model pipeline
+      break;
+    case FileDialogState::Kind::SaveAs:
+      ShellSaveExternalize(c, r.path);
+      break;
+    case FileDialogState::Kind::ImportMesh: {
+      MeshImportResult m = ImportMesh(*c, r.path, nullptr);
+      c->status_toast.Post(
+          m.ok ? "imported mesh" : ("mesh import failed: " + m.error),
+          m.ok ? StatusToast::Kind::Info : StatusToast::Kind::Error,
+          ImGui::GetTime());
+      break;
+    }
+    case FileDialogState::Kind::ImportMeshes: {
+      std::vector<std::string> paths;
+      std::size_t start = 0;
+      while (start <= r.path.size()) {
+        const std::size_t nl = r.path.find('\n', start);
+        const std::string p = r.path.substr(
+            start, nl == std::string::npos ? std::string::npos : nl - start);
+        if (!p.empty()) paths.push_back(p);
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+      }
+      MultiMeshImportResult m = ImportMeshes(*c, paths);
+      c->status_toast.Post(
+          m.ok ? ("imported " + std::to_string(m.imported) + " mesh(es)")
+               : ("mesh import failed: " + m.error),
+          m.ok ? StatusToast::Kind::Info : StatusToast::Kind::Error,
+          ImGui::GetTime());
+      break;
+    }
+    case FileDialogState::Kind::ImportFolder: {
+      MultiMeshImportResult m = ImportMeshFolder(*c, r.path);
+      c->status_toast.Post(
+          m.ok ? ("imported " + std::to_string(m.imported) + " mesh(es)")
+               : ("folder import failed: " + m.error),
+          m.ok ? StatusToast::Kind::Info : StatusToast::Kind::Error,
+          ImGui::GetTime());
+      break;
+    }
+    case FileDialogState::Kind::None:
+      break;
+  }
+}
+
+static void ShellFileMenu(EditorContext* c) {
+  if (!ImGui::BeginMenu("File")) return;
+  if (ImGui::MenuItem("New", "Ctrl+N")) NewModelOp(*c);
+  ImGui::Separator();
+  if (ImGui::MenuItem("Open...", "Ctrl+O")) {
+    c->file_dialog.Request(FileDialogState::Kind::Open, c->source_path);
+  }
+  ImGui::Separator();
+  const bool can_save = c->model_ready && !c->source_path.empty();
+  if (ImGui::MenuItem("Save", "Ctrl+S", false, can_save)) {
+    ShellSaveExternalize(c, c->source_path);
+  }
+  if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, c->model_ready)) {
+    c->file_dialog.Request(FileDialogState::Kind::SaveAs, c->source_path);
+  }
+  ImGui::Separator();
+  if (ImGui::MenuItem("Import Mesh...", nullptr, false, c->CanEdit())) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportMesh, c->base_dir);
+  }
+  if (ImGui::MenuItem("Import Meshes...", nullptr, false, c->CanEdit())) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportMeshes, c->base_dir);
+  }
+  if (ImGui::MenuItem("Import Folder...", nullptr, false, c->CanEdit())) {
+    c->file_dialog.Request(FileDialogState::Kind::ImportFolder, c->base_dir);
+  }
+  ImGui::EndMenu();
+}
+
+static void ShellEditMenu(EditorContext* c) {
+  if (!ImGui::BeginMenu("Edit")) return;
+  const bool editable = c->CanEdit();
+  if (ImGui::MenuItem("Undo", "Ctrl+Z", false,
+                      editable && c->history.can_undo())) {
+    Undo(*c);
+  }
+  if (ImGui::MenuItem("Redo", "Ctrl+Y", false,
+                      editable && c->history.can_redo())) {
+    Redo(*c);
+  }
+  ImGui::Separator();
+  const bool has_sel = editable && c->selected_serial != 0 &&
+                       SerialInActiveLayer(*c, c->selected_serial);
+  if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, has_sel)) {
+    DuplicateOp(*c, c->selected_serial);
+  }
+  if (ImGui::MenuItem("Delete", "Del", false, has_sel)) {
+    c->delete_request_serial = c->selected_serial;
+  }
+  ImGui::EndMenu();
+}
+
+// Transform-tool icon toggle (FontAwesome glyphs in [U+F000,U+F3FF]).
+static void ShellToolButton(const char* icon, const char* id, GizmoTool tool,
+                            GizmoSettings& g, const char* tip) {
+  const bool active = g.tool == tool;
+  if (active) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  ImGui::PushID(id);
+  if (ImGui::Button(icon)) g.tool = tool;
+  ImGui::PopID();
+  if (active) ImGui::PopStyleColor();
+  ImGui::SetItemTooltip("%s", tip);
+  ImGui::SameLine();
+}
+
+static void ShellAddDropdown(EditorContext* c) {
+  if (!ImGui::BeginMenu("+ Add")) return;
+  const std::uint64_t sel = c->selected_serial;
+  if (ImGui::BeginMenu("Body / geom (world)")) {
+    static int count = 1;
+    ImGui::SetNextItemWidth(90);
+    ImGui::InputInt("count", &count);
+    count = count < 1 ? 1 : (count > 64 ? 64 : count);
+    ImGui::Separator();
+    if (ImGui::MenuItem("Body")) AddBodyOp(*c, 0);
+    if (ImGui::MenuItem("Sphere")) AddGeomsOp(*c, 0, mj::GeomType::sphere, count);
+    if (ImGui::MenuItem("Box")) AddGeomsOp(*c, 0, mj::GeomType::box, count);
+    if (ImGui::MenuItem("Capsule"))
+      AddGeomsOp(*c, 0, mj::GeomType::capsule, count);
+    if (ImGui::MenuItem("Cylinder"))
+      AddGeomsOp(*c, 0, mj::GeomType::cylinder, count);
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("Actuator")) {
+    DrawAddActuatorItems(*c, sel);
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("Sensor")) {
+    DrawAddSensorItems(*c, sel);
+    ImGui::EndMenu();
+  }
+  if (ImGui::MenuItem("Keyframe")) AddKeyframeOp(*c);
+  ImGui::EndMenu();
+}
+
+// The transform toolbar + Edit/Play mode + status chip, drawn as a top-level
+// window (dockable). Mode is self-owned (EditorContext.mode); the do_update
+// freeze in the model plugin holds physics at reset while in Edit.
+static void ShellToolbar(EditorContext* c) {
+  constexpr const char* kIconSelect = "\xEF\x89\x85";
+  constexpr const char* kIconMove = "\xEF\x81\x87";
+  constexpr const char* kIconRotate = "\xEF\x80\x9E";
+  constexpr const char* kIconScale = "\xEF\x82\xB2";
+  GizmoSettings& g = c->gizmo;
+
+  if (!ImGui::Begin("Transform")) {
+    ImGui::End();
+    return;
+  }
+  // Mode: Edit / Play. Edit stops + resets (do_update snaps to qpos0); Play
+  // unfreezes (host advances under its StepControl). Play compiles pending edits.
+  const bool in_edit = c->mode == EditorMode::Edit;
+  if (in_edit) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Edit")) c->mode = EditorMode::Edit;
+  if (in_edit) ImGui::PopStyleColor();
+  ImGui::SameLine();
+  if (!in_edit) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Play")) {
+    c->mode = EditorMode::Play;
+    c->play_paused = false;
+    if (c->dirty) {
+      c->apply_edits = true;
+      c->RequestRecompile();
+    }
+  }
+  if (!in_edit) ImGui::PopStyleColor();
+  ImGui::SameLine();
+  ImGui::TextUnformatted("|");
+  ImGui::SameLine();
+
+  ImGui::BeginDisabled(!c->CanEdit());
+  ShellToolButton(kIconSelect, "tool_select", GizmoTool::Select, g, "Select (Q)");
+  ShellToolButton(kIconMove, "tool_move", GizmoTool::Translate, g, "Move (W)");
+  ShellToolButton(kIconRotate, "tool_rotate", GizmoTool::Rotate, g, "Rotate (E)");
+  ShellToolButton(kIconScale, "tool_scale", GizmoTool::Scale, g, "Scale (R)");
+  if (ImGui::Button(g.world_space ? "World" : "Local")) {
+    g.world_space = !g.world_space;
+  }
+  ImGui::SameLine();
+  if (g.snap) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Snap")) g.snap = !g.snap;
+  if (g.snap) ImGui::PopStyleColor();
+  if (ImGui::BeginPopupContextItem("##snapcfg",
+                                   ImGuiPopupFlags_MouseButtonRight)) {
+    ImGui::InputDouble("move (m)", &g.snap_translate, 0.01, 0.1, "%.3f");
+    ImGui::InputDouble("rotate (deg)", &g.snap_rotate_deg, 1.0, 5.0, "%.1f");
+    ImGui::InputDouble("scale", &g.snap_scale, 0.01, 0.1, "%.3f");
+    ImGui::Checkbox("absolute grid", &g.grid_absolute);
+    ImGui::Checkbox("surface snap", &g.surf_snap);
+    ImGui::Checkbox("align to surface", &g.surf_align);
+    ImGui::EndPopup();
+  }
+  ImGui::SameLine();
+  if (g.surf_snap) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Surf")) g.surf_snap = !g.surf_snap;
+  if (g.surf_snap) ImGui::PopStyleColor();
+  ImGui::SameLine();
+  if (c->show_all_joints) {
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Joints")) c->show_all_joints = !c->show_all_joints;
+  if (c->show_all_joints) ImGui::PopStyleColor();
+  ImGui::SameLine();
+  ShellAddDropdown(c);
+  ImGui::EndDisabled();
+
+  // Status chip: dirty + error count (folds the old EditorShell bridge).
+  const int errs = DiagnosticErrorCount(c->diagnostics);
+  ImGui::SameLine();
+  ImGui::TextUnformatted("|");
+  ImGui::SameLine();
+  if (c->dirty) {
+    ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.35f, 1.0f), "unsaved");
+    ImGui::SameLine();
+  }
+  if (errs > 0) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.15f, 0.15f, 1.0f));
+    if (ImGui::SmallButton((std::to_string(errs) + " error(s)").c_str())) {
+      c->focus_diagnostics_request = true;
+    }
+    ImGui::PopStyleColor();
+  } else {
+    ImGui::TextDisabled("%s", c->status_line.c_str());
+  }
+  ImGui::End();
+}
+
+// The shell driver: runs each tick inside the ImGui frame, no window wrapper.
+static bool ShellUpdate(ModelPlugin* self, mjModel*, mjData*) {
+  EditorContext* c = ctx_cast<EditorContext>(self);
+  ServiceFileDialog(c);  // open + deliver any pending native dialog (blocking)
+  DrainFileDialog(c);    // dispatch a delivered result
+  if (ImGui::BeginMainMenuBar()) {
+    ShellFileMenu(c);
+    ShellEditMenu(c);
+    ImGui::EndMainMenuBar();
+  }
+  ShellToolbar(c);
+  return false;  // never affects host stepping
+}
+
 static void RegisterGuiPanel(const char* name, GuiPlugin::UpdateFn fn, bool active,
                              EditorContext& ctx) {
   GuiPlugin plugin;
@@ -727,6 +1060,15 @@ void RegisterEditorPanels(EditorContext& ctx) {
   // "+ Asset" creation; Diagnostics folds into the status-bar error chip (click
   // brings this panel forward). Both stay registered so the Plugins/View menu can
   // still toggle them for power users -- they just no longer dock open by default.
+  // The SE4 shell (menu bar + toolbar + mode + native dialog) runs as a
+  // ModelPlugin do_update so it draws inside the ImGui frame with no window
+  // wrapper (BeginMainMenuBar appends to the host's real bar). Returns false.
+  ModelPlugin shell;
+  shell.name = "ProtoSpec Shell";
+  shell.do_update = ShellUpdate;
+  shell.data = &ctx;
+  RegisterPlugin<ModelPlugin>(shell);
+
   RegisterGuiPanel("Layers", LayersUpdate, true, ctx);
   RegisterGuiPanel("Assets", AssetsUpdate, false, ctx);
   RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, false, ctx);

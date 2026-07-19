@@ -49,6 +49,14 @@ bool ShouldServiceRecompile(const EditorContext& ctx);
 // success. Returns false and logs on I/O failure.
 bool SaveModel(EditorContext& ctx, const std::string& path);
 
+// The editor's per-tick model-pipeline service (R1: driven from the ModelPlugin
+// do_update, formerly the ModelSource poll). In priority order: a pending file
+// load (fresh tree + compile), the deferred cancel-revert applied at the frame
+// seam, then a debounced Edit-mode recompile followed by the mesh-scale fixup. A
+// successful compile bumps EditorContext.compile_generation, which the ModelPlugin
+// serializes into the host as text/xml bytes. Windowless (no plugin/ImGui deps).
+void ServiceEditorModel(EditorContext& ctx);
+
 // Service the one-shot mesh-scale centre fixup (EditorContext.mesh_fix_*):
 // after a successful recompile, re-measure the geom's baked recentering and
 // rewrite its authored pos so the visible centre matches the grab-time centre

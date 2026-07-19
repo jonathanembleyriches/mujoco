@@ -157,9 +157,25 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
     return false;
   }
 
+  // The editor's own preview mjData (ctx.sim_data) is rebuilt on the fresh
+  // artifact. Delete it BEFORE the old mjModel it was built on is freed by the
+  // move below. The viewport gizmo/pick/overlay run on this data, so it stays
+  // id-consistent with ctx.compiled.binding independent of host reload latency.
+  if (ctx.sim_data) {
+    mj_deleteData(ctx.sim_data);
+    ctx.sim_data = nullptr;
+  }
   ctx.compiled = std::move(compiled);
   ctx.compile_tree = std::move(pruned);  // null when ctx.tree compiled directly
   ctx.model_ready = true;
+  if (mjModel* nm = ctx.compiled.model.get()) {
+    ctx.sim_data = mj_makeData(nm);
+    if (ctx.sim_data) {
+      mj_resetData(nm, ctx.sim_data);
+      mj_forward(nm, ctx.sim_data);
+    }
+  }
+  ++ctx.compile_generation;  // signals the ModelPlugin a fresh artifact is ready
 
   const mjModel* m = ctx.compiled.model.get();
   ctx.status_line = std::string(what) + " ok  path=" +
@@ -255,6 +271,40 @@ bool RecompileTree(EditorContext& ctx) {
 bool ShouldServiceRecompile(const EditorContext& ctx) {
   return (ctx.recompile_requested || ctx.apply_edits) &&
          (ctx.apply_edits || ctx.mode == EditorMode::Edit);
+}
+
+void ServiceEditorModel(EditorContext& ctx) {
+  // A pending file load takes priority (fresh tree + compile). It replaces the
+  // tree wholesale, so any stashed cancel-revert is moot.
+  if (ctx.pending.pending()) {
+    ctx.pending_revert.reset();
+    const std::string path = ctx.pending.Take();
+    if (!path.empty() && LoadModel(ctx, path)) {
+      ctx.recompile_requested = false;  // the load already produced an artifact
+    }
+    return;  // errors already logged to Diagnostics
+  }
+
+  // Apply a deferred cancel-revert HERE, at the frame seam -- no ImGui frame is
+  // in flight, so no panel holds references into the outgoing tree (why
+  // CancelEdit must not swap the tree itself: editor_context.h).
+  if (ctx.pending_revert) {
+    ctx.tree = std::move(ctx.pending_revert);
+    ctx.recompile_requested = true;
+  }
+
+  // Service a debounced recompile request (edits coalesce to at most one compile
+  // per frame). A failed recompile keeps the last good artifact and does not
+  // re-adopt. In Play mode recompiles defer unless `apply_edits` is set.
+  if (ShouldServiceRecompile(ctx)) {
+    ctx.recompile_requested = false;
+    ctx.apply_edits = false;
+    if (RecompileTree(ctx)) {
+      // Exact-centre fixup for a mesh-scale drag, measured against THIS fresh
+      // compile; may request one more recompile, then goes idle.
+      ServiceMeshScaleFixup(ctx);
+    }
+  }
 }
 
 void ServiceMeshScaleFixup(EditorContext& ctx) {

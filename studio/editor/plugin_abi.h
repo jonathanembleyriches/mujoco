@@ -1,17 +1,14 @@
 // ProtoSpec Studio: plugin C-ABI helpers + layout guards (ps::studio, ours).
 //
-// The editor talks to the host through POD plugin structs (function pointers +
-// a `void* data` back-pointer to the owning object). Two hazards this header
-// addresses:
-//   * every callback recovers its object with static_cast<T*>(self->data) --
-//     ctx_cast<T> is the one typed spelling of that, and
-//   * the ext plugin structs are HAND-SYNCED against the host's
-//     mujoco::platform:: definitions (platform/ux/plugin.h keeps them VERBATIM
-//     so a plugin loads into stock Studio). The static_asserts below pin the
-//     offsets the editor actually reads, so a field reorder in either copy is a
-//     compile error, not a silent C-ABI mismatch. Compiled against whichever
-//     copy is on the include path (ours, or the host shim in build_ps), so the
-//     guard tracks the layout the editor is really built against.
+// R1: the editor operates through the FOUR upstream Studio plugin types only
+// (GuiPlugin / ModelPlugin / KeyHandlerPlugin / SpecEditorPlugin). Every callback
+// recovers its owning object with static_cast<T*>(self->data) -- ctx_cast<T> is
+// the one typed spelling of that. The struct layouts are HAND-SYNCED against the
+// host's mujoco::platform:: definitions (platform/ux/plugin.h keeps them VERBATIM
+// so a plugin loads into stock Studio); the static_asserts below pin the offsets
+// the editor relies on so a field reorder in either copy is a compile error, not
+// a silent C-ABI mismatch. Compiled against whichever copy is on the include path
+// (ours, or the host shim in build_ps), so the guard tracks the real layout.
 
 #ifndef PS_STUDIO_EDITOR_PLUGIN_ABI_H_
 #define PS_STUDIO_EDITOR_PLUGIN_ABI_H_
@@ -20,58 +17,41 @@
 #include <type_traits>
 
 #include "platform/ux/plugin.h"
-#include "platform/ux/ps_plugin_ext.h"
 
 namespace ps::studio {
 
 // The object behind a plugin callback's `self`: static_cast<Ctx*>(self->data).
-// `self` is any plugin POD carrying a `void* data` (GuiPlugin, KeyHandlerPlugin,
-// ViewportPlugin, ViewportGuiPlugin, OverlayPlugin, ModelSourcePlugin, ...).
+// `self` is any plugin POD carrying a `void* data` back-pointer.
 template <class Ctx, class Self>
 Ctx* ctx_cast(Self* self) {
   return static_cast<Ctx*>(self->data);
 }
 
-// --- Layout guards -------------------------------------------------------- //
-// pv = one native pointer. The ext structs are name-first, then their callback
-// pointers, then the `data` back-pointer the editor recovers via ctx_cast.
+// --- Layout guards (the four upstream types) ------------------------------ //
+// pv = one native pointer. Each POD is name-first (GuiPlugin's leading `active`
+// bool aside), then its callback pointers, then the `data` back-pointer.
 namespace abi_check {
 inline constexpr std::size_t pv = sizeof(void*);
 
-// ViewportInput: the on_mouse callbacks read model/data/camera/vis_option and
-// the mouse/modifier block; guard the pointer quartet and the float block start.
-static_assert(std::is_standard_layout_v<ViewportInput>);
-static_assert(offsetof(ViewportInput, model) == 0 * pv);
-static_assert(offsetof(ViewportInput, data) == 1 * pv);
-static_assert(offsetof(ViewportInput, camera) == 2 * pv);
-static_assert(offsetof(ViewportInput, vis_option) == 3 * pv);
-static_assert(offsetof(ViewportInput, x) == 4 * pv);
+static_assert(std::is_standard_layout_v<GuiPlugin>);
+static_assert(offsetof(GuiPlugin, name) == 1 * pv);
+static_assert(offsetof(GuiPlugin, data) == 3 * pv);
+static_assert(std::is_same_v<decltype(GuiPlugin::data), void*>);
 
-// ViewportPlugin / OverlayPlugin / ViewportGuiPlugin: name, one callback, data.
-static_assert(std::is_same_v<decltype(ViewportPlugin::data), void*>);
-static_assert(offsetof(ViewportPlugin, name) == 0 * pv);
-static_assert(offsetof(ViewportPlugin, data) == 2 * pv);
-static_assert(std::is_same_v<decltype(OverlayPlugin::data), void*>);
-static_assert(offsetof(OverlayPlugin, name) == 0 * pv);
-static_assert(offsetof(OverlayPlugin, data) == 2 * pv);
-static_assert(std::is_same_v<decltype(ViewportGuiPlugin::data), void*>);
-static_assert(offsetof(ViewportGuiPlugin, name) == 0 * pv);
-static_assert(offsetof(ViewportGuiPlugin, data) == 2 * pv);
+static_assert(std::is_standard_layout_v<ModelPlugin>);
+static_assert(offsetof(ModelPlugin, name) == 0 * pv);
+static_assert(offsetof(ModelPlugin, data) == 4 * pv);
+static_assert(std::is_same_v<decltype(ModelPlugin::data), void*>);
 
-// ViewportGuiPlugin::Context: the draw callback reads all five fields.
-static_assert(offsetof(ViewportGuiPlugin::Context, model) == 0 * pv);
-static_assert(offsetof(ViewportGuiPlugin::Context, data) == 1 * pv);
-static_assert(offsetof(ViewportGuiPlugin::Context, camera) == 2 * pv);
+static_assert(std::is_standard_layout_v<KeyHandlerPlugin>);
+static_assert(offsetof(KeyHandlerPlugin, name) == 0 * pv);
+static_assert(offsetof(KeyHandlerPlugin, data) == 3 * pv);
+static_assert(std::is_same_v<decltype(KeyHandlerPlugin::data), void*>);
 
-// ModelSourcePlugin: name, two callbacks, data.
-static_assert(std::is_same_v<decltype(ModelSourcePlugin::data), void*>);
-static_assert(offsetof(ModelSourcePlugin, name) == 0 * pv);
-static_assert(offsetof(ModelSourcePlugin, data) == 3 * pv);
-
-// CompiledModel: the handed-off artifact is a single mjModel*.
-static_assert(std::is_same_v<decltype(CompiledModel::model), mjModel*>);
-static_assert(offsetof(CompiledModel, model) == 0);
-static_assert(sizeof(CompiledModel) == pv);
+static_assert(std::is_standard_layout_v<SpecEditorPlugin>);
+static_assert(offsetof(SpecEditorPlugin, name) == 0 * pv);
+static_assert(offsetof(SpecEditorPlugin, data) == 3 * pv);
+static_assert(std::is_same_v<decltype(SpecEditorPlugin::data), void*>);
 }  // namespace abi_check
 
 }  // namespace ps::studio
