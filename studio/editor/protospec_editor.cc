@@ -5,10 +5,9 @@
 //   SpecEditorPlugin  pre_compile caches the host's live mjvCamera* (a stable
 //                     &App::camera_) and always returns false. This is the only
 //                     conduit to the camera on the stock surface; it is dispatched
-//                     per frame (INVARIANT: merge-base app.cc ProcessPendingLoads
-//                     dispatches pre_compile unconditionally; this fork gates it on
-//                     has_spec(), true at empty-model startup -- caching the stable
-//                     pointer once suffices. R2 must drop that gate.)
+//                     per frame (INVARIANT: app.cc ProcessPendingLoads dispatches
+//                     pre_compile unconditionally -- matching merge-base, restored
+//                     in R2 -- so caching the stable pointer once suffices).
 //
 //   ModelPlugin       get_model_to_load serializes the freshly compiled tree to
 //                     the compile-XML (CompileToXml -- byte-parity with the
