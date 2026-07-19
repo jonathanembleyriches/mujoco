@@ -7,11 +7,12 @@
 // mj_makeSpec, populates it, and the caller (compile.cc) owns it and deletes it
 // with mj_deleteSpec after mj_compile. The tree is read const end to end.
 //
-// Parity contract: for any model the fallback scan accepts, the mjModel that
-// mj_compile produces from the built spec is bit-identical to the one the XML
-// path produces (ps_path_diff --path-a XmlPath --path-b MjsPath). Elements that
-// the builder does not reproduce faithfully are reported by MjsFallbackScan so
-// Auto routes them to the XML oracle instead.
+// Parity contract: for any valid model the mjModel that mj_compile produces from
+// the built spec is bit-identical to the one the XML path produces (ps_path_diff
+// --path-a XmlPath --path-b MjsPath). The builder reproduces every family in
+// process, including the macros (replicate expands via a reader-mirror; composite
+// grafts a re-parsed fragment; flexcomp via mjs_makeFlex) and builtin meshes /
+// URDF-MJB children.
 #ifndef PROTOSPEC_COMPILE_MJS_BUILDER_H
 #define PROTOSPEC_COMPILE_MJS_BUILDER_H
 
@@ -28,9 +29,11 @@ typedef struct mjSpec_ mjSpec;
 
 namespace ps::mjcf::compile {
 
-// Walks the tree for content the builder does not reproduce faithfully (macros,
-// plugins, flex/skin deformables, attach/model assets, global coordinates).
-// Empty result == the builder can compile this model with full parity.
+// Walks the tree for always-error guards: content that is invalid on BOTH
+// compile paths and that the mjs build would otherwise drop silently (currently
+// only coordinate="global"). Every former fallback family is built directly with
+// full parity, so it no longer appears here. A non-empty result is a clean model
+// error, not a route-to-XML signal.
 std::vector<FallbackReason> MjsFallbackScan(const Model& model);
 
 // Builds a fresh mjSpec from `model`. `auto_names` is the serial-keyed reserved

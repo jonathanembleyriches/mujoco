@@ -3,17 +3,19 @@
 // later (native-compiler impl-plan Section 1). Two shipping implementations
 // exist:
 //   * XmlPath: WriteMjcf(model) -> register assets + the XML in an mjVFS ->
-//     mj_loadXML -> name-based Binding. The oracle and the fallback.
+//     mj_loadXML -> name-based Binding. The oracle, still reachable when forced.
 //   * MjsPath: build a throwaway mjSpec from the tree -> mj_compile -> the same
-//     name-based Binding (Wave 2/3 shim; bit-identical to XmlPath on every model
-//     the fallback scan admits, per the ps_path_diff parity gate).
-// Auto prefers MjsPath: it runs the mjSpec fallback scan and, when the model is
-// admitted, compiles through MjsPath; a scan reason (macros, plugins,
-// deformables, exotic sensors/textures, global coordinates) routes to XmlPath
-// with the reasons recorded in report.fallback_reasons. report.taken always
-// names the path that actually ran. NativePath remains parked in attic and is
-// reached only when explicitly forced (PROTOSPEC_NATIVE); Auto never routes to
-// it.
+//     name-based Binding (bit-identical to XmlPath on every valid model, per the
+//     ps_path_diff parity gate). The mjs builder now reproduces every family
+//     (macros, builtin meshes, URDF/MJB children, plugins, deformables, exotic
+//     sensors/textures) with full parity.
+// Auto prefers MjsPath and compiles every valid model through it. The mjSpec
+// fallback scan now returns only always-error guards (content invalid on every
+// path, e.g. global coordinates); such a guard surfaces a clean model error
+// directly (recorded in report.fallback_reasons) rather than routing to XmlPath
+// to fail there. report.taken always names the path that actually ran.
+// NativePath remains parked in attic and is reached only when explicitly forced
+// (PROTOSPEC_NATIVE); Auto never routes to it.
 //
 // Purity (CDR-14): Compile / Recompile take const Model& end to end and never
 // mutate the tree (no const_cast). Unnamed elements are auto-named only in the

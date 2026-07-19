@@ -168,18 +168,21 @@ ELEMENT_WAIVERS = {
     "ModelAsset": "child spec parsed via mj_parseXML + mjs_addSpec by Wave 4; "
                   "not an mjs* struct",
     "Attach": "native subtree attach via mjs_attach by Wave 4; not an mjs* struct",
-    "Composite": "composite macro; the shim falls back to XML for it",
-    "CompositeJoint": "composite macro sub-element; XML fallback",
-    "CompositeSkin": "composite macro sub-element; XML fallback",
-    "CompositeGeom": "composite macro sub-element; XML fallback",
-    "CompositeSite": "composite macro sub-element; XML fallback",
-    "Flexcomp": "flexcomp macro; the shim falls back to XML for it",
-    "FlexcompEdge": "flexcomp macro sub-element; XML fallback",
-    "FlexcompPin": "flexcomp macro sub-element; XML fallback",
+    "Composite": "composite macro; no mjs* struct -- mjs_builder grafts a "
+                 "re-parsed fragment (GraftComposite)",
+    "CompositeJoint": "composite macro sub-element; consumed by GraftComposite",
+    "CompositeSkin": "composite macro sub-element; consumed by GraftComposite",
+    "CompositeGeom": "composite macro sub-element; consumed by GraftComposite",
+    "CompositeSite": "composite macro sub-element; consumed by GraftComposite",
+    "Flexcomp": "flexcomp macro; no mjs* struct -- mjs_builder expands via "
+                "mjs_makeFlex (BuildFlexcomp)",
+    "FlexcompEdge": "flexcomp macro sub-element; consumed by BuildFlexcomp",
+    "FlexcompPin": "flexcomp macro sub-element; consumed by BuildFlexcomp",
     "FlexElasticity": "flex elasticity sub-block folded into mjsFlex by Wave 2",
     "FlexContact": "flex contact sub-block folded into mjsFlex by Wave 2",
     "FlexEdge": "flex edge sub-block folded into mjsFlex by Wave 2",
-    "Replicate": "replicate macro; the shim falls back to XML for it",
+    "Replicate": "replicate macro; no mjs* struct -- mjs_builder mirrors the "
+                 "reader expansion (ExpandReplicate)",
     "Deformable": "container for flexes/skins",
     "Contact": "container for pairs/excludes",
     "Equality": "container for equality constraints",
@@ -329,9 +332,10 @@ FIELD_WAIVERS = {
         "set by Wave 2",
     ("Camera", "output"): "CameraOutput keyword set -> mjsCamera.output bitmask, "
         "OR'd by Wave 2",
-    ("Mesh", "builtin"): "no mjsMesh field (builtin procedural mesh handled "
-        "elsewhere)",
-    ("Mesh", "params"): "no mjsMesh field (builtin mesh params handled elsewhere)",
+    ("Mesh", "builtin"): "no mjsMesh field; mjs_builder generates geometry via "
+        "mjs_makeMesh(builtin, params)",
+    ("Mesh", "params"): "no mjsMesh field; consumed by mjs_builder's "
+        "mjs_makeMesh(builtin, params) call",
     ("Texture", "fileright"): "cube face file -> mjsTexture.cubefiles[0] by Wave 2",
     ("Texture", "fileleft"): "cube face file -> mjsTexture.cubefiles[1] by Wave 2",
     ("Texture", "fileup"): "cube face file -> mjsTexture.cubefiles[2] by Wave 2",

@@ -36,10 +36,11 @@ The compile bridge (`protospec/lib/compile/compile.cc`) guards its call into the
 native compiler behind `#ifdef PROTOSPEC_NATIVE`. With the macro undefined
 (the default), the bridge never includes `native.h` and never links the native
 compiler; forced `NativePath` reports "not built". The attic sources are simply
-not compiled. `Auto` no longer routes to the native compiler at all: it prefers
-the mjSpec path (`MjsPath`) and falls back to the XML oracle, so building the
-native compiler back in changes only what forced `NativePath` does -- the native
-compiler itself is unchanged by the mjSpec-first flip.
+not compiled. `Auto` no longer routes to the native compiler at all: it compiles
+every valid model through the mjSpec path (`MjsPath`), which now reaches full
+parity across all families (the XML oracle is reachable only when forced), so
+building the native compiler back in changes only what forced `NativePath` does
+-- the native compiler itself is unchanged by the mjSpec-first flip.
 
 ## How to opt in (build the native compiler)
 

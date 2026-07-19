@@ -282,6 +282,19 @@ ps::Diagnostic MakeError(std::string source, std::string msg,
   return d;
 }
 
+// The mjSpec fallback scan now returns only always-error guards (content that is
+// invalid on every compile path). Turn a guard into a clean model diagnostic --
+// the same failure both paths give, surfaced without routing to XML to fail.
+ps::Diagnostic GateError(const FallbackReason& r) {
+  std::string msg;
+  if (r.feature == "mjs.global_coordinates")
+    msg = "global coordinates are not supported (removed in MuJoCo 2.3.3+); "
+          "convert by loading and saving in MuJoCo 2.3.3 or older";
+  else
+    msg = "unsupported model feature '" + r.feature + "'";
+  return MakeError("gate", std::move(msg));
+}
+
 // Build the Binding for a compiled model by resolving every effective name
 // through mj_name2id. Shared by the XML and native paths: the native path emits
 // byte-identical name tables (differential-verified), so name-based lookup is a
@@ -427,40 +440,37 @@ Compiled Compile(const Model& model, const CompileOptions& opts) {
     if (gated) return out;
   }
 
-  // MjsPath (forced): the fallback scan gates unsupported content as a clean
-  // error rather than a silent divergence; admitted models compile through the
+  // MjsPath (forced): the fallback scan gates always-error content as a clean
+  // model error (invalid on every path); admitted models compile through the
   // mjSpec route (CompileViaMjs).
   if (opts.path == CompilePath::MjsPath) {
     std::vector<FallbackReason> reasons = compile::MjsFallbackScan(model);
     if (!reasons.empty()) {
       out.report.taken = CompilePath::MjsPath;
       out.report.fallback_reasons = reasons;
-      out.report.errors.push_back(MakeError(
-          "gate", "mjSpec path does not support this model (feature '" +
-                      reasons.front().feature +
-                      "'); force XmlPath or use Auto"));
+      out.report.errors.push_back(GateError(reasons.front()));
       return out;
     }
     CompileViaMjs(model, opts, out);
     return out;
   }
 
-  // Auto (mjSpec-first): the mjSpec route is preferred whenever the fallback
-  // scan admits the model -- it is faster and produces a bit-identical mjModel
-  // (the standing ps_path_diff parity gate). A scan reason routes to the XML
-  // oracle up front (recorded in fallback_reasons; taken becomes XmlPath below).
+  // Auto (mjSpec-first): the mjSpec route now compiles every admitted model with
+  // full parity (the standing ps_path_diff gate), so the scan returns only
+  // always-error guards. When it does, the model is invalid on the XML path too;
+  // surface the model error directly rather than routing to XML to fail there.
   // A model the scan admits but that then fails mj_compile is a genuine model
-  // error, not a path disagreement: for scan-admitted models the two paths agree
-  // on validity, so the error is reported once from the mjs attempt and the XML
-  // path is NOT retried (no double compile of a model both paths reject).
+  // error reported once from the mjs attempt.
   if (opts.path == CompilePath::Auto) {
     std::vector<FallbackReason> reasons = compile::MjsFallbackScan(model);
     if (reasons.empty()) {
       CompileViaMjs(model, opts, out);
       return out;
     }
+    out.report.taken = CompilePath::MjsPath;
     out.report.fallback_reasons = reasons;
-    // fall through to the XML path below (taken := XmlPath)
+    out.report.errors.push_back(GateError(reasons.front()));
+    return out;
   }
 
 #ifdef PROTOSPEC_NATIVE
