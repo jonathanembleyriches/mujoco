@@ -178,8 +178,20 @@ bool DoUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
         host_model->nq == c->compiled.model->nq) {
       mju_copy(host_data->qpos, c->sim_data->qpos, host_model->nq);
       mj_forward(host_model, host_data);
-    } else if (host_data->time != 0.0) {
-      mj_resetData(host_model, host_data);  // Play->Stop snaps back to qpos0
+    } else {
+      // Hold the reset pose AND keep the render scene coherent. The host never
+      // populates a freshly adopted mjData: ModelHolder makes data with
+      // mj_makeData only (no forward), and stock Studio relies on
+      // StepControl::Advance to run mj_forward even while paused -- but our Edit
+      // freeze returns true, so the host skips Advance entirely. Without this
+      // the first frame after every adoption (fresh load or recompile) renders
+      // with all geom_xpos == 0 (the model collapsed at the origin, off-camera:
+      // the "black viewport until Backspace" regression, Backspace == host
+      // ResetPhysics == mj_forward). Reset only when the sim has advanced
+      // (Play->Stop) to avoid clobbering nothing every frame.
+      if (host_data->time != 0.0) {
+        mj_resetData(host_model, host_data);  // Play->Stop snaps back to qpos0
+      }
       mj_forward(host_model, host_data);
     }
   }
