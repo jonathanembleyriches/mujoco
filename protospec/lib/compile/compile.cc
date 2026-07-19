@@ -344,19 +344,21 @@ ps::Diagnostic GateError(const FallbackReason& r) {
   if (r.feature == "mjs.global_coordinates")
     msg = "global coordinates are not supported (removed in MuJoCo 2.3.3+); "
           "convert by loading and saving in MuJoCo 2.3.3 or older";
-  else if (r.feature == "mjs.flexcomp_pin")
-    msg = "flexcomp <pin> is not reproducible on the mjSpec compile path "
-          "(mjs_makeFlex exposes no pin surface); use CompilePath::Auto, which "
-          "falls back to the XML path, or CompilePath::XmlPath";
-  else if (r.feature == "mjs.flexcomp_direct")
-    msg = "flexcomp type=direct (inline point/element topology) is not "
-          "reproducible on the mjSpec compile path (mjs_makeFlex has no "
-          "point/element surface); use CompilePath::Auto or CompilePath::XmlPath";
-  else if (r.feature == "mjs.flexcomp_material_texcoord")
-    msg = "flexcomp with a material and auto-generated texture coordinates is "
-          "not reproducible on the mjSpec compile path (mjs_makeFlex cannot set "
-          "the material on the flex before generation); use CompilePath::Auto or "
+  else if (r.feature == "mjs.flexcomp_mesh")
+    msg = "flexcomp mesh/gmsh generation combined with <pin> or material "
+          "auto-texcoord is not reproducible on the mjSpec compile path (needs "
+          "the internal mjCMesh loader, which has no public pre-compile surface); "
+          "use CompilePath::Auto, which falls back to the XML path, or "
           "CompilePath::XmlPath";
+  else if (r.feature == "mjs.flexcomp_interp")
+    msg = "flexcomp interpolated dof (trilinear/quadratic) combined with <pin> "
+          "or type=direct is not reproducible on the mjSpec compile path (needs "
+          "the internal mjCFlex node/empty-cell machinery); use CompilePath::Auto "
+          "or CompilePath::XmlPath";
+  else if (r.feature == "mjs.flexcomp_plugin")
+    msg = "flexcomp plugin combined with <pin>/type=direct/material auto-texcoord "
+          "is not yet mirrored on the mjSpec compile path; use CompilePath::Auto "
+          "or CompilePath::XmlPath";
   else
     msg = "unsupported model feature '" + r.feature + "'";
   return MakeError("gate", std::move(msg));

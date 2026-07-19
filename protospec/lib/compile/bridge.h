@@ -14,10 +14,13 @@
 //   * always-error (e.g. coordinate="global"): invalid on every path, so Auto
 //     surfaces a clean model error directly rather than routing to XmlPath to
 //     fail there.
-//   * fallbackable (flexcomp <pin>, type=direct, material auto-texcoord): a valid
-//     model the mjs_makeFlex/mjSpec API cannot reproduce. Auto ROUTES it to
-//     XmlPath (recording the reasons in report.fallback_reasons; report.taken ==
-//     XmlPath). Forced MjsPath never falls back -- it errors loudly.
+//   * fallbackable (mesh/gmsh-generated or interpolated-dof flexcomps combined
+//     with <pin>/direct/material-texcoord; <attach frame=...> self-attach): a
+//     valid model the public mjSpec API cannot reproduce (the generated/direct
+//     flexcomp families -- grid/box/square + <pin> + material auto-texcoord -- are
+//     now mirrored directly, see BuildFlexcompMirror in mjs_builder.cc). Auto
+//     ROUTES these to XmlPath (recording the reasons in report.fallback_reasons;
+//     report.taken == XmlPath). Forced MjsPath never falls back -- it errors loudly.
 // report.taken always names the path that actually ran; report.fallback_reasons
 // records why MjsPath was declined even when Auto succeeded on XmlPath.
 // NativePath remains parked in attic and is reached only when explicitly forced

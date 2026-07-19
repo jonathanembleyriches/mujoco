@@ -12,8 +12,11 @@
 
 #include "mjs_builder.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <string>
@@ -257,6 +260,10 @@ class Builder {
                        const mjsDefault* inherited);
   void GraftComposite(mjsBody* body, const Composite& e, mjsFrame* frame);
   void BuildFlexcomp(mjsBody* body, const Flexcomp& e);
+  // Direct mjSpec mirror of mjCFlexcomp::Make for the flexcomp families the
+  // mjs_makeFlex C-API cannot express (inline <pin>, type="direct", material
+  // auto-texcoord). Authored entirely through the public mjs API.
+  void BuildFlexcompMirror(mjsBody* body, const Flexcomp& e);
 
   mjSpec* spec_;
   const io::AutoNames& names_;
@@ -937,6 +944,294 @@ void Builder::GraftComposite(mjsBody* body, const Composite& e, mjsFrame* frame)
     }
 }
 
+// --- flexcomp geometry mirror -------------------------------------------- //
+// mjEPS (user_util.h) governs mjuu_normvec's threshold; not a public constant.
+constexpr double kMjEps = 1E-14;
+
+// Reimplementation of mjuu_normvec (user_util.cc): normalize in place, but leave
+// the vector untouched when its norm is already within mjEPS of 1 (or ~0). The
+// quirk is load-bearing for bit-exact box/disc projection, so this mirrors it.
+double MjuuNormvec(double* v, int n) {
+  double nrm = 0;
+  for (int i = 0; i < n; i++) nrm += v[i] * v[i];
+  if (nrm < kMjEps) return 0;
+  nrm = std::sqrt(nrm);
+  if (std::abs(nrm - 1) > kMjEps)
+    for (int i = 0; i < n; i++) v[i] /= nrm;
+  return nrm;
+}
+
+// Reimplementation of mjuu_rotVecQuat + mjuu_trnVecPose (user_util.cc): the
+// flexcomp point-pose transform. The internal routine special-cases zero vec and
+// null quat exactly, which the public mju_rotVecQuat does not, so mirror it here
+// to stay byte-identical with the makeFlex/XML leg.
+void MjuuTrnVecPose(double res[3], const double pos[3], const double quat[4],
+                    const double vec[3]) {
+  if (vec[0] == 0 && vec[1] == 0 && vec[2] == 0) {
+    res[0] = res[1] = res[2] = 0;
+  } else if (quat[0] == 1 && quat[1] == 0 && quat[2] == 0 && quat[3] == 0) {
+    res[0] = vec[0]; res[1] = vec[1]; res[2] = vec[2];
+  } else {
+    double t[3] = {
+      quat[0]*vec[0] + quat[2]*vec[2] - quat[3]*vec[1],
+      quat[0]*vec[1] + quat[3]*vec[0] - quat[1]*vec[2],
+      quat[0]*vec[2] + quat[1]*vec[1] - quat[2]*vec[0]};
+    res[0] = vec[0] + 2 * (quat[2]*t[2] - quat[3]*t[1]);
+    res[1] = vec[1] + 2 * (quat[3]*t[0] - quat[1]*t[2]);
+    res[2] = vec[2] + 2 * (quat[1]*t[1] - quat[2]*t[0]);
+  }
+  res[0] += pos[0]; res[1] += pos[1]; res[2] += pos[2];
+}
+
+// Point / element / texcoord generation mirrored element-for-element from
+// mjCFlexcomp::MakeGrid / MakeBox / MakeSquare (+ GridID/BoxID/BoxProject/
+// mat2lin) in user_flexcomp.cc. The (double)/(float) casts in the texcoord
+// expressions are reproduced verbatim -- they change the rounding and thus the
+// stored float. ps_path_diff is the drift net for this reimplementation.
+struct FcompGeom {
+  FlexcompType type = FlexcompType::grid;
+  int dim = 2;
+  int count[3] = {10, 10, 10};
+  double spacing[3] = {0.02, 0.02, 0.02};
+  bool needtex = false;
+  std::vector<double> point;
+  std::vector<int> element;
+  std::vector<float> texcoord;
+
+  int GridID(int ix, int iy) const { return ix*count[1] + iy; }
+  int GridID(int ix, int iy, int iz) const {
+    return ix*count[1]*count[2] + iy*count[2] + iz;
+  }
+  static int Mat2lin(int ix, int iy, int iz, const int c[3]) {
+    return ix*c[1]*c[2] + iy*c[2] + iz;
+  }
+
+  int BoxID(int ix, int iy, int iz) const {
+    if (iz == 0) return ix*count[1] + iy + 1;
+    if (iz == count[2]-1) return count[0]*count[1] + ix*count[1] + iy + 1;
+    if (iy == 0) return 2*count[0]*count[1] + ix*(count[2]-2) + iz - 1 + 1;
+    if (iy == count[1]-1)
+      return 2*count[0]*count[1] + count[0]*(count[2]-2) + ix*(count[2]-2) + iz - 1 + 1;
+    if (ix == 0)
+      return 2*count[0]*count[1] + 2*count[0]*(count[2]-2) + (iy-1)*(count[2]-2) + iz - 1 + 1;
+    return 2*count[0]*count[1] + 2*count[0]*(count[2]-2) + (count[1]-2)*(count[2]-2) +
+           (iy-1)*(count[2]-2) + iz - 1 + 1;
+  }
+
+  void BoxProject(double* pos, int ix, int iy, int iz) const {
+    pos[0] = 2.0*ix/(count[0]-1) - 1;
+    pos[1] = 2.0*iy/(count[1]-1) - 1;
+    pos[2] = 2.0*iz/(count[2]-1) - 1;
+    double size[3] = {0.5*spacing[0]*(count[0]-1), 0.5*spacing[1]*(count[1]-1),
+                      0.5*spacing[2]*(count[2]-1)};
+    if (type == FlexcompType::box) {
+      pos[0] *= size[0]; pos[1] *= size[1]; pos[2] *= size[2];
+    } else if (type == FlexcompType::cylinder) {
+      double L0 = std::max(std::abs(pos[0]), std::abs(pos[1]));
+      MjuuNormvec(pos, 2);
+      pos[0] *= size[0]*L0; pos[1] *= size[1]*L0; pos[2] *= size[2];
+    } else if (type == FlexcompType::ellipsoid) {
+      MjuuNormvec(pos, 3);
+      pos[0] *= size[0]; pos[1] *= size[1]; pos[2] *= size[2];
+    }
+  }
+
+  bool MakeGrid() {
+    if (dim == 1) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        if (type == FlexcompType::circle) {
+          if (ix >= count[0]-1) continue;
+          double theta = 2*mjPI/(count[0]-1);
+          double radius = spacing[0]/std::sin(theta/2)/2;
+          point.push_back(radius*std::cos(theta*ix));
+          point.push_back(radius*std::sin(theta*ix));
+          point.push_back(0);
+          element.push_back(ix);
+          element.push_back(ix == count[0]-2 ? 0 : ix+1);
+        } else {
+          point.push_back(spacing[0]*(ix - 0.5*(count[0]-1)));
+          point.push_back(0);
+          point.push_back(0);
+          if (ix < count[0]-1) { element.push_back(ix); element.push_back(ix+1); }
+        }
+      }
+    } else if (dim == 2) {
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iy = 0; iy < count[1]; iy++) {
+          int quad2tri[2][3] = {{0, 1, 2}, {0, 2, 3}};
+          double pos[2] = {spacing[0]*(ix - 0.5*(count[0]-1)),
+                           spacing[1]*(iy - 0.5*(count[1]-1))};
+          point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(0);
+          if (needtex) {
+            texcoord.push_back(ix/(double)std::max(count[0]-1, 1));
+            texcoord.push_back(iy/(double)std::max(count[1]-1, 1));
+          }
+          if (((pos[0] < -kMjEps && pos[1] > -kMjEps) ||
+               (pos[0] > -kMjEps && pos[1] < -kMjEps)) && type == FlexcompType::disc) {
+            quad2tri[0][2] = 3; quad2tri[1][0] = 1;
+          }
+          if (ix < count[0]-1 && iy < count[1]-1) {
+            int vert[4] = {
+              count[2]*count[1]*(ix+0) + count[2]*(iy+0),
+              count[2]*count[1]*(ix+1) + count[2]*(iy+0),
+              count[2]*count[1]*(ix+1) + count[2]*(iy+1),
+              count[2]*count[1]*(ix+0) + count[2]*(iy+1)};
+            for (int s = 0; s < 2; s++)
+              for (int v = 0; v < 3; v++) element.push_back(vert[quad2tri[s][v]]);
+          }
+        }
+      }
+    } else {
+      int cube2tets[6][4] = {{0, 3, 1, 7}, {0, 1, 4, 7}, {1, 3, 2, 7},
+                             {1, 2, 6, 7}, {1, 5, 4, 7}, {1, 6, 5, 7}};
+      for (int ix = 0; ix < count[0]; ix++) {
+        for (int iy = 0; iy < count[1]; iy++) {
+          for (int iz = 0; iz < count[2]; iz++) {
+            point.push_back(spacing[0]*(ix - 0.5*(count[0]-1)));
+            point.push_back(spacing[1]*(iy - 0.5*(count[1]-1)));
+            point.push_back(spacing[2]*(iz - 0.5*(count[2]-1)));
+            if (needtex) {
+              texcoord.push_back(ix/(float)std::max(count[0]-1, 1));
+              texcoord.push_back(iy/(float)std::max(count[1]-1, 1));
+            }
+            if (ix < count[0]-1 && iy < count[1]-1 && iz < count[2]-1) {
+              int vert[8] = {
+                count[2]*count[1]*(ix+0) + count[2]*(iy+0) + iz+0,
+                count[2]*count[1]*(ix+1) + count[2]*(iy+0) + iz+0,
+                count[2]*count[1]*(ix+1) + count[2]*(iy+1) + iz+0,
+                count[2]*count[1]*(ix+0) + count[2]*(iy+1) + iz+0,
+                count[2]*count[1]*(ix+0) + count[2]*(iy+0) + iz+1,
+                count[2]*count[1]*(ix+1) + count[2]*(iy+0) + iz+1,
+                count[2]*count[1]*(ix+1) + count[2]*(iy+1) + iz+1,
+                count[2]*count[1]*(ix+0) + count[2]*(iy+1) + iz+1};
+              for (int s = 0; s < 6; s++)
+                for (int v = 0; v < 4; v++) element.push_back(vert[cube2tets[s][v]]);
+            }
+          }
+        }
+      }
+    }
+    return !element.empty();
+  }
+
+  bool MakeSquare() {
+    dim = 2;
+    if (!MakeGrid()) return false;
+    if (type == FlexcompType::disc) {
+      double size[2] = {0.5*spacing[0]*(count[0]-1), 0.5*spacing[1]*(count[1]-1)};
+      for (int i = 0; i < (int)point.size()/3; i++) {
+        double* pos = point.data() + i*3;
+        double L0 = std::max(std::abs(pos[0]), std::abs(pos[1]));
+        MjuuNormvec(pos, 2);
+        pos[0] *= size[0]*L0; pos[1] *= size[1]*L0;
+      }
+    }
+    return true;
+  }
+
+  bool MakeBox(int dimarg) {
+    double pos[3];
+    dim = dimarg;
+    if (dim == 3) { point.push_back(0); point.push_back(0); point.push_back(0); }
+    if (needtex) { texcoord.push_back(0); texcoord.push_back(0); }
+    int n = 0;
+    std::vector<int> idx(count[0]*count[1]*count[2]);
+    for (int iz = 0; iz < count[2]; iz += count[2]-1)
+      for (int ix = 0; ix < count[0]; ix++)
+        for (int iy = 0; iy < count[1]; iy++) {
+          BoxProject(pos, ix, iy, iz);
+          point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(pos[2]);
+          idx[Mat2lin(ix, iy, iz, count)] = n++;
+          if (needtex) {
+            texcoord.push_back(ix/(float)std::max(count[0]-1, 1));
+            texcoord.push_back(iy/(float)std::max(count[1]-1, 1));
+          }
+        }
+    for (int iy = 0; iy < count[1]; iy += count[1]-1)
+      for (int ix = 0; ix < count[0]; ix++)
+        for (int iz = 0; iz < count[2]; iz++)
+          if (iz > 0 && iz < count[2]-1) {
+            BoxProject(pos, ix, iy, iz);
+            point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(pos[2]);
+            idx[Mat2lin(ix, iy, iz, count)] = n++;
+            if (needtex) {
+              texcoord.push_back(ix/(float)std::max(count[0]-1, 1));
+              texcoord.push_back(iz/(float)std::max(count[2]-1, 1));
+            }
+          }
+    for (int ix = 0; ix < count[0]; ix += count[0]-1)
+      for (int iy = 0; iy < count[1]; iy++)
+        for (int iz = 0; iz < count[2]; iz++)
+          if (iz > 0 && iz < count[2]-1 && iy > 0 && iy < count[1]-1) {
+            BoxProject(pos, ix, iy, iz);
+            point.push_back(pos[0]); point.push_back(pos[1]); point.push_back(pos[2]);
+            idx[Mat2lin(ix, iy, iz, count)] = n++;
+            if (needtex) {
+              texcoord.push_back(iy/(float)std::max(count[1]-1, 1));
+              texcoord.push_back(iz/(float)std::max(count[2]-1, 1));
+            }
+          }
+    for (int iz = 0; iz < count[2]; iz += count[2]-1)
+      for (int ix = 0; ix < count[0]; ix++)
+        for (int iy = 0; iy < count[1]; iy++)
+          if (ix < count[0]-1 && iy < count[1]-1) {
+            if (dim == 3) {
+              element.push_back(0); element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix+1, iy, iz)); element.push_back(BoxID(ix+1, iy+1, iz));
+              element.push_back(0); element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy+1, iz)); element.push_back(BoxID(ix+1, iy+1, iz));
+            } else {
+              int step1 = iz == 0 ? 1 : 0, step2 = iz == 0 ? 0 : 1;
+              element.push_back(idx[Mat2lin(ix, iy, iz, count)]);
+              element.push_back(idx[Mat2lin(ix+1, iy+step1, iz, count)]);
+              element.push_back(idx[Mat2lin(ix+1, iy+step2, iz, count)]);
+              element.push_back(idx[Mat2lin(ix, iy, iz, count)]);
+              element.push_back(idx[Mat2lin(ix+step2, iy+1, iz, count)]);
+              element.push_back(idx[Mat2lin(ix+step1, iy+1, iz, count)]);
+            }
+          }
+    for (int iy = 0; iy < count[1]; iy += count[1]-1)
+      for (int ix = 0; ix < count[0]; ix++)
+        for (int iz = 0; iz < count[2]; iz++)
+          if (ix < count[0]-1 && iz < count[2]-1) {
+            if (dim == 3) {
+              element.push_back(0); element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix+1, iy, iz)); element.push_back(BoxID(ix+1, iy, iz+1));
+              element.push_back(0); element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy, iz+1)); element.push_back(BoxID(ix+1, iy, iz+1));
+            } else {
+              int ix0 = iy == 0 ? ix : ix+1, dx = iy == 0 ? 1 : -1;
+              element.push_back(idx[Mat2lin(ix0, iy, iz, count)]);
+              element.push_back(idx[Mat2lin(ix0+dx, iy, iz, count)]);
+              element.push_back(idx[Mat2lin(ix0+dx, iy, iz+1, count)]);
+              element.push_back(idx[Mat2lin(ix0, iy, iz, count)]);
+              element.push_back(idx[Mat2lin(ix0+dx, iy, iz+1, count)]);
+              element.push_back(idx[Mat2lin(ix0, iy, iz+1, count)]);
+            }
+          }
+    for (int ix = 0; ix < count[0]; ix += count[0]-1)
+      for (int iy = 0; iy < count[1]; iy++)
+        for (int iz = 0; iz < count[2]; iz++)
+          if (iy < count[1]-1 && iz < count[2]-1) {
+            if (dim == 3) {
+              element.push_back(0); element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy+1, iz)); element.push_back(BoxID(ix, iy+1, iz+1));
+              element.push_back(0); element.push_back(BoxID(ix, iy, iz));
+              element.push_back(BoxID(ix, iy, iz+1)); element.push_back(BoxID(ix, iy+1, iz+1));
+            } else {
+              int iy0 = ix != 0 ? iy : iy+1, dy = ix != 0 ? 1 : -1;
+              element.push_back(idx[Mat2lin(ix, iy0, iz, count)]);
+              element.push_back(idx[Mat2lin(ix, iy0+dy, iz, count)]);
+              element.push_back(idx[Mat2lin(ix, iy0+dy, iz+1, count)]);
+              element.push_back(idx[Mat2lin(ix, iy0, iz, count)]);
+              element.push_back(idx[Mat2lin(ix, iy0+dy, iz+1, count)]);
+              element.push_back(idx[Mat2lin(ix, iy0, iz+1, count)]);
+            }
+          }
+    return true;
+  }
+};
+
 // --- <flexcomp> ---------------------------------------------------------- //
 // Primary route: mjs_makeFlex generates the flex geometry from the flexcomp
 // parameters (mirrors mjCFlexcomp::Make), then post-set the mjsFlex fields the
@@ -944,6 +1239,53 @@ void Builder::GraftComposite(mjsBody* body, const Composite& e, mjsFrame* frame)
 // mjCFlexcomp / mjs_defaultFlex defaults. Pins and flexcomp plugins have no
 // mjs_makeFlex / mjsFlex surface and are not reproduced on this route.
 void Builder::BuildFlexcomp(mjsBody* body, const Flexcomp& e) {
+  // Route the mjs_makeFlex-inexpressible families to the direct mirror: inline
+  // <pin>, type="direct" (inline point/element topology), and material
+  // auto-texcoord (needtex, which mjs_makeFlex cannot trigger because it sets no
+  // material on the flex def before generation). The mirror faithfully covers
+  // generated types (grid/box/square + cylinder/ellipsoid/disc/circle) and
+  // direct, for dof full/2d/radial. Two sub-families stay gated (MjsFallbackScan
+  // + the loud errors below): mesh/gmsh generation (needs the internal mjCMesh
+  // loader) and interpolated dof (trilinear/quadratic) with these features
+  // (needs the internal mjCFlex::ComputeCellEmpty node-pinning).
+  const FlexcompType ftype = e.type.value_or(FlexcompType::grid);
+  bool has_pin = false;
+  for (const auto& p : e.flexcompPins)
+    if (p && ((p->id && !p->id->empty()) || (p->range && !p->range->empty()) ||
+              (p->grid && !p->grid->empty()) || (p->gridrange && !p->gridrange->empty())))
+      has_pin = true;
+  const bool is_direct = ftype == FlexcompType::direct;
+  const bool has_file = e.file.has_value() && !e.file->empty();
+  const bool is_mesh = (ftype == FlexcompType::mesh || ftype == FlexcompType::gmsh);
+  const bool has_texcoord = e.texcoord.has_value() && !e.texcoord->empty();
+  const bool needtex_gap = e.material.has_value() && !e.material->name.empty() &&
+                           !has_texcoord && !has_file;
+  const bool interp = e.dof.has_value() && (*e.dof == FlexDof::trilinear ||
+                                            *e.dof == FlexDof::quadratic);
+  if (is_direct || has_pin || needtex_gap) {
+    if (is_mesh && !is_direct) {  // gripper: mesh generation has no public surface
+      if (err_.empty())
+        err_ = "[gate] flexcomp mesh/gmsh generation with <pin>/material-texcoord "
+               "is not reproducible on the mjSpec path (needs the internal mjCMesh "
+               "loader); use CompilePath::Auto (falls back to XmlPath)";
+      return;
+    }
+    if (interp) {  // strain / gripper_trilinear: node pinning has no public surface
+      if (err_.empty())
+        err_ = "[gate] flexcomp interpolated dof (trilinear/quadratic) with "
+               "<pin>/direct is not reproducible on the mjSpec path (needs the "
+               "internal mjCFlex node/empty-cell machinery); use CompilePath::Auto";
+      return;
+    }
+    if (!e.plugin.empty() && e.plugin.front()) {  // no flexcomp-plugin mirror yet
+      if (err_.empty())
+        err_ = "[gate] flexcomp plugin with <pin>/direct/material-texcoord is not "
+               "yet mirrored on the mjSpec path; use CompilePath::Auto";
+      return;
+    }
+    BuildFlexcompMirror(body, e);
+    return;
+  }
   const std::string type_s =
       e.type.has_value() ? std::string(ToMjcf(*e.type)) : std::string("grid");
   std::string dof_str;
@@ -1046,6 +1388,266 @@ void Builder::BuildFlexcomp(mjsBody* body, const Flexcomp& e) {
     if (c->passive.has_value()) f->passive = *c->passive ? 1 : 0;
     if (c->activelayers.has_value()) f->activelayers = *c->activelayers;
   }
+}
+
+// Direct mjSpec mirror of mjCFlexcomp::Make (user_flexcomp.cc) for the families
+// mjs_makeFlex cannot express. Generates point/element/texcoord ourselves (via
+// FcompGeom, mirroring MakeGrid/MakeBox/MakeSquare), resolves <pin> against the
+// generated grid indices, then authors the plain mjsFlex + the vertex bodies
+// exactly as Make does (pinned/parent-bound vertices share the parent body;
+// unpinned get a body + dof sliders; naming "<name>_<i>"), and the generated
+// FLEX/FLEXVERT equality. Covers dof full/2d/radial only; interpolated dof and
+// mesh generation are gated in BuildFlexcomp. ps_path_diff is the drift net.
+void Builder::BuildFlexcompMirror(mjsBody* body, const Flexcomp& e) {
+  const FlexcompType ftype = e.type.value_or(FlexcompType::grid);
+  const FlexDof dof = e.dof.value_or(FlexDof::full);
+  const bool direct = ftype == FlexcompType::direct;
+  int dim = e.dim.value_or(2);
+  double pos[3] = {0, 0, 0}, quat[4] = {1, 0, 0, 0};
+  if (e.pos.has_value()) for (int i = 0; i < 3; ++i) pos[i] = (*e.pos)[i];
+  if (e.quat.has_value()) for (int i = 0; i < 4; ++i) quat[i] = (*e.quat)[i];
+  double scale[3] = {1, 1, 1};
+  if (e.scale.has_value()) for (int i = 0; i < 3; ++i) scale[i] = (*e.scale)[i];
+  const double radius = e.radius.value_or(0.005);
+  const double mass = e.mass.value_or(1.0);
+  const double inertiabox = e.inertiabox.value_or(0.005);
+  int rigid = e.rigid.value_or(false) ? 1 : 0;
+  const std::string name = e.name.value_or("");
+  const bool has_texcoord = e.texcoord.has_value() && !e.texcoord->empty();
+  const bool needtex = e.material.has_value() && !e.material->name.empty() &&
+                       !has_texcoord;
+
+  // create the flex; set the flat def fields Make copies from def.Flex(). The
+  // material MUST be set before generation (needtex reads it in MakeGrid/MakeBox).
+  mjsFlex* f = mjs_addFlex(spec_);
+  f->dim = dim;
+  f->radius = radius;
+  if (e.material.has_value()) mjs_setString(f->material, e.material->name.c_str());
+  if (e.rgba.has_value()) for (int i = 0; i < 4; ++i) f->rgba[i] = (*e.rgba)[i];
+  if (e.group.has_value()) f->group = *e.group;
+  if (e.flatskin.has_value()) f->flatskin = *e.flatskin ? 1 : 0;
+  for (const auto& el : e.flexElasticitys)
+    if (el && el->elastic2d.has_value()) f->elastic2d = Elastic2DToInt(*el->elastic2d);
+
+  // type-specific point/element/texcoord generation (mirror Make's switch).
+  FcompGeom g;
+  g.type = ftype;
+  g.dim = dim;
+  if (e.count.has_value()) for (int i = 0; i < 3; ++i) g.count[i] = (*e.count)[i];
+  if (e.spacing.has_value()) for (int i = 0; i < 3; ++i) g.spacing[i] = (*e.spacing)[i];
+  g.needtex = needtex;
+  if (has_texcoord) g.texcoord.assign(e.texcoord->begin(), e.texcoord->end());
+  switch (ftype) {
+    case FlexcompType::grid:
+    case FlexcompType::circle:      g.MakeGrid(); break;
+    case FlexcompType::box:
+    case FlexcompType::cylinder:
+    case FlexcompType::ellipsoid:   g.MakeBox(dim); break;
+    case FlexcompType::square:
+    case FlexcompType::disc:        g.MakeSquare(); break;
+    case FlexcompType::direct:
+      if (e.point.has_value()) g.point.assign(e.point->begin(), e.point->end());
+      if (e.element.has_value()) g.element.assign(e.element->begin(), e.element->end());
+      break;
+    default: break;
+  }
+  dim = g.dim;              // MakeBox/MakeSquare may have set dim
+  f->dim = dim;
+
+  // force flatskin for box, cylinder and 3D grid (Make line 238).
+  if (ftype == FlexcompType::box || ftype == FlexcompType::cylinder ||
+      (ftype == FlexcompType::grid && dim == 3))
+    f->flatskin = 1;
+
+  std::vector<double>& point = g.point;
+  std::vector<int>& element = g.element;
+  std::vector<float>& texcoord = g.texcoord;
+  int npnt = static_cast<int>(point.size()) / 3;
+
+  // apply scaling for direct types (Make line 290).
+  if (direct && (scale[0] != 1 || scale[1] != 1 || scale[2] != 1))
+    for (int i = 0; i < npnt; i++) {
+      point[3*i] *= scale[0]; point[3*i+1] *= scale[1]; point[3*i+2] *= scale[2];
+    }
+
+  // apply pose transform to points (Make line 298).
+  for (int i = 0; i < npnt; i++) {
+    double np[3], op[3] = {point[3*i], point[3*i+1], point[3*i+2]};
+    MjuuTrnVecPose(np, pos, quat, op);
+    point[3*i] = np[0]; point[3*i+1] = np[1]; point[3*i+2] = np[2];
+  }
+
+  // construct pinned array + resolve <pin> (Make lines 316-436). Interpolated
+  // dof is gated out, so nnode == 0 here.
+  bool centered = false;
+  std::vector<char> pinned(std::max(npnt, 0), static_cast<char>(rigid));
+  if (!rigid) {
+    for (const auto& p : e.flexcompPins) {
+      if (!p) continue;
+      if (p->id.has_value())
+        for (int v : *p->id) if (v >= 0 && v < npnt) pinned[v] = 1;
+      if (p->range.has_value())
+        for (std::size_t i = 0; i + 1 < p->range->size(); i += 2)
+          for (int k = (*p->range)[i]; k <= (*p->range)[i+1]; k++)
+            if (k >= 0 && k < npnt) pinned[k] = 1;
+      if (p->grid.has_value())
+        for (std::size_t i = 0; i + dim <= p->grid->size(); i += dim) {
+          if (dim == 2) pinned[g.GridID((*p->grid)[i], (*p->grid)[i+1])] = 1;
+          else if (dim == 3) pinned[g.GridID((*p->grid)[i], (*p->grid)[i+1], (*p->grid)[i+2])] = 1;
+        }
+      if (p->gridrange.has_value())
+        for (std::size_t i = 0; i + 2*dim <= p->gridrange->size(); i += 2*dim) {
+          const auto& gr = *p->gridrange;
+          if (dim == 2) {
+            for (int ix = gr[i]; ix <= gr[i+2]; ix++)
+              for (int iy = gr[i+1]; iy <= gr[i+3]; iy++) pinned[g.GridID(ix, iy)] = 1;
+          } else if (dim == 3) {
+            for (int ix = gr[i]; ix <= gr[i+3]; ix++)
+              for (int iy = gr[i+1]; iy <= gr[i+4]; iy++)
+                for (int iz = gr[i+2]; iz <= gr[i+5]; iz++) pinned[g.GridID(ix, iy, iz)] = 1;
+          }
+        }
+    }
+    if (dof == FlexDof::radial && npnt > 0) pinned[0] = 1;  // radial center pinned
+    bool allpin = true, nopin = true;
+    for (int i = 0; i < npnt; i++) {
+      if (pinned[i]) nopin = false; else allpin = false;
+    }
+    if (allpin) rigid = 1;
+    else if (nopin) centered = true;
+  }
+
+  // remove unreferenced points for direct (Make lines 438-493).
+  std::vector<char> used(npnt, 1);
+  if (direct) {
+    std::fill(used.begin(), used.end(), 0);
+    for (int v : element) if (v >= 0 && v < npnt) used[v] = 1;
+    std::vector<int> reindex(npnt, 0);
+    bool hasunused = false;
+    for (int i = 0; i < npnt; i++)
+      if (!used[i]) { hasunused = true; for (int k = i+1; k < npnt; k++) reindex[k]--; }
+    if (hasunused) {
+      for (int& v : element) v += reindex[v];
+      int nn = 0;
+      for (int i = 0; i < npnt; i++)
+        if (used[i]) {
+          point[3*nn] = point[3*i]; point[3*nn+1] = point[3*i+1]; point[3*nn+2] = point[3*i+2];
+          if (!texcoord.empty()) { texcoord[2*nn] = texcoord[2*i]; texcoord[2*nn+1] = texcoord[2*i+1]; }
+          pinned[nn] = pinned[i];
+          nn++;
+        }
+      point.resize(3*nn);
+      if (!texcoord.empty()) texcoord.resize(2*nn);
+      pinned.resize(nn);
+      used.assign(nn, 1);
+      npnt = nn;
+    }
+  }
+
+  // author the plain flex fields (Make lines 510-516).
+  mjs_setName(f->element, name.c_str());
+  mjs_setInt(f->elem, element.data(), static_cast<int>(element.size()));
+  mjs_setFloat(f->texcoord, texcoord.data(), static_cast<int>(texcoord.size()));
+  if (!centered) mjs_setDouble(f->vert, point.data(), static_cast<int>(point.size()));
+
+  const char* parent = mjs_getName(body->element)->c_str();
+  if (rigid) {
+    mjs_appendString(f->vertbody, parent);
+  } else {
+    double bodymass = mass / npnt;
+    double bodyinertia = bodymass * (2.0*inertiabox*inertiabox) / 3.0;
+    for (int i = 0; i < npnt; i++) {
+      if (!used[i]) continue;
+      if (pinned[i]) {              // dof full/2d/radial: pinned -> parent body
+        mjs_appendString(f->vertbody, parent);
+      } else {
+        mjsBody* pb = mjs_addBody(body, nullptr);
+        pb->pos[0] = point[3*i]; pb->pos[1] = point[3*i+1]; pb->pos[2] = point[3*i+2];
+        for (int k = 0; k < 3; k++) pb->ipos[k] = 0;
+        pb->mass = bodymass;
+        pb->inertia[0] = pb->inertia[1] = pb->inertia[2] = bodyinertia;
+        pb->explicitinertial = 1;
+        if (dof == FlexDof::radial) {
+          mjsJoint* jnt = mjs_addJoint(pb, nullptr);
+          jnt->type = mjJNT_SLIDE;
+          for (int k = 0; k < 3; k++) { jnt->pos[k] = 0; jnt->axis[k] = pb->pos[k]; }
+          MjuuNormvec(jnt->axis, 3);
+        } else if (dof == FlexDof::twod) {
+          for (int j = 0; j < 2; j++) {
+            mjsJoint* jnt = mjs_addJoint(pb, nullptr);
+            jnt->type = mjJNT_SLIDE;
+            for (int k = 0; k < 3; k++) { jnt->pos[k] = 0; jnt->axis[k] = 0; }
+            jnt->axis[j] = 1;
+          }
+        } else {  // full
+          for (int j = 0; j < 3; j++) {
+            mjsJoint* jnt = mjs_addJoint(pb, nullptr);
+            jnt->type = mjJNT_SLIDE;
+            for (int k = 0; k < 3; k++) { jnt->pos[k] = 0; jnt->axis[k] = 0; }
+            jnt->axis[j] = 1;
+          }
+        }
+        char txt[128];
+        std::snprintf(txt, sizeof(txt), "%s_%d", name.c_str(), i);
+        mjs_setName(pb->element, txt);
+        mjs_appendString(f->vertbody, txt);
+        if (!centered) { point[3*i] = 0; point[3*i+1] = 0; point[3*i+2] = 0; }
+      }
+    }
+    if (!centered) mjs_setDouble(f->vert, point.data(), static_cast<int>(point.size()));
+  }
+
+  // edge stiffness/damping + generated equality (Make lines 788-843). The pin
+  // families exercise equality 1 (FLEX) and 2 (FLEXVERT); solref/solimp come off
+  // the <edge> block (Make seeds them into def.spec.equality before generation).
+  for (const auto& ed : e.flexcompEdges) {
+    if (!ed) continue;
+    if (ed->stiffness.has_value()) f->edgestiffness = *ed->stiffness;
+    if (ed->damping.has_value()) f->edgedamping = *ed->damping;
+    int equality = ed->equality.has_value() ? static_cast<int>(*ed->equality) : 0;
+    if (equality == 1 || equality == 2) {
+      mjsEquality* pe = mjs_addEquality(spec_, mjs_getSpecDefault(spec_));
+      pe->type = (equality == 1) ? mjEQ_FLEX : mjEQ_FLEXVERT;
+      pe->active = 1;
+      mjs_setString(pe->name1, name.c_str());
+      if (ed->solref.has_value())
+        for (std::size_t i = 0; i < ed->solref->size() && i < mjNREF; ++i)
+          pe->solref[i] = (*ed->solref)[i];
+      if (ed->solimp.has_value())
+        for (std::size_t i = 0; i < ed->solimp->size() && i < mjNIMP; ++i)
+          pe->solimp[i] = (*ed->solimp)[i];
+    }
+  }
+  // <elasticity> (young/poisson/damping/thickness) + <contact> flat fields.
+  for (const auto& el : e.flexElasticitys) {
+    if (!el) continue;
+    if (el->young.has_value()) f->young = *el->young;
+    if (el->poisson.has_value()) f->poisson = *el->poisson;
+    if (el->damping.has_value()) f->damping = *el->damping;
+    if (el->thickness.has_value()) f->thickness = *el->thickness;
+  }
+  for (const auto& c : e.flexContacts) {
+    if (!c) continue;
+    if (c->contype.has_value()) f->contype = *c->contype;
+    if (c->conaffinity.has_value()) f->conaffinity = *c->conaffinity;
+    if (c->condim.has_value()) f->condim = *c->condim;
+    if (c->priority.has_value()) f->priority = *c->priority;
+    if (c->friction.has_value())
+      for (std::size_t i = 0; i < c->friction->size(); ++i) f->friction[i] = (*c->friction)[i];
+    if (c->solmix.has_value()) f->solmix = *c->solmix;
+    if (c->solref.has_value())
+      for (std::size_t i = 0; i < c->solref->size(); ++i) f->solref[i] = (*c->solref)[i];
+    if (c->solimp.has_value())
+      for (std::size_t i = 0; i < c->solimp->size(); ++i) f->solimp[i] = (*c->solimp)[i];
+    if (c->margin.has_value()) f->margin = *c->margin;
+    if (c->gap.has_value()) f->gap = *c->gap;
+    if (c->internal.has_value()) f->internal = *c->internal ? 1 : 0;
+    if (c->selfcollide.has_value())
+      f->selfcollide = static_cast<mjtFlexSelf>(FlexSelfToInt(*c->selfcollide));
+    if (c->passive.has_value()) f->passive = *c->passive ? 1 : 0;
+    if (c->activelayers.has_value()) f->activelayers = *c->activelayers;
+  }
+  AutoName(f->element, e.serial);
 }
 
 // --- contact ------------------------------------------------------------- //
@@ -1784,21 +2386,41 @@ void ScanFlexcompSubtree(const std::vector<BodyChildAny>& subtree,
       using T = std::decay_t<decltype(*p)>;
       const T& e = *p;
       if constexpr (std::is_same_v<T, Flexcomp>) {
-        if (!e.flexcompPins.empty())
-          AddReason(out, "mjs.flexcomp_pin");
+        // The generated/direct flexcomp families (grid/box/square + cylinder/
+        // ellipsoid/disc/circle, and direct) are now mirrored directly onto
+        // mjSpec by BuildFlexcompMirror, including <pin>, inline point/element
+        // topology, and material auto-texcoord. Only three narrow combinations
+        // remain unreproducible (this scan must match BuildFlexcomp's routing):
+        //   * mesh/gmsh generation combined with a gapped feature -- needs the
+        //     internal mjCMesh loader (no public pre-compile mesh surface);
+        //   * interpolated dof (trilinear/quadratic) with a gapped feature --
+        //     needs the internal mjCFlex node/empty-cell machinery;
+        //   * a flexcomp plugin with a gapped feature -- not yet mirrored.
+        // "gapped" = the makeFlex-inexpressible triggers that force the mirror.
+        const FlexcompType ftype = e.type.value_or(FlexcompType::grid);
+        const bool is_direct = ftype == FlexcompType::direct;
+        const bool is_mesh =
+            ftype == FlexcompType::mesh || ftype == FlexcompType::gmsh;
         const bool has_file = e.file.has_value() && !e.file->empty();
-        if (e.type.has_value() &&
-            (*e.type == FlexcompType::direct ||
-             ((*e.type == FlexcompType::mesh || *e.type == FlexcompType::gmsh) &&
-              !has_file)))
-          AddReason(out, "mjs.flexcomp_direct");
-        // A material with no inline texcoord (and no file supplying UVs) makes
-        // mjCFlexcomp::Make auto-generate texcoord (needtex), which needs the
-        // material on the flex def BEFORE Make -- mjs_makeFlex has no such hook.
         const bool has_texcoord = e.texcoord.has_value() && !e.texcoord->empty();
-        if (e.material.has_value() && !e.material->name.empty() &&
-            !has_texcoord && !has_file)
-          AddReason(out, "mjs.flexcomp_material_texcoord");
+        bool has_pin = false;
+        for (const auto& p : e.flexcompPins)
+          if (p && ((p->id && !p->id->empty()) || (p->range && !p->range->empty()) ||
+                    (p->grid && !p->grid->empty()) ||
+                    (p->gridrange && !p->gridrange->empty())))
+            has_pin = true;
+        const bool needtex_gap = e.material.has_value() &&
+                                 !e.material->name.empty() && !has_texcoord &&
+                                 !has_file;
+        const bool interp = e.dof.has_value() &&
+                            (*e.dof == FlexDof::trilinear ||
+                             *e.dof == FlexDof::quadratic);
+        const bool has_plugin = !e.plugin.empty() && e.plugin.front();
+        if (is_direct || has_pin || needtex_gap) {
+          if (is_mesh && !is_direct) AddReason(out, "mjs.flexcomp_mesh");
+          else if (interp) AddReason(out, "mjs.flexcomp_interp");
+          else if (has_plugin) AddReason(out, "mjs.flexcomp_plugin");
+        }
       } else if constexpr (std::is_same_v<T, Attach>) {
         // Self-attach (MuJoCo 3.10.1: <attach frame=...> duplicating a local
         // frame, no child model) -- the builder's Attach branch only handles
@@ -1828,8 +2450,17 @@ void ScanFlexcompSubtree(const std::vector<BodyChildAny>& subtree,
 //     mjsCompiler has no global field, so the mjs build would silently
 //     reinterpret it as local. Deprecated composite types are NOT guarded here --
 //     they surface their own reader error when GraftComposite parses the fragment.
-//   * flexcomp <pin> / type=direct [fallbackable]: no mjs_makeFlex surface (see
-//     ScanFlexcompSubtree). XmlPath reproduces them exactly.
+//   * flexcomp mesh/interp/plugin combined with a gapped feature [fallbackable]:
+//     the generated (grid/box/square + cylinder/ellipsoid/disc/circle) and direct
+//     flexcomp families, including <pin>, inline point/element topology, and
+//     material auto-texcoord, are now mirrored directly (BuildFlexcompMirror).
+//     Only three narrow combinations remain unreproducible via public authoring:
+//     mesh/gmsh generation (needs the internal mjCMesh loader), interpolated dof
+//     trilinear/quadratic (needs the internal mjCFlex node/empty-cell machinery),
+//     and a not-yet-mirrored flexcomp plugin -- each only when paired with a
+//     gapped feature (see ScanFlexcompSubtree). XmlPath reproduces them exactly.
+//   * attach_frame [fallbackable]: <attach frame=...> self-attach (out of scope
+//     for the flexcomp/composite mirror work); XmlPath reproduces it.
 std::vector<FallbackReason> MjsFallbackScan(const Model& m) {
   std::vector<FallbackReason> out;
   for (const auto& c : m.compilers) {

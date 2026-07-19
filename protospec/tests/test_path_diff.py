@@ -399,11 +399,20 @@ def test_corpus_identity(ps_path_diff: Path):
 # CompilePath::Auto must fall back to the XML path and match it bit-for-bit. The
 # one exception is cylinder_bias_upstream.xml -- an upstream stock bug we refuse
 # to replicate, so it diverges by design (handled in its own test below).
+# cylinder_bias_upstream (a documented stock bug) gets a dedicated test below;
+# the rest are valid-model narrow gates (a flex family the public mjs API cannot
+# reproduce) exercised by the parametrized gate tests. coordinate="global" (the
+# sole always-error scan entry) is intentionally NOT a fixture here: it is
+# rejected by the XML reader on the XmlPath leg before the mjs gate is reached,
+# so it has no valid-model parity to compare against.
+_GATED_SPECIAL = {"cylinder_bias_upstream.xml"}
+
+
 def _gated_fixtures() -> list[Path]:
     if not GATED_FIXTURES.is_dir():
         return []
     return sorted(
-        p for p in GATED_FIXTURES.glob("*.xml") if p.name != "cylinder_bias_upstream.xml"
+        p for p in GATED_FIXTURES.glob("*.xml") if p.name not in _GATED_SPECIAL
     )
 
 
@@ -471,11 +480,16 @@ def test_cylinder_bias_upstream_documented(ps_path_diff: Path):
 # --------------------------------------------------------------------------- #
 # XmlPath vs MjsPath over a whole model corpus: every model the reader/bridge can
 # handle must reach byte-identical parity EXCEPT an explicit, justified skiplist.
-# The skiplist is the gated flexcomp families (pin/direct/material-texcoord) --
-# forced MjsPath errors for them and Auto falls back to XmlPath, which the
-# separate Auto pass below asserts. There is NO upstream-bug corpus exception
-# (the cylinder-overrun bug appears only in the gated fixture). Point
-# PROTOSPEC_CORPUS at a model dir, or drop the studio checkout beside this repo.
+# The skiplist is the narrow flexcomp families the public mjs API cannot
+# reproduce (mesh-generated or interpolated-dof flexcomps combined with a gapped
+# feature, see _CORPUS_MJS_SKIP) -- forced MjsPath errors for them and Auto falls
+# back to XmlPath, which the separate Auto pass below asserts. There is NO
+# upstream-bug corpus exception (the cylinder-overrun bug appears only in the
+# gated fixture). One further model (surfacevel/carousel.xml) uses <attach
+# frame=...> self-attach, gated by mjs.attach_frame and out of scope for the
+# flexcomp/composite work; it gates cleanly (counted out-of-scope, not a
+# divergence). Point PROTOSPEC_CORPUS at a model dir, or drop the studio checkout
+# beside this repo.
 _DEFAULT_STUDIO_MODELS = Path("/home/buzz/Documents/proto/mujoco-studio/model")
 
 
@@ -490,16 +504,17 @@ def _corpus_dir() -> Path | None:
 # Corpus models whose flexcomp content the mjSpec API cannot reproduce. Forced
 # MjsPath gates them (loud); CompilePath::Auto compiles them on XmlPath. Keyed by
 # basename with the reason.
+# The mirror (BuildFlexcompMirror) closed the grid/box/square/direct + pin +
+# material-texcoord families (trampoline/hammock/gripper_2d/poncho/
+# poncho_edgeequality/softbox now reach parity). Three narrow combinations remain
+# unreproducible via public authoring and stay gated (forced MjsPath errors, Auto
+# falls back to XmlPath): mesh-generated flexcomps with a gapped feature (need the
+# internal mjCMesh loader) and interpolated dof (trilinear/quadratic) with a
+# gapped feature (need the internal mjCFlex node/empty-cell machinery).
 _CORPUS_MJS_SKIP = {
-    "gripper.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
-    "gripper_2d.xml": "flexcomp <pin> + type=direct (no makeFlex surface)",
-    "gripper_trilinear.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
-    "strain.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
-    "trampoline.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
-    "hammock.xml": "flexcomp <pin> (no mjs_makeFlex pin surface)",
-    "poncho.xml": "flexcomp type=direct (no makeFlex point/element surface)",
-    "poncho_edgeequality.xml": "flexcomp type=direct (no makeFlex point/element surface)",
-    "softbox.xml": "flexcomp material auto-texcoord (no makeFlex material-before-gen hook)",
+    "gripper.xml": "flexcomp mesh + <pin> (needs internal mjCMesh loader)",
+    "gripper_trilinear.xml": "flexcomp mesh + trilinear + <pin> (internal mjCMesh + node machinery)",
+    "strain.xml": "flexcomp box + trilinear + <pin> (internal mjCFlex node/empty-cell machinery)",
 }
 
 

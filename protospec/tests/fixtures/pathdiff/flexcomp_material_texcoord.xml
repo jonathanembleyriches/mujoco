@@ -1,10 +1,9 @@
 <mujoco model="flexcomp_material_texcoord">
-  <!-- GATED (mjs.flexcomp_material_texcoord). A flexcomp with a material and no
-       inline texcoord (and no file supplying UVs) makes mjCFlexcomp::Make
-       auto-generate texture coordinates (needtex), which requires the material
-       set on the flex def BEFORE generation -- mjs_makeFlex has no such hook, so
-       the mjSpec leg produces zero flex texcoords (nflextexcoord divergence).
-       Forced MjsPath must error loudly; Auto must fall back to XmlPath. -->
+  <!-- PARITY. A flexcomp with a material and no inline texcoord (and no file
+       supplying UVs) makes the reader auto-generate texture coordinates
+       (needtex). BuildFlexcompMirror sets the material on the flex before
+       generation and mirrors the needtex UV projection, so the mjSpec leg
+       produces the same nflextexcoord as XmlPath. -->
   <asset>
     <texture name="tex" type="2d" builtin="checker" rgb1=".2 .3 .4"
              rgb2=".1 .15 .2" width="128" height="128"/>
