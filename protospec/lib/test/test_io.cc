@@ -1377,8 +1377,120 @@ static void TestResolverRegistryCoverage() {
   }
 }
 
+// Wave 4 #3: element nesting is capped (200 levels) so a hostile deep document
+// fails with a clear diagnostic instead of overflowing the native stack.
+static void TestNestingDepthCap() {
+  auto nested = [](int n) {
+    std::string s = "<mujoco>\n<worldbody>\n";
+    for (int i = 0; i < n; ++i) s += "<body>";
+    for (int i = 0; i < n; ++i) s += "</body>";
+    s += "\n</worldbody>\n</mujoco>\n";
+    return s;
+  };
+  auto has_cap_err = [](const ParseResult& r) {
+    for (const auto& d : r.errors)
+      if (d.message.find("element nesting depth exceeds") != std::string::npos)
+        return true;
+    return false;
+  };
+  // 197 nested bodies -> reader recursion depth 199 (<=200): parses.
+  ParseResult under = ParseMjcfString(nested(197), "<nest>");
+  CHECK(under.ok());
+  CHECK(!has_cap_err(under));
+  // 199 nested bodies -> reader recursion depth 201 (>200): rejected loudly.
+  ParseResult over = ParseMjcfString(nested(199), "<nest>");
+  CHECK(!over.ok());
+  CHECK(has_cap_err(over));
+  // The diagnostic names the element and the depth.
+  bool named = false;
+  for (const auto& d : over.errors)
+    if (d.message.find("<body>") != std::string::npos &&
+        d.message.find("depth 201") != std::string::npos)
+      named = true;
+  CHECK(named);
+}
+
+// Wave 4 #4: a name repeated within a namespace raises a parse-time WARNING (both
+// locations) without failing the parse; cross-namespace repeats never fire.
+static void TestDuplicateNameWarning() {
+  auto has_warn = [](const ParseResult& r, const char* sub) {
+    for (const auto& d : r.warnings)
+      if (d.message.find(sub) != std::string::npos) return true;
+    return false;
+  };
+  // Two bodies "dup": warning carries both the first and second locations.
+  ParseResult dup = ParseMjcfString(
+      "<mujoco><worldbody>\n<body name='dup'/>\n<body name='dup'/>\n"
+      "</worldbody></mujoco>\n",
+      "m.xml");
+  CHECK(dup.ok());  // warning-tier: parse still succeeds
+  CHECK(has_warn(dup, "duplicate body name 'dup'"));
+  CHECK(has_warn(dup, "first defined at m.xml:2"));
+  // Cross-namespace repeat (a body and a geom both "x"): no warning.
+  ParseResult cross = ParseMjcfString(
+      "<mujoco><worldbody>\n"
+      "<body name='x'><geom name='x' type='sphere' size='1'/></body>\n"
+      "</worldbody></mujoco>\n",
+      "m.xml");
+  CHECK(cross.ok());
+  CHECK(!has_warn(cross, "duplicate"));
+  // Merged namespace: two actuator spellings sharing a name still collide.
+  ParseResult act = ParseMjcfString(
+      "<mujoco><worldbody>"
+      "<body name='b'><joint name='j' type='hinge'/>"
+      "<geom type='sphere' size='1'/></body></worldbody>"
+      "<actuator>\n<motor name='a' joint='j'/>\n"
+      "<position name='a' joint='j'/>\n</actuator></mujoco>\n",
+      "m.xml");
+  CHECK(has_warn(act, "duplicate actuator name 'a'"));
+}
+
+// Wave 4 #6: an <include> whose resolved path escapes the root model's directory
+// tree is rejected by default and permitted under allow_external_includes.
+static void TestIncludeTraversal() {
+  std::filesystem::path dir = TempDir();
+  std::filesystem::path root = dir / "root";
+  WriteText(root / "inc.xml", R"(<mujocoinclude>
+  <body name="inc"><geom type="sphere" size="0.1"/></body>
+</mujocoinclude>)");
+  WriteText(dir / "outside" / "secret.xml", R"(<mujocoinclude>
+  <body name="secret"><geom type="sphere" size="0.1"/></body>
+</mujocoinclude>)");
+  WriteText(root / "uses_inside.xml", R"(<mujoco><worldbody>
+  <include file="inc.xml"/>
+</worldbody></mujoco>)");
+  WriteText(root / "uses_outside.xml", R"(<mujoco><worldbody>
+  <include file="../outside/secret.xml"/>
+</worldbody></mujoco>)");
+  auto has_escape_err = [](const ParseResult& r) {
+    for (const auto& d : r.errors)
+      if (d.message.find("resolves outside the model directory tree") !=
+          std::string::npos)
+        return true;
+    return false;
+  };
+  // Inside-tree include: accepted.
+  ParseResult in = ParseMjcfFile((root / "uses_inside.xml").string());
+  CHECK(in.ok());
+  CHECK(!has_escape_err(in));
+  // Escaping include: rejected by default, and the file is never opened.
+  ParseResult esc = ParseMjcfFile((root / "uses_outside.xml").string());
+  CHECK(!esc.ok());
+  CHECK(has_escape_err(esc));
+  // Opt-in permits it.
+  ParseOptions opt;
+  opt.allow_external_includes = true;
+  ParseResult ok = ParseMjcfFile((root / "uses_outside.xml").string(), opt);
+  CHECK(ok.ok());
+  CHECK(!has_escape_err(ok));
+  std::filesystem::remove_all(dir);
+}
+
 int main() {
   TestResolverRegistryCoverage();
+  TestNestingDepthCap();
+  TestDuplicateNameWarning();
+  TestIncludeTraversal();
   TestFixpoint();
   TestAngle();
   TestOrient();

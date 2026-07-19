@@ -56,12 +56,23 @@ struct ParseResult {
   bool unsupported_only() const;
 };
 
+// Parse-time options. The reader opens untrusted MJCF from disk inside a GUI
+// host, so <include> resolution is a security boundary: by default an <include>
+// whose resolved path escapes the root model's directory tree is rejected with a
+// diagnostic (an exfiltration-shaped bug otherwise). Set allow_external_includes
+// for trusted workflows that legitimately pull files from outside that tree.
+struct ParseOptions {
+  bool allow_external_includes = false;
+};
+
 // Parse MJCF from an in-memory string (filename is used only for diagnostics).
 ParseResult ParseMjcfString(const std::string& xml,
-                            const std::string& filename = "<string>");
+                            const std::string& filename = "<string>",
+                            const ParseOptions& opts = {});
 
 // Parse MJCF from a file on disk.
-ParseResult ParseMjcfFile(const std::string& path);
+ParseResult ParseMjcfFile(const std::string& path,
+                          const ParseOptions& opts = {});
 
 // Serialize a Model to a deterministic MJCF string (2-space indent, angles
 // emitted verbatim in their authored unit per Q-ANGLE, shortest round-trip

@@ -185,6 +185,18 @@ for them:
   pointer (not the `<E>` template), so a consumer that resolves elements
   dynamically (pick / serial / path) never pays the ~140x template-instantiation
   compile cost or reimplements the referrer bookkeeping. See the section below.
+- **Generic model helpers** promoted from the editor (traversal): `sdk::ForEachElement(model, fn)`
+  (every element except the Model root — the guarded whole-tree walk the editor
+  spelled out at six call sites), `sdk::SerialOf(model, ptr)` (the inverse of
+  `FindBySerial`: a raw element pointer back to its stable creation serial),
+  `sdk::FindBySerialAs<T>(model, serial)` (the typed slice of the serial walk),
+  `sdk::NameOfSerial(model, serial)` (an element's authored name from its serial),
+  `sdk::UniqueName(model, type, base)` (a name unique within `type`'s MuJoCo
+  name-category — folds joint spellings and each actuator/sensor/tendon/equality
+  union), and `sdk::CloneModelWithSerials(model)` (a deep clone whose every
+  element keeps its source serial — the undo-snapshot primitive; it **asserts**
+  the source/clone walks are a bijection rather than silently truncating a
+  mismatch).
 
 Already present and sufficient (the editor simply had not adopted them):
 `sdk::ForEachOfType<T>(model, fn)` covers "enumerate every material / element of
@@ -193,7 +205,7 @@ a type"; `sdk::Find<T>`, `sdk::ParentMap`, `sdk::Resolve`/`ResolveTo`,
 
 ## Runtime-typed structural edits (`ps::sdk`)
 
-The four edits below are keyed on a **runtime element pointer** (any element you
+The five edits below are keyed on a **runtime element pointer** (any element you
 hold in the tree you compiled), not on the element's static type. The `<E>`
 templates (`Rename<E>`, `DeleteRecursive<E>`) still exist, but instantiating them
 across all ~140 families — each embedding a whole-model walk — is a ~140x140
@@ -201,23 +213,85 @@ compile blow-up, so the runtime-pointer forms are the supported API for anything
 that resolves an element dynamically (pick / serial / path). One model walk
 recovers the element's `ElementType` and drives the same referrer bookkeeping.
 
-- `int sdk::Rename(Model&, const void* elem, const std::string& newname)` —
-  rename + rewrite every typed referrer atomically. Returns referrers updated, or
-  `-1` if `elem` is not in the model.
+### Error convention — one result-object style
+
+The structural verbs report through a small **result object**, uniformly: a
+truthy `explicit operator bool` (`if (auto r = sdk::Reparent(...)) ...`) and,
+where a failure has a cause, a `std::string reason` (empty on success). This
+replaces the former mix of `void*`, `int` sentinels, and ad-hoc structs the deep
+audit flagged. The two verbs whose scalar returns changed — `Rename` (`int` → a
+`RenameResult`) and `Duplicate` (`void*` → a `DuplicateResult`) — keep the old
+return shape as a **deprecated one-release conversion** on the result object, so
+existing call sites keep compiling for a transition period; new code should read
+`.ok` / `.updated` / `.clone`. The `int`/`void*` conversions are removed in the
+next minor release.
+
+| Verb | Result object | Fields |
+| --- | --- | --- |
+| `Rename` | `RenameResult` | `ok`, `updated` (referrer fields rewritten), `reason`; deprecated `operator int` (updated, or `-1` on reject) |
+| `Duplicate` | `DuplicateResult` | `ok`, `clone` (`void*`; `.As<T>()` convenience), `reason` |
+| `Reparent` | `ReparentResult` | `ok`, `reason` |
+| `DeleteSubtree` / `DeleteRecursive` | `DeleteReport` | `removed` (== `bool`), `dangling`, `cascaded` |
+| `Attach` / `AttachModel` | `AttachResult` | `ok`, `attached`, `collisions` |
+
+- `RenameResult sdk::Rename(Model&, const void* elem, const std::string& newname)`
+  — rename + rewrite every typed referrer atomically. `ok` with `updated`
+  referrers on success (0 for an accepted no-op or a nameless element gaining its
+  first name); `ok == false` with a `reason` (model untouched) when `elem` is not
+  in the model or `newname` is rejected (empty, reserved `_ps:` prefix, or already
+  held by a different element of the same name-category).
 - `DeleteReport sdk::DeleteSubtree(Model&, const void* elem, bool cascade=false)`
   — remove the subtree; `report.dangling` lists every reference left pointing at
   nothing (with its path). `cascade` clears them; otherwise the caller resolves.
-- `void* sdk::Duplicate(Model&, const void* elem)` — deep-clone the subtree as
-  the next sibling with fresh serials (generated `Clone`), re-unique the clone's
-  names, remap refs **internal** to the clone to the new names, and preserve refs
-  pointing outside. Returns the clone's root (its `ElementType` matches `elem`).
+  `removed` (also the object's `bool`) is false when `elem` is not found.
+- `DuplicateResult sdk::Duplicate(Model&, const void* elem)` — deep-clone the
+  subtree as the next sibling with fresh serials (generated `Clone`), re-unique
+  the clone's names, remap refs **internal** to the clone to the new names, and
+  preserve refs pointing outside. `clone` is the clone's root (its `ElementType`
+  matches `elem`); `.As<Body>()` casts it. `ok == false` when `elem` is unfound.
 - `ReparentResult sdk::Reparent(Model&, const void* elem, void* newParent)` —
   pure-tree move of a body-context child to a new container (Body / Frame /
-  `nullptr` = world). Rejects cycles and non-container targets. **No pose fixup**:
-  the element keeps its authored local pose (its world pose changes with the new
-  parent). Pose-preserving reparent is a compile-aware concern that stays with
-  the bridge / editor — the SDK is a pure tree library and does not compute a
-  compiled parent world pose.
+  `nullptr` = world). Rejects cycles and non-container targets (`ok == false`,
+  `reason` set). **No pose fixup**: the element keeps its authored local pose (its
+  world pose changes with the new parent). Pose-preserving reparent is a
+  compile-aware concern that stays with the bridge / editor — the SDK is a pure
+  tree library and does not compute a compiled parent world pose.
+
+## Reference assignment — `sdk::SetRef` (load-bearing)
+
+`SetRef` is the one way to write a typed cross-reference (`opt<Ref<T>>`) without
+spelling `ps::Ref<T>` or knowing the opt/Ref storage shape. It is load-bearing in
+the generated `mjs_binding` and in every consumer that authors references. Two
+overloads:
+
+```cpp
+// (1) By name — stores the name verbatim; no lookup (resolution is a separate
+//     concern). An EMPTY name clears the field (unauthored).
+sdk::SetRef(geom.material, std::string_view("steel"));   // geom.material = "steel"
+sdk::SetRef(geom.material, std::string_view{});          // clears it
+sdk::ClearRef(geom.material);                            // equivalent explicit clear
+
+// (2) By target element — sets the ref to the target's authored name. Returns
+//     false (field untouched) when the target has no usable name.
+sdk::Material& steel = *sdk::Find<sdk::Material>(model, "steel");
+bool ok = sdk::SetRef(geom.material, steel);             // true; geom.material = "steel"
+```
+
+**Negatives (what SetRef does and does not catch):**
+
+- **Mismatched target type is a *compile* error, not a silent no-op.** The
+  by-target overload `static_assert`s that the target's element type is a valid
+  target of the field's `Ref<T>` (itself for a concrete ref; a union member for a
+  union ref such as `Ref<ActuatorAny>`). `sdk::SetRef(geom.material, someBody)`
+  does not build — a `Body` is not a valid `Ref<Material>` target.
+- **An unnamed target returns `false`** and leaves the field untouched — an
+  unnamed element cannot be referred to in MJCF.
+- **A name that resolves to nothing is *not* an error here.** SetRef does no
+  lookup; a dangling name is caught downstream by `sdk::Resolve`/`ResolveTo`
+  (returns null) and by the referential validator, not by SetRef. This keep-it-
+  local split is deliberate: authoring order need not create the target first.
+
+These behaviors are covered by `test_sdk.cc` (`TestSetRefNegatives`).
 
 ## Moving a compiled element without recompiling (`PosePatch`)
 
@@ -264,6 +338,101 @@ align-free-body child geoms fall outside the exact-`A` capture and should recomp
 until that term is added. Light **orientation** patching (`light_dir`) is likewise
 deferred — `PosePatch` moves a light's position; its direction is left as authored.
 
+## Compile warning capture — the host-owned `mju_user_warning` handler
+
+MuJoCo surfaces load/compile warnings through `mju_user_warning`, a single
+**process-global** function pointer. ProtoSpec runs inside a host process (Studio)
+that may install its own handler, so `Compile` / `Recompile` do **not** own that
+pointer — they **borrow** it. For the duration of one `mj_loadXML` / `mj_compile`
+call, and only that call, `Compile` saves the host's handler, installs its own
+collector (routing captured text into the `CompileReport`'s warnings), then
+restores the host's handler. The borrow window is held under a **process-global
+mutex that serializes ProtoSpec compiles**, so two ProtoSpec compiles never
+overlap their borrow windows and the save/restore can never interleave.
+
+The documented limitation: a *host* compile (or any host code that raises a MuJoCo
+warning) running **concurrently** with a ProtoSpec compile will briefly see
+ProtoSpec's collector instead of the host handler, for the borrow window only.
+This is accepted — the real fix is an upstream context-local warning callback,
+which is on the upstream ask list. Callers who install their own
+`mju_user_warning` should not rely on it being active across a concurrent
+`Compile`. Warning *capture itself* is unchanged: every warning MuJoCo raises
+during the compile still lands in `Compiled::report.warnings`.
+
+## Python surface (`protospec`)
+
+The `protospec` extension mirrors this contract for Python authors. `load` /
+`loads` / `write` / `save` / `validate` / `compile` / `recompile` are the
+module functions; typed element handles expose every schema field as a property
+(`opt<T>` → a `None`-able attribute, enums → their MJCF keyword string, refs →
+the referenced name string). The authoring surface below is **generated from the
+schema** (`protospec_gen/emit_py.py` → `lib/python/generated/py_builders.cc`), so
+a new upstream field, union member, or asset family reaches Python at the next
+`emit` with no hand edit.
+
+**Constructors take keyword fields.** Every element class default-constructs and
+accepts field keywords through the builders: `ps.Material(...)` values are set the
+same way `add_material(...)` sets them. The builders are the entry points:
+
+```python
+import protospec as ps
+
+m = ps.Model()
+cart = m.worldbody.add_body(name="cart", pos=[0, 0, 0.2])       # body-context
+cart.add_joint(name="slide_x", type="slide", axis=[1, 0, 0])    # builders
+cart.add_geom(name="box", type="box", size=[0.15, 0.1, 0.05], material="shiny")
+
+m.add_material(name="shiny", rgba=[0.2, 0.6, 0.9, 1], specular=0.8)  # asset family
+m.add_actuator("position", name="servo", joint="slide_x", kp=8.0)   # union family
+m.add_sensor("framepos", name="cart_pos", objtype="body", objname="cart")
+```
+
+Builder families:
+
+| Method | Family | Kind argument |
+|---|---|---|
+| `body.add_body/geom/joint/freejoint/site/camera/light/frame/inertial(**kw)` | body-context | — |
+| `model.add_body(**kw)` | top-level body | — |
+| `model.add_actuator(kind="motor", **kw)` | actuator union | MJCF keyword (`motor`, `position`, `general`, …) |
+| `model.add_sensor(kind, **kw)` | sensor union | MJCF keyword (`framepos`, `touch`, `jointpos`, …) |
+| `model.add_tendon(kind, **kw)` | tendon union | `spatial` / `fixed` |
+| `model.add_equality(kind, **kw)` | equality union | `connect` / `weld` / `joint` / `tendon` / `flex` / … |
+| `model.add_material/mesh/texture/hfield/skin(**kw)` | asset section | — |
+| `model.add_pair/exclude(**kw)` | contact section | — |
+| `model.add_key(**kw)` | keyframe section | — |
+| `model.add_numeric/text/tuple(**kw)` | custom section | — |
+
+An unknown union `kind` raises `ValueError` naming the accepted keywords.
+
+**Structural edit verbs** live on the `Model` and mirror the runtime-typed
+`ps::sdk` verbs above. **Error convention — one style, uniform:** a verb *raises*
+on failure and *returns its natural success value*.
+
+- `model.rename(elem, name) -> int` — rename an element **and rewrite every
+  referrer**. Returns the number of referrer fields updated (`0` for a no-op or a
+  previously-nameless element). Raises `ValueError` if the name is empty,
+  reserved, already held by another element, or `elem` is not in this model. This
+  is the safe rename.
+- `model.delete(elem, cascade=False) -> DeleteResult` — remove `elem` and its
+  subtree. The result carries `.removed`, `.cascaded`, and `.dangling` (a list of
+  `{field, name, path}` dicts for references left pointing at a deleted name). A
+  non-cascade delete that leaves danglers is a **success** — the danglers are
+  reported, not raised, for the caller to resolve; `cascade=True` clears them.
+  Raises `ValueError` only if `elem` is not in this model.
+- `model.duplicate(elem) -> handle` — deep-clone the subtree as the next sibling
+  (fresh serials, re-uniqued names, internal refs remapped); returns the clone as
+  the same element type. Raises `ValueError` if `elem` is not in this model.
+- `model.reparent(elem, new_parent=None) -> None` — pure-tree move of a
+  body-context child under a Body/Frame (or `None` = world). No pose fixup (local
+  pose kept; world pose changes). Raises `ValueError` on a bad target or a cycle.
+
+**Setting `.name` directly warns.** The `.name` property setter has no handle on
+the owning model, so it *cannot* rewrite referrers. Renaming an already-named
+element via `elem.name = "..."` therefore emits a `UserWarning` and leaves
+referrers dangling; use `model.rename(elem, ...)` to keep references in sync.
+Naming a previously-nameless element (or a no-op set) is silent — nothing could
+refer to it yet.
+
 ## Consumers and build wiring
 
 Four independent builds consume this surface; all stay green:
@@ -283,3 +452,77 @@ The compile surface was hoisted from `ps::mjcf::bridge` up to `ps::mjcf` as a re
 rename (no compatibility aliases): the definitions in `protospec/lib/compile` and every caller
 across `protospec/lib/**`, `protospec/lib/python`, `studio`, and the fork were updated in lockstep,
 so `ps::mjcf::bridge` no longer exists anywhere. `ps::mjcf::Compile` is the name.
+
+## Stability levels (per header)
+
+Every public header carries one of three stability levels. **Stable** surfaces
+change only under the semver policy below. **Provisional** surfaces are public and
+supported but may still change shape before the 1.0 freeze (they carry a
+migration note when they do). **Internal** is everything else — no guarantee, may
+change in any commit; the include graph is the boundary (if it is not a
+`<protospec/...>` umbrella, it is internal).
+
+| Header | Level | Notes |
+| --- | --- | --- |
+| `protospec/core.h` | **stable** | runtime primitives |
+| `protospec/model.h` | **stable** | object model + value ops |
+| `protospec/reflect.h` | **provisional** | descriptor *shapes* may grow as the schema does |
+| `protospec/io.h` | **stable** | MJCF parse/write |
+| `protospec/validate.h` | **stable** | three-tier validation |
+| `protospec/compile.h` | **stable (pin-versioned)** | byte-exactness is versioned against the MuJoCo pin — see below |
+| `protospec/sdk.h` | **stable** | builders, traversal, refs, classes, attach. *Provisional within it:* the deprecated `int`/`void*` conversions on `RenameResult`/`DuplicateResult` (removed next minor); the promoted editor helpers (`ForEachElement`, `SerialOf`, `FindBySerialAs`, `NameOfSerial`, `UniqueName`, `CloneModelWithSerials`) are stable |
+| `protospec/save.h` | **stable** | model persistence |
+| `protospec/protospec.h` | **stable** | the aggregate umbrella |
+
+Internal (never include, no stability): everything under `protospec/lib/{io,validate,core,compile,generated}`
+internals, `protospec/lib/sdk/protospec/{detail,model_core}.h` (the `ps::sdk::detail` /
+`ps::sdk::internal` seams), the `harness/`, and the editor plugin ABI
+(`studio/editor/plugin_abi.h`) — the last deliberately tracks upstream's
+experimental plugin surface and carries no promise.
+
+## Versioned byte-exactness
+
+Byte-exactness is only meaningful against a specific MuJoCo compiler, so the claim
+is **always versioned** and never stated bare. The single source of the current
+claim is [`docs/SYNC_STATE.md`](SYNC_STATE.md); as of that pin:
+
+> ProtoSpec is byte-exact vs **MuJoCo 3.10.1+3990305**, except the named entries
+> in [`docs/EXCEPTIONS.md`](EXCEPTIONS.md).
+
+Any README/doc "exact" claim resolves to this versioned form. A ProtoSpec release
+names (a) the frozen API surface (this document), (b) the MuJoCo pin it is
+byte-exact against (`SYNC_STATE.md`), and (c) the exception ledger at that pin. A
+re-pin happens only via a full sync-ritual run (`docs/mujoco_bump.md`).
+
+## Semver policy (stub)
+
+ProtoSpec-as-a-library versions with **semver from `v1.0.0`** at the Wave-3
+surface freeze:
+
+- **MAJOR** — a breaking change to any *stable* surface above (removed/renamed
+  symbol, changed signature or semantics, changed schema file format).
+- **MINOR** — additive changes (new verbs, new stable-ified provisional surface,
+  new schema attributes flowing from a MuJoCo bump) and the **removal of a
+  deprecated shim** that shipped deprecated in the prior minor (e.g. the
+  `int`/`void*` conversions on `RenameResult`/`DuplicateResult`). Deprecations
+  ship for **one minor release** before removal.
+- **PATCH** — bug fixes with no surface change. A patch **may re-pin MuJoCo** (and
+  thus move the byte-exactness version string) only via a full ritual run; the
+  pin and exception ledger are named in the release notes.
+
+Provisional surfaces are exempt from MAJOR until they are declared stable at 1.0.
+
+## SDK 1.0 surface-freeze candidate
+
+What 1.0 commits to as **frozen stable** (declared at release, not before):
+
+- the nine umbrella headers — `core.h model.h reflect.h io.h validate.h compile.h
+  sdk.h save.h protospec.h` — at the stability levels tabled above;
+- the Python module surface (`protospec`) — the section above;
+- the CLI contracts of `ps_compile` / `ps_roundtrip` / `ps_validate`;
+- the schema file format (`protospec/schema/mujoco.spec`).
+
+**Explicitly NOT frozen:** anything under `protospec/lib/*` internals, the editor
+plugin ABI (tracks upstream experimental), `harness/`, and generated-file
+internals. The freeze is declared at the Wave-6 release once the audit's
+ergonomics and robustness items have re-scored A.

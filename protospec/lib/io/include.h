@@ -52,10 +52,18 @@ struct IncludeResult {
 // top-level model file (relative includes resolve there first); `model_file` is
 // the top-level file path, which seeds the once-per-file set so a self-include
 // is rejected as a duplicate. Both may be empty for string input, in which case
-// relative includes resolve against the current working directory.
+// relative includes resolve against (and are confined to) the current working
+// directory.
+//
+// By default an <include> whose resolved path escapes the root model's directory
+// tree (`model_dir`, or the cwd when empty) is rejected with a MalformedInput
+// diagnostic and its file is never opened -- a hardening measure since the host
+// loads untrusted models. Pass allow_external_includes=true to permit external
+// files for trusted workflows.
 IncludeResult ExpandIncludes(tinyxml2::XMLDocument& doc,
                              const std::string& model_dir,
-                             const std::string& model_file);
+                             const std::string& model_file,
+                             bool allow_external_includes = false);
 
 }  // namespace ps::mjcf::io
 

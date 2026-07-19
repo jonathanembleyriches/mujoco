@@ -47,6 +47,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -404,6 +405,94 @@ inline bool IsRegisteredResolver(std::string_view name) {
          name == "cylinderarea" || name == "numericdata";
 }
 
+// The MuJoCo name-uniqueness namespace an element's name lives in, as a stable
+// label, or nullptr for elements that carry no namespaced name. This MIRRORS the
+// authoritative grouping in validate.cc (ElemNamespace/NsLabel) so the parse-time
+// duplicate-name WARNING matches the validator's ERROR tier: merged families
+// (all actuator spellings -> "actuator", all sensor spellings -> "sensor",
+// equality spellings -> "equality", Spatial/Fixed -> "tendon", Joint/FreeJoint
+// -> "joint") share one namespace; every other named element is its own. An
+// element this function does not classify simply gets no early warning -- the
+// referential validator stays authoritative, so under-classification is safe
+// (never a false error, never a cross-namespace false positive).
+inline const char* NameNsLabel(ElementType et) {
+  switch (et) {
+    case ElementType::Body: return "body";
+    case ElementType::Geom: return "geom";
+    case ElementType::Joint:
+    case ElementType::FreeJoint: return "joint";
+    case ElementType::Site: return "site";
+    case ElementType::Camera: return "camera";
+    case ElementType::Light: return "light";
+    case ElementType::Mesh: return "mesh";
+    case ElementType::Material: return "material";
+    case ElementType::Texture: return "texture";
+    case ElementType::Hfield: return "hfield";
+    case ElementType::Skin: return "skin";
+    case ElementType::Flex: return "flex";
+    case ElementType::Pair: return "pair";
+    case ElementType::Exclude: return "exclude";
+    case ElementType::Connect:
+    case ElementType::Weld:
+    case ElementType::EqualityJoint:
+    case ElementType::EqualityTendon:
+    case ElementType::EqualityFlex:
+    case ElementType::Flexvert:
+    case ElementType::Flexstrain: return "equality";
+    case ElementType::Spatial:
+    case ElementType::Fixed: return "tendon";
+    case ElementType::ActuatorGeneral:
+    case ElementType::Motor:
+    case ElementType::Position:
+    case ElementType::Velocity:
+    case ElementType::IntVelocity:
+    case ElementType::Damper:
+    case ElementType::Cylinder:
+    case ElementType::Muscle:
+    case ElementType::Adhesion:
+    case ElementType::DcMotor:
+    case ElementType::ActuatorPlugin: return "actuator";
+    case ElementType::Numeric: return "numeric";
+    case ElementType::Text: return "text";
+    case ElementType::Tuple: return "tuple";
+    case ElementType::Key: return "key";
+    case ElementType::Frame: return "frame";
+    case ElementType::PluginInstance: return "plugin instance";
+    case ElementType::ModelAsset: return "model asset";
+    default: break;
+  }
+  // Every remaining element is a sensor spelling (a SensorAny member) or an
+  // unnamed container/block; only sensors carry a namespaced name.
+  switch (et) {
+    case ElementType::Touch: case ElementType::Accelerometer:
+    case ElementType::Velocimeter: case ElementType::Gyro:
+    case ElementType::Force: case ElementType::Torque:
+    case ElementType::Magnetometer: case ElementType::Camprojection:
+    case ElementType::Rangefinder: case ElementType::Jointpos:
+    case ElementType::Jointvel: case ElementType::Tendonpos:
+    case ElementType::Tendonvel: case ElementType::Actuatorpos:
+    case ElementType::Actuatorvel: case ElementType::Actuatorfrc:
+    case ElementType::Jointactuatorfrc: case ElementType::Tendonactuatorfrc:
+    case ElementType::Ballquat: case ElementType::Ballangvel:
+    case ElementType::Jointlimitpos: case ElementType::Jointlimitvel:
+    case ElementType::Jointlimitfrc: case ElementType::Tendonlimitpos:
+    case ElementType::Tendonlimitvel: case ElementType::Tendonlimitfrc:
+    case ElementType::Framepos: case ElementType::Framequat:
+    case ElementType::Framexaxis: case ElementType::Frameyaxis:
+    case ElementType::Framezaxis: case ElementType::Framelinvel:
+    case ElementType::Frameangvel: case ElementType::Framelinacc:
+    case ElementType::Frameangacc: case ElementType::Subtreecom:
+    case ElementType::Subtreelinvel: case ElementType::Subtreeangmom:
+    case ElementType::Insidesite: case ElementType::Distance:
+    case ElementType::Normal: case ElementType::Fromto:
+    case ElementType::SensorContact: case ElementType::EPotential:
+    case ElementType::EKinetic: case ElementType::Clock:
+    case ElementType::Tactile: case ElementType::SensorUser:
+    case ElementType::SensorPlugin: return "sensor";
+    default: return nullptr;
+  }
+}
+
 // --------------------------------------------------------------------------- //
 // Reader                                                                        //
 // --------------------------------------------------------------------------- //
@@ -454,12 +543,65 @@ class Reader {
     warnings_.push_back(std::move(d));
   }
 
+  // Parse-time duplicate-name diagnostic (Wave 4 #4): at first sight of a name
+  // that repeats within a MuJoCo name namespace, emit a WARNING carrying BOTH
+  // source locations (the first occurrence in the message, this one in the loc).
+  // The referential validator remains the authoritative error tier; this only
+  // surfaces the collision early, matching stock MuJoCo's fail-at-read shape.
+  // Cross-namespace repeats (a body and a geom both named "x") never fire: the
+  // key is (namespace-label, name), so only same-namespace repeats collide.
+  void CheckDuplicateName(const XMLElement* xml, ElementType et) {
+    const char* label = NameNsLabel(et);
+    if (!label) return;
+    const char* name = xml->Attribute("name");
+    if (!name || name[0] == '\0') return;
+    std::string key = std::string(label);
+    key.push_back('\x1f');  // unit separator: label and name cannot alias
+    key += name;
+    ps::SourceLoc here = Loc(xml);
+    auto [it, inserted] = name_first_loc_.emplace(std::move(key), here);
+    if (inserted) return;
+    const ps::SourceLoc& first = it->second;
+    std::string first_at = first.file;
+    if (first.line > 0) first_at += ":" + std::to_string(first.line);
+    Warn(xml, "duplicate " + std::string(label) + " name '" +
+                  std::string(name) + "' (first defined at " + first_at + ")");
+  }
+
+  // Hostile inputs can nest elements (a body tree, in particular) arbitrarily
+  // deep. ReadElement recurses once per XML nesting level, so an unbounded
+  // document would exhaust the native stack (SIGSEGV) before any diagnostic is
+  // produced. Cap element nesting at a depth far beyond any real model -- a
+  // 200-level body tree is already physically implausible -- and fail with a
+  // clear diagnostic naming the element and the depth. Stack-safe on the default
+  // 8 MB thread stack (each frame is well under 40 KB). The include pre-pass
+  // (include.cc ProcessChildren) applies the same cap to its own tree walk so it
+  // cannot overflow before the reader runs.
+  static constexpr int kMaxElementDepth = 200;
+
   // Read a concrete element from an XML node: attributes + variants, the
   // per-element quirk hooks, then supported children.
   template <class E>
   void ReadElement(XMLElement* xml, E& out) {
+    // Bump the nesting depth for the whole subtree read (RAII: every return path
+    // below unwinds it). depth_ is 1 at the root <mujoco>, so a document nested
+    // past kMaxElementDepth levels is rejected here, before recursing deeper.
+    struct DepthScope {
+      int& d;
+      explicit DepthScope(int& d) : d(d) { ++d; }
+      ~DepthScope() { --d; }
+    } depth_scope{depth_};
+    if (depth_ > kMaxElementDepth) {
+      Err(xml, "element nesting depth exceeds the maximum of " +
+                   std::to_string(kMaxElementDepth) + " at <" +
+                   std::string(xml->Value()) + "> (depth " +
+                   std::to_string(depth_) + ")");
+      return;
+    }
+
     const ElementBinding& b = Bind(element_type_of<E>::value);
     out.loc = Loc(xml);
+    CheckDuplicateName(xml, b.type);
 
     CheckUnknownAttributes(xml, b);
     AttrVisitor<E> av{this, xml, &b};
@@ -1421,6 +1563,9 @@ class Reader {
   std::vector<ps::Diagnostic>& warnings_;
   const ProvenanceMap* provenance_ = nullptr;
   std::vector<PendingOrient> pending_orient_;
+  int depth_ = 0;  // current element-nesting depth (see kMaxElementDepth)
+  // First-seen location per (namespace-label, name) for duplicate-name warnings.
+  std::unordered_map<std::string, ps::SourceLoc> name_first_loc_;
 };
 
 void ValidateEulerseq(Reader& r, XMLElement* root, const Model& m) {
@@ -1437,7 +1582,8 @@ void ValidateEulerseq(Reader& r, XMLElement* root, const Model& m) {
 // reader. `model_dir` is where relative includes resolve first (the top-level
 // file's directory); empty for string input with no real path.
 ParseResult ReadDocument(XMLDocument& doc, const std::string& filename,
-                         const std::string& model_dir) {
+                         const std::string& model_dir,
+                         const ParseOptions& opts) {
   ParseResult result;
 
   XMLElement* root = doc.RootElement();
@@ -1453,7 +1599,8 @@ ParseResult ReadDocument(XMLDocument& doc, const std::string& filename,
 
   // Expand <include> before anything else, so the reader sees a flat document.
   // Include failures are structural errors and abort the parse (MuJoCo throws).
-  IncludeResult inc = ExpandIncludes(doc, model_dir, filename);
+  IncludeResult inc =
+      ExpandIncludes(doc, model_dir, filename, opts.allow_external_includes);
   if (!inc.errors.empty()) {
     result.errors = std::move(inc.errors);
     return result;
@@ -1475,7 +1622,8 @@ ParseResult ReadDocument(XMLDocument& doc, const std::string& filename,
 
 }  // namespace
 
-ParseResult ParseMjcfString(const std::string& xml, const std::string& filename) {
+ParseResult ParseMjcfString(const std::string& xml, const std::string& filename,
+                            const ParseOptions& opts) {
   ParseResult result;
   XMLDocument doc;
   if (doc.Parse(xml.c_str(), xml.size()) != tinyxml2::XML_SUCCESS) {
@@ -1492,10 +1640,10 @@ ParseResult ParseMjcfString(const std::string& xml, const std::string& filename)
   // A pseudo-name like "<string>" yields an empty parent path, disabling
   // relative include resolution; a real path resolves includes beside it.
   std::string dir = std::filesystem::path(filename).parent_path().string();
-  return ReadDocument(doc, filename, dir);
+  return ReadDocument(doc, filename, dir, opts);
 }
 
-ParseResult ParseMjcfFile(const std::string& path) {
+ParseResult ParseMjcfFile(const std::string& path, const ParseOptions& opts) {
   ParseResult result;
   XMLDocument doc;
   if (doc.LoadFile(path.c_str()) != tinyxml2::XML_SUCCESS) {
@@ -1509,7 +1657,7 @@ ParseResult ParseMjcfFile(const std::string& path) {
     return result;
   }
   std::string dir = std::filesystem::path(path).parent_path().string();
-  return ReadDocument(doc, path, dir);
+  return ReadDocument(doc, path, dir, opts);
 }
 
 bool ResolverRegistryComplete(std::vector<std::string>* missing) {

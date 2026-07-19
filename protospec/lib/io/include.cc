@@ -27,6 +27,15 @@ bool IsInclude(const XMLElement* e) {
 // be a distinct file).
 constexpr int kMaxIncludeDepth = 64;
 
+// The include pre-pass recurses once per element to find <include> nodes, so a
+// deeply nested document would exhaust the native stack here before the
+// table-driven reader ever runs. Cap the tree walk at the reader's element-
+// nesting limit (mjcf_reader.cc kMaxElementDepth); past the cap we stop
+// descending -- the elements stay in the tree, and the reader re-walks it and
+// fails the parse with the authoritative depth diagnostic. A silent stop is safe
+// because any document this deep is rejected wholesale by the reader.
+constexpr int kMaxNestDepth = 200;
+
 // The parent directory of a path, as authored (empty stays empty).
 std::string ParentDir(const std::string& path) {
   if (path.empty()) return "";
@@ -45,15 +54,24 @@ std::string Canonical(const std::string& path) {
 
 class Expander {
  public:
-  Expander(XMLDocument& doc, std::string model_dir, std::string model_file)
+  Expander(XMLDocument& doc, std::string model_dir, std::string model_file,
+           bool allow_external)
       : doc_(doc),
         model_dir_(std::move(model_dir)),
-        model_file_(std::move(model_file)) {
+        model_file_(std::move(model_file)),
+        allow_external_(allow_external) {
     included_.insert(Canonical(model_file_));
+    // The containment boundary for include traversal: the root model's directory
+    // tree. Empty model_dir_ (string input) confines includes to the cwd.
+    std::error_code ec;
+    fs::path base = model_dir_.empty() ? fs::current_path(ec)
+                                       : fs::path(model_dir_);
+    fs::path canon = fs::weakly_canonical(base, ec);
+    root_base_ = ec ? base.lexically_normal() : canon;
   }
 
   IncludeResult Run(XMLElement* root) {
-    ProcessChildren(root, model_dir_);
+    ProcessChildren(root, model_dir_, 0);
     return {std::move(provenance_), std::move(errors_)};
   }
 
@@ -75,14 +93,19 @@ class Expander {
     return it == provenance_.end() ? model_file_ : it->second.file;
   }
 
-  void ProcessChildren(XMLElement* parent, const std::string& search_dir) {
+  // `depth` is the nesting depth of `parent` (0 at the root). Stop descending
+  // once it exceeds the cap so a hostile deep document cannot overflow the stack
+  // during include expansion; the reader still sees the full tree and rejects it.
+  void ProcessChildren(XMLElement* parent, const std::string& search_dir,
+                       int depth) {
+    if (depth > kMaxNestDepth) return;
     XMLElement* child = parent->FirstChildElement();
     while (child) {
       XMLElement* next = child->NextSiblingElement();
       if (IsInclude(child)) {
-        HandleInclude(child, parent, search_dir);
+        HandleInclude(child, parent, search_dir, depth);
       } else {
-        ProcessChildren(child, search_dir);
+        ProcessChildren(child, search_dir, depth + 1);
       }
       child = next;
     }
@@ -112,8 +135,24 @@ class Expander {
     return false;
   }
 
+  // `depth` is the nesting depth of `parent`; spliced content lands among
+  // parent's children (depth + 1), matching ProcessChildren's convention.
+  // True iff `resolved` lands outside the root model's directory tree
+  // (root_base_). Uses lexically_relative on the canonical forms: a relative
+  // path whose first component is ".." (or that is empty) points outside the
+  // base. A path that cannot be canonicalized is treated as escaping (safe
+  // default). Equal paths (rel == ".") are inside.
+  bool EscapesRoot(const std::string& resolved) const {
+    std::error_code ec;
+    fs::path r = fs::weakly_canonical(fs::path(resolved), ec);
+    if (ec) r = fs::path(resolved).lexically_normal();
+    fs::path rel = r.lexically_relative(root_base_);
+    if (rel.empty()) return true;
+    return rel.begin() != rel.end() && *rel.begin() == "..";
+  }
+
   void HandleInclude(XMLElement* inc, XMLElement* parent,
-                     const std::string& search_dir) {
+                     const std::string& search_dir, int depth) {
     if (inc->FirstChildElement() != nullptr) {
       Err(inc, "include element cannot have children");
       return;
@@ -132,6 +171,15 @@ class Expander {
     std::string resolved;
     if (!Resolve(file, search_dir, resolved)) {
       Err(inc, "cannot open included file '" + std::string(file) + "'");
+      return;
+    }
+    // Include-path traversal guard: reject (without opening) a resolved path that
+    // escapes the root model's directory tree, unless the caller opted in.
+    if (!allow_external_ && EscapesRoot(resolved)) {
+      Err(inc, "included file '" + std::string(file) +
+                   "' resolves outside the model directory tree '" +
+                   root_base_.string() +
+                   "' (set allow_external_includes to permit external includes)");
       return;
     }
     if (!included_.insert(Canonical(resolved)).second) {
@@ -179,9 +227,9 @@ class Expander {
     ++depth_;
     for (XMLElement* s : spliced) {
       if (IsInclude(s)) {
-        HandleInclude(s, parent, idir);
+        HandleInclude(s, parent, idir, depth);
       } else {
-        ProcessChildren(s, idir);
+        ProcessChildren(s, idir, depth + 1);
       }
     }
     --depth_;
@@ -205,6 +253,8 @@ class Expander {
   XMLDocument& doc_;
   std::string model_dir_;
   std::string model_file_;
+  bool allow_external_ = false;
+  fs::path root_base_;  // canonical containment boundary for include traversal
   int depth_ = 0;
   std::unordered_set<std::string> included_;
   ProvenanceMap provenance_;
@@ -214,10 +264,11 @@ class Expander {
 }  // namespace
 
 IncludeResult ExpandIncludes(XMLDocument& doc, const std::string& model_dir,
-                             const std::string& model_file) {
+                             const std::string& model_file,
+                             bool allow_external_includes) {
   XMLElement* root = doc.RootElement();
   if (!root) return {};
-  Expander expander(doc, model_dir, model_file);
+  Expander expander(doc, model_dir, model_file, allow_external_includes);
   return expander.Run(root);
 }
 

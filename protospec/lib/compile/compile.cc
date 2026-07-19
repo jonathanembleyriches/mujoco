@@ -4,6 +4,7 @@
 #include "compile.h"
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -221,6 +222,49 @@ void CollectWarning(const char* msg) {
   if (t_warning_sink) t_warning_sink->push_back(msg ? msg : "");
 }
 
+// Host-ownership of the warning hook (Wave 4 #5, decided). `mju_user_warning` is
+// a single process-global function pointer we do not own -- ProtoSpec lives
+// inside a host process (Studio) that may install its own handler. So a compile
+// only BORROWS it, for the duration of one mj_loadXML / mj_compile call, under
+// this process-global mutex. The mutex SERIALIZES ProtoSpec compiles: no two
+// borrow windows overlap, so the save/restore can never interleave and leave the
+// host's handler pointing at a collector that has already returned. The borrow is
+// still visible to the host for that window -- a host compile running concurrently
+// with a ProtoSpec compile will briefly see our handler (an accepted, documented
+// limitation; the real fix is an upstream context-local warning callback). Warning
+// capture is otherwise unchanged: the thread_local sink routes callbacks to the
+// borrowing thread's collector, and captured text still lands in the report.
+std::mutex& WarningHookMutex() {
+  static std::mutex m;
+  return m;
+}
+
+// RAII borrow of the process-global mju_user_warning hook for one compile window.
+// Locks WarningHookMutex (serializing ProtoSpec compiles), saves the host's
+// handler, installs CollectWarning routed to `sink`, and restores BOTH the host
+// handler and the thread-local sink on scope exit -- on every path, including
+// exceptions. Never chains onto our own collector as the "previous" handler (a
+// stale sink from an aborted window would otherwise be restored).
+class WarningHookBorrow {
+ public:
+  explicit WarningHookBorrow(std::vector<std::string>* sink)
+      : lock_(WarningHookMutex()), prev_(mju_user_warning) {
+    if (prev_ == CollectWarning) prev_ = nullptr;
+    t_warning_sink = sink;
+    mju_user_warning = CollectWarning;
+  }
+  ~WarningHookBorrow() {
+    mju_user_warning = prev_;
+    t_warning_sink = nullptr;
+  }
+  WarningHookBorrow(const WarningHookBorrow&) = delete;
+  WarningHookBorrow& operator=(const WarningHookBorrow&) = delete;
+
+ private:
+  std::lock_guard<std::mutex> lock_;
+  void (*prev_)(const char*);
+};
+
 // mj_loadXML through an in-memory VFS: registers the compile-XML plus every
 // injected asset, then loads. `base_dir` becomes the model directory MuJoCo uses
 // to resolve on-disk assets not supplied in the VFS. Warnings MuJoCo emits
@@ -252,16 +296,12 @@ mjModel* LoadFromVfs(const std::string& xml, const CompileOptions& opts,
   mjModel* m = nullptr;
   if (ok) {
     char errbuf[1024] = {0};
-    // Install the warning hook for the load window, restoring the previous
-    // handler after. A concurrently running load window's collector is never
-    // recorded as "previous" (restore would then outlive both windows).
-    void (*prev)(const char*) = mju_user_warning;
-    if (prev == CollectWarning) prev = nullptr;
-    t_warning_sink = &warnings;
-    mju_user_warning = CollectWarning;
-    m = mj_loadXML(xml_path.c_str(), &vfs, errbuf, sizeof(errbuf));
-    mju_user_warning = prev;
-    t_warning_sink = nullptr;
+    // Borrow the process-global warning hook for just the load window (RAII;
+    // serialized by WarningHookMutex, host handler restored on scope exit).
+    {
+      WarningHookBorrow borrow(&warnings);
+      m = mj_loadXML(xml_path.c_str(), &vfs, errbuf, sizeof(errbuf));
+    }
     if (!m) {
       err = errbuf[0] ? errbuf : "mj_loadXML failed (no message)";
     } else if (errbuf[0]) {
@@ -404,13 +444,12 @@ void CompileViaMjs(const Model& model, const CompileOptions& opts, Compiled& out
   mjModel* m = nullptr;
   if (vfs_ok) {
     std::vector<std::string> warnings;
-    void (*prev)(const char*) = mju_user_warning;
-    if (prev == CollectWarning) prev = nullptr;
-    t_warning_sink = &warnings;
-    mju_user_warning = CollectWarning;
-    m = mj_compile(spec, &vfs);
-    mju_user_warning = prev;
-    t_warning_sink = nullptr;
+    // Borrow the process-global warning hook for just the compile window (RAII;
+    // serialized by WarningHookMutex, host handler restored on scope exit).
+    {
+      WarningHookBorrow borrow(&warnings);
+      m = mj_compile(spec, &vfs);
+    }
     for (std::string& w : warnings) {
       out.report.warnings.push_back(ps::Diagnostic{
           ps::Diagnostic::Severity::Warning, "compile", std::move(w), {}});

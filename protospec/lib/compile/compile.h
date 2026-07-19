@@ -28,15 +28,17 @@
 // emitted compile-XML, via a serial-keyed override map -- the tree is untouched.
 //
 // Concurrency: concurrent Compile calls on the same const Model& are
-// memory-safe (per-call state is stack-owned or thread-local), but warning
-// capture installs the process-global mju_user_warning hook around the
-// mj_loadXML window (saved and restored). Hook callbacks route to a
-// thread-local sink, so a warning is only ever attributed to the thread that
-// raised it -- never to another caller -- but with overlapping windows a
-// warning raised on a thread outside its own window, or a caller-installed
-// mju_user_warning handler, can be dropped for the duration of the overlap.
-// MuJoCo plugin registration must complete before concurrent compiles (the
-// engine's own process-global rule).
+// memory-safe (per-call state is stack-owned or thread-local). Warning capture
+// borrows the process-global mju_user_warning hook only for the mj_loadXML /
+// mj_compile window, under a process-global mutex that SERIALIZES ProtoSpec
+// compiles: two ProtoSpec borrow windows never overlap, so the host's handler is
+// always saved and restored cleanly. The handler is host-owned -- a host compile
+// running concurrently with a ProtoSpec compile will briefly see our handler for
+// the borrow window (an accepted, documented limitation; see public_api.md). Hook
+// callbacks route to a thread-local sink, so captured warnings are only ever
+// attributed to the borrowing thread and land in that compile's report. MuJoCo
+// plugin registration must complete before concurrent compiles (the engine's own
+// process-global rule).
 //
 // This header forward-declares mjModel/mjData and never includes mujoco.h.
 #ifndef PROTOSPEC_BRIDGE_COMPILE_H

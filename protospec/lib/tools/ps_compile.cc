@@ -66,6 +66,7 @@ int main(int argc, char** argv) {
   std::string base_dir;
   std::string plugin_dir;
   bool emit_xml = false;
+  bool allow_external_includes = false;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--base-dir" && i + 1 < argc) {
@@ -74,6 +75,10 @@ int main(int argc, char** argv) {
       plugin_dir = argv[++i];
     } else if (a == "--emit-xml") {
       emit_xml = true;
+    } else if (a == "--allow-external-includes") {
+      // Opt out of the include-traversal guard: permit <include> paths that
+      // resolve outside the root model's directory tree (trusted inputs only).
+      allow_external_includes = true;
     } else if (!in) {
       in = argv[i];
     } else {
@@ -83,7 +88,8 @@ int main(int argc, char** argv) {
   }
   if (!in) {
     std::fprintf(stderr,
-                 "usage: ps_compile <in.xml> [--base-dir DIR] [--plugin-dir DIR]\n");
+                 "usage: ps_compile <in.xml> [--base-dir DIR] [--plugin-dir DIR] "
+                 "[--allow-external-includes]\n");
     return 1;
   }
 
@@ -91,7 +97,10 @@ int main(int argc, char** argv) {
   // plugin-bearing models (elasticity/sdf/sensor/pid).
   ps::plugin::RegisterFirstPartyPlugins(plugin_dir);
 
-  ps::mjcf::io::ParseResult parsed = ps::mjcf::io::ParseMjcfFile(in);
+  ps::mjcf::io::ParseOptions parse_opts;
+  parse_opts.allow_external_includes = allow_external_includes;
+  ps::mjcf::io::ParseResult parsed =
+      ps::mjcf::io::ParseMjcfFile(in, parse_opts);
   if (!parsed.ok()) {
     if (parsed.unsupported_only()) {
       for (const auto& d : parsed.errors)

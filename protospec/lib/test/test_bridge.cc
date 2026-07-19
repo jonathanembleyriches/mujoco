@@ -83,6 +83,30 @@ static const char* kPendulum =
     "  </actuator>\n"
     "</mujoco>\n";
 
+// Double pendulum with TWO actuators: a stateless motor (m1, exercises ctrl
+// migration) and a stateful general/integrator actuator (a1, exercises act +
+// ctrl migration -- it carries one activation state). Used by the recompile
+// state-migration invariant test so qpos/qvel AND act/ctrl are all covered.
+static const char* kRecompileModel =
+    "<mujoco>\n"
+    "  <worldbody>\n"
+    "    <body name='b1' pos='0 0 1'>\n"
+    "      <joint name='j1' type='hinge' axis='0 1 0'/>\n"
+    "      <geom name='g1' type='capsule' size='0.05 0.3' "
+    "fromto='0 0 0 0 0 -0.6'/>\n"
+    "      <body name='b2' pos='0 0 -0.6'>\n"
+    "        <joint name='j2' type='hinge' axis='0 1 0'/>\n"
+    "        <geom type='sphere' size='0.1'/>\n"
+    "      </body>\n"
+    "    </body>\n"
+    "  </worldbody>\n"
+    "  <actuator>\n"
+    "    <motor name='m1' joint='j1' gear='1'/>\n"
+    "    <general name='a1' joint='j2' dyntype='integrator' "
+    "gainprm='1 0 0'/>\n"
+    "  </actuator>\n"
+    "</mujoco>\n";
+
 // --- purity sweep: (serial, loc) for every element, document order -------- //
 struct Sweep {
   std::vector<std::tuple<std::uint64_t, std::string, int>>* out;
@@ -322,22 +346,36 @@ static void TestRecompileStateMigration() {
   mj_deleteData(d0);
 }
 
-// Full recompile cycle on a FORCED path: compile the pendulum, seed joint state
-// + a nonzero time, append a body, recompile migrating state, step once. Returns
-// the migrated slices so the two paths can be compared element-for-element.
-// Recompile is path-agnostic (it re-enters Compile with the same opts), so the
-// mjSpec and XML paths must migrate identical state.
+// Full recompile state-migration invariant cycle on a FORCED path (plan Wave-2
+// item 2), driving the full Compile -> step -> structural edit -> Recompile flow:
+//   1. compile kRecompileModel (two joints, a stateless motor, a stateful
+//      integrator actuator), seed joint state + control + a nonzero time,
+//   2. STEP so qpos/qvel and a1's activation evolve under dynamics,
+//   3. record the evolved state at edit time (the migration source),
+//   4. append a body, Recompile migrating state, step once for validity.
+// Returns both the recorded source slices and the migrated destination slices so
+// the two forced paths can be compared element-for-element. Recompile is
+// path-agnostic (it re-enters Compile with the same opts), so the mjSpec and XML
+// paths must migrate identical state by element IDENTITY (creation serial).
 struct RecompileResult {
   bool ok = false;
-  double q1 = 0, q2 = 0, v1 = 0, v2 = 0, q3 = 0, time = 0;
+  bool a1_stateful = false;   // a1 carries an activation state (actadr >= 0)
   bool j3_bound = false;
   bool stepped_finite = false;
+  // Source state recorded from d0 at edit time (after the pre-edit steps).
+  double src_q1 = 0, src_q2 = 0, src_v1 = 0, src_v2 = 0;
+  double src_cm = 0, src_ca = 0, src_act = 0, src_time = 0;
+  // Migrated state read from d1 at the recompiled addresses.
+  double dst_q1 = 0, dst_q2 = 0, dst_v1 = 0, dst_v2 = 0;
+  double dst_cm = 0, dst_ca = 0, dst_act = 0, dst_time = 0, dst_q3 = 0;
 };
 
 static RecompileResult RunRecompileCycle(CompilePath path) {
   RecompileResult r;
-  auto model = ParseOrDie(kPendulum);
-  if (!model) return r;
+  auto model = ParseOrDie(kRecompileModel);
+  if (!model || model->actuators.empty() ||
+      model->actuators.front()->actuators.size() < 2)
+    return r;
   CompileOptions opts;
   opts.path = path;
 
@@ -348,32 +386,61 @@ static RecompileResult RunRecompileCycle(CompilePath path) {
   const Body* b2 = FirstOf<Body>(*b1);
   const Joint* j1 = FirstOf<Joint>(*b1);
   const Joint* j2 = FirstOf<Joint>(*b2);
+  const ActuatorAny& m1 = model->actuators.front()->actuators[0];  // motor
+  const ActuatorAny& a1 = model->actuators.front()->actuators[1];  // integrator
 
   mjData* d0 = mj_makeData(c0.model.get());
   if (!d0) return r;
   const int qa1 = *c0.binding.QposAdr(*j1), qa2 = *c0.binding.QposAdr(*j2);
   const int da1 = *c0.binding.DofAdr(*j1), da2 = *c0.binding.DofAdr(*j2);
+  const int cm = *c0.binding.ActId(m1), ca = *c0.binding.ActId(a1);
+  auto aadr0 = c0.binding.ActAdr(a1);
+  r.a1_stateful = aadr0.has_value() && *aadr0 >= 0;
+
+  // Seed initial state + control, then step so the state (and a1's activation)
+  // evolves -- the migration must carry the *evolved* state, not just the seed.
   d0->qpos[qa1] = 0.3;
   d0->qpos[qa2] = -0.4;
   d0->qvel[da1] = 0.7;
   d0->qvel[da2] = 1.1;
+  d0->ctrl[cm] = 0.05;
+  d0->ctrl[ca] = 0.5;
   d0->time = 1.25;
+  for (int i = 0; i < 10; ++i) mj_step(c0.model.get(), d0);
 
+  // Record the source state at edit time.
+  r.src_q1 = d0->qpos[qa1];
+  r.src_q2 = d0->qpos[qa2];
+  r.src_v1 = d0->qvel[da1];
+  r.src_v2 = d0->qvel[da2];
+  r.src_cm = d0->ctrl[cm];
+  r.src_ca = d0->ctrl[ca];
+  if (r.a1_stateful) r.src_act = d0->act[*aadr0];
+  r.src_time = d0->time;
+
+  // Structural edit on the same tree instance (survivors keep their serials),
+  // then recompile migrating state keyed by element identity.
   const Joint* j3 = AppendBody(*model);
   mjData* d1 = nullptr;
   Compiled c1 = Recompile(*model, c0, d0, &d1, opts);
   if (c1.ok() && d1 && c1.report.taken == path) {
     const int nqa1 = *c1.binding.QposAdr(*j1), nqa2 = *c1.binding.QposAdr(*j2);
     const int nda1 = *c1.binding.DofAdr(*j1), nda2 = *c1.binding.DofAdr(*j2);
-    r.q1 = d1->qpos[nqa1];
-    r.q2 = d1->qpos[nqa2];
-    r.v1 = d1->qvel[nda1];
-    r.v2 = d1->qvel[nda2];
+    const int ncm = *c1.binding.ActId(m1), nca = *c1.binding.ActId(a1);
+    r.dst_q1 = d1->qpos[nqa1];
+    r.dst_q2 = d1->qpos[nqa2];
+    r.dst_v1 = d1->qvel[nda1];
+    r.dst_v2 = d1->qvel[nda2];
+    r.dst_cm = d1->ctrl[ncm];
+    r.dst_ca = d1->ctrl[nca];
+    auto naadr = c1.binding.ActAdr(a1);
+    if (r.a1_stateful && naadr.has_value() && *naadr >= 0)
+      r.dst_act = d1->act[*naadr];
+    r.dst_time = d1->time;
     auto j3id = c1.binding.Id(*j3);
     r.j3_bound = j3id.has_value();
-    if (r.j3_bound) r.q3 = d1->qpos[*c1.binding.QposAdr(*j3)];
-    r.time = d1->time;
-    mj_step(c1.model.get(), d1);
+    if (r.j3_bound) r.dst_q3 = d1->qpos[*c1.binding.QposAdr(*j3)];
+    mj_step(c1.model.get(), d1);  // migrated state steps cleanly
     r.stepped_finite = std::isfinite(d1->qpos[nqa1]);
     r.ok = true;
   }
@@ -389,20 +456,36 @@ static void TestRecompileParityBothPaths() {
   CHECK(s.ok);
   if (!x.ok || !s.ok) return;
 
-  // Each path migrated the seeded state to its recompiled addresses.
-  CHECK(Near(x.q1, 0.3) && Near(s.q1, 0.3));
-  CHECK(Near(x.q2, -0.4) && Near(s.q2, -0.4));
-  CHECK(Near(x.v1, 0.7) && Near(s.v1, 0.7));
-  CHECK(Near(x.v2, 1.1) && Near(s.v2, 1.1));
-  CHECK(x.j3_bound && s.j3_bound);
-  CHECK(Near(x.q3, 0.0) && Near(s.q3, 0.0));
-  CHECK(Near(x.time, 1.25) && Near(s.time, 1.25));
-  CHECK(x.stepped_finite && s.stepped_finite);
+  // a1 must actually be stateful on both paths, and its activation must have
+  // evolved to a clearly nonzero value under the pre-edit steps, else the act
+  // migration assert below would be vacuous.
+  CHECK(x.a1_stateful && s.a1_stateful);
+  CHECK(std::fabs(x.src_act) > 1e-6 && std::fabs(s.src_act) > 1e-6);
+
+  // Per path: every migrated slice equals the recorded pre-edit source, read at
+  // the recompiled addresses -- qpos/qvel/ctrl/act migrate by element identity,
+  // and time is preserved across the recompile.
+  auto migrates = [](const RecompileResult& r) {
+    CHECK(Near(r.dst_q1, r.src_q1));
+    CHECK(Near(r.dst_q2, r.src_q2));
+    CHECK(Near(r.dst_v1, r.src_v1));
+    CHECK(Near(r.dst_v2, r.src_v2));
+    CHECK(Near(r.dst_cm, r.src_cm));   // motor ctrl
+    CHECK(Near(r.dst_ca, r.src_ca));   // integrator ctrl
+    CHECK(Near(r.dst_act, r.src_act));  // integrator activation
+    CHECK(Near(r.dst_time, r.src_time));  // time preserved
+    CHECK(r.j3_bound);
+    CHECK(Near(r.dst_q3, 0.0));  // the new joint falls back to qpos0
+    CHECK(r.stepped_finite);
+  };
+  migrates(x);
+  migrates(s);
 
   // Path-agnostic Recompile: the two forced paths agree element-for-element.
-  CHECK(Near(x.q1, s.q1) && Near(x.q2, s.q2));
-  CHECK(Near(x.v1, s.v1) && Near(x.v2, s.v2));
-  CHECK(Near(x.q3, s.q3) && Near(x.time, s.time));
+  CHECK(Near(x.dst_q1, s.dst_q1) && Near(x.dst_q2, s.dst_q2));
+  CHECK(Near(x.dst_v1, s.dst_v1) && Near(x.dst_v2, s.dst_v2));
+  CHECK(Near(x.dst_cm, s.dst_cm) && Near(x.dst_ca, s.dst_ca));
+  CHECK(Near(x.dst_act, s.dst_act) && Near(x.dst_time, s.dst_time));
 }
 
 // First element of type T directly under any container with a `subtree` (Body
