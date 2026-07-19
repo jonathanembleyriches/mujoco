@@ -61,18 +61,6 @@ std::unique_ptr<ModelHolder> ModelHolder::FromBuffer(
   return mh;
 }
 
-std::unique_ptr<ModelHolder> ModelHolder::FromModel(mjModel* model) {
-  auto mh = std::unique_ptr<ModelHolder>(new ModelHolder());
-  if (model) {
-    mh->model_ = model;
-    mh->owns_model_ = false;
-    mh->PostInit();
-  } else {
-    mh->SetLoadError("No model to adopt.");
-  }
-  return mh;
-}
-
 ModelHolder::ModelHolder() {
   mj_defaultVFS(&vfs_);
 }
@@ -81,7 +69,7 @@ ModelHolder::~ModelHolder() {
   if (data_) {
     mj_deleteData(data_);
   }
-  if (model_ && owns_model_) {
+  if (model_) {
     mj_deleteModel(model_);
   }
   if (spec_) {

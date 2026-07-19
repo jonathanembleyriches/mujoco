@@ -181,14 +181,6 @@ void FilamentContext::WaitForFrame(mjrfFrameHandle frame_handle) {
   }
 }
 
-void FilamentContext::FlushAndWait() {
-  if constexpr (UTILS_HAS_THREADING) {
-    engine_->flushAndWait();
-  }
-}
-
-void FilamentContext::ResetMaterialCache() { material_manager_->Reset(); }
-
 void FilamentContext::SetClearColor(const filament::math::float4& color) {
   filament::Renderer::ClearOptions opts;
   opts.clear = true;

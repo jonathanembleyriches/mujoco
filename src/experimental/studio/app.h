@@ -146,7 +146,6 @@ class App {
     bool inspector_panel = false;
     bool spec_panels = false;
     bool full_screen = false;
-    bool last_dirty = false;  // last editor dirty state (title-bar dot sync)
     bool style_editor = false;
     bool imgui_demo = false;
     bool implot_demo = false;
@@ -203,9 +202,6 @@ class App {
   // then compile the spec to a model.
   void OnModelLoaded(std::string filename, ModelKind model_kind);
 
-  // Adopts an externally-owned mjModel published by a ModelSourcePlugin.
-  void AdoptCompiledModel(mjModel* model);
-
   void SwitchGraphicsMode(int width, int height, platform::GraphicsMode mode);
 
   void SetLoadError(std::string error);
@@ -241,8 +237,6 @@ class App {
   void StatusBarGui();
   void HelpGui();
   void FileDialogGui();
-  // Services native-dialog requests posted by an editor's FileDialogPlugin.
-  void ServiceEditorFileDialogs();
   void ModelOptionsGui();
   void DataInspectorGui();
   void SpecExplorerGui();
@@ -266,7 +260,6 @@ class App {
   std::optional<std::string> pending_load_;
   std::function<void()> pending_op_;
   bool preserve_camera_on_load_ = false;
-  bool model_source_fresh_ = false;
   ModelKind model_kind_ = kEmptyModel;
   platform::GraphicsMode gfx_mode_ = platform::GraphicsMode::FilamentVulkan;
 

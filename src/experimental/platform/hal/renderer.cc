@@ -102,55 +102,16 @@ void Renderer::Init(const mjModel* model) {
                              ? mjGRAPHICS_API_OPENGL
                              : mjGRAPHICS_API_VULKAN;
       filament_context_ = CreateContext(cfg);
-      BuildFilamentSceneObjects(model);
+      scene_bridge_ =
+          std::make_unique<SceneBridge>(filament_context_.get(), model);
       imgui_bridge_ = std::make_unique<ImguiBridge>(filament_context_.get());
+      scene_bridge_->SetDrawTextFunction(DrawTextAt);
     }
 
-    RebuildRenderScene(model);
+    mjv_defaultScene(&scene_);
+    mjv_makeScene(model, &scene_, 2000);
     initialized_ = true;
   }
-}
-
-void Renderer::UpdateModel(const mjModel* model) {
-  if (!model) {
-    return;
-  }
-  // A full Init is only required when there is no live engine to reuse: the
-  // first load (nothing initialized yet), or the classic backend, whose context
-  // is model-coupled and cheap to rebuild. For an already-initialized Filament
-  // renderer the engine and its swap chains are model-independent, so a
-  // recompile/adopt keeps them and rebuilds only the per-model scene objects.
-  if (!initialized_ || IsClassic(gfx_) || !filament_context_) {
-    Init(model);
-    return;
-  }
-
-  // Rebuild the per-model and UI bridges against the persistent engine. Filament
-  // renders on a backend thread, so first quiesce it: destroying the old scene
-  // and UI renderables/textures out from under an in-flight frame is a
-  // use-after-free. Tearing down BOTH bridges unbinds every renderable from the
-  // context's shared material cache, which is then safe to drop -- its instances
-  // are keyed on the old model's textures and must not be reused for the new one.
-  mjrf_flush(filament_context_.get());
-  scene_bridge_.reset();
-  imgui_bridge_.reset();
-  mjrf_resetMaterialCache(filament_context_.get());
-  BuildFilamentSceneObjects(model);
-  imgui_bridge_ = std::make_unique<ImguiBridge>(filament_context_.get());
-  RebuildRenderScene(model);
-}
-
-void Renderer::BuildFilamentSceneObjects(const mjModel* model) {
-  scene_bridge_ = std::make_unique<SceneBridge>(filament_context_.get(), model);
-  scene_bridge_->SetDrawTextFunction(DrawTextAt);
-}
-
-void Renderer::RebuildRenderScene(const mjModel* model) {
-  if (initialized_) {
-    mjv_freeScene(&scene_);
-  }
-  mjv_defaultScene(&scene_);
-  mjv_makeScene(model, &scene_, 2000);
 }
 
 void Renderer::Deinit() {
@@ -191,12 +152,6 @@ void Renderer::Render(const mjModel* model, mjData* data,
   }
 
   mjv_updateScene(model, data, vis_option, perturb, camera, mjCAT_ALL, &scene_);
-
-  ForEachPlugin<OverlayPlugin>([&](OverlayPlugin* plugin) {
-    if (plugin->add_overlay) {
-      plugin->add_overlay(plugin, model, data, &scene_);
-    }
-  });
 
   const bool render_to_texture = !pixels.empty();
   if (render_to_texture) {

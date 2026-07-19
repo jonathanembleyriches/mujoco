@@ -66,19 +66,8 @@ class Renderer {
   Renderer(const Renderer&) = delete;
   Renderer& operator=(const Renderer&) = delete;
 
-  // Initializes the renderer with the given mjModel. For the Filament backend
-  // this builds the whole rendering engine (filament::Engine + swap chains),
-  // which is expensive; use UpdateModel for model swaps that can reuse it.
+  // Initializes the renderer with the given mjModel.
   void Init(const mjModel* model);
-
-  // Adopts a new mjModel while reusing as much live GPU state as possible. The
-  // Filament engine and its swap chains are model-independent (they depend only
-  // on the native window and graphics API), so a recompile/adopt only needs to
-  // rebuild the per-model scene objects and the mjvScene, not the engine. Falls
-  // back to a full Init on first load (no live engine yet) and for the classic
-  // backend (its context is cheap and model-coupled). This is the path a model
-  // recompile/adopt should take.
-  void UpdateModel(const mjModel* model);
 
   // Renders the simulation and ux state. Renders into `pixels` if provided,
   // otherwise renders to the `native_window` provided at construction.
@@ -113,13 +102,6 @@ class Renderer {
  private:
   // Resets the renderer; no rendering will occur until Init() is called again.
   void Deinit();
-
-  // Builds the per-model Filament scene objects (SceneBridge) against the
-  // already-created filament_context_. Used by both Init and UpdateModel.
-  void BuildFilamentSceneObjects(const mjModel* model);
-
-  // (Re)builds the mjvScene for the given model.
-  void RebuildRenderScene(const mjModel* model);
 
   void UpdateFps();
 

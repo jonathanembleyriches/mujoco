@@ -51,18 +51,6 @@ class FilamentContext : public mjrfContext {
   // Blocks until the given frame has completed rendering.
   void WaitForFrame(mjrfFrameHandle frame_handle);
 
-  // Blocks until the render thread has drained all queued commands. Call before
-  // destroying scene resources that an in-flight frame may still reference, so
-  // their destruction cannot race the render thread. The engine is left intact.
-  void FlushAndWait();
-
-  // Destroys every cached MaterialInstance. The cache is keyed on the
-  // mjrfMaterial (which embeds texture pointers), so instances built for the old
-  // model would otherwise be reused while referencing textures freed with it.
-  // Precondition: no live Renderable may still bind a cached instance -- destroy
-  // the scenes first. The next frame rebuilds instances against the new model.
-  void ResetMaterialCache();
-
   // Sets the clear color for the renderer.
   void SetClearColor(const filament::math::float4& color);
 

@@ -44,11 +44,6 @@ class ModelHolder {
       std::span<const std::byte> buffer, std::string_view content_type,
       std::string_view filename);
 
-  // Adopts an externally-owned mjModel (e.g. produced by a ModelSourcePlugin).
-  // This class allocates and owns the mjData, but does NOT take ownership of
-  // the model; the caller must keep it alive for the lifetime of this object.
-  static std::unique_ptr<ModelHolder> FromModel(mjModel* model);
-
   // Accessors to the MuJoCo structures managed by this object.
   mjVFS* vfs() { return &vfs_; }
   mjSpec* spec() { return spec_; }
@@ -82,7 +77,6 @@ class ModelHolder {
   mjSpec* spec_ = nullptr;
   mjModel* model_ = nullptr;
   mjData* data_ = nullptr;
-  bool owns_model_ = true;
   char error_[1000] = "";
 };
 }  // namespace mujoco::platform

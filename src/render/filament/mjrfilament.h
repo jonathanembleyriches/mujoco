@@ -158,16 +158,6 @@ mjrfFrameHandle mjrf_render(mjrfContext* ctx, const mjrfRenderRequest* req, int 
 // triggering any callbacks as needed.
 void mjrf_waitForFrame(mjrfContext* ctx, mjrfFrameHandle frame);
 
-// Blocks until the render thread has drained all queued commands. Call before
-// destroying scene resources that an in-flight frame may still reference (e.g.
-// when swapping to a new model while keeping the same context).
-void mjrf_flush(mjrfContext* ctx);
-
-// Destroys the context's cached material instances. Call only when no live
-// renderable still binds them (i.e. after the scenes have been torn down for a
-// model swap); the next frame rebuilds them against the new model's textures.
-void mjrf_resetMaterialCache(mjrfContext* ctx);
-
 // Sets the clear color for the renderer.
 void mjrf_setClearColor(mjrfContext* ctx, const float color[3]);
 

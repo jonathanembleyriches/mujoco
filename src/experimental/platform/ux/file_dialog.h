@@ -18,7 +18,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace mujoco::platform {
 
@@ -40,23 +39,13 @@ struct DialogResult {
   Status status = kPending;
 
   // The path selected by the dialog if Status is kAccepted. If status is
-  // kError, the path may contain an error message. Empty otherwise. For a
-  // multi-select dialog this holds the first selected path (see `paths`).
+  // kError, the path may contain an error message. Empty otherwise.
   std::string path;
-
-  // Every path selected by a multi-select dialog (OpenFilesDialog). Empty for
-  // the single-selection dialogs.
-  std::vector<std::string> paths;
 };
 
 // Opens a file dialog used for selecting a file to open.
 DialogResult OpenFileDialog(std::string_view path,
                             std::span<std::string_view> filters = {});
-
-// Opens a file dialog allowing several files to be selected at once. On accept,
-// `paths` holds the selected files (and `path` the first, for convenience).
-DialogResult OpenFilesDialog(std::string_view path,
-                             std::span<std::string_view> filters = {});
 
 // Opens a file dialog used for selecting a file to save.
 DialogResult SaveFileDialog(std::string_view path,

@@ -81,10 +81,6 @@ static constexpr const char* ICON_NEXT_FRAME = platform::ICON_FA_CARET_RIGHT;
 static constexpr const char* ICON_CURR_FRAME = platform::ICON_FA_FAST_FORWARD;
 static constexpr const char* ICON_UNDO_SPEC = platform::ICON_FA_UNDO;
 static constexpr const char* ICON_REDO_SPEC = platform::ICON_FA_REPEAT;
-static constexpr const char* ICON_PLAY = platform::ICON_FA_PLAY;
-static constexpr const char* ICON_PAUSE = platform::ICON_FA_PAUSE;
-static constexpr const char* ICON_STOP = platform::ICON_FA_STOP;
-static constexpr const char* ICON_WARNING = "\xEF\x81\xB1";  // U+F071 warning
 
 App::App(Config config)
     : app_title_(std::move(config.title)),
@@ -156,23 +152,6 @@ void App::InitEmptyModel() {
 }
 
 void App::LoadModelFromFile(const std::string& filepath) {
-  // Model source plugins (e.g. external editors) take priority for the
-  // formats they handle; the stock loader handles everything else.
-  bool submitted = false;
-  if (filepath.ends_with(".xml")) {
-    platform::ForEachPlugin<platform::ModelSourcePlugin>([&](auto* plugin) {
-      if (plugin->submit_load) {
-        plugin->submit_load(plugin, filepath.c_str());
-        submitted = true;
-      }
-    });
-  }
-  if (submitted) {
-    model_source_fresh_ = true;
-    model_path_ = filepath;
-    return;
-  }
-
   const std::string resolved_file =
       platform::ResolveFile(filepath, search_paths_);
   model_holder_ = platform::ModelHolder::FromFile(resolved_file);
@@ -223,11 +202,9 @@ void App::OnModelLoaded(std::string filename, ModelKind model_kind) {
     step_control_.SetPauseState(PauseState::kNormalPaused);
   }
 
-  // Reset/reinitialize everything that depends on the new mjModel. UpdateModel
-  // reuses the persistent Filament engine across recompiles/adopts and only
-  // rebuilds the per-model scene; it falls back to a full Init on first load.
+  // Reset/reinitialize everything that depends on the new mjModel.
   mjModel* model = model_holder_->model();
-  renderer_->UpdateModel(model);
+  renderer_->Init(model);
   const int state_size = mj_stateSize(model, mjSTATE_INTEGRATION);
   sim_history_.Init(state_size);
 
@@ -481,21 +458,17 @@ void App::ProcessPendingLoads() {
     pending_op_ = nullptr;
   }
 
-  // Allow plugins to edit the spec as well. A model source plugin supplies its
-  // model below and never creates an mjSpec, so model_holder_ can still be null
-  // here on the first frame; spec() would dereference it.
-  if (has_spec()) {
-    platform::ForEachPlugin<platform::SpecEditorPlugin>([&](auto* plugin) {
-      if (plugin->pre_compile) {
-        if (plugin->pre_compile(plugin, spec(), model(), data(), &camera_)) {
-          Recompile();
-          if (plugin->post_compile) {
-            plugin->post_compile(plugin, spec(), model(), data());
-          }
-        };
-      }
-    });
-  }
+  // Allow plugins to edit the spec as well.
+  platform::ForEachPlugin<platform::SpecEditorPlugin>([&](auto* plugin) {
+    if (plugin->pre_compile) {
+      if (plugin->pre_compile(plugin, spec(), model(), data(), &camera_)) {
+        Recompile();
+        if (plugin->post_compile) {
+          plugin->post_compile(plugin, spec(), model(), data());
+        }
+      };
+    }
+  });
 
   // Check plugins to see if we need to load a new model.
   platform::ForEachPlugin<platform::ModelPlugin>([&](auto* plugin) {
@@ -512,40 +485,6 @@ void App::ProcessPendingLoads() {
       }
     }
   });
-
-  // Adopt a freshly compiled model from any model source plugin.
-  platform::ForEachPlugin<platform::ModelSourcePlugin>([&](auto* plugin) {
-    if (plugin->poll_compiled) {
-      platform::CompiledModel compiled;
-      if (plugin->poll_compiled(plugin, &compiled) && compiled.model) {
-        AdoptCompiledModel(compiled.model);
-      }
-    }
-  });
-}
-
-void App::AdoptCompiledModel(mjModel* model) {
-  model_holder_ = platform::ModelHolder::FromModel(model);
-  if (!model_holder_->ok()) {
-    SetLoadError(std::string(model_holder_->error()));
-    return;
-  }
-
-  // Reframe the camera only on a genuine file load, not on the recompiles an
-  // editor publishes while the user drags a gizmo.
-  const bool fresh = model_source_fresh_;
-  model_source_fresh_ = false;
-  preserve_camera_on_load_ = !fresh;
-  mjv_defaultPerturb(&perturb_);
-  OnModelLoaded(model_path_, kModelFromBuffer);
-
-  if (fresh) {
-    // Adopted models start paused, ready for editing.
-    step_control_.SetPauseState(PauseState::kNormalPaused);
-    UpdateFilePaths(model_path_);
-    window_->SetTitle(app_title_ + " : " +
-                      std::string(model->names ? model->names : "model"));
-  }
 }
 
 void App::HandleWindowEvents() {
@@ -582,39 +521,8 @@ void App::HandleMouseEvents() {
     perturb_.active = 0;
   }
 
-  // Dispatch viewport mouse events to plugins first (e.g. transform gizmos
-  // grab the mouse before the camera does). A plugin returning true suppresses
-  // the default camera/perturb handling for this frame.
-  platform::ViewportInput input;
-  input.model = model();
-  input.data = data();
-  input.camera = &camera_;
-  input.vis_option = &vis_options_;
-  input.x = mouse_x;
-  input.y = mouse_y;
-  input.dx = mouse_dx;
-  input.dy = mouse_dy;
-  input.scroll = mouse_scroll;
-  input.aspect_ratio = window_->GetAspectRatio();
-  input.left_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-  input.right_down = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-  input.middle_down = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-  input.left_double = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-  input.right_double = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right);
-  input.ctrl = io.KeyCtrl;
-  input.shift = io.KeyShift;
-  input.alt = io.KeyAlt;
-  bool consumed = false;
-  platform::ForEachPlugin<platform::ViewportPlugin>([&](auto* plugin) {
-    if (plugin->on_mouse && plugin->on_mouse(plugin, input)) {
-      consumed = true;
-    }
-  });
-
   // Handle perturbation mouse actions.
-  if (consumed) {
-    // A viewport plugin owns the mouse this frame.
-  } else if (is_mouse_dragging && io.KeyCtrl) {
+  if (is_mouse_dragging && io.KeyCtrl) {
     if (perturb_.select > 0) {
       mjtMouse action = mjMOUSE_NONE;
       if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1115,13 +1023,8 @@ void App::BuildGui() {
     ImGui::End();
   }
 
-  // Display a drag-and-drop message if no model is loaded -- unless an editor
-  // shell is present: its viewport welcome (New / Open buttons) supersedes the
-  // plain hint, and the two overlapped.
-  bool editor_shell_present = false;
-  platform::ForEachPlugin<platform::EditorShellPlugin>(
-      [&](auto*) { editor_shell_present = true; });
-  if (model_kind_ == kEmptyModel && !editor_shell_present) {
+  // Display a drag-and-drop message if no model is loaded.
+  if (model_kind_ == kEmptyModel) {
 #ifndef __EMSCRIPTEN__
     const char* text = "Load model file or drag-and-drop model file here.";
 
@@ -1146,7 +1049,6 @@ void App::BuildGui() {
   }
 
   FileDialogGui();
-  ServiceEditorFileDialogs();
 
   if (tmp_.imgui_demo) {
     ImGui::ShowDemoWindow();
@@ -1181,42 +1083,8 @@ void App::BuildGui() {
     }
   });
 
-  // Viewport overlays drawn into the ImGui frame over the scene (e.g.
-  // transform gizmos). Edit mode corresponds to a paused simulation.
-  platform::ViewportGuiPlugin::Context viewport_ctx;
-  viewport_ctx.model = has_model() ? model() : nullptr;
-  viewport_ctx.data = has_data() ? data() : nullptr;
-  viewport_ctx.camera = &camera_;
-  viewport_ctx.aspect_ratio = window_->GetAspectRatio();
-  viewport_ctx.edit_mode =
-      step_control_.GetPauseState() == PauseState::kNormalPaused;
-  platform::ForEachPlugin<platform::ViewportGuiPlugin>([&](auto* plugin) {
-    if (plugin->draw) {
-      plugin->draw(plugin, viewport_ctx);
-    }
-  });
-
-  // Title-bar dirty dot: re-title only when the editor's dirty state flips.
-  {
-    bool ed_dirty = false;
-    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
-      if (p->is_dirty && p->is_dirty(p)) ed_dirty = true;
-    });
-    if (ed_dirty != tmp_.last_dirty) {
-      tmp_.last_dirty = ed_dirty;
-      if (has_model() && model()->names) {
-        window_->SetTitle(app_title_ + " : " + std::string(model()->names) +
-                          (ed_dirty ? " *" : ""));
-      }
-    }
-  }
-
   ImGuiIO& io = ImGui::GetIO();
   if (tmp_.first_frame) {
-    // An external model source bypasses the mjSpec pipeline, leaving the spec
-    // editing panels inert; hide them by default.
-    platform::ForEachPlugin<platform::ModelSourcePlugin>(
-        [&](auto*) { tmp_.spec_panels = false; });
     LoadSettings();
     tmp_.first_frame = false;
   }
@@ -1619,24 +1487,6 @@ void App::HelpGui() {
   ImGui::Text("T");
 
   ImGui::Columns();
-
-  // ProtoSpec editor keys (only meaningful when the editor cluster is hosted).
-  bool has_editor = false;
-  platform::ForEachPlugin<platform::EditorShellPlugin>(
-      [&](auto*) { has_editor = true; });
-  if (has_editor) {
-    ImGui::Separator();
-    ImGui::TextDisabled("ProtoSpec editor (viewport hovered):");
-    ImGui::BulletText("Q / W / E / R   Select / Move / Rotate / Scale tool");
-    ImGui::BulletText("F               Frame selection");
-    ImGui::BulletText("Del             Delete selection (referrer-checked)");
-    ImGui::BulletText("Ctrl+D          Duplicate selection");
-    ImGui::BulletText("Ctrl+S          Save (always the editor)");
-    ImGui::BulletText("Ctrl+Z / Ctrl+Y Undo / Redo");
-    ImGui::TextDisabled(
-        "Note: Q/W/E/R shadow Studio's camera-vis toggles; the editor tools win "
-        "only while the viewport (not a panel) is hovered.");
-  }
 }
 
 void App::ToolBarGui() {
@@ -1683,40 +1533,6 @@ void App::ToolBarGui() {
     }
     ImGui::SetItemTooltip("%s", "Reset");
 
-    // Play / Pause / Stop mode machine. Play tells any editor to compile pending
-    // edits and enter Play; Stop discards sim state (qpos0) and returns to Edit.
-    auto set_editor_mode = [](int mode) {
-      platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
-        if (p->set_mode) p->set_mode(p, mode);
-      });
-    };
-    ImGui::SameLine(0, separator_width);
-    ImGui::BeginDisabled(!has_model());
-    if (ImGui::Button(ICON_PLAY, square_size)) {
-      set_editor_mode(1);
-      step_control_.SetPauseState(PauseState::kUnpaused);
-    }
-    ImGui::SetItemTooltip("%s", "Play: compile edits and run the simulation");
-    ImGui::SameLine(0, 0.5 * separator_width);
-    if (ImGui::Button(ICON_PAUSE, square_size)) {
-      step_control_.SetPauseState(PauseState::kNormalPaused);
-    }
-    ImGui::SetItemTooltip("%s", "Pause the simulation");
-    ImGui::SameLine(0, 0.5 * separator_width);
-    if (ImGui::Button(ICON_STOP, square_size)) {
-      set_editor_mode(0);
-      step_control_.SetPauseState(PauseState::kNormalPaused);
-      ResetPhysics();
-    }
-    ImGui::SetItemTooltip("%s", "Stop: discard sim state, return to edit (qpos0)");
-    ImGui::EndDisabled();
-
-    // Editor toolbar controls (transform tools, snap, add) on the same row.
-    ImGui::SameLine(0, separator_width);
-    platform::ForEachPlugin<platform::ToolbarPlugin>([&](auto* plugin) {
-      if (plugin->draw) plugin->draw(plugin);
-    });
-
     // Combined (Normal Pause, Viscous Pause, Play) widget and Speed selection.
     ImGui::SameLine(0, separator_width);
     platform::StepControlGui(model(), &step_control_, tmp_.speed_index);
@@ -1757,47 +1573,6 @@ void App::StatusBarGui() {
     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 520);
 
     ImGui::TableNextColumn();
-
-    // Dirty indicator: a dot when an editor reports unsaved authored edits.
-    bool editor_dirty = false;
-    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
-      if (p->is_dirty && p->is_dirty(p)) editor_dirty = true;
-    });
-    if (editor_dirty) {
-      ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "%s", "\xE2\x97\x8f");
-      ImGui::SameLine();
-      ImGui::Text("unsaved |");
-      ImGui::SameLine();
-    }
-
-    // Error chip: a compact red badge when an editor's Diagnostics hold errors.
-    // Clicking it brings that editor's Diagnostics panel to the front.
-    int editor_errors = 0;
-    platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
-      if (p->error_count) editor_errors += p->error_count(p);
-    });
-    if (editor_errors > 0) {
-      platform::ScopedStyle chip;
-      chip.Var(ImGuiStyleVar_FrameRounding, 3.0f);
-      chip.Color(ImGuiCol_Button, ImVec4(0.62f, 0.16f, 0.16f, 1.0f));
-      chip.Color(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.22f, 0.22f, 1.0f));
-      chip.Color(ImGuiCol_ButtonActive, ImVec4(0.92f, 0.28f, 0.28f, 1.0f));
-      chip.Color(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-      const std::string label =
-          std::string(ICON_WARNING) + " " + std::to_string(editor_errors) +
-          "##diagchip";
-      if (ImGui::SmallButton(label.c_str())) {
-        platform::ForEachPlugin<platform::EditorShellPlugin>([&](auto* p) {
-          if (p->focus_diagnostics) p->focus_diagnostics(p);
-        });
-      }
-      chip.Reset();
-      ImGui::SetItemTooltip("%d diagnostic error%s | click to open Diagnostics",
-                            editor_errors, editor_errors == 1 ? "" : "s");
-      ImGui::SameLine();
-      ImGui::Text("|");
-      ImGui::SameLine();
-    }
 
     if (!has_model()) {
       ImGui::Text("No model loaded");
@@ -1867,16 +1642,7 @@ void App::StatusBarGui() {
 
 void App::MainMenuGui() {
   if (ImGui::BeginMainMenuBar()) {
-    // External editors contribute their own File / Edit menus; when present they
-    // replace the stock (mjSpec-based) File menu, which is inert for them.
-    bool has_editor_menu = false;
-    platform::ForEachPlugin<platform::MainMenuPlugin>([&](auto* plugin) {
-      if (plugin->draw) {
-        plugin->draw(plugin);
-        has_editor_menu = true;
-      }
-    });
-    if (!has_editor_menu && ImGui::BeginMenu("File")) {
+    if (ImGui::BeginMenu("File")) {
 #ifndef __EMSCRIPTEN__
       if (ImGui::MenuItem("Open Model File", "Ctrl+O")) {
         tmp_.file_dialog = UiTempState::FileDialog_Load;
@@ -2094,47 +1860,6 @@ void App::MainMenuGui() {
     }
     ImGui::EndMainMenuBar();
   }
-}
-
-void App::ServiceEditorFileDialogs() {
-  platform::ForEachPlugin<platform::FileDialogPlugin>(
-      [&](platform::FileDialogPlugin* p) {
-        char hint[1024] = {0};
-        const int kind = p->poll ? p->poll(p, hint, sizeof(hint)) : 0;
-        if (kind == 0) return;  // nothing pending this frame
-        const bool save = p->is_save && p->is_save(p, kind);
-        const bool multi = p->is_multi && p->is_multi(p, kind);
-        const bool folder = p->is_folder && p->is_folder(p, kind);
-        // Mesh open/import dialogs offer a mesh-file filter (plus the *.* the
-        // platform always appends).
-        std::string_view mesh_filter = "obj,stl,msh";
-        std::span<std::string_view> filters =
-            (multi || (!save && !folder))
-                ? std::span<std::string_view>(&mesh_filter, 1)
-                : std::span<std::string_view>{};
-        // Native dialogs are modal/synchronous on the desktop platforms; a
-        // still-pending status is treated as no-selection (the editor keeps its
-        // inline path field as the fallback for any platform without dialogs).
-        const platform::DialogResult res =
-            folder  ? platform::SelectPathDialog(hint)
-            : multi ? platform::OpenFilesDialog(hint, filters)
-            : save  ? platform::SaveFileDialog(hint)
-                    : platform::OpenFileDialog(hint);
-        const bool accepted = res.status == platform::DialogResult::kAccepted;
-        // Multi-select delivers all chosen paths joined by '\n'; single dialogs
-        // deliver the one path.
-        std::string delivered = res.path;
-        if (multi && accepted && !res.paths.empty()) {
-          delivered.clear();
-          for (std::size_t i = 0; i < res.paths.size(); ++i) {
-            if (i) delivered += '\n';
-            delivered += res.paths[i];
-          }
-        }
-        if (p->deliver) {
-          p->deliver(p, kind, accepted ? delivered.c_str() : "", accepted);
-        }
-      });
 }
 
 void App::FileDialogGui() {
