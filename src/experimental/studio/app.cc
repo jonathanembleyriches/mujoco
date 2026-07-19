@@ -33,7 +33,6 @@
 #include <vector>
 
 #include <imgui.h>
-#include <imgui_internal.h>
 #include <implot.h>
 #include <mujoco/mujoco.h>
 #include "experimental/platform/hal/graphics_mode.h"
@@ -1739,26 +1738,6 @@ void App::MainMenuGui() {
       }
       if (ImGui::MenuItem("Full Screen", "F11")) {
         tmp_.full_screen = !tmp_.full_screen;
-      }
-      ImGui::Separator();
-
-      // Restore any editor panel or diagnostic window hidden by the curated
-      // default layout. Nothing is ever deleted -- only shown/hidden.
-      if (ImGui::BeginMenu("Panels")) {
-        platform::ForEachPlugin<platform::GuiPlugin>([](auto* plugin) {
-          if (plugin->update && ImGui::MenuItem(plugin->name, "", plugin->active)) {
-            plugin->active = !plugin->active;
-            ImGui::GetIO().WantSaveIniSettings = true;
-          }
-        });
-        ImGui::Separator();
-        if (ImGui::MenuItem("Stats", "F2", tmp_.stats)) ToggleWindow(tmp_.stats);
-        if (ImGui::MenuItem("Profiler", "F3", tmp_.profiler))
-          ToggleWindow(tmp_.profiler);
-        ImGui::EndMenu();
-      }
-      if (ImGui::MenuItem("Reset Layout")) {
-        ImGui::DockBuilderRemoveNode(ImGui::GetID("RootV3"));
       }
       ImGui::Separator();
 
