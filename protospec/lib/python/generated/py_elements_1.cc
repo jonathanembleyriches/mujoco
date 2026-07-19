@@ -6,6 +6,7 @@ namespace ps::py {
 void RegisterElements1(pybind11::module_& m) {
   { pyb::class_<Contact> c(m, "Contact");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     ChildList(c, "pairs", &Contact::pairs);
     ChildList(c, "excludes", &Contact::excludes);
@@ -13,6 +14,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Custom> c(m, "Custom");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     ChildList(c, "numerics", &Custom::numerics);
     ChildList(c, "texts", &Custom::texts);
@@ -21,8 +23,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Cylinder> c(m, "Cylinder");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Cylinder::name);
+    NameField(c, &Cylinder::name);
     OptField(c, "dclass", &Cylinder::dclass);
     OptField(c, "group", &Cylinder::group);
     OptField(c, "nsample", &Cylinder::nsample);
@@ -52,8 +55,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Damper> c(m, "Damper");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Damper::name);
+    NameField(c, &Damper::name);
     OptField(c, "dclass", &Damper::dclass);
     OptField(c, "group", &Damper::group);
     OptField(c, "nsample", &Damper::nsample);
@@ -80,8 +84,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<DcMotor> c(m, "DcMotor");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &DcMotor::name);
+    NameField(c, &DcMotor::name);
     OptField(c, "dclass", &DcMotor::dclass);
     OptField(c, "group", &DcMotor::group);
     OptField(c, "nsample", &DcMotor::nsample);
@@ -116,6 +121,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Default> c(m, "Default");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "dclass", &Default::dclass);
     ChildList(c, "mesh", &Default::mesh);
@@ -143,6 +149,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Deformable> c(m, "Deformable");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     ChildList(c, "flexs", &Deformable::flexs);
     ChildList(c, "skins", &Deformable::skins);
@@ -150,8 +157,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Distance> c(m, "Distance");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Distance::name);
+    NameField(c, &Distance::name);
     OptField(c, "geom1", &Distance::geom1);
     OptField(c, "geom2", &Distance::geom2);
     OptField(c, "body1", &Distance::body1);
@@ -167,8 +175,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<EKinetic> c(m, "EKinetic");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &EKinetic::name);
+    NameField(c, &EKinetic::name);
     OptField(c, "nsample", &EKinetic::nsample);
     OptField(c, "interp", &EKinetic::interp);
     OptField(c, "delay", &EKinetic::delay);
@@ -180,8 +189,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<EPotential> c(m, "EPotential");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &EPotential::name);
+    NameField(c, &EPotential::name);
     OptField(c, "nsample", &EPotential::nsample);
     OptField(c, "interp", &EPotential::interp);
     OptField(c, "delay", &EPotential::delay);
@@ -193,12 +203,14 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Equality> c(m, "Equality");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     UnionList(c, "equalities", &Equality::equalities);
     Augment(c);
   }
   { pyb::class_<EqualityDefault> c(m, "EqualityDefault");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "active", &EqualityDefault::active);
     OptField(c, "solref", &EqualityDefault::solref);
@@ -207,8 +219,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<EqualityFlex> c(m, "EqualityFlex");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &EqualityFlex::name);
+    NameField(c, &EqualityFlex::name);
     OptField(c, "dclass", &EqualityFlex::dclass);
     OptField(c, "flex", &EqualityFlex::flex);
     OptField(c, "active", &EqualityFlex::active);
@@ -218,8 +231,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<EqualityJoint> c(m, "EqualityJoint");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &EqualityJoint::name);
+    NameField(c, &EqualityJoint::name);
     OptField(c, "dclass", &EqualityJoint::dclass);
     OptField(c, "joint1", &EqualityJoint::joint1);
     OptField(c, "joint2", &EqualityJoint::joint2);
@@ -231,8 +245,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<EqualityTendon> c(m, "EqualityTendon");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &EqualityTendon::name);
+    NameField(c, &EqualityTendon::name);
     OptField(c, "dclass", &EqualityTendon::dclass);
     OptField(c, "tendon1", &EqualityTendon::tendon1);
     OptField(c, "tendon2", &EqualityTendon::tendon2);
@@ -244,22 +259,25 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Exclude> c(m, "Exclude");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Exclude::name);
+    NameField(c, &Exclude::name);
     OptField(c, "body1", &Exclude::body1);
     OptField(c, "body2", &Exclude::body2);
     Augment(c);
   }
   { pyb::class_<Extension> c(m, "Extension");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     ChildList(c, "pluginDefs", &Extension::pluginDefs);
     Augment(c);
   }
   { pyb::class_<Fixed> c(m, "Fixed");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Fixed::name);
+    NameField(c, &Fixed::name);
     OptField(c, "dclass", &Fixed::dclass);
     OptField(c, "group", &Fixed::group);
     OptField(c, "limited", &Fixed::limited);
@@ -282,6 +300,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<FixedJoint> c(m, "FixedJoint");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "joint", &FixedJoint::joint);
     OptField(c, "coef", &FixedJoint::coef);
@@ -289,6 +308,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Flag> c(m, "Flag");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "constraint", &Flag::constraint);
     OptField(c, "equality", &Flag::equality);
@@ -320,8 +340,9 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<Flex> c(m, "Flex");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Flex::name);
+    NameField(c, &Flex::name);
     OptField(c, "group", &Flex::group);
     OptField(c, "dim", &Flex::dim);
     OptField(c, "radius", &Flex::radius);
@@ -343,6 +364,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<FlexContact> c(m, "FlexContact");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "contype", &FlexContact::contype);
     OptField(c, "conaffinity", &FlexContact::conaffinity);
@@ -362,6 +384,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<FlexEdge> c(m, "FlexEdge");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "stiffness", &FlexEdge::stiffness);
     OptField(c, "damping", &FlexEdge::damping);
@@ -369,6 +392,7 @@ void RegisterElements1(pybind11::module_& m) {
   }
   { pyb::class_<FlexElasticity> c(m, "FlexElasticity");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "young", &FlexElasticity::young);
     OptField(c, "poisson", &FlexElasticity::poisson);

@@ -6,6 +6,7 @@ namespace ps::py {
 void RegisterElements5(pybind11::module_& m) {
   { pyb::class_<TendonDefault> c(m, "TendonDefault");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "group", &TendonDefault::group);
     OptField(c, "limited", &TendonDefault::limited);
@@ -27,8 +28,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tendonactuatorfrc> c(m, "Tendonactuatorfrc");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tendonactuatorfrc::name);
+    NameField(c, &Tendonactuatorfrc::name);
     OptField(c, "tendon", &Tendonactuatorfrc::tendon);
     OptField(c, "nsample", &Tendonactuatorfrc::nsample);
     OptField(c, "interp", &Tendonactuatorfrc::interp);
@@ -41,8 +43,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tendonlimitfrc> c(m, "Tendonlimitfrc");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tendonlimitfrc::name);
+    NameField(c, &Tendonlimitfrc::name);
     OptField(c, "tendon", &Tendonlimitfrc::tendon);
     OptField(c, "nsample", &Tendonlimitfrc::nsample);
     OptField(c, "interp", &Tendonlimitfrc::interp);
@@ -55,8 +58,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tendonlimitpos> c(m, "Tendonlimitpos");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tendonlimitpos::name);
+    NameField(c, &Tendonlimitpos::name);
     OptField(c, "tendon", &Tendonlimitpos::tendon);
     OptField(c, "nsample", &Tendonlimitpos::nsample);
     OptField(c, "interp", &Tendonlimitpos::interp);
@@ -69,8 +73,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tendonlimitvel> c(m, "Tendonlimitvel");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tendonlimitvel::name);
+    NameField(c, &Tendonlimitvel::name);
     OptField(c, "tendon", &Tendonlimitvel::tendon);
     OptField(c, "nsample", &Tendonlimitvel::nsample);
     OptField(c, "interp", &Tendonlimitvel::interp);
@@ -83,8 +88,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tendonpos> c(m, "Tendonpos");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tendonpos::name);
+    NameField(c, &Tendonpos::name);
     OptField(c, "tendon", &Tendonpos::tendon);
     OptField(c, "nsample", &Tendonpos::nsample);
     OptField(c, "interp", &Tendonpos::interp);
@@ -97,8 +103,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tendonvel> c(m, "Tendonvel");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tendonvel::name);
+    NameField(c, &Tendonvel::name);
     OptField(c, "tendon", &Tendonvel::tendon);
     OptField(c, "nsample", &Tendonvel::nsample);
     OptField(c, "interp", &Tendonvel::interp);
@@ -111,15 +118,17 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Text> c(m, "Text");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Text::name);
+    NameField(c, &Text::name);
     OptField(c, "data", &Text::data);
     Augment(c);
   }
   { pyb::class_<Texture> c(m, "Texture");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Texture::name);
+    NameField(c, &Texture::name);
     OptField(c, "type", &Texture::type);
     OptField(c, "colorspace", &Texture::colorspace);
     OptField(c, "content_type", &Texture::content_type);
@@ -146,8 +155,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Torque> c(m, "Torque");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Torque::name);
+    NameField(c, &Torque::name);
     OptField(c, "site", &Torque::site);
     OptField(c, "nsample", &Torque::nsample);
     OptField(c, "interp", &Torque::interp);
@@ -160,8 +170,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Touch> c(m, "Touch");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Touch::name);
+    NameField(c, &Touch::name);
     OptField(c, "site", &Touch::site);
     OptField(c, "nsample", &Touch::nsample);
     OptField(c, "interp", &Touch::interp);
@@ -174,13 +185,15 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Tuple> c(m, "Tuple");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Tuple::name);
+    NameField(c, &Tuple::name);
     ChildList(c, "tupleElements", &Tuple::tupleElements);
     Augment(c);
   }
   { pyb::class_<TupleElement> c(m, "TupleElement");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "objtype", &TupleElement::objtype);
     OptField(c, "objname", &TupleElement::objname);
@@ -189,8 +202,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Velocimeter> c(m, "Velocimeter");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Velocimeter::name);
+    NameField(c, &Velocimeter::name);
     OptField(c, "site", &Velocimeter::site);
     OptField(c, "nsample", &Velocimeter::nsample);
     OptField(c, "interp", &Velocimeter::interp);
@@ -203,8 +217,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Velocity> c(m, "Velocity");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Velocity::name);
+    NameField(c, &Velocity::name);
     OptField(c, "dclass", &Velocity::dclass);
     OptField(c, "group", &Velocity::group);
     OptField(c, "nsample", &Velocity::nsample);
@@ -232,6 +247,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Visual> c(m, "Visual");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     ChildList(c, "visualGlobals", &Visual::visualGlobals);
     ChildList(c, "visualQualitys", &Visual::visualQualitys);
@@ -243,6 +259,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<VisualGlobal> c(m, "VisualGlobal");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "cameraid", &VisualGlobal::cameraid);
     OptField(c, "orthographic", &VisualGlobal::orthographic);
@@ -261,6 +278,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<VisualHeadlight> c(m, "VisualHeadlight");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "ambient", &VisualHeadlight::ambient);
     OptField(c, "diffuse", &VisualHeadlight::diffuse);
@@ -270,6 +288,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<VisualMap> c(m, "VisualMap");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "stiffness", &VisualMap::stiffness);
     OptField(c, "stiffnessrot", &VisualMap::stiffnessrot);
@@ -288,6 +307,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<VisualQuality> c(m, "VisualQuality");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "shadowsize", &VisualQuality::shadowsize);
     OptField(c, "offsamples", &VisualQuality::offsamples);
@@ -298,6 +318,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<VisualRgba> c(m, "VisualRgba");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "fog", &VisualRgba::fog);
     OptField(c, "haze", &VisualRgba::haze);
@@ -328,6 +349,7 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<VisualScale> c(m, "VisualScale");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "forcewidth", &VisualScale::forcewidth);
     OptField(c, "contactwidth", &VisualScale::contactwidth);
@@ -350,8 +372,9 @@ void RegisterElements5(pybind11::module_& m) {
   }
   { pyb::class_<Weld> c(m, "Weld");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Weld::name);
+    NameField(c, &Weld::name);
     OptField(c, "dclass", &Weld::dclass);
     OptField(c, "body1", &Weld::body1);
     OptField(c, "body2", &Weld::body2);

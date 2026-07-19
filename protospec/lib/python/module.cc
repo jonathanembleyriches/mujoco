@@ -47,18 +47,8 @@ struct UnsupportedElementError : std::runtime_error {
 };
 
 // --- Builders ------------------------------------------------------------- //
-
-// Wrap a freshly built child as a live handle internal to `self`, apply any
-// keyword arguments as attribute assignments (reusing the generated field
-// properties), and return it.
-template <class Child>
-pyb::object FinishChild(pyb::object self, Child& child, const pyb::kwargs& kw) {
-  pyb::object obj = pyb::cast(
-      &child, pyb::return_value_policy::reference_internal, self);
-  for (auto item : kw)
-    obj.attr(item.first) = item.second;
-  return obj;
-}
+// FinishChild / AddOwnedChild live in ps_bind.h so the generated
+// py_builders.cc (the Model union + owned-list builders) shares them.
 
 // A read-only, type-filtered view over a body-context element's `subtree`.
 template <class Parent, class T>
@@ -133,33 +123,6 @@ void BindBodyContext(pyb::class_<Parent>& c) {
 void Augment(pyb::class_<ps::mjcf::Body>& c) { BindBodyContext(c); }
 void Augment(pyb::class_<ps::mjcf::Frame>& c) { BindBodyContext(c); }
 void Augment(pyb::class_<ps::mjcf::Replicate>& c) { BindBodyContext(c); }
-
-namespace {
-
-// Dispatch add_actuator("motor"/"position"/...) to the typed SDK builder.
-pyb::object AddActuatorByKind(pyb::object self, const std::string& kind,
-                            const pyb::kwargs& kw) {
-  namespace sdk = ps::sdk;
-  ps::mjcf::Model& m = self.cast<ps::mjcf::Model&>();
-#define PS_ACT(tag, T)                                            \
-  if (kind == tag) return FinishChild(self, sdk::AddActuator<ps::mjcf::T>(m), kw)
-  PS_ACT("motor", Motor);
-  PS_ACT("position", Position);
-  PS_ACT("velocity", Velocity);
-  PS_ACT("intvelocity", IntVelocity);
-  PS_ACT("damper", Damper);
-  PS_ACT("cylinder", Cylinder);
-  PS_ACT("muscle", Muscle);
-  PS_ACT("adhesion", Adhesion);
-  PS_ACT("general", ActuatorGeneral);
-  PS_ACT("dcmotor", DcMotor);
-#undef PS_ACT
-  throw pyb::value_error("unknown actuator kind '" + kind +
-                        "' (motor/position/velocity/intvelocity/damper/"
-                        "cylinder/muscle/adhesion/general/dcmotor)");
-}
-
-}  // namespace
 
 namespace {
 
@@ -410,6 +373,48 @@ int ResolveBody(const mjModel* m, pyb::handle body) {
   return -1;
 }
 
+// --- Structural edit verbs (rename / delete / duplicate / reparent) ------- //
+//
+// Error style (ONE convention, documented in public_api.md): a verb RAISES on
+// failure and RETURNS its natural success value. rename -> the referrer-rewrite
+// count; duplicate -> the clone handle; reparent -> None; delete -> a
+// DeleteResult (a non-cascade delete that leaves dangling referrers is a
+// SUCCESS by SDK design -- the danglers are reported, not raised, for the caller
+// to resolve; pass cascade=True to clear them). The SDK exposes a uniform
+// result-object contract (ok / reason / updated / clone); a false `ok` (or
+// `removed`) maps to a ValueError carrying the SDK's `reason`.
+
+// The stable heap address behind a ProtoSpec element handle (the `_ptr` member
+// ElementBase exposes). The SDK edit verbs are keyed on this pointer.
+const void* ElemPtr(pyb::handle h) {
+  if (!pyb::hasattr(h, "_ptr"))
+    throw pyb::type_error("expected a ProtoSpec element handle");
+  return reinterpret_cast<const void*>(h.attr("_ptr").cast<std::uintptr_t>());
+}
+
+// The result of Model.delete(): whether the subtree was removed, whether
+// dangling referrers were cascaded away, and the referrers left pointing at a
+// now-deleted name (each a dict: field / name / path).
+struct PyDeleteResult {
+  bool removed = false;
+  bool cascaded = false;
+  pyb::list dangling;
+};
+
+PyDeleteResult MakeDeleteResult(const ps::sdk::DeleteReport& r) {
+  PyDeleteResult out;
+  out.removed = r.removed;
+  out.cascaded = r.cascaded;
+  for (const auto& d : r.dangling) {
+    pyb::dict item;
+    item["field"] = d.field;
+    item["name"] = d.refname;
+    item["path"] = d.path;
+    out.dangling.append(item);
+  }
+  return out;
+}
+
 }  // namespace
 
 // Model builders + convenience methods. Defined here (after the IO / validate /
@@ -431,13 +436,72 @@ void Augment(pyb::class_<ps::mjcf::Model>& c) {
         return FinishChild(world, ps::sdk::AddBody(w), kw);
       },
       "Append a top-level body under the world body.");
+  // Schema-driven family builders: add_actuator / add_sensor / add_tendon /
+  // add_equality (union families, dispatched by MJCF keyword) + add_material /
+  // add_mesh / add_texture / add_hfield / add_skin / add_pair / add_exclude /
+  // add_key / add_numeric / add_text / add_tuple (owned families). New upstream
+  // members / families flow in at the next `emit`.
+  RegisterModelBuilders(c);
+
+  // --- Structural edit verbs -------------------------------------------- //
   c.def(
-      "add_actuator",
-      [](pyb::object self, const std::string& kind, pyb::kwargs kw) {
-        return AddActuatorByKind(self, kind, kw);
+      "rename",
+      [](pyb::object self, pyb::handle elem, const std::string& name) {
+        ps::mjcf::Model& m = self.cast<ps::mjcf::Model&>();
+        ps::sdk::RenameResult r = ps::sdk::Rename(m, ElemPtr(elem), name);
+        if (!r.ok)
+          throw pyb::value_error("cannot rename to '" + name + "': " + r.reason);
+        return r.updated;
       },
-      pyb::arg("kind") = "motor",
-      "Append an actuator of the given spelling; joint=..., kp=..., ...");
+      pyb::arg("elem"), pyb::arg("name"),
+      "Rename a model-owned element and rewrite every referrer to match. "
+      "Returns the number of referrer fields updated (0 for a no-op or a "
+      "previously-nameless element). Raises ValueError on an invalid or "
+      "colliding name. This is the safe alternative to setting `.name`.");
+  c.def(
+      "delete",
+      [](pyb::object self, pyb::handle elem, bool cascade) {
+        ps::mjcf::Model& m = self.cast<ps::mjcf::Model&>();
+        ps::sdk::DeleteReport r =
+            ps::sdk::DeleteSubtree(m, ElemPtr(elem), cascade);
+        if (!r.removed)
+          throw pyb::value_error("element not found in this model");
+        return MakeDeleteResult(r);
+      },
+      pyb::arg("elem"), pyb::arg("cascade") = false,
+      "Remove an element and its whole subtree. Returns a DeleteResult whose "
+      ".dangling lists references left pointing at a deleted name; pass "
+      "cascade=True to clear them (result .cascaded becomes True). Raises "
+      "ValueError if the element is not in this model.");
+  c.def(
+      "duplicate",
+      [](pyb::object self, pyb::handle elem) {
+        ps::mjcf::Model& m = self.cast<ps::mjcf::Model&>();
+        int etype = elem.attr("_etype").cast<int>();
+        ps::sdk::DuplicateResult r = ps::sdk::Duplicate(m, ElemPtr(elem));
+        if (!r.ok) throw pyb::value_error("cannot duplicate: " + r.reason);
+        return WrapElement(etype, r.clone, self);
+      },
+      pyb::arg("elem"),
+      "Deep-clone an element (subtree included) as its next sibling, with "
+      "fresh serials and re-uniqued names. Returns the clone as the same "
+      "element type. Raises ValueError if the element is not in this model.");
+  c.def(
+      "reparent",
+      [](pyb::object self, pyb::handle elem, pyb::object new_parent) {
+        ps::mjcf::Model& m = self.cast<ps::mjcf::Model&>();
+        void* parent = new_parent.is_none()
+                           ? nullptr
+                           : const_cast<void*>(ElemPtr(new_parent));
+        ps::sdk::ReparentResult r =
+            ps::sdk::Reparent(m, ElemPtr(elem), parent);
+        if (!r.ok) throw pyb::value_error("cannot reparent: " + r.reason);
+      },
+      pyb::arg("elem"), pyb::arg("new_parent") = pyb::none(),
+      "Move a body-context child (Body/Geom/Joint/Site/Camera/Light/Frame) "
+      "under new_parent (a Body or Frame, or None for the world body). A pure "
+      "tree move: the authored local pose is kept, so the world pose changes. "
+      "Raises ValueError on a bad target or a cycle.");
 
   // Convenience methods mirroring the module-level functions.
   c.def("to_xml", [](pyb::handle self) { return Write(self); },
@@ -546,6 +610,20 @@ PYBIND11_MODULE(protospec, m) {
                             pyb::return_value_policy::take_ownership, self);
           },
           "The name-based Binding (element identity -> compiled id).");
+
+  // --- DeleteResult (Model.delete return) --------------------------------- //
+  pyb::class_<PyDeleteResult>(m, "DeleteResult")
+      .def_property_readonly("removed",
+                             [](const PyDeleteResult& r) { return r.removed; })
+      .def_property_readonly("cascaded",
+                             [](const PyDeleteResult& r) { return r.cascaded; })
+      .def_property_readonly("dangling",
+                             [](const PyDeleteResult& r) { return r.dangling; })
+      .def("__repr__", [](const PyDeleteResult& r) {
+        return "<DeleteResult removed=" + std::string(r.removed ? "True" : "False") +
+               " cascaded=" + std::string(r.cascaded ? "True" : "False") +
+               " dangling=" + std::to_string(r.dangling.size()) + ">";
+      });
 
   // --- Binding ------------------------------------------------------------ //
   pyb::class_<PyBinding>(m, "Binding")

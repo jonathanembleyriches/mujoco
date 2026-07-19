@@ -6,8 +6,9 @@ namespace ps::py {
 void RegisterElements0(pybind11::module_& m) {
   { pyb::class_<Accelerometer> c(m, "Accelerometer");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Accelerometer::name);
+    NameField(c, &Accelerometer::name);
     OptField(c, "site", &Accelerometer::site);
     OptField(c, "nsample", &Accelerometer::nsample);
     OptField(c, "interp", &Accelerometer::interp);
@@ -20,14 +21,16 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Actuator> c(m, "Actuator");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     UnionList(c, "actuators", &Actuator::actuators);
     Augment(c);
   }
   { pyb::class_<ActuatorGeneral> c(m, "ActuatorGeneral");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &ActuatorGeneral::name);
+    NameField(c, &ActuatorGeneral::name);
     OptField(c, "dclass", &ActuatorGeneral::dclass);
     OptField(c, "group", &ActuatorGeneral::group);
     OptField(c, "nsample", &ActuatorGeneral::nsample);
@@ -65,8 +68,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<ActuatorPlugin> c(m, "ActuatorPlugin");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &ActuatorPlugin::name);
+    NameField(c, &ActuatorPlugin::name);
     OptField(c, "dclass", &ActuatorPlugin::dclass);
     OptField(c, "plugin", &ActuatorPlugin::plugin);
     OptField(c, "instance", &ActuatorPlugin::instance);
@@ -101,8 +105,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Actuatorfrc> c(m, "Actuatorfrc");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Actuatorfrc::name);
+    NameField(c, &Actuatorfrc::name);
     OptField(c, "actuator", &Actuatorfrc::actuator);
     OptField(c, "nsample", &Actuatorfrc::nsample);
     OptField(c, "interp", &Actuatorfrc::interp);
@@ -115,8 +120,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Actuatorpos> c(m, "Actuatorpos");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Actuatorpos::name);
+    NameField(c, &Actuatorpos::name);
     OptField(c, "actuator", &Actuatorpos::actuator);
     OptField(c, "nsample", &Actuatorpos::nsample);
     OptField(c, "interp", &Actuatorpos::interp);
@@ -129,8 +135,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Actuatorvel> c(m, "Actuatorvel");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Actuatorvel::name);
+    NameField(c, &Actuatorvel::name);
     OptField(c, "actuator", &Actuatorvel::actuator);
     OptField(c, "nsample", &Actuatorvel::nsample);
     OptField(c, "interp", &Actuatorvel::interp);
@@ -143,8 +150,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Adhesion> c(m, "Adhesion");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Adhesion::name);
+    NameField(c, &Adhesion::name);
     OptField(c, "dclass", &Adhesion::dclass);
     OptField(c, "group", &Adhesion::group);
     OptField(c, "nsample", &Adhesion::nsample);
@@ -160,6 +168,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Asset> c(m, "Asset");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     ChildList(c, "meshs", &Asset::meshs);
     ChildList(c, "hfields", &Asset::hfields);
@@ -171,6 +180,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Attach> c(m, "Attach");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "model", &Attach::model);
     OptField(c, "body", &Attach::body);
@@ -180,8 +190,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Ballangvel> c(m, "Ballangvel");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Ballangvel::name);
+    NameField(c, &Ballangvel::name);
     OptField(c, "joint", &Ballangvel::joint);
     OptField(c, "nsample", &Ballangvel::nsample);
     OptField(c, "interp", &Ballangvel::interp);
@@ -194,8 +205,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Ballquat> c(m, "Ballquat");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Ballquat::name);
+    NameField(c, &Ballquat::name);
     OptField(c, "joint", &Ballquat::joint);
     OptField(c, "nsample", &Ballquat::nsample);
     OptField(c, "interp", &Ballquat::interp);
@@ -208,10 +220,11 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Body> c(m, "Body");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "pos", &Body::pos);
     OptField(c, "quat", &Body::quat);
-    OptField(c, "name", &Body::name);
+    NameField(c, &Body::name);
     OptField(c, "childclass", &Body::childclass);
     OptField(c, "mocap", &Body::mocap);
     OptField(c, "gravcomp", &Body::gravcomp);
@@ -224,10 +237,11 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Camera> c(m, "Camera");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "pos", &Camera::pos);
     OptField(c, "quat", &Camera::quat);
-    OptField(c, "name", &Camera::name);
+    NameField(c, &Camera::name);
     OptField(c, "dclass", &Camera::dclass);
     OptField(c, "projection", &Camera::projection);
     OptField(c, "ipd", &Camera::ipd);
@@ -246,8 +260,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Camprojection> c(m, "Camprojection");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Camprojection::name);
+    NameField(c, &Camprojection::name);
     OptField(c, "site", &Camprojection::site);
     OptField(c, "camera", &Camprojection::camera);
     OptField(c, "nsample", &Camprojection::nsample);
@@ -261,8 +276,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Clock> c(m, "Clock");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Clock::name);
+    NameField(c, &Clock::name);
     OptField(c, "nsample", &Clock::nsample);
     OptField(c, "interp", &Clock::interp);
     OptField(c, "delay", &Clock::delay);
@@ -274,6 +290,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Compiler> c(m, "Compiler");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "autolimits", &Compiler::autolimits);
     OptField(c, "boundmass", &Compiler::boundmass);
@@ -301,6 +318,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Composite> c(m, "Composite");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "prefix", &Composite::prefix);
     OptField(c, "type", &Composite::type);
@@ -320,6 +338,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<CompositeGeom> c(m, "CompositeGeom");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "type", &CompositeGeom::type);
     OptField(c, "contype", &CompositeGeom::contype);
@@ -343,6 +362,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<CompositeJoint> c(m, "CompositeJoint");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "kind", &CompositeJoint::kind);
     OptField(c, "group", &CompositeJoint::group);
@@ -365,6 +385,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<CompositeSite> c(m, "CompositeSite");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "group", &CompositeSite::group);
     OptField(c, "size", &CompositeSite::size);
@@ -374,6 +395,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<CompositeSkin> c(m, "CompositeSkin");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "texcoord", &CompositeSkin::texcoord);
     OptField(c, "material", &CompositeSkin::material);
@@ -385,6 +407,7 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Config> c(m, "Config");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
     OptField(c, "key", &Config::key);
     OptField(c, "value", &Config::value);
@@ -392,8 +415,9 @@ void RegisterElements0(pybind11::module_& m) {
   }
   { pyb::class_<Connect> c(m, "Connect");
     c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
     ElementBase(c);
-    OptField(c, "name", &Connect::name);
+    NameField(c, &Connect::name);
     OptField(c, "dclass", &Connect::dclass);
     OptField(c, "body1", &Connect::body1);
     OptField(c, "body2", &Connect::body2);

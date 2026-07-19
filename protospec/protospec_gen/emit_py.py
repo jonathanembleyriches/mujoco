@@ -19,9 +19,19 @@ Generated files:
                       tagged variant.
     py_elements_<i>.cc  ``RegisterElements<i>`` -- every element class with its
                       fields exposed as Python properties (``opt<T>`` -> a
-                      None-able property; required fields plain), and every child
-                      list as a sequence (union child lists iterate yielding the
-                      typed member). Chunked purely for compile time.
+                      None-able property; required fields plain; the ``name``
+                      field routes to ``NameField`` so an in-place rename warns),
+                      and every child list as a sequence (union child lists
+                      iterate yielding the typed member). Chunked for compile
+                      time.
+    py_builders.cc    ``RegisterModelBuilders`` + ``WrapElement`` -- the
+                      schema-driven Model authoring verbs (``add_actuator`` /
+                      ``add_sensor`` / ``add_tendon`` / ``add_equality`` union
+                      families dispatched by MJCF keyword, plus ``add_material``
+                      / ``add_mesh`` / ``add_pair`` / ``add_key`` / ... owned
+                      families) and the ElementType -> typed-handle map the
+                      ``duplicate`` verb returns a clone through. New union
+                      members / owned families flow in at the next emit.
 
 Every generated class registration ends with a call to
 ``ps::py::Augment(cls)`` -- a no-op by default, overloaded in ``module.cc`` for
@@ -57,6 +67,49 @@ NUM_CHUNKS = 6
 # for the C++ XML tag -- keep the two in step.
 _CHILD_SKIP = {("Model", "worldbody")}
 
+# --------------------------------------------------------------------------- #
+# Model authoring families (drive the generated builders in py_builders.cc)     #
+# --------------------------------------------------------------------------- #
+# These name WHICH families are authorable; the CONTENT of each builder (every
+# member, every owned family, and -- via FinishChild -- every field) is derived
+# from the schema, so a new upstream union member or asset family flows into the
+# Python surface at the next `emit` with no hand edit. Adding a whole new family
+# is the only thing that touches these lists (the same shape as _CHILD_SKIP).
+
+# Union sections: Model gains `add_<verb>(kind, **kw)` dispatching over the
+# union's members by their MJCF keyword. Each entry:
+#   (python method, union type, SDK builder template, default kind or None).
+# The SDK exposes AddActuator<T>/AddSensor<T>/AddTendon<T>/AddEquality<T>, each
+# Ensure*-ing its section; the generated dispatch just picks the member type.
+_UNION_FAMILIES = [
+    ("add_actuator", "ActuatorAny", "AddActuator", "motor"),
+    ("add_sensor", "SensorAny", "AddSensor", None),
+    ("add_tendon", "TendonAny", "AddTendon", None),
+    ("add_equality", "EqualityAny", "AddEquality", None),
+]
+
+# Owned-list sections: for each (Model child list, section element), Model gains
+# an `add_<child>` for every owned child list the section carries. The builder
+# calls AddOwnedChild(m.<list>, &<Section>::<member>) (ps_bind.h), so a family
+# added to the section upstream appears automatically.
+_OWNED_FAMILIES = [
+    ("assets", "Asset"),
+    ("contacts", "Contact"),
+    ("keyframes", "Keyframe"),
+    ("customs", "Custom"),
+]
+
+
+def _snake(camel: str) -> str:
+    """CamelCase element name -> snake_case builder suffix (Material->material,
+    ModelAsset->model_asset)."""
+    out: list[str] = []
+    for i, ch in enumerate(camel):
+        if ch.isupper() and i and not camel[i - 1].isupper():
+            out.append("_")
+        out.append(ch.lower())
+    return "".join(out)
+
 
 def _chunks(seq: list, n: int) -> list[list]:
     """Split `seq` into `n` roughly equal contiguous chunks."""
@@ -73,10 +126,19 @@ def _chunks(seq: list, n: int) -> list[list]:
 # --------------------------------------------------------------------------- #
 # Field / child registration lines                                             #
 # --------------------------------------------------------------------------- #
+def _is_opt_string(f: dict) -> bool:
+    t = f["type"]
+    return f["optional"] and t.get("kind") == "prim" and t.get("prim") == "string"
+
+
 def _field_line(elem_name: str, f: dict) -> str:
     """One property registration for a field of `elem_name`."""
     member = f"&{elem_name}::{ident(f['name'])}"
     prop = f['name']
+    # The element name field routes to NameField, which warns on an in-place
+    # rename (referrers are not rewritten by a bare `.name =`; Model.rename is).
+    if prop == "name" and _is_opt_string(f):
+        return f'  NameField(c, {member});'
     if f["optional"]:
         return f'  OptField(c, "{prop}", {member});'
     return f'  PlainField(c, "{prop}", {member});'
@@ -232,6 +294,7 @@ def emit_py_elements_cc(s: Schema, chunk_index: int, elements: list[dict]) -> st
         name = e["name"]
         w(f'  {{ pyb::class_<{name}> c(m, "{name}");')
         w("    c.def(pyb::init<>());")
+        w("    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor")
         w("    ElementBase(c);")
         for f in e["fields"]:
             w("  " + _field_line(name, f))
@@ -241,6 +304,109 @@ def emit_py_elements_cc(s: Schema, chunk_index: int, elements: list[dict]) -> st
                 w("  " + line)
         w("    Augment(c);")
         w("  }")
+    w("}")
+    w("")
+    w("}  // namespace ps::py")
+    return "\n".join(o) + "\n"
+
+
+def _union_dispatcher(s: Schema, method: str, union: str, builder: str) -> list[str]:
+    """The `Add<Family>ByKind` helper: MJCF keyword -> typed SDK builder call."""
+    o: list[str] = []
+    w = o.append
+    members = s.union_by_name[union]["members"]
+    fn = "".join(part.capitalize() for part in method.split("_")) + "ByKind"
+    w(f"pyb::object {fn}(pyb::object self, const std::string& kind,")
+    w("                 const pyb::kwargs& kw) {")
+    w("  Model& m = self.cast<Model&>();")
+    kinds = []
+    for member in members:
+        tag = s.elem_xml(s.element_by_name[member])
+        kinds.append(tag)
+        w(f'  if (kind == "{tag}")')
+        w(f"    return FinishChild(self, ps::sdk::{builder}<{member}>(m), kw);")
+    listing = "/".join(kinds)
+    w(f'  throw pyb::value_error("unknown {method[4:]} kind \'" + kind +')
+    w(f'                         "\' ({listing})");')
+    w("}")
+    w("")
+    return o
+
+
+def emit_py_builders_cc(s: Schema) -> str:
+    """RegisterModelBuilders + WrapElement -- the schema-driven Model authoring
+    surface (union-family + owned-list add_* builders) and the ElementType ->
+    typed-handle wrapper the duplicate() verb returns through."""
+    o: list[str] = []
+    w = o.append
+    w(BANNER)
+    w("//")
+    w("// The schema-driven Model builders. Union families (actuator/sensor/")
+    w("// tendon/equality) dispatch by MJCF keyword to the typed SDK builder;")
+    w("// owned families (asset/contact/keyframe/custom) get one add_* per owned")
+    w("// child list. WrapElement re-types a duplicate() clone. Everything here")
+    w("// is derived from the schema, so new members/families need no hand edit.")
+    w('#include "ps_bind.h"')
+    w("")
+    w('#include "protospec/sdk.h"')
+    w("")
+    w("namespace ps::py {")
+    w("")
+
+    # --- WrapElement: runtime ElementType -> typed handle ------------------- #
+    w("pyb::object WrapElement(int etype, void* p, pyb::object parent) {")
+    w("  switch (static_cast<ElementType>(etype)) {")
+    for e in s.elements:
+        name = e["name"]
+        w(f"    case ElementType::{name}:")
+        w(f"      return pyb::cast(static_cast<{name}*>(p),")
+        w("                       pyb::return_value_policy::reference_internal,"
+          " parent);")
+    w("    default:")
+    w("      return pyb::none();")
+    w("  }")
+    w("}")
+    w("")
+
+    # --- Union-family dispatchers ------------------------------------------- #
+    for method, union, builder, _default in _UNION_FAMILIES:
+        o.extend(_union_dispatcher(s, method, union, builder))
+
+    # --- RegisterModelBuilders --------------------------------------------- #
+    w("void RegisterModelBuilders(pyb::class_<Model>& c) {")
+    for method, union, _builder, default in _UNION_FAMILIES:
+        fn = "".join(part.capitalize() for part in method.split("_")) + "ByKind"
+        family = method[4:]
+        w(f'  c.def(')
+        w(f'      "{method}",')
+        w("      [](pyb::object self, const std::string& kind, pyb::kwargs kw) {")
+        w(f"        return {fn}(self, kind, kw);")
+        w("      },")
+        if default is not None:
+            w(f'      pyb::arg("kind") = "{default}",')
+        else:
+            w('      pyb::arg("kind"),')
+        w(f'      "Append a {family} of the given MJCF keyword; fields as '
+          'keywords.");')
+    # Owned-list families.
+    for model_list, section in _OWNED_FAMILIES:
+        sec = s.element_by_name[section]
+        for child in sec["children"]:
+            child_elem = child.get("element")
+            if child_elem is None:  # skip any union child on a section
+                continue
+            suffix = _snake(child_elem)
+            member = ident(child["name"])
+            w(f'  c.def(')
+            w(f'      "add_{suffix}",')
+            w("      [](pyb::object self, pyb::kwargs kw) {")
+            w("        Model& m = self.cast<Model&>();")
+            w(f"        return FinishChild(")
+            w(f"            self, AddOwnedChild(m.{ident(model_list)}, "
+              f"&{section}::{member}), kw);")
+            w("      },")
+            w(f'      "Append a <{s.elem_xml(s.element_by_name[child_elem])}> '
+              f'to the model {section.lower()} section.");')
     w("}")
     w("")
     w("}  // namespace ps::py")
@@ -259,6 +425,7 @@ def generate_files(schema_path: str = SCHEMA) -> dict[str, str]:
         "py_nocopy.h": emit_py_nocopy_h(s),
         "py_bind_gen.h": emit_py_bind_gen_h(s, len(chunks)),
         "py_structs.cc": emit_py_structs_cc(s),
+        "py_builders.cc": emit_py_builders_cc(s),
     }
     for i, elems in enumerate(chunks):
         files[f"py_elements_{i}.cc"] = emit_py_elements_cc(s, i, elems)

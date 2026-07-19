@@ -96,6 +96,8 @@ def plugin_test_exe(tmp_path_factory) -> Path:
         str(ROOT / "studio" / "editor" / "test" / "test_plugin_windowless.cc"),
         f"-I{LIB / 'include'}",
         f"-I{LIB / 'generated'}",
+        f"-I{LIB / 'sdk'}",
+        f"-I{LIB / 'core'}",
         f"-I{LIB / 'compile'}",
         f"-I{LIB / 'io'}",
         f"-I{ROOT / 'studio'}",

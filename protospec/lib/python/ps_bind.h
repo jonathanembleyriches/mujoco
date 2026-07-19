@@ -20,9 +20,12 @@
 #define PROTOSPEC_PYTHON_PS_BIND_H
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -135,6 +138,44 @@ void OptField(pyb::class_<E>& c, const char* name, ps::opt<V> E::*mp) {
       });
 }
 
+// The `name` field, wrapped so a *rename* warns. Setting `.name` writes the
+// field directly and does NOT rewrite referrers -- the property setter has no
+// handle on the owning Model, so it cannot. Renaming an already-named element
+// this way silently dangles every reference to the old name. This property
+// emits a UserWarning in exactly that case, pointing at Model.rename(), which
+// is the referrer-rewriting verb. Naming a previously-nameless element, or a
+// no-op set, is silent: nothing could refer to it yet, so nothing can dangle.
+// The generator routes the `name` field here (emit_py._field_line); every other
+// opt<string> field stays a plain OptField.
+template <class E>
+void NameField(pyb::class_<E>& c, ps::opt<std::string> E::*mp) {
+  c.def_property(
+      "name",
+      [mp](const E& e) -> pyb::object {
+        const auto& o = e.*mp;
+        return o.has_value() ? pyb::cast(*o) : pyb::none();
+      },
+      [mp](E& e, pyb::handle v) {
+        auto& o = e.*mp;
+        const bool was_named = o.has_value() && !o->empty();
+        std::string newname = v.is_none() ? std::string() : v.cast<std::string>();
+        if (was_named && newname != *o) {
+          std::string msg = "setting .name renames element '" + *o +
+                            "' but does NOT rewrite referrers; use "
+                            "model.rename(elem, \"" + newname +
+                            "\") to keep references in sync";
+          // Propagate the warning-as-error case (warnings filter "error"): leave
+          // the name untouched so a rejected rename does not half-apply.
+          if (PyErr_WarnEx(PyExc_UserWarning, msg.c_str(), 1) < 0)
+            throw pyb::error_already_set();
+        }
+        if (v.is_none())
+          o.reset();
+        else
+          o = std::move(newname);
+      });
+}
+
 // Plain (required) element field -> a read/write property.
 template <class E, class V>
 void PlainField(pyb::class_<E>& c, const char* name, V E::*mp) {
@@ -193,6 +234,69 @@ void ElementBase(pyb::class_<E>& c) {
   c.def_readonly("serial", &E::serial);
   c.def_property_readonly("source_file", [](const E& e) { return e.loc.file; });
   c.def_property_readonly("source_line", [](const E& e) { return e.loc.line; });
+  // Internal identity the model edit verbs (rename/delete/duplicate/reparent)
+  // key on: the element's stable heap address and its ElementType tag. Not part
+  // of the public surface -- Model.rename(elem, ...) etc. read these; users pass
+  // the element handle, never the raw pointer.
+  c.def_property_readonly("_ptr", [](const E& e) {
+    return reinterpret_cast<std::uintptr_t>(&e);
+  });
+  c.def_property_readonly("_etype", [](const E&) {
+    return static_cast<int>(ps::mjcf::element_type_of<E>::value);
+  });
+}
+
+// --- Builder helpers (shared with the generated py_builders.cc) ----------- //
+
+// Wrap a freshly built child as a live handle internal to `self`, apply any
+// keyword arguments as attribute assignments (reusing the generated field
+// properties, so kwargs are validated by exactly the same casters as direct
+// assignment), and return it. This is how every add_* builder turns
+// `add_geom(type="box", size=[...])` into an authored element.
+template <class Child>
+pyb::object FinishChild(pyb::object self, Child& child, const pyb::kwargs& kw) {
+  pyb::object obj =
+      pyb::cast(&child, pyb::return_value_policy::reference_internal, self);
+  for (auto item : kw) obj.attr(item.first) = item.second;
+  return obj;
+}
+
+// Append a fresh Child to the owned list `member` of the model's `Section`
+// wrapper (e.g. AddOwnedChild(m.assets, &Asset::materials)), creating the
+// wrapper at the front if the model has none -- mirroring the SDK Ensure*
+// helpers. The list of (section, member) pairs is emitted from the schema, so a
+// new upstream asset/contact/custom family flows into Python at the next emit.
+template <class Section, class Child>
+Child& AddOwnedChild(std::vector<std::unique_ptr<Section>>& sections,
+                     std::vector<std::unique_ptr<Child>> Section::*member) {
+  if (sections.empty() || !sections.front())
+    sections.insert(sections.begin(), std::make_unique<Section>());
+  auto child = std::make_unique<Child>();
+  Child& ref = *child;
+  ((*sections.front()).*member).push_back(std::move(child));
+  return ref;
+}
+
+// A keyword constructor: `ps.Material(name="steel", rgba=[...])` builds a fresh
+// element and applies each keyword through the generated field properties (so
+// ctor kwargs are validated by exactly the same casters as `.field = ...` and
+// as the add_* builders). Registered alongside the no-arg init, so both
+// `ps.Material()` and `ps.Material(name=...)` work. The transient reference
+// wrapper is scoped so its registered-instance entry is gone before the owning
+// instance pybind builds from the returned unique_ptr is registered.
+template <class E>
+void InitKwargs(pyb::class_<E>& c) {
+  c.def(
+      pyb::init([](const pyb::kwargs& kw) {
+        auto e = std::make_unique<E>();
+        if (kw && pyb::len(kw) > 0) {
+          pyb::object o =
+              pyb::cast(e.get(), pyb::return_value_policy::reference);
+          for (auto item : kw) o.attr(item.first) = item.second;
+        }
+        return e;
+      }),
+      "Construct an element, applying field keywords (name=..., rgba=..., ...).");
 }
 
 // --- Augment hook --------------------------------------------------------- //
@@ -205,6 +309,21 @@ void Augment(pyb::class_<Body>& c);
 void Augment(pyb::class_<Frame>& c);
 void Augment(pyb::class_<Replicate>& c);
 void Augment(pyb::class_<Model>& c);
+
+// --- Generated builder surface (py_builders.cc) --------------------------- //
+// Both emitted from the schema, so new element families / union members reach
+// Python at the next `emit` without hand edits.
+
+// Registers the schema-driven Model authoring verbs: the union-family builders
+// (add_actuator / add_sensor / add_tendon / add_equality, dispatched by MJCF
+// keyword) and the owned-list builders (add_material / add_mesh / add_pair /
+// add_key / add_numeric / ...). Called from Augment(Model).
+void RegisterModelBuilders(pyb::class_<Model>& c);
+
+// Wrap a type-erased element pointer as its typed Python handle, keyed on its
+// runtime ElementType. Used by Model.duplicate() to return the clone as the
+// same element class as its source. Returns None for an unknown tag.
+pyb::object WrapElement(int etype, void* p, pyb::object parent);
 
 }  // namespace ps::py
 
