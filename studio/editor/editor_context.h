@@ -262,7 +262,10 @@ struct RigPreview {
   double q = 0.0;              // last scrubbed value, compiled units (rad / m)
   bool active = false;         // a scrub pose is applied to sim_data right now
   bool hold = false;           // keep the pose after slider release (else snap back)
-  bool show_ghosts = true;     // draw the limit ghosts for the selected joint
+  bool show_ghosts = true;     // limit ghosts enabled (drawn only during interaction)
+  bool handle_drag = false;    // a range-endpoint handle drag is in flight (latched
+                               // per frame by the viewport from the rig controller)
+  int handle_endpoint = -1;    // dragged endpoint (0 min / 1 max), -1 = none
 };
 
 // One layer: a TAG plus flags, not a container. There is ONE authored tree

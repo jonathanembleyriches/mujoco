@@ -248,7 +248,11 @@ void AddRigGeoms(EditorContext& ctx, const mjModel* host_model, mjvScene* scn) {
   }
 
   const int type = m->jnt_type[jid];
-  if (!ctx.rig_preview.show_ghosts || !ctx.ghost_data) return;
+  // Interaction-scoped: ghosts render only while THIS joint is being scrubbed
+  // (slider/limb, incl. held poses) or a range handle is dragged -- a standing
+  // pair of full-chain limit poses on an articulated arm is clutter at rest.
+  const bool interacting = ctx.rig_preview.active || ctx.rig_preview.handle_drag;
+  if (!ctx.rig_preview.show_ghosts || !interacting || !ctx.ghost_data) return;
 
   // Forward the scratch data at `qpos` and append its subtree ghost geoms in
   // `rgba`. Every append is budget-guarded (2000-geom shared plugin scene).
@@ -272,9 +276,14 @@ void AddRigGeoms(EditorContext& ctx, const mjModel* host_model, mjvScene* scn) {
   // endpoint. Exist iff m->jnt_limited (the compiled pin).
   if (m->jnt_limited[jid] && (type == mjJNT_HINGE || type == mjJNT_SLIDE)) {
     const float ghost_rgba[2][4] = {
-        {0.30f, 0.60f, 1.00f, 0.25f},   // range[0] (min) tint
-        {1.00f, 0.60f, 0.20f, 0.25f}};  // range[1] (max) tint
+        {0.30f, 0.60f, 1.00f, 0.18f},   // range[0] (min) tint
+        {1.00f, 0.60f, 0.20f, 0.18f}};  // range[1] (max) tint
     for (int end = 0; end < 2; ++end) {
+      // A handle drag shows only the endpoint being dragged.
+      if (ctx.rig_preview.handle_endpoint >= 0 &&
+          end != ctx.rig_preview.handle_endpoint) {
+        continue;
+      }
       GhostQpos(m, jid, m->jnt_range[2 * jid + end], qpos);
       if (!emit_ghost_at(qpos, ghost_rgba[end])) return;
     }
@@ -287,7 +296,7 @@ void AddRigGeoms(EditorContext& ctx, const mjModel* host_model, mjvScene* scn) {
       m->jnt_stiffness[jid] > 0.0) {
     const int qadr = m->jnt_qposadr[jid];
     if (std::fabs(m->qpos_spring[qadr] - m->qpos0[qadr]) > 1e-9) {
-      const float spring_rgba[4] = {0.85f, 0.35f, 0.95f, 0.28f};  // spring violet
+      const float spring_rgba[4] = {0.85f, 0.35f, 0.95f, 0.20f};  // spring violet
       GhostQpos(m, jid, m->qpos_spring[qadr], qpos);
       if (!emit_ghost_at(qpos, spring_rgba)) return;
     }
@@ -305,7 +314,7 @@ void AddRigGeoms(EditorContext& ctx, const mjModel* host_model, mjvScene* scn) {
     const int refg = PickArcReferenceGeom(m, d, jid);
     const double* anchor = d->xanchor + 3 * jid;
     const float cone_rgba[4] = {0.90f, 0.45f, 0.95f, 1.0f};
-    const float ball_ghost_rgba[4] = {0.85f, 0.55f, 1.00f, 0.22f};
+    const float ball_ghost_rgba[4] = {0.85f, 0.55f, 1.00f, 0.16f};
     constexpr int kConeSeg = 16;    // rim samples (cone smoothness)
     constexpr int kBallGhostN = 4;  // full-subtree ghosts around the rim
     const double kPi = 3.14159265358979323846;
@@ -488,6 +497,12 @@ bool HandleViewportMouse(ViewportEditor& ve, const ViewportInput& in) {
   const bool consumed = ve.gizmo.HandleMouse(ctx, in);
   const bool rig_consumed = consumed ? false : ve.rig.HandleMouse(ctx, in);
   const bool any = consumed || rig_consumed;
+
+  // Ghosts are interaction-scoped (a standing pair of full-chain limit poses is
+  // clutter): the ScenePlugin emission reads these per-frame latches -- a range
+  // handle drag shows only ITS endpoint's ghost.
+  ctx.rig_preview.handle_drag = ve.rig.dragged_endpoint() >= 0;
+  ctx.rig_preview.handle_endpoint = ve.rig.dragged_endpoint();
 
   const bool press = in.left_down && !ve.prev_left;
   const bool release = !in.left_down && ve.prev_left;

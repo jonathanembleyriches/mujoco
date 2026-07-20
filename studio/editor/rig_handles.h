@@ -117,6 +117,12 @@ class RigHandleController {
   bool hot() const { return hot_; }
   // An endpoint drag or a limb-scrub is in flight this frame.
   bool active() const { return mode_ == Mode::Endpoint || mode_ == Mode::Scrub; }
+  // The range endpoint being dragged (0 = min, 1 = max), or -1 when no endpoint
+  // drag is in flight. Feeds the interaction-scoped ghost emission: only the
+  // dragged endpoint's ghost renders during a handle drag.
+  int dragged_endpoint() const {
+    return mode_ == Mode::Endpoint ? grab_endpoint_ : -1;
+  }
 
  private:
   enum class Mode { None, ArmScrub, Endpoint, Scrub };
