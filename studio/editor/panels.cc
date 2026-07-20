@@ -429,8 +429,7 @@ static void LayersUpdate(GuiPlugin* self) {
 }
 
 // Assets: meshes / textures / materials, with creation + a browsable swatch list.
-static void AssetsUpdate(GuiPlugin* self) {
-  EditorContext* c = ctx_cast<EditorContext>(self);
+static void AssetsBody(EditorContext* c) {
   ImGui::TextDisabled("Assets (meshes / textures / materials / hfields)");
   ImGui::Separator();
   if (!c->tree) {
@@ -546,8 +545,7 @@ void DrawAddSensorItems(EditorContext& ctx, std::uint64_t target) {
 
 // The "+ Add" panel: model-level structural adds (deliverable 1). Target-aware --
 // an actuator/sensor wires to the current selection when it is a valid target.
-static void AddMenuUpdate(GuiPlugin* self) {
-  EditorContext* c = ctx_cast<EditorContext>(self);
+static void AddMenuBody(EditorContext* c) {
   if (!c->tree) {
     ImGui::TextDisabled("No model loaded.");
     return;
@@ -596,14 +594,7 @@ static ImVec4 SeverityColor(DiagEntry::Severity s) {
   return ImGui::GetStyleColorVec4(ImGuiCol_Text);
 }
 
-static void DiagnosticsUpdate(GuiPlugin* self) {
-  EditorContext* c = ctx_cast<EditorContext>(self);
-  // The status-bar error chip focuses this panel by posting a request the panel
-  // honours from inside its own window (one-shot).
-  if (c->focus_diagnostics_request) {
-    ImGui::SetWindowFocus();
-    c->focus_diagnostics_request = false;
-  }
+static void DiagnosticsBody(EditorContext* c) {
   if (!c->status_line.empty()) {
     ImGui::TextWrapped("%s", c->status_line.c_str());
     ImGui::SameLine();
@@ -656,8 +647,7 @@ static void SaveAndExternalize(EditorContext* c, const std::string& path) {
   }
 }
 
-static void FileMenuUpdate(GuiPlugin* self) {
-  EditorContext* c = ctx_cast<EditorContext>(self);
+static void FileMenuBody(EditorContext* c) {
   static std::string load_path;
   static std::string save_path;
 
@@ -1027,6 +1017,40 @@ static bool ShellUpdate(ModelPlugin* self, mjModel*, mjData*) {
   return false;  // never affects host stepping
 }
 
+// The utility panels (File / + Add / Assets / Diagnostics) fold into one tabbed
+// "ProtoSpec" window instead of four separate host windows -- the host wraps
+// each GuiPlugin in its own Begin/End, so combining means fewer registrations,
+// each drawing a tab. The Diagnostics tab auto-selects when the status-bar error
+// chip posts a focus request (SetSelected for that one frame).
+static void ProtoSpecPanelUpdate(GuiPlugin* self) {
+  EditorContext* c = ctx_cast<EditorContext>(self);
+  const bool focus_diag = c->focus_diagnostics_request;
+  if (focus_diag) {
+    ImGui::SetWindowFocus();  // bring the combined panel forward
+    c->focus_diagnostics_request = false;
+  }
+  if (!ImGui::BeginTabBar("##protospec_tabs")) return;
+  if (ImGui::BeginTabItem("File")) {
+    FileMenuBody(c);
+    ImGui::EndTabItem();
+  }
+  if (ImGui::BeginTabItem("+ Add")) {
+    AddMenuBody(c);
+    ImGui::EndTabItem();
+  }
+  if (ImGui::BeginTabItem("Assets")) {
+    AssetsBody(c);
+    ImGui::EndTabItem();
+  }
+  const ImGuiTabItemFlags diag_flags =
+      focus_diag ? ImGuiTabItemFlags_SetSelected : 0;
+  if (ImGui::BeginTabItem("Diagnostics", nullptr, diag_flags)) {
+    DiagnosticsBody(c);
+    ImGui::EndTabItem();
+  }
+  ImGui::EndTabBar();
+}
+
 static void RegisterGuiPanel(const char* name, GuiPlugin::UpdateFn fn, bool active,
                              EditorContext& ctx) {
   GuiPlugin plugin;
@@ -1048,11 +1072,10 @@ static void RegisterKey(const char* name, int chord,
 }
 
 void RegisterEditorPanels(EditorContext& ctx) {
-  // Two-panel default (deliverable 3): only Hierarchy + Details stand open (plus
-  // the central Viewport). Assets folds into the Hierarchy's asset section /
-  // "+ Asset" creation; Diagnostics folds into the status-bar error chip (click
-  // brings this panel forward). Both stay registered so the Plugins/View menu can
-  // still toggle them for power users -- they just no longer dock open by default.
+  // Default panels: Hierarchy + Details (registered by their own TUs), Layers,
+  // and one combined "ProtoSpec" utility panel (File / + Add / Assets /
+  // Diagnostics tabs), plus the central Viewport. The status-bar error chip
+  // still brings the ProtoSpec panel forward on its Diagnostics tab.
   // The SE4 shell (menu bar + toolbar + mode + native dialog) runs as a
   // ModelPlugin do_update so it draws inside the ImGui frame with no window
   // wrapper (BeginMainMenuBar appends to the host's real bar). Returns false.
@@ -1063,10 +1086,10 @@ void RegisterEditorPanels(EditorContext& ctx) {
   RegisterPlugin<ModelPlugin>(shell);
 
   RegisterGuiPanel("Layers", LayersUpdate, true, ctx);
-  RegisterGuiPanel("Assets", AssetsUpdate, false, ctx);
-  RegisterGuiPanel("Diagnostics", DiagnosticsUpdate, false, ctx);
-  RegisterGuiPanel("File", FileMenuUpdate, false, ctx);
-  RegisterGuiPanel("+ Add", AddMenuUpdate, false, ctx);
+  // File / + Add / Assets / Diagnostics were four separate (default-hidden)
+  // windows; they are now one tabbed "ProtoSpec" panel, open by default so the
+  // New/Load/Save/Import controls are discoverable without the Plugins menu.
+  RegisterGuiPanel("ProtoSpec", ProtoSpecPanelUpdate, true, ctx);
 
   RegisterKey(
       "Undo", ImGuiMod_Ctrl | ImGuiKey_Z,

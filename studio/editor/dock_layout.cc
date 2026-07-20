@@ -87,12 +87,10 @@ void BuildCuratedLayout(ImGuiID root) {
   ImGui::DockBuilderDockWindow("Explorer", details);
   ImGui::DockBuilderDockWindow("Editor", details);
   ImGui::DockBuilderDockWindow("Properties", details);
-  ImGui::DockBuilderDockWindow("File", details);
-  ImGui::DockBuilderDockWindow("+ Add", details);
   ImGui::DockBuilderDockWindow("Layers", layers);
-  // Bottom: Assets + Diagnostics tabs (Profiler joins them when shown).
-  ImGui::DockBuilderDockWindow("Assets", bottom);
-  ImGui::DockBuilderDockWindow("Diagnostics", bottom);
+  // Bottom: the combined ProtoSpec utility panel (File / + Add / Assets /
+  // Diagnostics tabs), with the host Profiler alongside it when shown.
+  ImGui::DockBuilderDockWindow("ProtoSpec", bottom);
   ImGui::DockBuilderDockWindow("Profiler", bottom);
   ImGui::DockBuilderFinish(root);
 }
