@@ -255,6 +255,20 @@ int RunTests() {
   CHECK(hd->time == 2.0);
   ctx.gizmo_active = false;
 
+  // Joint scrub in flight (rigger P1): the SAME deferral as gizmo_active -- the
+  // viewport mirror is authoritative for the scrub pose, so DoUpdate must leave
+  // host_data untouched (no reset, no forward) while rig_preview.active. This
+  // pins the deferral invariant DoUpdate documents (protospec_editor.cc).
+  ctx.rig_preview.active = true;
+  hd->time = 1.0;
+  CHECK(p.model->do_update(p.model, hm, hd) == true);
+  CHECK(hd->time == 1.0);  // deferred: last mirrored frame holds
+  ctx.rig_preview.active = false;
+  // And with neither flag set, the steady Edit tick resets+forwards again.
+  hd->time = 4.0;
+  CHECK(p.model->do_update(p.model, hm, hd) == true);
+  CHECK(hd->time == 0.0);  // reset-on-enter path restored once the scrub clears
+
   mj_deleteData(hd);
   mj_deleteModel(hm);
   mj_deleteVFS(&vfs);

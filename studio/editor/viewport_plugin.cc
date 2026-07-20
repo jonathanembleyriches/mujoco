@@ -30,6 +30,7 @@
 #include "editor/gizmo_math.h"
 #include "editor/placement.h"
 #include "editor/joint_overlay.h"
+#include "editor/joint_rig.h"
 #include "editor/layers.h"
 #include "editor/plugin_abi.h"
 #include "editor/plugins.h"
@@ -103,8 +104,13 @@ constexpr ImU32 kColBall = IM_COL32(242, 89, 230, 255);
 constexpr ImU32 kColFree = IM_COL32(255, 153, 38, 255);
 constexpr ImU32 kColSel = IM_COL32(255, 235, 38, 255);
 
-// Joint overlays, projected (deliverable 3a). Screen-space simplification of the
-// old mjvScene rig: axis segment + anchor dot; the range arc is dropped.
+// Joint overlays, projected. Light screen-space markers (axis segment + anchor
+// dot, + free-joint triad) for the NON-selected joints on the active body. The
+// SELECTED articulated joint (hinge/slide/ball) is retired from this layer: the
+// rigger draws it depth-occluded through the ScenePlugin (AddRigGeoms below), so
+// drawing it here too would double it and defeat the occlusion. A selected FREE
+// joint keeps its screen triad (the rigger emits no glyph for it). See the
+// screen-space-overlay judgment call in the P1 report.
 void DrawJointsScreen(EditorContext& ctx, const mjModel* m, const mjData* d,
                       const ViewProj& vp, ImDrawList* dl) {
   std::vector<JointVis> joints = CollectJointVis(
@@ -113,6 +119,7 @@ void DrawJointsScreen(EditorContext& ctx, const mjModel* m, const mjData* d,
   double len = 0.12 * m->stat.extent;
   if (!(len > 1e-4)) len = 0.15;
   for (const JointVis& jv : joints) {
+    if (jv.selected && jv.type != mjJNT_FREE) continue;  // drawn occluded instead
     const ImU32 col = jv.selected ? kColSel
                       : jv.type == mjJNT_HINGE ? kColHinge
                       : jv.type == mjJNT_SLIDE ? kColSlide
@@ -202,10 +209,72 @@ void AddSelectionOutlineGeoms(EditorContext& ctx, const mjModel* m,
   }
 }
 
+// Whether the host's adopted model matches the editor's compiled model in the
+// dims the rig/mirror touch (defined below; also gates ghost mesh dataids, which
+// index the host scene's mesh table -- valid only when the two models are the
+// same compiled artifact). Forward-declared so EnhanceScene can gate on it.
+bool DragDimsMatch(const mjModel* a, const mjModel* b);
+
+// Appends one budget-guarded mjvGeom to the plugin scene (2000-geom shared cap,
+// app.cc:100). Returns false once the scene is full so callers stop emitting.
+bool AppendSceneGeom(mjvScene* scn, const mjvGeom& g) {
+  if (!scn || scn->ngeom >= scn->maxgeom) return false;
+  scn->geoms[scn->ngeom++] = g;
+  return true;
+}
+
+// The rigger's depth-occluded layer (plan §6 P1): the selected joint's glyph
+// (axis arrow / anchor / range arc / travel line) plus, for a limited hinge/
+// slide, transparent subtree ghosts at each jnt_range endpoint. Drawn from the
+// EDITOR's compiled model + its forwarded preview/scratch data, appended to the
+// HOST scene. Gated on DragDimsMatch so (a) adoption has settled and (b) ghost
+// mesh dataids correspond to the host scene's mesh table (plan §5 risk 5). All
+// geoms are mjCAT_DECOR, so they never enter host pick/segmentation.
+void AddRigGeoms(EditorContext& ctx, const mjModel* host_model, mjvScene* scn) {
+  if (!ctx.CanEdit() || ctx.selected_serial == 0 || !scn) return;
+  const mjModel* m = ctx.compiled.model.get();
+  mjData* d = ctx.sim_data;
+  if (!m || !d || !DragDimsMatch(host_model, m)) return;
+  const int jid = JointIdForSerial(ctx.compiled.binding, ctx.selected_serial);
+  if (jid < 0 || jid >= m->njnt) return;
+
+  const int budget = scn->maxgeom - scn->ngeom;
+  if (budget <= 0) return;
+  for (const mjvGeom& g : CollectJointGlyph(m, d, jid, budget)) {
+    if (!AppendSceneGeom(scn, g)) return;
+  }
+
+  // Limit ghosts: forwarded on the scratch data at each jnt_range endpoint. Exist
+  // iff m->jnt_limited (the compiled pin, never re-derived from authored fields).
+  const int type = m->jnt_type[jid];
+  const bool limited_articulated =
+      m->jnt_limited[jid] && (type == mjJNT_HINGE || type == mjJNT_SLIDE);
+  if (!ctx.rig_preview.show_ghosts || !limited_articulated || !ctx.ghost_data) {
+    return;
+  }
+  const float ghost_rgba[2][4] = {
+      {0.30f, 0.60f, 1.00f, 0.25f},   // range[0] (min) tint
+      {1.00f, 0.60f, 0.20f, 0.25f}};  // range[1] (max) tint
+  std::vector<double> qpos;
+  for (int end = 0; end < 2; ++end) {
+    const int remaining = scn->maxgeom - scn->ngeom;
+    if (remaining <= 0) return;
+    GhostQpos(m, jid, m->jnt_range[2 * jid + end], qpos);
+    mj_resetData(m, ctx.ghost_data);
+    for (int i = 0; i < m->nq; ++i) ctx.ghost_data->qpos[i] = qpos[i];
+    mj_forward(m, ctx.ghost_data);
+    for (const mjvGeom& g :
+         CollectGhostGeoms(m, ctx.ghost_data, jid, ghost_rgba[end], remaining)) {
+      if (!AppendSceneGeom(scn, g)) return;
+    }
+  }
+}
+
 void EnhanceScene(ScenePlugin* self, const mjModel* m, mjData* d,
                   mjvScene* scn) {
   ViewportEditor* ve = ctx_cast<ViewportEditor>(self);
   AddSelectionOutlineGeoms(*ve->ctx, m, d, scn);
+  AddRigGeoms(*ve->ctx, m, scn);
 }
 
 // --- Picking (unchanged math on the editor's own model/data) --------------- //
@@ -551,6 +620,16 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   ve->last_data = ctx.sim_data;
   ve->last_opt = &ve->vis_option;
 
+  // Snap the scrub back before anything else this frame if it must not persist:
+  // the rig joint is no longer the selection, editing is closed (Edit-exit / sim
+  // advanced), or the gizmo is engaging (a held scrub pose would otherwise feed a
+  // corrupt qpos into BuildJointDragFrame, which expects qpos0). Plan §5 risks 1/3.
+  if (ctx.rig_preview.active &&
+      (ctx.selected_serial != ctx.rig_preview.serial || !ctx.CanEdit() ||
+       ctx.gizmo_active || ve->gizmo.hot())) {
+    ClearJointPreview(ctx);
+  }
+
   const ViewportInput in = MakeInput(*ve);
 
   // Interact only over the 3D scene (no ImGui window hovered), OR while a drag is
@@ -569,7 +648,11 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   // BEFORE the host renders. Runs here (this plugin holds the gizmo + sim_data),
   // not in the model plugin -- which dispatches first, one frame stale. The model
   // plugin defers host writes while gizmo_active so this mirror is authoritative.
-  if (ctx.gizmo_active && host_model && host_data &&
+  // The joint scrub mirrors through the same channel: rig_preview.active forwards
+  // ctx.sim_data at the scrubbed qpos, and the model plugin defers its host
+  // forward under the same flag, so this mirror is authoritative for the scrub
+  // pose too (plan §5 risk 1).
+  if ((ctx.gizmo_active || ctx.rig_preview.active) && host_model && host_data &&
       DragDimsMatch(host_model, m)) {
     MirrorDragKinematics(m, ctx.sim_data, host_data);
   }

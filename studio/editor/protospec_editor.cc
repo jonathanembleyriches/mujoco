@@ -248,14 +248,17 @@ bool DoUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   // host skip StepControl::Advance (verified at merge-base app.cc UpdatePhysics:
   // `if (do_update(...)) stepped=true;` then `if(!stepped){ ...Advance }`).
   if (host_model && host_data) {
-    if (c->gizmo_active) {
-      // A gizmo drag is in flight: the viewport plugin (dispatched AFTER this
-      // one, so it sees THIS frame's LivePatch) mirrors the live-patched
-      // kinematics onto host_data for every element kind. Do nothing here -- a
-      // bare mj_forward would recompute host_data from the host model's
-      // un-patched body_pos/geom_pos and snap a welded element back to its
-      // pre-drag pose, fighting the mirror (the old "geom only moves on release"
-      // regression). See MirrorDragKinematics in viewport_plugin.cc.
+    if (c->gizmo_active || c->rig_preview.active) {
+      // A gizmo drag OR a joint scrub is in flight: the viewport plugin
+      // (dispatched AFTER this one, so it sees THIS frame's LivePatch / scrub
+      // forward) mirrors the preview kinematics onto host_data for every element
+      // kind. Do nothing here -- a bare mj_forward would recompute host_data from
+      // the host model's un-patched body_pos/geom_pos and un-scrubbed qpos0, and
+      // snap the subtree back to the rest pose, fighting the mirror (the old
+      // "geom only moves on release" regression). The rig_preview arm is the
+      // scrub twin of gizmo_active; both are pinned by test_plugin_windowless
+      // (do_update deferral) so this contract cannot silently regress. See
+      // MirrorDragKinematics in viewport_plugin.cc.
     } else if (c->compile_generation != h->emitted_generation) {
       // A fresh compile is queued but the host has NOT adopted it yet (the adopt
       // runs next frame in ProcessPendingLoads -> get_model_to_load). host_model

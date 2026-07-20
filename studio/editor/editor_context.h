@@ -228,6 +228,22 @@ struct GizmoSettings {
   bool grid_absolute = false;
 };
 
+// Joint-rig scrub preview (deliverable P1, docs/rigger_plan.md §6). A scrub
+// writes a single dof into ctx.sim_data->qpos and mj_forward's the preview data;
+// while `active`, DoUpdate defers the host forward and the viewport mirrors this
+// pose to the host scene (same contract as gizmo_active -- see the deferral
+// branch in protospec_editor.cc DoUpdate, pinned by test_plugin_windowless).
+// Preview is PURE preview: never BeginEdit / dirty / recompile. `q` is compiled
+// units (radians for hinge, metres for slide). Cleared (snap back to qpos0) on
+// deselect, Edit-exit and every recompile (compile_generation change).
+struct RigPreview {
+  std::uint64_t serial = 0;    // the joint being scrubbed (0 == none)
+  double q = 0.0;              // scrub value, compiled units (rad / m)
+  bool active = false;         // a scrub pose is applied to sim_data right now
+  bool hold = false;           // keep the pose after slider release (else snap back)
+  bool show_ghosts = true;     // draw the limit ghosts for the selected joint
+};
+
 // One layer: a TAG plus flags, not a container. There is ONE authored tree
 // (EditorContext::tree); an element's layer IS its `loc.file` value (the
 // per-element provenance the reader stamps, through <include> expansion, DR-9).
@@ -333,6 +349,10 @@ struct EditorContext {
   mjvCamera* camera = nullptr;
   bool camera_ready = false;
   mjData* sim_data = nullptr;
+  // Scratch preview data for the limit ghosts: forwarded at each jnt_range
+  // endpoint qpos to read geom_x* for the ghost poses, then reused for the other
+  // endpoint. Owned/rebuilt beside sim_data on every compile (editor_ops.cc).
+  mjData* ghost_data = nullptr;
   std::uint64_t compile_generation = 0;
 
   // Diagnostics panel log (validation tiers 1-2, compile report, pick events).
@@ -402,6 +422,8 @@ struct EditorContext {
   bool show_all_joints = false;        // draw joints for every body, not just the
                                       // selected body. No UI control exists yet;
                                       // only the joint-overlay tests set it.
+  RigPreview rig_preview;             // joint scrub preview (P1); active defers the
+                                      // host forward in DoUpdate, like gizmo_active.
   StatusToast status_toast;           // transient viewport note (gizmo hints, ...)
   FileDialogState file_dialog;        // pending native-dialog request for the host
 

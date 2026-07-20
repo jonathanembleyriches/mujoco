@@ -134,6 +134,7 @@ add_library(protospec_editor STATIC
   ${PROTOSPEC_EDITOR}/hierarchy_model.cc
   ${PROTOSPEC_EDITOR}/hierarchy_panel.cc
   ${PROTOSPEC_EDITOR}/joint_overlay.cc
+  ${PROTOSPEC_EDITOR}/joint_rig.cc
   ${PROTOSPEC_EDITOR}/layers.cc
   ${PROTOSPEC_EDITOR}/panels.cc
   ${PROTOSPEC_EDITOR}/placement.cc

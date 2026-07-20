@@ -165,6 +165,12 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
     mj_deleteData(ctx.sim_data);
     ctx.sim_data = nullptr;
   }
+  // The ghost scratch data (rigger P1) is built on the same mjModel; free it in
+  // the same window, before the old model is moved out from under it.
+  if (ctx.ghost_data) {
+    mj_deleteData(ctx.ghost_data);
+    ctx.ghost_data = nullptr;
+  }
   ctx.compiled = std::move(compiled);
   ctx.compile_tree = std::move(pruned);  // null when ctx.tree compiled directly
   ctx.model_ready = true;
@@ -174,7 +180,12 @@ static bool CompileCurrent(EditorContext& ctx, const char* what) {
       mj_resetData(nm, ctx.sim_data);
       mj_forward(nm, ctx.sim_data);
     }
+    ctx.ghost_data = mj_makeData(nm);  // rigger ghost scratch (forwarded on demand)
   }
+  // A fresh artifact resets qpos to qpos0: drop any in-flight scrub preview so the
+  // held pose does not linger against a model that may have changed (plan §5 risk
+  // 2). sim_data above is already at qpos0, so this is a pure flag reset.
+  ctx.rig_preview = RigPreview{};
   ++ctx.compile_generation;  // signals the ModelPlugin a fresh artifact is ready
 
   const mjModel* m = ctx.compiled.model.get();

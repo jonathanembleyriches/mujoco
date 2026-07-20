@@ -17,11 +17,15 @@
 #include <string_view>
 #include <vector>
 
+#include <mujoco/mujoco.h>
+
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
 #include "binding.h"
 #include "editor/editor_ops.h"
+#include "editor/joint_overlay.h"
+#include "editor/joint_rig.h"
 #include "editor/layers.h"
 #include "editor/plugin_abi.h"
 #include "platform/ux/plugin.h"
@@ -747,6 +751,118 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
   }
 }
 
+// --- Joint "Rig" section (P1) ---------------------------------------------- //
+// A preview-only scrub slider per DOF plus compiled range/limited/ref readouts,
+// atop the Joint view. Deliberately NOT a gesture edit: the slider writes qpos
+// into the preview mjData (SetJointPreview) and NEVER BeginEdit/CommitEdit, sets
+// no dirty, requests no recompile (joint_rig.h invariant; pinned by
+// test_rigger_windowless no-commit checks). Display units come from ONE helper
+// (JointDofToDisplay) keyed on the tree's compiler angle; the value written to
+// qpos is always compiled units. See docs/rigger_plan.md §6 P1.
+
+// One scrub row for a hinge/slide (ball is readout-only; free is skipped). `jv`
+// is a joint on the selected joint's body (multi-joint bodies get one row each).
+void RenderRigRow(EditorContext& ctx, const mjModel* m, const mjData* d,
+                  const JointVis& jv, bool degree) {
+  const int jid = jv.jnt_id;
+  const int type = jv.type;
+  if (type == mjJNT_FREE) return;  // nothing to rig
+
+  const mj::Joint* aj = ctx.compiled.binding.JointAt(jid);
+  const std::string name =
+      (aj && aj->name) ? *aj->name : ("joint " + std::to_string(jid));
+
+  if (type == mjJNT_BALL) {
+    // Readout only in P1 (no ball parametrization yet). range[1] is the max
+    // rotation angle when limited.
+    if (m->jnt_limited[jid]) {
+      const double mx = JointDofToDisplay(type, m->jnt_range[2 * jid + 1], degree);
+      ImGui::Text("%s (ball): max %.3g %s", name.c_str(), mx,
+                  degree ? "deg" : "rad");
+    } else {
+      ImGui::Text("%s (ball): unlimited", name.c_str());
+    }
+    return;
+  }
+
+  const int qadr = m->jnt_qposadr[jid];
+  const bool limited = m->jnt_limited[jid] != 0;  // the compiled pin, never
+                                                  // re-derived from authored fields
+  const char* unit = (type == mjJNT_SLIDE) ? "m" : (degree ? "deg" : "rad");
+
+  // Slider span: compiled range when limited, else an extent-scaled span (slide)
+  // or +/-180deg (hinge) with an "unlimited" badge.
+  double lo, hi;
+  if (limited) {
+    lo = JointDofToDisplay(type, m->jnt_range[2 * jid + 0], degree);
+    hi = JointDofToDisplay(type, m->jnt_range[2 * jid + 1], degree);
+  } else if (type == mjJNT_SLIDE) {
+    double s = 0.5 * m->stat.extent;
+    if (!(s > 1e-6)) s = 1.0;
+    lo = -s;
+    hi = s;
+  } else {
+    lo = degree ? -180.0 : -3.14159265358979323846;
+    hi = -lo;
+  }
+
+  const double q_comp = d->qpos[qadr];  // reflects the active scrub, if any
+  float disp = static_cast<float>(JointDofToDisplay(type, q_comp, degree));
+
+  ImGui::TextUnformatted(name.c_str());
+  ImGui::SameLine(kLabelColumn);
+  ImGui::SetNextItemWidth(kFieldWidth * 2.4f);
+  ImGui::SliderFloat("##scrub", &disp, static_cast<float>(lo),
+                     static_cast<float>(hi), (std::string("%.3g ") + unit).c_str());
+  if (ImGui::IsItemActive()) {
+    const double qc = JointDisplayToDof(type, disp, degree);
+    SetJointPreview(ctx, jv.serial, qc);
+  } else if (ImGui::IsItemDeactivated() && !ctx.rig_preview.hold &&
+             ctx.rig_preview.serial == jv.serial) {
+    ClearJointPreview(ctx);  // snap back on release unless Hold is on
+  }
+
+  // Readouts: range / limited(auto) / ref, all in display units.
+  if (limited) {
+    const bool authored_auto = !aj || !aj->limited ||
+                               *aj->limited == mj::TriState::auto_;
+    ImGui::TextDisabled("range [%.3g, %.3g] %s   limited=%s", lo, hi, unit,
+                        authored_auto ? "auto" : "true");
+  } else {
+    ImGui::TextDisabled("range unlimited %s   [unlimited]", unit);
+  }
+  const double ref = JointDofToDisplay(type, m->qpos0[qadr], degree);
+  if (std::fabs(ref) > 1e-9) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("ref=%.3g %s", ref, unit);
+  }
+}
+
+void RenderJointRig(EditorContext& ctx, mj::Joint& joint) {
+  const mjModel* m = ctx.compiled.model.get();
+  const mjData* d = ctx.sim_data;
+  if (!m || !d) return;
+  if (!ImGui::CollapsingHeader("Rig", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+  const bool degree = AngleIsDegree(*ctx.tree);
+  ImGui::Checkbox("Ghosts", &ctx.rig_preview.show_ghosts);
+  ImGui::SameLine();
+  ImGui::Checkbox("Hold pose", &ctx.rig_preview.hold);
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Reset pose")) ClearJointPreview(ctx);
+
+  // One row per joint on the selected joint's body (multi-joint stacks). Ghosts
+  // follow the SELECTED joint only (emitted by the viewport ScenePlugin).
+  const std::vector<JointVis> joints =
+      CollectJointVis(m, d, ctx.compiled.binding, joint.serial, false);
+  for (const JointVis& jv : joints) {
+    ImGui::PushID(jv.jnt_id);
+    RenderRigRow(ctx, m, d, jv, degree);
+    ImGui::PopID();
+  }
+  ImGui::Separator();
+}
+
 template <class E>
 void RenderElement(EditorContext& ctx, E& e) {
   const reflect::ElementDescriptor& desc =
@@ -767,6 +883,13 @@ void RenderElement(EditorContext& ctx, E& e) {
   ImGui::Separator();
 
   RenderNameRow(ctx, e);
+
+  // The rigger's "Rig" section leads the Joint view (P1). Preview-only; see
+  // RenderJointRig. Placed before Transform/Properties so scrub + readouts are
+  // the first thing shown for a joint.
+  if constexpr (std::is_same_v<E, mj::Joint>) {
+    RenderJointRig(ctx, e);
+  }
 
   const sdk::EffectiveContext ectx(*ctx.tree);  // one lookup build, two merges
   std::unique_ptr<E> eff_class = sdk::Effective(ectx, e, false);
