@@ -16,6 +16,7 @@
 #define PS_STUDIO_EDITOR_JOINT_RIG_H_
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <mujoco/mujoco.h>
@@ -57,9 +58,40 @@ int JointIdForSerial(const mj::Binding& binding, std::uint64_t serial);
 // (no-commit invariants + scrub == reference forward).
 bool SetJointPreview(EditorContext& ctx, std::uint64_t serial, double q);
 
-// Snap ctx.sim_data back to qpos0 + forward and clear ctx.rig_preview. Leaves
-// dirty / undo / recompile untouched. Idempotent (safe when inactive).
+// Ball scrub (P3): compose the three XYZ intrinsic-Euler angles (radians) into
+// this ball joint's quaternion qpos and re-apply the whole overlay. Stores the
+// Euler triple in the overlay so the three sliders stay stable. Returns false
+// unless `serial` binds a ball joint. See BallQuatFromEuler for the exact
+// (documented, test-pinned) parametrization.
+bool SetBallPreview(EditorContext& ctx, std::uint64_t serial,
+                    const double euler[3]);
+
+// Drop one joint from the held overlay and re-apply the rest (snap that joint
+// back to qpos0 while the others stay posed). No-op when `serial` is not held.
+void RemoveJointPreview(EditorContext& ctx, std::uint64_t serial);
+
+// Snap ctx.sim_data back to qpos0 + forward and clear the WHOLE rig overlay.
+// Leaves dirty / undo / recompile untouched. Idempotent (safe when inactive).
 void ClearJointPreview(EditorContext& ctx);
+
+// --- Ball parametrization ---------------------------------------------------//
+
+// The rigger's ball parametrization: `quat` is the intrinsic XYZ Euler rotation
+// of the three angles (radians), i.e. q = qx(e0) ⊗ qy(e1) ⊗ qz(e2) with each
+// factor a rotation about the successively rotated body axis (scalar-first,
+// MuJoCo's qpos convention). e == 0 gives the identity (the ball's qpos0 when
+// ref is unset -- the normal case; ApplyRigOverlay left-composes qpos0 so the
+// slider zero always means "rest"). Pinned by test_rigger_windowless: the
+// composed quat forwarded == an independent mj_forward at the same qpos.
+void BallQuatFromEuler(const double euler[3], double quat[4]);
+
+// qpos0 with the ball at jid rotated by `angle` about the LOCAL unit axis
+// `axis_local` (left-composed onto qpos0's ball quat), into `out` (length nq).
+// The swing-cone rim / ball limit ghosts forward the scratch data at these qpos
+// (correct by construction, exactly like GhostQpos for hinge/slide). No-op when
+// jid is not a ball. Pinned by test (child point == mj_forward at the limit).
+void BallSwingQpos(const mjModel* m, int jid, const double axis_local[3],
+                   double angle, std::vector<double>& out);
 
 // --- Limit ghosts ----------------------------------------------------------- //
 
@@ -112,6 +144,23 @@ int PickArcReferenceGeom(const mjModel* m, const mjData* d, int jid);
 // `max_geoms` appended.
 std::vector<mjvGeom> CollectJointGlyph(const mjModel* m, const mjData* d, int jid,
                                        int max_geoms);
+
+// --- Actuator / tendon awareness (P3) --------------------------------------- //
+
+// One element that drives joint jid: an actuator whose transmission targets it
+// (actuator_trntype JOINT/JOINTINPARENT with actuator_trnid == jid) or a tendon
+// whose path wraps it (a mjWRAP_JOINT wrap object with wrap_objid == jid). The
+// tree `serial` is resolved back through the Binding's reverse mapping so a click
+// on the badge can SelectBySerial. Read-only affordance (no edit path).
+struct JointDriver {
+  std::uint64_t serial = 0;   // tree element serial (0 == not bound in the tree)
+  int objtype = 0;            // mjOBJ_ACTUATOR / mjOBJ_TENDON
+  int id = -1;                // compiled id
+  bool is_tendon = false;
+  std::string name;           // compiled name (badge label)
+};
+std::vector<JointDriver> CollectJointDrivers(const mjModel* m,
+                                             const mj::Binding& binding, int jid);
 
 }  // namespace ps::studio
 

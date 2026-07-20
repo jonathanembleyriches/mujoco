@@ -23,6 +23,7 @@
 #include <imgui_stdlib.h>
 
 #include "binding.h"
+#include "editor/authoring_ops.h"  // CaptureKeyframeOp (Pose-table keyframe)
 #include "editor/editor_ops.h"
 #include "editor/joint_overlay.h"
 #include "editor/joint_rig.h"
@@ -760,10 +761,49 @@ inline void RenderMaterialTextureLayers(EditorContext& ctx, mj::Material& mat) {
 // (JointDofToDisplay) keyed on the tree's compiler angle; the value written to
 // qpos is always compiled units. See docs/rigger_plan.md §6 P1.
 
-// One scrub row for a hinge/slide (ball is readout-only; free is skipped). `jv`
-// is a joint on the selected joint's body (multi-joint bodies get one row each).
+// Small clickable badges naming the actuators/tendons that drive joint jid; a
+// click selects that element (read-only affordance, P3). Resolved from the
+// compiled model + Binding reverse mapping (joint_rig.cc CollectJointDrivers).
+void RenderDriverBadges(EditorContext& ctx, const mjModel* m, int jid) {
+  const std::vector<JointDriver> drivers =
+      CollectJointDrivers(m, ctx.compiled.binding, jid);
+  if (drivers.empty()) return;
+  ImGui::TextDisabled("driven by:");
+  for (const JointDriver& drv : drivers) {
+    ImGui::SameLine();
+    const std::string label =
+        std::string(drv.is_tendon ? "tendon " : "act ") +
+        (drv.name.empty() ? ("#" + std::to_string(drv.id)) : drv.name);
+    ImGui::PushID(drv.objtype * 100003 + drv.id);
+    ImGui::BeginDisabled(drv.serial == 0);  // macro-expanded: no tree element
+    if (ImGui::SmallButton(label.c_str())) SelectBySerial(ctx, drv.serial);
+    ImGui::EndDisabled();
+    ImGui::PopID();
+  }
+}
+
+// The XYZ intrinsic-Euler angles (display units) currently held for ball joint
+// `serial`, or all-zero when it is not in the overlay.
+void CurrentBallEuler(const EditorContext& ctx, std::uint64_t serial, bool degree,
+                      float out[3]) {
+  double e[3] = {0, 0, 0};
+  auto it = ctx.rig_preview.overlay.find(serial);
+  if (it != ctx.rig_preview.overlay.end() && it->second.ball) {
+    for (int k = 0; k < 3; ++k) e[k] = it->second.v[k];
+  }
+  for (int k = 0; k < 3; ++k) {
+    out[k] = static_cast<float>(degree ? e[k] * 180.0 / 3.14159265358979323846
+                                       : e[k]);
+  }
+}
+
+// One scrub row. Hinge/slide: a single dof slider; ball: three intrinsic-Euler
+// sliders (P3); free is skipped. `jv` is a joint on the selected joint's body
+// (multi-joint bodies get one row each). Preview-only; never commits. When
+// `always_hold`, a slider release keeps the value in the overlay regardless of
+// the Hold checkbox (the Pose table holds every joint by construction).
 void RenderRigRow(EditorContext& ctx, const mjModel* m, const mjData* d,
-                  const JointVis& jv, bool degree) {
+                  const JointVis& jv, bool degree, bool always_hold = false) {
   const int jid = jv.jnt_id;
   const int type = jv.type;
   if (type == mjJNT_FREE) return;  // nothing to rig
@@ -773,15 +813,37 @@ void RenderRigRow(EditorContext& ctx, const mjModel* m, const mjData* d,
       (aj && aj->name) ? *aj->name : ("joint " + std::to_string(jid));
 
   if (type == mjJNT_BALL) {
-    // Readout only in P1 (no ball parametrization yet). range[1] is the max
-    // rotation angle when limited.
+    // Three XYZ intrinsic-Euler sliders composing the ball's quaternion qpos
+    // (BallQuatFromEuler). range[1] is the compiled swing-cone half-angle.
+    ImGui::TextUnformatted(name.c_str());
+    ImGui::SameLine();
     if (m->jnt_limited[jid]) {
       const double mx = JointDofToDisplay(type, m->jnt_range[2 * jid + 1], degree);
-      ImGui::Text("%s (ball): max %.3g %s", name.c_str(), mx,
-                  degree ? "deg" : "rad");
+      ImGui::TextDisabled("(ball, swing <= %.3g %s)", mx, degree ? "deg" : "rad");
     } else {
-      ImGui::Text("%s (ball): unlimited", name.c_str());
+      ImGui::TextDisabled("(ball, unlimited)");
     }
+    float e[3];
+    CurrentBallEuler(ctx, jv.serial, degree, e);
+    const float span = degree ? 180.0f : 3.14159265f;
+    const char* labels[3] = {"X##ballx", "Y##bally", "Z##ballz"};
+    bool changed = false;
+    for (int k = 0; k < 3; ++k) {
+      ImGui::SetNextItemWidth(kFieldWidth * 1.8f);
+      if (ImGui::SliderFloat(labels[k], &e[k], -span, span,
+                             degree ? "%.1f deg" : "%.3f")) {
+        changed = true;
+      }
+      if (k < 2) ImGui::SameLine();
+    }
+    if (changed) {
+      double rad[3];
+      for (int i = 0; i < 3; ++i) {
+        rad[i] = degree ? e[i] * 3.14159265358979323846 / 180.0 : e[i];
+      }
+      SetBallPreview(ctx, jv.serial, rad);
+    }
+    RenderDriverBadges(ctx, m, jid);
     return;
   }
 
@@ -818,8 +880,8 @@ void RenderRigRow(EditorContext& ctx, const mjModel* m, const mjData* d,
     const double qc = JointDisplayToDof(type, disp, degree);
     SetJointPreview(ctx, jv.serial, qc);
   } else if (ImGui::IsItemDeactivated() && !ctx.rig_preview.hold &&
-             ctx.rig_preview.serial == jv.serial) {
-    ClearJointPreview(ctx);  // snap back on release unless Hold is on
+             !always_hold) {
+    RemoveJointPreview(ctx, jv.serial);  // snap THIS joint back unless Hold is on
   }
 
   // Readouts: range / limited(auto) / ref, all in display units.
@@ -836,6 +898,7 @@ void RenderRigRow(EditorContext& ctx, const mjModel* m, const mjData* d,
     ImGui::SameLine();
     ImGui::TextDisabled("ref=%.3g %s", ref, unit);
   }
+  RenderDriverBadges(ctx, m, jid);
 }
 
 void RenderJointRig(EditorContext& ctx, mj::Joint& joint) {
@@ -966,6 +1029,49 @@ void DetailsUpdate(GuiPlugin* self) {
 }
 
 }  // namespace
+
+// The "Pose" surface (P3): every joint in the model with its scrub slider(s),
+// held-composed in one qpos overlay, plus Reset-all and Capture-keyframe. Lives
+// in the ProtoSpec panel's Pose tab (panels.cc) -- always reachable, unlike the
+// per-selection Details Rig section. Preview-only except the explicit keyframe
+// capture, which commits the held qpos through the normal AddKey/undo flow.
+void RenderPoseTable(EditorContext& ctx) {
+  const mjModel* m = ctx.compiled.model.get();
+  const mjData* d = ctx.sim_data;
+  if (!m || !d || !ctx.tree) {
+    ImGui::TextDisabled("No model loaded.");
+    return;
+  }
+  if (!ctx.CanEdit()) {
+    ImGui::TextDisabled("Simulation running or advanced -- press Stop to pose.");
+    return;
+  }
+  const bool degree = AngleIsDegree(*ctx.tree);
+
+  if (ImGui::Button("Reset all")) ClearJointPreview(ctx);
+  ImGui::SameLine();
+  ImGui::Checkbox("Ghosts", &ctx.rig_preview.show_ghosts);
+  ImGui::SameLine();
+  if (ImGui::Button("Capture keyframe")) CaptureKeyframeOp(ctx);
+  ImGui::SameLine();
+  ImGui::TextDisabled("(%d joint(s) held)",
+                      static_cast<int>(ctx.rig_preview.overlay.size()));
+  ImGui::Separator();
+
+  // Every joint in the model (show_all), one row each; free joints skip.
+  const std::vector<JointVis> joints =
+      CollectJointVis(m, d, ctx.compiled.binding, ctx.selected_serial, true);
+  bool any = false;
+  for (const JointVis& jv : joints) {
+    if (jv.type == mjJNT_FREE) continue;
+    any = true;
+    ImGui::PushID(jv.jnt_id);
+    RenderRigRow(ctx, m, d, jv, degree, /*always_hold=*/true);
+    ImGui::PopID();
+    ImGui::Spacing();
+  }
+  if (!any) ImGui::TextDisabled("No hinge/slide/ball joints to pose.");
+}
 
 void RegisterDetailsPanel(EditorContext& ctx) {
   GuiPlugin plugin;

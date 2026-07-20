@@ -364,6 +364,12 @@ inline int LayerRoleIndex(const mj::MaterialLayer& layer) {
 // panels.cc stay untouched).
 void RegisterDetailsPanel(EditorContext& ctx);
 
+// The "Pose all joints" table body (P3): drawn by the ProtoSpec panel's Pose tab
+// (panels.cc). Lists every non-free joint with its held scrub slider(s) over the
+// shared rig overlay, plus Reset-all and Capture-keyframe. Preview-only except
+// the explicit keyframe capture (the one rigger action that commits).
+void RenderPoseTable(EditorContext& ctx);
+
 }  // namespace ps::studio::details
 
 #endif  // PS_STUDIO_EDITOR_DETAILS_PANEL_H_

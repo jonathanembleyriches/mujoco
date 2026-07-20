@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -228,17 +229,37 @@ struct GizmoSettings {
   bool grid_absolute = false;
 };
 
-// Joint-rig scrub preview (deliverable P1, docs/rigger_plan.md §6). A scrub
-// writes a single dof into ctx.sim_data->qpos and mj_forward's the preview data;
-// while `active`, DoUpdate defers the host forward and the viewport mirrors this
-// pose to the host scene (same contract as gizmo_active -- see the deferral
-// branch in protospec_editor.cc DoUpdate, pinned by test_plugin_windowless).
-// Preview is PURE preview: never BeginEdit / dirty / recompile. `q` is compiled
-// units (radians for hinge, metres for slide). Cleared (snap back to qpos0) on
-// deselect, Edit-exit and every recompile (compile_generation change).
+// One held scrub value in the rig overlay (P3). For a hinge/slide `v[0]` is the
+// dof value in compiled units (radians / metres). For a ball, `ball` is true and
+// `v[0..2]` are XYZ intrinsic-Euler angles (radians) that BallQuatFromEuler
+// composes into the ball's quaternion qpos (joint_rig.h). Storing the Euler
+// triple, not the composed quaternion, keeps the three sliders stable (quat ->
+// Euler is ambiguous).
+struct RigDof {
+  bool ball = false;
+  double v[3] = {0.0, 0.0, 0.0};
+};
+
+// Joint-rig scrub preview (P1, extended to a multi-joint overlay in P3;
+// docs/rigger_plan.md §6). A scrub writes dof values into ctx.sim_data->qpos and
+// mj_forward's the preview data; while `active`, DoUpdate defers the host forward
+// and the viewport mirrors this pose to the host scene (same contract as
+// gizmo_active -- see the deferral branch in protospec_editor.cc DoUpdate, pinned
+// by test_plugin_windowless). Preview is PURE preview: never BeginEdit / dirty /
+// recompile (the ONE exception is an explicit "Capture keyframe", which commits
+// the held qpos through the normal AddKey flow).
+//
+// P3 supersedes the P1 single-slot re-base: `overlay` maps each scrubbed joint's
+// serial to its held value, and ApplyRigOverlay writes ALL of them onto qpos0
+// (unscrubbed joints stay at qpos0) before forwarding -- so posing joint A while
+// joint B is held composes instead of resetting B. `active == !overlay.empty()`.
+// `serial`/`q` track the LAST scrubbed hinge/slide (readouts / compat). The
+// overlay is cleared (snap back to qpos0) on Edit-exit, on the gizmo engaging
+// (BuildJointDragFrame needs qpos0), and on every recompile (compile_generation).
 struct RigPreview {
-  std::uint64_t serial = 0;    // the joint being scrubbed (0 == none)
-  double q = 0.0;              // scrub value, compiled units (rad / m)
+  std::map<std::uint64_t, RigDof> overlay;  // serial -> held dof (P3)
+  std::uint64_t serial = 0;    // last scrubbed hinge/slide (0 == none)
+  double q = 0.0;              // last scrubbed value, compiled units (rad / m)
   bool active = false;         // a scrub pose is applied to sim_data right now
   bool hold = false;           // keep the pose after slider release (else snap back)
   bool show_ghosts = true;     // draw the limit ghosts for the selected joint

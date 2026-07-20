@@ -165,6 +165,14 @@ std::uint64_t AddExcludeOp(EditorContext& ctx);
 std::uint64_t AddKeyframeOp(EditorContext& ctx);
 std::uint64_t AddDefaultClassOp(EditorContext& ctx, const std::string& name);
 
+// Capture the CURRENT held rig-preview pose (ctx.sim_data->qpos, i.e. the joint
+// scrub overlay applied onto qpos0) as a new authored <key qpos=.../>, through
+// the normal AddKey/BeginEdit/CommitEdit/undo flow -- the ONE rigger action that
+// commits (rigger P3). The written qpos is the preview's exact values; a
+// recompile round-trips them into m->key_qpos. Returns the new key's serial (0
+// when no compiled model / preview data is available). The new key is selected.
+std::uint64_t CaptureKeyframeOp(EditorContext& ctx);
+
 // --- Duplicate ------------------------------------------------------------ //
 
 // Deep-clone the element with `serial` and its subtree as the NEXT SIBLING in the

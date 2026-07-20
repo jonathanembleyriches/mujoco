@@ -35,6 +35,8 @@
 #include "editor/editor_context.h"
 #include "editor/element_access.h"  // FindSerialAs
 #include "mjcf.h"      // ps::mjcf::io::ParseMjcfString
+#include "protospec/builders.h"   // ps::sdk::AddKey (keyframe capture)
+#include "protospec/traversal.h"  // ps::sdk::FindBySerial (badge target)
 
 // Splice the rigger core so its functions are reachable directly.
 #include "editor/joint_rig.cc"
@@ -210,6 +212,111 @@ constexpr char kUnlimited[] = R"(<mujoco model="freehinge">
   </worldbody>
 </mujoco>
 )";
+
+// --- P3 fixtures ------------------------------------------------------------ //
+
+// Ball joint, un-rotated body (local axes == world), tip off the local Z axis so
+// PickArcReferenceGeom has a radius. range "0 60" -> 60deg swing-cone half-angle.
+constexpr char kBall[] = R"(<mujoco model="ballfix">
+  <compiler angle="degree" autolimits="true"/>
+  <worldbody>
+    <body name="base" pos="0 0 0.5">
+      <geom name="basegeom" type="box" size="0.05 0.05 0.05"/>
+      <body name="arm" pos="0 0 0">
+        <joint name="ball" type="ball" range="0 60"/>
+        <geom name="armgeom" type="capsule" fromto="0 0 0 0.4 0 0" size="0.03"/>
+        <geom name="tipgeom" type="sphere" pos="0.4 0 0" size="0.04"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// Two hinges in a chain (nq == 2): the multi-joint held-composition + keyframe
+// round-trip fixture.
+constexpr char kTwoHinge[] = R"(<mujoco model="twohinge">
+  <compiler angle="degree" autolimits="true"/>
+  <worldbody>
+    <body name="base" pos="0 0 0.5">
+      <geom name="basegeom" type="box" size="0.05 0.05 0.05"/>
+      <body name="upper" pos="0 0 0">
+        <joint name="shoulder" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="uppergeom" type="capsule" fromto="0 0 0 0.3 0 0" size="0.03"/>
+        <body name="lower" pos="0.3 0 0">
+          <joint name="elbow" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="lowergeom" type="capsule" fromto="0 0 0 0.3 0 0" size="0.03"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// Hinge with stiffness + springref: qpos_spring differs from qpos0 -> a spring
+// equilibrium ghost.
+constexpr char kSpring[] = R"(<mujoco model="springfix">
+  <compiler angle="degree" autolimits="true"/>
+  <worldbody>
+    <body name="base" pos="0 0 0.5">
+      <geom name="basegeom" type="box" size="0.05 0.05 0.05"/>
+      <body name="arm" pos="0 0 0">
+        <joint name="hinge" type="hinge" axis="0 1 0" range="-90 90" stiffness="5" springref="30"/>
+        <geom name="armgeom" type="capsule" fromto="0 0 0 0.4 0 0" size="0.03"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// Hinge driven by a position actuator AND wrapped by a fixed tendon: the badge
+// resolution fixture.
+constexpr char kDriven[] = R"(<mujoco model="drivenfix">
+  <compiler angle="degree" autolimits="true"/>
+  <worldbody>
+    <body name="base" pos="0 0 0.5">
+      <geom name="basegeom" type="box" size="0.05 0.05 0.05"/>
+      <body name="arm" pos="0 0 0">
+        <joint name="hinge" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="armgeom" type="capsule" fromto="0 0 0 0.4 0 0" size="0.03"/>
+      </body>
+    </body>
+  </worldbody>
+  <tendon>
+    <fixed name="ten0"><joint joint="hinge" coef="1"/></fixed>
+  </tendon>
+  <actuator>
+    <position name="act0" joint="hinge"/>
+  </actuator>
+</mujoco>
+)";
+
+// The (serial, jid, qadr) of the joint named `jname` in the compiled fixture.
+bool JointByName(Fixture& f, const char* jname, std::uint64_t* serial, int* jid,
+                 int* qadr) {
+  const mjModel* m = f.ctx.compiled.model.get();
+  const int id = mj_name2id(m, mjOBJ_JOINT, jname);
+  if (id < 0) return false;
+  *jid = id;
+  *qadr = m->jnt_qposadr[id];
+  for (const mj::Binding::Entry& e : f.ctx.compiled.binding.entries()) {
+    if (e.id == id && (e.etype == mj::ElementType::Joint ||
+                       e.etype == mj::ElementType::FreeJoint)) {
+      *serial = e.serial;
+      return true;
+    }
+  }
+  return false;
+}
+
+// The great-circle rotation angle (radians) of ball quat `q` relative to `q0`.
+double BallSwingAngle(const double q0[4], const double q[4]) {
+  double q0c[4] = {q0[0], -q0[1], -q0[2], -q0[3]};
+  double delta[4];
+  mju_mulQuat(delta, q0c, q);
+  double w = std::fabs(delta[0]);
+  if (w > 1.0) w = 1.0;
+  return 2.0 * std::acos(w);
+}
 
 // --- Tests ------------------------------------------------------------------ //
 
@@ -567,6 +674,272 @@ int TestSliderLimbEquivalence() {
   return 0;
 }
 
+// --- P3: ball parametrization + swing cone ---------------------------------- //
+
+int TestBallParametrization() {
+  Fixture f;
+  CHECK(BuildFixture(f, kBall));
+  const mjModel* m = f.ctx.compiled.model.get();
+  mjData* d = f.ctx.sim_data;
+  CHECK(f.jtype == mjJNT_BALL);
+  CHECK(m->jnt_limited[f.jid] == 1);
+
+  // Single-axis Euler == the pure axis-angle quaternion (documents axis order).
+  const double kPi = 3.14159265358979323846;
+  const double th = 0.5;
+  const double axes[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  for (int a = 0; a < 3; ++a) {
+    double e[3] = {0, 0, 0};
+    e[a] = th;
+    double got[4], want[4];
+    BallQuatFromEuler(e, got);
+    mju_axisAngle2Quat(want, axes[a], th);
+    CHECK(MaxAbsDiff(got, want, 4) < 1e-12);
+  }
+  // Intrinsic XYZ == the qx (x) qy (x) qz product (regression pin of the order).
+  {
+    const double e[3] = {0.3, -0.4, 0.7};
+    double qx[4], qy[4], qz[4], t[4], want[4], got[4];
+    mju_axisAngle2Quat(qx, axes[0], e[0]);
+    mju_axisAngle2Quat(qy, axes[1], e[1]);
+    mju_axisAngle2Quat(qz, axes[2], e[2]);
+    mju_mulQuat(t, qx, qy);
+    mju_mulQuat(want, t, qz);
+    BallQuatFromEuler(e, got);
+    CHECK(MaxAbsDiff(got, want, 4) < 1e-12);
+  }
+
+  // Scrub pose: SetBallPreview writes the composed quat; the tip lands where an
+  // independent mj_forward at the same qpos puts it (bitwise), AND -- for a pure
+  // X swing, the un-rotated body's world axis == local X -- where the SAME pinned
+  // JointLimitChildPoint contract predicts (ties ball scrub to the P1 pin).
+  const int refg = PickArcReferenceGeom(m, d, f.jid);
+  CHECK(refg >= 0);
+  double p_ref0[3];
+  for (int k = 0; k < 3; ++k) p_ref0[k] = d->geom_xpos[3 * refg + k];  // qpos0 tip
+  const double xaxis[3] = {1, 0, 0};
+  const double eul[3] = {0.4, 0, 0};
+  CHECK(SetBallPreview(f.ctx, f.jserial, eul));
+  CHECK(f.ctx.rig_preview.active);
+  CHECK(f.ctx.rig_preview.overlay.count(f.jserial) == 1);
+  // Independent reference forward at the exact composed qpos.
+  mj_resetData(f.ref, f.rd);
+  const int qadr = m->jnt_qposadr[f.jid];
+  for (int k = 0; k < 4; ++k) f.rd->qpos[qadr + k] = d->qpos[qadr + k];
+  mj_forward(f.ref, f.rd);
+  CHECK(MaxAbsDiff(d->geom_xpos, f.rd->geom_xpos, 3 * m->ngeom) == 0.0);
+  // Pinned contract: pure X swing rotates the tip about world X through anchor.
+  double want[3];
+  JointLimitChildPoint(mjJNT_HINGE, d->xanchor + 3 * f.jid, xaxis, 0.0, 0.4,
+                       p_ref0, want);
+  CHECK(MaxAbsDiff(f.rd->geom_xpos + 3 * refg, want, 3) < 1e-12);
+  ClearJointPreview(f.ctx);
+  CHECK(!f.ctx.rig_preview.active);
+  CHECK(MaxAbsDiff(d->qpos, m->qpos0, m->nq) == 0.0);
+
+  std::printf("  ball parametrization (Euler XYZ -> quat -> pose): ok\n");
+  return 0;
+}
+
+int TestBallSwingCone() {
+  Fixture f;
+  CHECK(BuildFixture(f, kBall));
+  const mjModel* m = f.ctx.compiled.model.get();
+  mjData* d = f.ctx.sim_data;
+  const int refg = PickArcReferenceGeom(m, d, f.jid);
+  CHECK(refg >= 0);
+  const int qadr = m->jnt_qposadr[f.jid];
+  const double theta = m->jnt_range[2 * f.jid + 1];  // 60deg in rad
+  double q0[4];
+  for (int k = 0; k < 4; ++k) q0[k] = m->qpos0[qadr + k];
+
+  // For sampled local axes in the XY plane, the swing qpos is a REAL limit pose:
+  // the drawn rim point (scratch geom_xpos) equals an independent reference
+  // forward (surface pinned), and the ball's rotation magnitude == range[1].
+  const double kPi = 3.14159265358979323846;
+  constexpr int K = 16;
+  for (int s = 0; s < K; ++s) {
+    const double phi = 2.0 * kPi * s / K;
+    const double axis_local[3] = {std::cos(phi), std::sin(phi), 0.0};
+    std::vector<double> qpos;
+    BallSwingQpos(m, f.jid, axis_local, theta, qpos);
+    CHECK(static_cast<int>(qpos.size()) == m->nq);
+    // Editor scratch (the drawn surface source) at this qpos.
+    mj_resetData(m, f.ctx.ghost_data);
+    for (int i = 0; i < m->nq; ++i) f.ctx.ghost_data->qpos[i] = qpos[i];
+    mj_forward(m, f.ctx.ghost_data);
+    // Independent reference at the identical qpos.
+    mj_resetData(f.ref, f.rd);
+    for (int i = 0; i < m->nq; ++i) f.rd->qpos[i] = qpos[i];
+    mj_forward(f.ref, f.rd);
+    const double diff = MaxAbsDiff(f.ctx.ghost_data->geom_xpos + 3 * refg,
+                                   f.rd->geom_xpos + 3 * refg, 3);
+    CHECK(diff < 1e-12);
+    // Every rim pose is exactly at the swing limit.
+    double qb[4];
+    for (int k = 0; k < 4; ++k) qb[k] = qpos[qadr + k];
+    CHECK(std::fabs(BallSwingAngle(q0, qb) - theta) < 1e-9);
+  }
+  std::printf("  ball swing cone (rim == mj_forward at limit): ok\n");
+  return 0;
+}
+
+// --- P3: multi-joint held composition + keyframe capture -------------------- //
+
+int TestHeldComposition() {
+  Fixture f;
+  CHECK(BuildFixture(f, kTwoHinge));
+  const mjModel* m = f.ctx.compiled.model.get();
+  mjData* d = f.ctx.sim_data;
+  CHECK(m->nq == 2);
+  std::uint64_t s_sh, s_el;
+  int j_sh, j_el, q_sh, q_el;
+  CHECK(JointByName(f, "shoulder", &s_sh, &j_sh, &q_sh));
+  CHECK(JointByName(f, "elbow", &s_el, &j_el, &q_el));
+
+  const double kPi = 3.14159265358979323846;
+  const double qs = 35.0 * kPi / 180.0, qe = -50.0 * kPi / 180.0;
+  // Scrub the shoulder, then the elbow: the two COMPOSE (elbow no longer rebases
+  // the shoulder, the P1 single-slot behavior superseded).
+  CHECK(SetJointPreview(f.ctx, s_sh, qs));
+  CHECK(SetJointPreview(f.ctx, s_el, qe));
+  CHECK(f.ctx.rig_preview.overlay.size() == 2);
+  CHECK(f.ctx.rig_preview.active);
+  CHECK(std::fabs(d->qpos[q_sh] - qs) < 1e-15);
+  CHECK(std::fabs(d->qpos[q_el] - qe) < 1e-15);
+
+  // The composed pose == an independent forward at qpos0-with-both-dofs-set.
+  mj_resetData(f.ref, f.rd);
+  f.rd->qpos[q_sh] = qs;
+  f.rd->qpos[q_el] = qe;
+  mj_forward(f.ref, f.rd);
+  CHECK(MaxAbsDiff(d->geom_xpos, f.rd->geom_xpos, 3 * m->ngeom) == 0.0);
+  CHECK(MaxAbsDiff(d->xquat, f.rd->xquat, 4 * m->nbody) == 0.0);
+
+  // RemoveJointPreview(elbow) snaps ONLY the elbow back; the shoulder stays held.
+  RemoveJointPreview(f.ctx, s_el);
+  CHECK(f.ctx.rig_preview.overlay.size() == 1);
+  CHECK(std::fabs(d->qpos[q_sh] - qs) < 1e-15);
+  CHECK(std::fabs(d->qpos[q_el] - m->qpos0[q_el]) < 1e-15);
+
+  std::printf("  multi-joint held composition: ok\n");
+  return 0;
+}
+
+int TestKeyframeRoundTrip() {
+  Fixture f;
+  CHECK(BuildFixture(f, kTwoHinge));
+  const mjModel* m = f.ctx.compiled.model.get();
+  mjData* d = f.ctx.sim_data;
+  std::uint64_t s_sh, s_el;
+  int j_sh, j_el, q_sh, q_el;
+  CHECK(JointByName(f, "shoulder", &s_sh, &j_sh, &q_sh));
+  CHECK(JointByName(f, "elbow", &s_el, &j_el, &q_el));
+
+  const double kPi = 3.14159265358979323846;
+  CHECK(SetJointPreview(f.ctx, s_sh, 20.0 * kPi / 180.0));
+  CHECK(SetJointPreview(f.ctx, s_el, -75.0 * kPi / 180.0));
+  // The held qpos captured verbatim (the core of CaptureKeyframeOp, minus the
+  // ImGui-side DoAdd wiring): write sim_data->qpos into a new <key>.
+  const std::vector<double> held(d->qpos, d->qpos + m->nq);
+  mj::Key& key = ps::sdk::AddKey(*f.ctx.tree, "pose0");
+  key.qpos = held;
+
+  // Recompile through the same bridge: m->key_qpos == the held preview qpos.
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::XmlPath;
+  mj::Compiled c = mj::Compile(*f.ctx.tree, opts);
+  CHECK(c.ok());
+  const mjModel* mk = c.model.get();
+  CHECK(mk->nkey >= 1);
+  CHECK(mk->nq == static_cast<int>(held.size()));
+  double maxd = 0.0;
+  for (int i = 0; i < mk->nq; ++i) {
+    maxd = std::max(maxd, std::fabs(mk->key_qpos[i] - held[i]));
+  }
+  // Tolerance covers mjs/xml float formatting on the qpos text round-trip.
+  if (!(maxd < 1e-6)) {
+    std::fprintf(stderr, "keyframe qpos round-trip diff=%.3e\n", maxd);
+    return 1;
+  }
+  std::printf("  keyframe capture round-trip (key_qpos == held): ok\n");
+  return 0;
+}
+
+// --- P3: springref ghost + driver badges ------------------------------------ //
+
+int TestSpringrefGhost() {
+  Fixture f;
+  CHECK(BuildFixture(f, kSpring));
+  const mjModel* m = f.ctx.compiled.model.get();
+  const int qadr = m->jnt_qposadr[f.jid];
+  CHECK(m->jnt_stiffness[f.jid] > 0.0);
+  // qpos_spring differs from qpos0 (springref=30deg).
+  CHECK(std::fabs(m->qpos_spring[qadr] - m->qpos0[qadr]) > 1e-6);
+  const double kPi = 3.14159265358979323846;
+  CHECK(std::fabs(m->qpos_spring[qadr] - 30.0 * kPi / 180.0) < 1e-9);
+
+  // The spring ghost is the subtree pose at qpos_spring -- pinned like a range
+  // ghost against an independent reference forward.
+  std::vector<double> qpos;
+  GhostQpos(m, f.jid, m->qpos_spring[qadr], qpos);
+  mj_resetData(m, f.ctx.ghost_data);
+  for (int i = 0; i < m->nq; ++i) f.ctx.ghost_data->qpos[i] = qpos[i];
+  mj_forward(m, f.ctx.ghost_data);
+  const float tint[4] = {0.85f, 0.35f, 0.95f, 0.28f};
+  const std::vector<mjvGeom> ghosts =
+      CollectGhostGeoms(m, f.ctx.ghost_data, f.jid, tint, 2000);
+  const std::vector<int> subtree = SubtreeGeoms(m, f.jid);
+  CHECK(ghosts.size() == subtree.size());
+  RefForwardAt(f, m->qpos_spring[qadr]);
+  for (std::size_t i = 0; i < ghosts.size(); ++i) {
+    const int gid = subtree[i];
+    for (int k = 0; k < 3; ++k) {
+      CHECK(ghosts[i].pos[k] == static_cast<float>(f.rd->geom_xpos[3 * gid + k]));
+    }
+    CHECK(ghosts[i].rgba[3] < 1.0f);
+    CHECK(ghosts[i].category == mjCAT_DECOR);
+  }
+  std::printf("  springref ghost pose: ok\n");
+  return 0;
+}
+
+int TestDriverBadges() {
+  Fixture f;
+  CHECK(BuildFixture(f, kDriven));
+  const mjModel* m = f.ctx.compiled.model.get();
+  CHECK(m->nu == 1 && m->ntendon == 1);
+  const std::vector<JointDriver> drivers =
+      CollectJointDrivers(m, f.ctx.compiled.binding, f.jid);
+  CHECK(drivers.size() == 2);
+  bool saw_act = false, saw_ten = false;
+  for (const JointDriver& drv : drivers) {
+    if (!drv.is_tendon) {
+      saw_act = true;
+      CHECK(drv.objtype == mjOBJ_ACTUATOR);
+      CHECK(drv.name == "act0");
+      CHECK(drv.serial != 0);  // resolved through the Binding reverse mapping
+      // The resolved serial really is the actuator (a click would select it).
+      CHECK(ps::sdk::FindBySerial(*f.ctx.tree, drv.serial) != nullptr);
+    } else {
+      saw_ten = true;
+      CHECK(drv.objtype == mjOBJ_TENDON);
+      CHECK(drv.name == "ten0");
+      CHECK(drv.serial != 0);
+    }
+  }
+  CHECK(saw_act && saw_ten);
+
+  // A joint driven by nothing reports no drivers.
+  Fixture f2;
+  CHECK(BuildFixture(f2, kDegHinge));
+  CHECK(CollectJointDrivers(f2.ctx.compiled.model.get(),
+                            f2.ctx.compiled.binding, f2.jid)
+            .empty());
+  std::printf("  actuator/tendon badge resolution: ok\n");
+  return 0;
+}
+
 int RunTests() {
   if (TestUnitsAndLimited()) return 1;
   if (TestScrubAndSnapback()) return 1;
@@ -582,6 +955,13 @@ int RunTests() {
   if (TestCommitRoundTripOne(kSlide, "slide", 0.4, 1)) return 1;
   if (TestEndpointCancel()) return 1;
   if (TestSliderLimbEquivalence()) return 1;
+  // P3.
+  if (TestBallParametrization()) return 1;
+  if (TestBallSwingCone()) return 1;
+  if (TestHeldComposition()) return 1;
+  if (TestKeyframeRoundTrip()) return 1;
+  if (TestSpringrefGhost()) return 1;
+  if (TestDriverBadges()) return 1;
   std::printf("rigger_windowless: all checks passed\n");
   return 0;
 }

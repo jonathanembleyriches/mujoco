@@ -81,29 +81,92 @@ int JointIdForSerial(const mj::Binding& binding, std::uint64_t serial) {
   return -1;
 }
 
-bool SetJointPreview(EditorContext& ctx, std::uint64_t serial, double q) {
+void BallQuatFromEuler(const double euler[3], double quat[4]) {
+  // Intrinsic XYZ: rotate about body X, then the new Y, then the new Z. As
+  // quaternions this is the plain left-to-right product qx ⊗ qy ⊗ qz (each factor
+  // about the fixed body axis; the intrinsic sequencing IS this multiplication
+  // order). Scalar-first, MuJoCo's qpos ball convention.
+  const double ax[3] = {1, 0, 0}, ay[3] = {0, 1, 0}, az[3] = {0, 0, 1};
+  double qx[4], qy[4], qz[4], t[4];
+  mju_axisAngle2Quat(qx, ax, euler[0]);
+  mju_axisAngle2Quat(qy, ay, euler[1]);
+  mju_axisAngle2Quat(qz, az, euler[2]);
+  mju_mulQuat(t, qx, qy);
+  mju_mulQuat(quat, t, qz);
+  mju_normalize4(quat);
+}
+
+// Reset ctx.sim_data to qpos0 then write every held overlay value on top and
+// mj_forward, so scrubbed joints compose while unscrubbed ones stay at qpos0.
+// active == the overlay is non-empty. Pure preview: no authored-state change.
+void ApplyRigOverlay(EditorContext& ctx) {
   mjModel* m = ctx.compiled.model.get();
   mjData* d = ctx.sim_data;
-  if (!m || !d) return false;
+  if (!m || !d) return;
+  mj_resetData(m, d);  // qpos0 baseline; the overlay composes on top of it
+  for (const auto& [serial, dof] : ctx.rig_preview.overlay) {
+    const int jid = JointIdForSerial(ctx.compiled.binding, serial);
+    if (jid < 0 || jid >= m->njnt) continue;
+    const int adr = m->jnt_qposadr[jid];
+    const int type = m->jnt_type[jid];
+    if (type == mjJNT_BALL && dof.ball) {
+      double delta[4], q0[4], quat[4];
+      BallQuatFromEuler(dof.v, delta);
+      for (int k = 0; k < 4; ++k) q0[k] = m->qpos0[adr + k];
+      mju_mulQuat(quat, q0, delta);  // qpos0 orientation, then the local swing
+      mju_normalize4(quat);
+      for (int k = 0; k < 4; ++k) d->qpos[adr + k] = quat[k];
+    } else if (type == mjJNT_HINGE || type == mjJNT_SLIDE) {
+      d->qpos[adr] = dof.v[0];
+    }
+  }
+  mj_forward(m, d);
+  ctx.rig_preview.active = !ctx.rig_preview.overlay.empty();
+}
+
+bool SetJointPreview(EditorContext& ctx, std::uint64_t serial, double q) {
+  mjModel* m = ctx.compiled.model.get();
+  if (!m || !ctx.sim_data) return false;
   const int jid = JointIdForSerial(ctx.compiled.binding, serial);
   if (jid < 0 || jid >= m->njnt) return false;
   const int type = m->jnt_type[jid];
-  if (type != mjJNT_HINGE && type != mjJNT_SLIDE) return false;  // ball/free: P1
+  if (type != mjJNT_HINGE && type != mjJNT_SLIDE) return false;  // ball: SetBall
 
-  // Reset to qpos0 then move only this dof, so the scrub shows exactly this joint
-  // articulated from the rest pose (matches the ghost qpos construction). No
-  // authored-state change: this only mutates the editor's preview mjData.
-  mj_resetData(m, d);
-  d->qpos[m->jnt_qposadr[jid]] = q;
-  mj_forward(m, d);
-
+  RigDof& dof = ctx.rig_preview.overlay[serial];
+  dof.ball = false;
+  dof.v[0] = q;
   ctx.rig_preview.serial = serial;
   ctx.rig_preview.q = q;
-  ctx.rig_preview.active = true;
+  ApplyRigOverlay(ctx);
   return true;
 }
 
+bool SetBallPreview(EditorContext& ctx, std::uint64_t serial,
+                    const double euler[3]) {
+  mjModel* m = ctx.compiled.model.get();
+  if (!m || !ctx.sim_data) return false;
+  const int jid = JointIdForSerial(ctx.compiled.binding, serial);
+  if (jid < 0 || jid >= m->njnt) return false;
+  if (m->jnt_type[jid] != mjJNT_BALL) return false;
+
+  RigDof& dof = ctx.rig_preview.overlay[serial];
+  dof.ball = true;
+  for (int k = 0; k < 3; ++k) dof.v[k] = euler[k];
+  ctx.rig_preview.serial = serial;
+  ApplyRigOverlay(ctx);
+  return true;
+}
+
+void RemoveJointPreview(EditorContext& ctx, std::uint64_t serial) {
+  auto it = ctx.rig_preview.overlay.find(serial);
+  if (it == ctx.rig_preview.overlay.end()) return;
+  ctx.rig_preview.overlay.erase(it);
+  if (ctx.rig_preview.serial == serial) ctx.rig_preview.serial = 0;
+  ApplyRigOverlay(ctx);  // re-pose the survivors (or snap all back if now empty)
+}
+
 void ClearJointPreview(EditorContext& ctx) {
+  ctx.rig_preview.overlay.clear();
   ctx.rig_preview.active = false;
   ctx.rig_preview.serial = 0;
   mjModel* m = ctx.compiled.model.get();
@@ -112,6 +175,19 @@ void ClearJointPreview(EditorContext& ctx) {
     mj_resetData(m, d);  // snap back to qpos0
     mj_forward(m, d);
   }
+}
+
+void BallSwingQpos(const mjModel* m, int jid, const double axis_local[3],
+                   double angle, std::vector<double>& out) {
+  out.assign(m->qpos0, m->qpos0 + m->nq);
+  if (jid < 0 || jid >= m->njnt || m->jnt_type[jid] != mjJNT_BALL) return;
+  const int adr = m->jnt_qposadr[jid];
+  double delta[4], q0[4], quat[4];
+  mju_axisAngle2Quat(delta, axis_local, angle);
+  for (int k = 0; k < 4; ++k) q0[k] = m->qpos0[adr + k];
+  mju_mulQuat(quat, q0, delta);
+  mju_normalize4(quat);
+  for (int k = 0; k < 4; ++k) out[adr + k] = quat[k];
 }
 
 // --- Limit ghosts ----------------------------------------------------------- //
@@ -320,6 +396,69 @@ std::vector<mjvGeom> CollectJointGlyph(const mjModel* m, const mjData* d, int ji
       mjv_connector(&seg, mjGEOM_LINE, lw, e0, e1);
       MarkDecor(&seg);
       push(seg);
+    }
+  }
+  return out;
+}
+
+// --- Actuator / tendon awareness -------------------------------------------- //
+
+namespace {
+
+// The tree serial + compiled name bound to compiled (objtype, id), via the
+// Binding's reverse entry list. serial 0 (name empty) when the element compiled
+// away or was never in the tree (e.g. a macro-expanded actuator).
+void ResolveBound(const mj::Binding& binding, int objtype, int id,
+                  std::uint64_t* serial, std::string* name) {
+  for (const mj::Binding::Entry& e : binding.entries()) {
+    if (e.objtype == objtype && e.id == id) {
+      *serial = e.serial;
+      *name = e.name;
+      return;
+    }
+  }
+}
+
+}  // namespace
+
+std::vector<JointDriver> CollectJointDrivers(const mjModel* m,
+                                             const mj::Binding& binding, int jid) {
+  std::vector<JointDriver> out;
+  if (!m || jid < 0 || jid >= m->njnt) return out;
+
+  // Actuators whose transmission targets this joint (trnid[0] is the joint id for
+  // JOINT / JOINTINPARENT transmissions; trnid[1] is unused for those).
+  for (int a = 0; a < m->nu; ++a) {
+    const int tt = m->actuator_trntype[a];
+    if ((tt == mjTRN_JOINT || tt == mjTRN_JOINTINPARENT) &&
+        m->actuator_trnid[2 * a] == jid) {
+      JointDriver drv;
+      drv.objtype = mjOBJ_ACTUATOR;
+      drv.id = a;
+      drv.is_tendon = false;
+      ResolveBound(binding, mjOBJ_ACTUATOR, a, &drv.serial, &drv.name);
+      out.push_back(std::move(drv));
+    }
+  }
+
+  // Tendons that wrap this joint (a mjWRAP_JOINT wrap object naming it).
+  for (int t = 0; t < m->ntendon; ++t) {
+    const int adr = m->tendon_adr[t];
+    const int num = m->tendon_num[t];
+    bool wraps = false;
+    for (int w = adr; w < adr + num && w < m->nwrap; ++w) {
+      if (m->wrap_type[w] == mjWRAP_JOINT && m->wrap_objid[w] == jid) {
+        wraps = true;
+        break;
+      }
+    }
+    if (wraps) {
+      JointDriver drv;
+      drv.objtype = mjOBJ_TENDON;
+      drv.id = t;
+      drv.is_tendon = true;
+      ResolveBound(binding, mjOBJ_TENDON, t, &drv.serial, &drv.name);
+      out.push_back(std::move(drv));
     }
   }
   return out;

@@ -529,6 +529,23 @@ std::uint64_t AddKeyframeOp(EditorContext& ctx) {
   });
 }
 
+std::uint64_t CaptureKeyframeOp(EditorContext& ctx) {
+  const mjModel* m = ctx.compiled.model.get();
+  const mjData* d = ctx.sim_data;
+  if (!m || !d) return 0;
+  const int nq = m->nq;
+  // The one rigger action that commits: write the CURRENT held preview qpos
+  // (overlay applied onto qpos0 in sim_data) verbatim into a new <key>. AddKey +
+  // BeginEdit/CommitEdit/undo run through the shared DoAdd flow; a recompile
+  // round-trips these exact doubles into m->key_qpos (pinned by test).
+  return DoAdd(ctx, "Capture keyframe", [&](mj::Model& tree) -> std::uint64_t {
+    mj::Key& k =
+        sdk::AddKey(tree, sdk::UniqueName(tree, mj::ElementType::Key, "pose"));
+    k.qpos = std::vector<double>(d->qpos, d->qpos + nq);
+    return k.serial;
+  });
+}
+
 std::uint64_t AddDefaultClassOp(EditorContext& ctx, const std::string& name) {
   return DoAdd(ctx, "Add default class", [&](mj::Model& tree) -> std::uint64_t {
     const std::string n = sdk::UniqueName(tree, mj::ElementType::Default,

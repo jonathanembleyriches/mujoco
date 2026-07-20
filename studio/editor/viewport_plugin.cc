@@ -15,6 +15,7 @@
 // foreground draw list (accepted degradation: no depth occlusion).
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -246,28 +247,104 @@ void AddRigGeoms(EditorContext& ctx, const mjModel* host_model, mjvScene* scn) {
     if (!AppendSceneGeom(scn, g)) return;
   }
 
-  // Limit ghosts: forwarded on the scratch data at each jnt_range endpoint. Exist
-  // iff m->jnt_limited (the compiled pin, never re-derived from authored fields).
   const int type = m->jnt_type[jid];
-  const bool limited_articulated =
-      m->jnt_limited[jid] && (type == mjJNT_HINGE || type == mjJNT_SLIDE);
-  if (!ctx.rig_preview.show_ghosts || !limited_articulated || !ctx.ghost_data) {
-    return;
-  }
-  const float ghost_rgba[2][4] = {
-      {0.30f, 0.60f, 1.00f, 0.25f},   // range[0] (min) tint
-      {1.00f, 0.60f, 0.20f, 0.25f}};  // range[1] (max) tint
-  std::vector<double> qpos;
-  for (int end = 0; end < 2; ++end) {
+  if (!ctx.rig_preview.show_ghosts || !ctx.ghost_data) return;
+
+  // Forward the scratch data at `qpos` and append its subtree ghost geoms in
+  // `rgba`. Every append is budget-guarded (2000-geom shared plugin scene).
+  auto emit_ghost_at = [&](const std::vector<double>& qpos,
+                           const float rgba[4]) -> bool {
     const int remaining = scn->maxgeom - scn->ngeom;
-    if (remaining <= 0) return;
-    GhostQpos(m, jid, m->jnt_range[2 * jid + end], qpos);
+    if (remaining <= 0) return false;
     mj_resetData(m, ctx.ghost_data);
     for (int i = 0; i < m->nq; ++i) ctx.ghost_data->qpos[i] = qpos[i];
     mj_forward(m, ctx.ghost_data);
     for (const mjvGeom& g :
-         CollectGhostGeoms(m, ctx.ghost_data, jid, ghost_rgba[end], remaining)) {
-      if (!AppendSceneGeom(scn, g)) return;
+         CollectGhostGeoms(m, ctx.ghost_data, jid, rgba, remaining)) {
+      if (!AppendSceneGeom(scn, g)) return false;
+    }
+    return true;
+  };
+
+  std::vector<double> qpos;
+
+  // Hinge / slide limit ghosts: transparent subtree pose at each jnt_range
+  // endpoint. Exist iff m->jnt_limited (the compiled pin).
+  if (m->jnt_limited[jid] && (type == mjJNT_HINGE || type == mjJNT_SLIDE)) {
+    const float ghost_rgba[2][4] = {
+        {0.30f, 0.60f, 1.00f, 0.25f},   // range[0] (min) tint
+        {1.00f, 0.60f, 0.20f, 0.25f}};  // range[1] (max) tint
+    for (int end = 0; end < 2; ++end) {
+      GhostQpos(m, jid, m->jnt_range[2 * jid + end], qpos);
+      if (!emit_ghost_at(qpos, ghost_rgba[end])) return;
+    }
+  }
+
+  // springref / ref ghost (P3): a hinge/slide with stiffness whose spring
+  // equilibrium (m->qpos_spring) differs from qpos0 gets one extra ghost at that
+  // equilibrium, in a distinct tint. Pinned by test like the range ghosts.
+  if ((type == mjJNT_HINGE || type == mjJNT_SLIDE) &&
+      m->jnt_stiffness[jid] > 0.0) {
+    const int qadr = m->jnt_qposadr[jid];
+    if (std::fabs(m->qpos_spring[qadr] - m->qpos0[qadr]) > 1e-9) {
+      const float spring_rgba[4] = {0.85f, 0.35f, 0.95f, 0.28f};  // spring violet
+      GhostQpos(m, jid, m->qpos_spring[qadr], qpos);
+      if (!emit_ghost_at(qpos, spring_rgba)) return;
+    }
+  }
+
+  // Ball swing-limit visual (P3): MuJoCo constrains the ball's TOTAL rotation
+  // angle to jnt_range[1] (a scalar cone about qpos0). Draw the cone as a rim of
+  // real limit poses -- for kConeSeg sampled local axes in the joint's XY plane,
+  // BallSwingQpos builds qpos0-rotated-by-range[1], mj_forward places the arc
+  // reference geom on the rim (correct by construction), and we connect the rim
+  // into a loop + spokes to the anchor. A few full-subtree ghosts (kBallGhostN)
+  // sit on the rim. Both are pinned by test (child point == mj_forward at limit).
+  if (type == mjJNT_BALL && m->jnt_limited[jid] && m->jnt_range[2 * jid + 1] > 0) {
+    const double theta = m->jnt_range[2 * jid + 1];
+    const int refg = PickArcReferenceGeom(m, d, jid);
+    const double* anchor = d->xanchor + 3 * jid;
+    const float cone_rgba[4] = {0.90f, 0.45f, 0.95f, 1.0f};
+    const float ball_ghost_rgba[4] = {0.85f, 0.55f, 1.00f, 0.22f};
+    constexpr int kConeSeg = 16;    // rim samples (cone smoothness)
+    constexpr int kBallGhostN = 4;  // full-subtree ghosts around the rim
+    const double kPi = 3.14159265358979323846;
+
+    std::vector<std::array<double, 3>> rim;
+    rim.reserve(kConeSeg);
+    for (int s = 0; s < kConeSeg; ++s) {
+      const double phi = 2.0 * kPi * s / kConeSeg;
+      const double axis_local[3] = {std::cos(phi), std::sin(phi), 0.0};
+      BallSwingQpos(m, jid, axis_local, theta, qpos);
+      mj_resetData(m, ctx.ghost_data);
+      for (int i = 0; i < m->nq; ++i) ctx.ghost_data->qpos[i] = qpos[i];
+      mj_forward(m, ctx.ghost_data);
+      std::array<double, 3> p{anchor[0], anchor[1], anchor[2]};
+      if (refg >= 0) {
+        for (int k = 0; k < 3; ++k) p[k] = ctx.ghost_data->geom_xpos[3 * refg + k];
+      }
+      rim.push_back(p);
+      // A sparse set of full-subtree ghosts around the rim (budget-aware).
+      if (kBallGhostN > 0 && (s % (kConeSeg / kBallGhostN)) == 0) {
+        if (!emit_ghost_at(qpos, ball_ghost_rgba)) return;
+      }
+    }
+    // Rim loop + spokes from the anchor (the cone surface).
+    auto push_line = [&](const double* p0, const double* p1) -> bool {
+      if (scn->ngeom >= scn->maxgeom) return false;
+      mjvGeom seg;
+      mjv_initGeom(&seg, mjGEOM_LINE, nullptr, nullptr, nullptr, cone_rgba);
+      mjv_connector(&seg, mjGEOM_LINE, 3.0f, p0, p1);
+      seg.category = mjCAT_DECOR;
+      seg.objid = -1;
+      seg.segid = -1;
+      return AppendSceneGeom(scn, seg);
+    };
+    for (int s = 0; s < kConeSeg && refg >= 0; ++s) {
+      const std::array<double, 3>& a = rim[s];
+      const std::array<double, 3>& b = rim[(s + 1) % kConeSeg];
+      if (!push_line(a.data(), b.data())) return;  // rim segment
+      if (!push_line(anchor, a.data())) return;    // spoke to the anchor
     }
   }
 }
@@ -634,15 +711,16 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   ve->last_data = ctx.sim_data;
   ve->last_opt = &ve->vis_option;
 
-  // Snap the scrub back before anything else this frame if it must not persist:
-  // the rig joint is no longer the selection, editing is closed (Edit-exit / sim
-  // advanced), or the gizmo is engaging (a held scrub pose would otherwise feed a
-  // corrupt qpos into BuildJointDragFrame, which expects qpos0). Plan §5 risks 1/3.
-  // ...unless the rig controller is itself driving the scrub this frame (a
-  // limb-drag owns rig_preview and must not be snapped out from under itself).
+  // Snap the WHOLE held overlay back before anything else this frame if it must
+  // not persist: editing is closed (Edit-exit / sim advanced), or the gizmo is
+  // engaging (a held scrub pose would otherwise feed a corrupt qpos into
+  // BuildJointDragFrame, which expects qpos0). Plan §5 risks 1/3. P3 note: a mere
+  // selection change no longer snaps back -- the multi-joint overlay is HELD, so a
+  // posed joint survives selecting another (that is the point of "pose all
+  // joints"). ...unless the rig controller is itself driving the scrub this frame
+  // (a limb-drag owns rig_preview and must not be snapped out from under itself).
   if (ctx.rig_preview.active && !ve->rig.active() &&
-      (ctx.selected_serial != ctx.rig_preview.serial || !ctx.CanEdit() ||
-       ctx.gizmo_active || ve->gizmo.hot())) {
+      (!ctx.CanEdit() || ctx.gizmo_active || ve->gizmo.hot())) {
     ClearJointPreview(ctx);
   }
 

@@ -14,6 +14,7 @@
 
 #include "editor/asset_import.h"
 #include "editor/authoring_ops.h"
+#include "editor/details_panel.h"  // details::RenderPoseTable (Pose tab)
 #include "editor/editor_context.h"
 #include "editor/editor_ops.h"
 #include "editor/layers.h"
@@ -1040,6 +1041,10 @@ static void ProtoSpecPanelUpdate(GuiPlugin* self) {
   }
   if (ImGui::BeginTabItem("Assets")) {
     AssetsBody(c);
+    ImGui::EndTabItem();
+  }
+  if (ImGui::BeginTabItem("Pose")) {
+    details::RenderPoseTable(*c);
     ImGui::EndTabItem();
   }
   const ImGuiTabItemFlags diag_flags =
