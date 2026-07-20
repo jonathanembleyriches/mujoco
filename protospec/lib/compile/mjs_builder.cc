@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <variant>
 #include <vector>
@@ -26,7 +27,6 @@
 #include <mujoco/mujoco.h>
 
 #include "keywords.h"   // ToMjcf(enum) -> MJCF keyword (flexcomp type/dof strings)
-#include "mjcf.h"        // io::WriteMjcf / io::ParseMjcfString (composite route-D)
 #include "mjs_binding.h"
 #include "mjs_convert.h"
 
@@ -186,6 +186,9 @@ std::string ReplicateSuffix(const std::string& sep, int count, int i) {
   return sep + pad + is;
 }
 
+// carried state for one cable composite (defined with the composite section).
+struct CableComp;
+
 // --- the builder --------------------------------------------------------- //
 class Builder {
  public:
@@ -258,7 +261,22 @@ class Builder {
   // worldbody parse. Set/restored by BuildWorldbody.
   void ExpandReplicate(mjsBody* body, const Replicate& e, mjsFrame* frame,
                        const mjsDefault* inherited);
-  void GraftComposite(mjsBody* body, const Composite& e, mjsFrame* frame);
+  // <composite type="cable">: direct mjs authoring (mirror mjCComposite). The
+  // helpers below reproduce MakeCable/AddCableBody/MakeSkin2*/MakeCableBones*.
+  void BuildComposite(mjsBody* body, const Composite& e, mjsFrame* frame);
+  mjsBody* AddCableBody(CableComp& c, mjsBody* body, int ix, double normal[3],
+                        double prev_quat[4]);
+  void MakeCableBones(CableComp& c, mjsSkin* skin, std::vector<float>& bindpos,
+                      std::vector<float>& bindquat,
+                      std::vector<std::vector<int>>& vertid,
+                      std::vector<std::vector<float>>& vertweight);
+  void MakeCableBonesSubgrid(CableComp& c, mjsSkin* skin,
+                             std::vector<float>& bindquat,
+                             std::vector<std::vector<int>>& vertid,
+                             std::vector<std::vector<float>>& vertweight,
+                             std::vector<float>& bindpos);
+  void MakeCableSkin2(CableComp& c, double inflate);
+  void MakeCableSkin2Subgrid(CableComp& c, double inflate);
   void BuildFlexcomp(mjsBody* body, const Flexcomp& e);
   // Direct mjSpec mirror of mjCFlexcomp::Make for the flexcomp families the
   // mjs_makeFlex C-API cannot express (inline <pin>, type="direct", material
@@ -267,7 +285,6 @@ class Builder {
 
   mjSpec* spec_;
   const io::AutoNames& names_;
-  const Model* model_ = nullptr;  // whole model (composite route-D needs context)
   std::string err_;               // first fatal build error (aborts BuildSpec)
   std::string base_dir_;   // model directory for resolving <model file=...>
 };
@@ -819,7 +836,7 @@ void Builder::BuildSubtree(mjsBody* body,
       } else if constexpr (std::is_same_v<T, Replicate>) {
         ExpandReplicate(body, e, frame, inherited);
       } else if constexpr (std::is_same_v<T, Composite>) {
-        GraftComposite(body, e, frame);
+        BuildComposite(body, e, frame);
       } else if constexpr (std::is_same_v<T, Flexcomp>) {
         BuildFlexcomp(body, e);
       }
@@ -886,63 +903,10 @@ void Builder::ExpandReplicate(mjsBody* body, const Replicate& e, mjsFrame* frame
   mjs_delete(spec_, subtree->element);
 }
 
-// --- <composite> (route-D graft) ----------------------------------------- //
-// Composites have no mjsComposite; the parser expands them into plain bodies
-// during mj_parseXMLString (which also surfaces the deprecated-type / non-1D
-// errors from user_composite.cc -- only "cable" survives). Emit a minimal
-// complete fragment (compiler + defaults + extensions + a holder body carrying
-// this one composite), parse it, register it, and attach the expanded chain
-// under a frame in `body`. The holder sits at the origin; `body` carries the
-// world placement, exactly as the inline composite would. ps_path_diff is the
-// drift net. Assets are NOT copied into the fragment: mjs_addSpec merges the
-// fragment into spec_ (which already holds every asset), and a duplicated
-// asset name (e.g. a shared "texplane" from an <include>d scene) would collide
-// at compile ("repeated name"); the composite geometry resolves any material
-// against the parent spec after the merge.
-void Builder::GraftComposite(mjsBody* body, const Composite& e, mjsFrame* frame) {
-  Model frag;
-  if (model_) {
-    for (const auto& c : model_->compilers) if (c) frag.compilers.push_back(Clone(*c));
-    for (const auto& d : model_->defaults) if (d) frag.defaults.push_back(Clone(*d));
-    for (const auto& x : model_->extensions) if (x) frag.extensions.push_back(Clone(*x));
-  }
-  auto holder = std::make_unique<Body>();
-  holder->name = "holder";
-  BodyChildAny comp_child;
-  comp_child.node = Clone(e);
-  holder->subtree.push_back(std::move(comp_child));
-  auto world = std::make_unique<Body>();  // the <worldbody> wrapper
-  BodyChildAny holder_child;
-  holder_child.node = std::move(holder);
-  world->subtree.push_back(std::move(holder_child));
-  frag.worldbody.push_back(std::move(world));
-
-  std::vector<ps::Diagnostic> werr;
-  const std::string xml = io::WriteMjcf(frag, &werr);
-  if (xml.empty()) {
-    if (err_.empty()) err_ = "composite: failed to serialize fragment";
-    return;
-  }
-  char perr[1024] = {0};
-  mjSpec* F = mj_parseXMLString(xml.c_str(), nullptr, perr, sizeof(perr));
-  if (!F) {  // deprecated composite type / dim error surfaces here, on all paths
-    if (err_.empty()) err_ = perr;
-    return;
-  }
-  mjs_addSpec(spec_, F);  // owned by spec_, freed with it
-  mjsBody* fholder = mjs_findBody(F, "holder");
-  if (!fholder) { if (err_.empty()) err_ = "composite: holder body vanished"; return; }
-  mjsFrame* fr = frame ? frame : mjs_addFrame(body, nullptr);
-  std::vector<mjsElement*> kids;
-  for (mjsElement* c = mjs_firstChild(fholder, mjOBJ_BODY, 0); c;
-       c = mjs_nextChild(fholder, c, 0))
-    kids.push_back(c);
-  for (mjsElement* k : kids)
-    if (!mjs_attach(fr->element, k, "", "")) {
-      if (err_.empty()) err_ = mjs_getError(spec_);
-      return;
-    }
-}
+// --- <composite type="cable"> ------------------------------------------ //
+// Built directly through the public mjs API (no graft). The implementation
+// (BuildComposite + the MakeCable*/AddCableBody/skin helpers) lives after
+// BuildSkin, below, where the mjuu frame-math mirrors are in scope.
 
 // --- flexcomp geometry mirror -------------------------------------------- //
 // mjEPS (user_util.h) governs mjuu_normvec's threshold; not a public constant.
@@ -2331,9 +2295,1035 @@ void Builder::BuildSkin(const Skin& sk) {
     mjs_setFloat(s->bindquat, bindquat.data(), static_cast<int>(bindquat.size()));
 }
 
+
+// --- <composite type="cable"> direct mirror ------------------------------ //
+// Faithful reimplementation of mjCComposite::MakeCable / AddCableBody /
+// MakeSkin2 / MakeCableBones / MakeSkin2Subgrid / MakeCableBonesSubgrid
+// (user_composite.cc) authored directly through the public mjs API. The prior
+// prior route-D graft (serialize-to-MJCF, reparse, and merge the fragment) is gone:
+// every generated body/geom/joint/site/skin/exclude/text/plugin is emitted
+// here with the same values and stock's exact generated names, so mj_compile
+// sees byte-identical mjsSpec state to what the inline <composite> would.
+// ps_path_diff (XmlPath vs MjsPath) is the drift net.
+//
+// def-template mirror (blocker #1). mjCComposite keeps a LOCAL mjCDef value-
+// template (def[0].spec.{geom,site,joint}) whose fields come from the GLOBAL
+// mjs_defaultGeom/Joint/Site baseline (NOT the enclosing childclass), the
+// composite's SetDefault group assignment, and the <geom>/<site>/<joint> sub-
+// attribute overrides; mjs_addGeom(body,&def[0].spec) then EAGERLY copies that
+// whole spec into the new element and mjs_setDefault only restamps its
+// classname. There is no public detached-mjsDefault primitive, so we build the
+// same template on the stack (CableComp::g/j/s tmpl), author each element with
+// a nullptr default, copy EVERY value field of the template over it (masking
+// the body's ambient default entirely -- coil's top-level <default> geom
+// solref/solimp must NOT leak in), then mjs_setDefault to the body's ambient
+// default for classname attribution -- exactly as AddCableBody does.
+
+namespace {
+
+// mjuu_crossvec / mjuu_mulquat / mjuu_rotVecQuat / mjuu_axisAngle2Quat /
+// mjuu_frame2quat / mjuu_updateFrame (user_util.cc), mirrored verbatim: the
+// cable moving-frame math must be byte-identical to the XML leg. MjuuNormvec
+// (above) carries the mjEPS "don't normalize within eps of 1" quirk these rely
+// on. ps_path_diff is the drift net.
+double MjuuDot3(const double* a, const double* b) {
+  return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+void MjuuCrossvec(double* a, const double* b, const double* c) {
+  a[0] = b[1]*c[2] - b[2]*c[1];
+  a[1] = b[2]*c[0] - b[0]*c[2];
+  a[2] = b[0]*c[1] - b[1]*c[0];
+}
+void MjuuMulquat(double* res, const double* qa, const double* qb) {
+  double tmp[4];
+  tmp[0] = qa[0]*qb[0] - qa[1]*qb[1] - qa[2]*qb[2] - qa[3]*qb[3];
+  tmp[1] = qa[0]*qb[1] + qa[1]*qb[0] + qa[2]*qb[3] - qa[3]*qb[2];
+  tmp[2] = qa[0]*qb[2] - qa[1]*qb[3] + qa[2]*qb[0] + qa[3]*qb[1];
+  tmp[3] = qa[0]*qb[3] + qa[1]*qb[2] - qa[2]*qb[1] + qa[3]*qb[0];
+  MjuuNormvec(tmp, 4);
+  for (int i = 0; i < 4; i++) res[i] = tmp[i];
+}
+// mjuu_rotVecQuat: special-cases zero vec / null quat exactly (the public
+// mju_rotVecQuat does not), so this is mirrored instead of reused.
+void MjuuRotVecQuat(double res[3], const double vec[3], const double quat[4]) {
+  if (vec[0] == 0 && vec[1] == 0 && vec[2] == 0) {
+    res[0] = res[1] = res[2] = 0;
+  } else if (quat[0] == 1 && quat[1] == 0 && quat[2] == 0 && quat[3] == 0) {
+    res[0] = vec[0]; res[1] = vec[1]; res[2] = vec[2];
+  } else {
+    double t[3] = {
+      quat[0]*vec[0] + quat[2]*vec[2] - quat[3]*vec[1],
+      quat[0]*vec[1] + quat[3]*vec[0] - quat[1]*vec[2],
+      quat[0]*vec[2] + quat[1]*vec[1] - quat[2]*vec[0]};
+    res[0] = vec[0] + 2 * (quat[2]*t[2] - quat[3]*t[1]);
+    res[1] = vec[1] + 2 * (quat[3]*t[0] - quat[1]*t[2]);
+    res[2] = vec[2] + 2 * (quat[1]*t[1] - quat[2]*t[0]);
+  }
+}
+void MjuuAxisAngle2Quat(double res[4], const double axis[3], double angle) {
+  if (angle == 0) {
+    res[0] = 1; res[1] = 0; res[2] = 0; res[3] = 0;
+  } else {
+    double s = std::sin(angle*0.5);
+    res[0] = std::cos(angle*0.5);
+    res[1] = axis[0]*s; res[2] = axis[1]*s; res[3] = axis[2]*s;
+  }
+}
+void MjuuFrame2quat(double* quat, const double* x, const double* y,
+                    const double* z) {
+  const double* mat[3] = {x, y, z};  // mat[c][r] indexing
+  if (mat[0][0]+mat[1][1]+mat[2][2] > 0) {
+    quat[0] = 0.5 * std::sqrt(1 + mat[0][0] + mat[1][1] + mat[2][2]);
+    quat[1] = 0.25 * (mat[1][2] - mat[2][1]) / quat[0];
+    quat[2] = 0.25 * (mat[2][0] - mat[0][2]) / quat[0];
+    quat[3] = 0.25 * (mat[0][1] - mat[1][0]) / quat[0];
+  } else if (mat[0][0] > mat[1][1] && mat[0][0] > mat[2][2]) {
+    quat[1] = 0.5 * std::sqrt(1 + mat[0][0] - mat[1][1] - mat[2][2]);
+    quat[0] = 0.25 * (mat[1][2] - mat[2][1]) / quat[1];
+    quat[2] = 0.25 * (mat[1][0] + mat[0][1]) / quat[1];
+    quat[3] = 0.25 * (mat[2][0] + mat[0][2]) / quat[1];
+  } else if (mat[1][1] > mat[2][2]) {
+    quat[2] = 0.5 * std::sqrt(1 - mat[0][0] + mat[1][1] - mat[2][2]);
+    quat[0] = 0.25 * (mat[2][0] - mat[0][2]) / quat[2];
+    quat[1] = 0.25 * (mat[1][0] + mat[0][1]) / quat[2];
+    quat[3] = 0.25 * (mat[2][1] + mat[1][2]) / quat[2];
+  } else {
+    quat[3] = 0.5 * std::sqrt(1 - mat[0][0] - mat[1][1] + mat[2][2]);
+    quat[0] = 0.25 * (mat[0][1] - mat[1][0]) / quat[3];
+    quat[1] = 0.25 * (mat[2][0] + mat[0][2]) / quat[3];
+    quat[2] = 0.25 * (mat[2][1] + mat[1][2]) / quat[3];
+  }
+  MjuuNormvec(quat, 4);
+}
+double MjuuUpdateFrame(double quat[4], double normal[3], const double edge[3],
+                       const double tprv[3], const double tnxt[3], int first) {
+  double tangent[3], binormal[3];
+  tangent[0] = edge[0]; tangent[1] = edge[1]; tangent[2] = edge[2];
+  MjuuNormvec(tangent, 3);
+  if (first) {
+    MjuuCrossvec(binormal, tangent, tnxt);
+    MjuuNormvec(binormal, 3);
+    MjuuCrossvec(normal, binormal, tangent);
+    MjuuNormvec(normal, 3);
+  } else {
+    double darboux[4];
+    MjuuCrossvec(binormal, tprv, tangent);
+    double angle = std::atan2(MjuuNormvec(binormal, 3), MjuuDot3(tprv, tangent));
+    MjuuAxisAngle2Quat(darboux, binormal, angle);
+    MjuuRotVecQuat(normal, normal, darboux);
+    MjuuNormvec(normal, 3);
+    MjuuCrossvec(binormal, tangent, normal);
+    MjuuNormvec(binormal, 3);
+  }
+  MjuuFrame2quat(quat, tangent, normal, binormal);
+  return std::sqrt(MjuuDot3(edge, edge));
+}
+
+// mjtCompShape (user_composite.h) is engine-internal, not in <mujoco/mujoco.h>;
+// mirror the enumerators here so the curve token loop matches the reader.
+enum { kCompShapeLine = 0, kCompShapeCos = 1, kCompShapeSin = 2, kCompShapeZero = 3 };
+
+// composite rope shape token -> mjtCompShape (mirror shape_map,
+// xml_native_reader.cc). -1 marks an unknown token, an error on both legs.
+int CompShapeFromToken(const std::string& t) {
+  if (t == "s") return kCompShapeLine;
+  if (t == "cos(s)") return kCompShapeCos;
+  if (t == "sin(s)") return kCompShapeSin;
+  if (t == "0") return kCompShapeZero;
+  return -1;
+}
+
+mjtGeom CableGeomTypeToMjt(GeomType v) {
+  switch (v) {
+    case GeomType::plane: return mjGEOM_PLANE;
+    case GeomType::hfield: return mjGEOM_HFIELD;
+    case GeomType::sphere: return mjGEOM_SPHERE;
+    case GeomType::capsule: return mjGEOM_CAPSULE;
+    case GeomType::ellipsoid: return mjGEOM_ELLIPSOID;
+    case GeomType::cylinder: return mjGEOM_CYLINDER;
+    case GeomType::box: return mjGEOM_BOX;
+    case GeomType::mesh: return mjGEOM_MESH;
+    case GeomType::sdf: return mjGEOM_SDF;
+  }
+  return mjGEOM_SPHERE;
+}
+mjtJoint CableJointTypeToMjt(JointType v) {
+  switch (v) {
+    case JointType::free: return mjJNT_FREE;
+    case JointType::ball: return mjJNT_BALL;
+    case JointType::slide: return mjJNT_SLIDE;
+    case JointType::hinge: return mjJNT_HINGE;
+  }
+  return mjJNT_HINGE;
+}
+
+// Copy every value (non-pointer) field of a template onto `dst`: the public-API
+// stand-in for mjs_addGeom(body,&def[0].spec)'s eager whole-spec copy. Pointer
+// fields (material/mesh/hfield/userdata/plugin/info/element) are NOT touched
+// here -- material is set explicitly by the caller (mjs_setString), the rest
+// stay at the element's own local storage.
+void CopyGeomTemplate(mjsGeom* dst, const mjsGeom& t) {
+  dst->type = t.type;
+  for (int i = 0; i < 3; i++) dst->pos[i] = t.pos[i];
+  for (int i = 0; i < 4; i++) dst->quat[i] = t.quat[i];
+  dst->alt = t.alt;
+  for (int i = 0; i < 6; i++) dst->fromto[i] = t.fromto[i];
+  for (int i = 0; i < 3; i++) dst->size[i] = t.size[i];
+  dst->contype = t.contype; dst->conaffinity = t.conaffinity;
+  dst->condim = t.condim; dst->priority = t.priority;
+  for (int i = 0; i < 3; i++) dst->friction[i] = t.friction[i];
+  dst->solmix = t.solmix;
+  for (int i = 0; i < mjNREF; i++) dst->solref[i] = t.solref[i];
+  for (int i = 0; i < mjNIMP; i++) dst->solimp[i] = t.solimp[i];
+  dst->margin = t.margin; dst->gap = t.gap;
+  for (int i = 0; i < 6; i++) dst->surfacevel[i] = t.surfacevel[i];
+  dst->mass = t.mass; dst->density = t.density; dst->typeinertia = t.typeinertia;
+  dst->fluid_ellipsoid = t.fluid_ellipsoid;
+  for (int i = 0; i < 5; i++) dst->fluid_coefs[i] = t.fluid_coefs[i];
+  for (int i = 0; i < 4; i++) dst->rgba[i] = t.rgba[i];
+  dst->group = t.group; dst->fitscale = t.fitscale;
+}
+void CopyJointTemplate(mjsJoint* dst, const mjsJoint& t) {
+  dst->type = t.type;
+  for (int i = 0; i < 3; i++) dst->pos[i] = t.pos[i];
+  for (int i = 0; i < 3; i++) dst->axis[i] = t.axis[i];
+  dst->ref = t.ref; dst->align = t.align;
+  for (int i = 0; i <= mjNPOLY; i++) dst->stiffness[i] = t.stiffness[i];
+  dst->springref = t.springref;
+  dst->springdamper[0] = t.springdamper[0];
+  dst->springdamper[1] = t.springdamper[1];
+  dst->limited = t.limited;
+  dst->range[0] = t.range[0]; dst->range[1] = t.range[1];
+  dst->margin = t.margin;
+  for (int i = 0; i < mjNREF; i++) dst->solref_limit[i] = t.solref_limit[i];
+  for (int i = 0; i < mjNIMP; i++) dst->solimp_limit[i] = t.solimp_limit[i];
+  dst->actfrclimited = t.actfrclimited;
+  dst->actfrcrange[0] = t.actfrcrange[0]; dst->actfrcrange[1] = t.actfrcrange[1];
+  dst->armature = t.armature;
+  for (int i = 0; i <= mjNPOLY; i++) dst->damping[i] = t.damping[i];
+  dst->frictionloss = t.frictionloss;
+  for (int i = 0; i < mjNREF; i++) dst->solref_friction[i] = t.solref_friction[i];
+  for (int i = 0; i < mjNIMP; i++) dst->solimp_friction[i] = t.solimp_friction[i];
+  dst->group = t.group; dst->actgravcomp = t.actgravcomp;
+}
+void CopySiteTemplate(mjsSite* dst, const mjsSite& t) {
+  for (int i = 0; i < 3; i++) dst->pos[i] = t.pos[i];
+  for (int i = 0; i < 4; i++) dst->quat[i] = t.quat[i];
+  dst->alt = t.alt;
+  for (int i = 0; i < 6; i++) dst->fromto[i] = t.fromto[i];
+  for (int i = 0; i < 3; i++) dst->size[i] = t.size[i];
+  dst->type = t.type; dst->group = t.group;
+  for (int i = 0; i < 4; i++) dst->rgba[i] = t.rgba[i];
+}
+
+}  // namespace
+
+// carried state for one composite cable (mirror of the mjCComposite members the
+// cable path reads). Templates are the def[0]/defjoint value-templates.
+struct CableComp {
+  std::string prefix;
+  double offset[3] = {0, 0, 0};
+  double quat[4] = {1, 0, 0, 0};
+  std::string initial = "ball";
+  int count[3] = {1, 1, 1};
+  mjsFrame* frame = nullptr;
+  std::vector<float> uservert;
+  // plugin
+  bool plugin_active = false;
+  std::string plugin_name;
+  std::string plugin_instance;   // "composite" + prefix
+  mjsElement* plugin_elem = nullptr;
+  // value-templates + their (pointer) material names
+  mjsGeom gtmpl;
+  std::string gmaterial;
+  mjsJoint jtmpl;
+  bool has_joint = false;
+  mjsSite stmpl;
+  std::string smaterial;
+  // skin
+  bool skin = false;
+  bool skintexcoord = false;
+  std::string skinmaterial;
+  float skinrgba[4] = {1, 1, 1, 1};
+  float skininflate = 0;
+  int skinsubgrid = 0;
+  int skingroup = 0;
+};
+
+// AddCableBody (user_composite.cc): add one body + geom (+plugin +joint +site)
+// and the exclude pair; carries the moving frame in normal/prev_quat.
+mjsBody* Builder::AddCableBody(CableComp& C, mjsBody* body, int ix,
+                              double normal[3], double prev_quat[4]) {
+  char this_body[100], next_body[100], this_joint[100];
+  char txt_geom[100], txt_site[100] = {0};
+  double dquat[4], this_quat[4];
+  const std::vector<float>& uv = C.uservert;
+  const char* p = C.prefix.c_str();
+
+  int lastidx = C.count[0] - 2;
+  bool first = ix == 0;
+  bool last = ix == lastidx;
+  bool secondlast = ix == lastidx - 1;
+
+  // edge and tangent vectors
+  double edge[3], tprev[3] = {0, 0, 0}, tnext[3] = {0, 0, 0}, length_prev = 0;
+  edge[0] = uv[3*(ix+1)+0] - uv[3*ix+0];
+  edge[1] = uv[3*(ix+1)+1] - uv[3*ix+1];
+  edge[2] = uv[3*(ix+1)+2] - uv[3*ix+2];
+  if (!first) {
+    tprev[0] = uv[3*ix+0] - uv[3*(ix-1)+0];
+    tprev[1] = uv[3*ix+1] - uv[3*(ix-1)+1];
+    tprev[2] = uv[3*ix+2] - uv[3*(ix-1)+2];
+    length_prev = MjuuNormvec(tprev, 3);
+  }
+  if (!last) {
+    tnext[0] = uv[3*(ix+2)+0] - uv[3*(ix+1)+0];
+    tnext[1] = uv[3*(ix+2)+1] - uv[3*(ix+1)+1];
+    tnext[2] = uv[3*(ix+2)+2] - uv[3*(ix+1)+2];
+    MjuuNormvec(tnext, 3);
+  }
+
+  double length = MjuuUpdateFrame(this_quat, normal, edge, tprev, tnext, first);
+
+  // names (mirror mju::sprintf_arr exactly, including index formatting)
+  if (first) {
+    std::snprintf(this_body, 100, "%sB_first", p);
+    std::snprintf(next_body, 100, "%sB_%d", p, ix+1);
+    std::snprintf(this_joint, 100, "%sJ_first", p);
+    std::snprintf(txt_site, 100, "%sS_first", p);
+  } else if (last) {
+    std::snprintf(this_body, 100, "%sB_last", p);
+    std::snprintf(next_body, 100, "%sB_first", p);
+    std::snprintf(this_joint, 100, "%sJ_last", p);
+    std::snprintf(txt_site, 100, "%sS_last", p);
+  } else if (secondlast) {
+    std::snprintf(this_body, 100, "%sB_%d", p, ix);
+    std::snprintf(next_body, 100, "%sB_last", p);
+    std::snprintf(this_joint, 100, "%sJ_%d", p, ix);
+  } else {
+    std::snprintf(this_body, 100, "%sB_%d", p, ix);
+    std::snprintf(next_body, 100, "%sB_%d", p, ix+1);
+    std::snprintf(this_joint, 100, "%sJ_%d", p, ix);
+  }
+  std::snprintf(txt_geom, 100, "%sG%d", p, ix);
+
+  // body
+  body = mjs_addBody(body, nullptr);
+  mjs_setName(body->element, this_body);
+  if (first) {
+    body->pos[0] = C.offset[0] + uv[3*ix+0];
+    body->pos[1] = C.offset[1] + uv[3*ix+1];
+    body->pos[2] = C.offset[2] + uv[3*ix+2];
+    for (int i = 0; i < 4; i++) body->quat[i] = this_quat[i];
+    if (C.frame) mjs_setFrame(body->element, C.frame);
+  } else {
+    body->pos[0] = length_prev; body->pos[1] = 0; body->pos[2] = 0;
+    double negquat[4] = {prev_quat[0], -prev_quat[1], -prev_quat[2], -prev_quat[3]};
+    MjuuMulquat(dquat, negquat, this_quat);
+    for (int i = 0; i < 4; i++) body->quat[i] = dquat[i];
+  }
+
+  // geom (nullptr default + explicit template copy; see def-template mirror note)
+  mjsGeom* geom = mjs_addGeom(body, nullptr);
+  CopyGeomTemplate(geom, C.gtmpl);
+  mjs_setString(geom->material, C.gmaterial.c_str());
+  mjs_setDefault(geom->element, mjs_getDefault(body->element));
+  mjs_setName(geom->element, txt_geom);
+  if (C.gtmpl.type == mjGEOM_CYLINDER || C.gtmpl.type == mjGEOM_CAPSULE) {
+    for (int i = 0; i < 6; i++) geom->fromto[i] = 0;
+    geom->fromto[3] = length;
+  } else if (C.gtmpl.type == mjGEOM_BOX) {
+    for (int i = 0; i < 3; i++) geom->pos[i] = 0;
+    geom->pos[0] = length/2;
+    geom->size[0] = length/2;
+  }
+
+  // plugin (references the composite's instance element by name)
+  if (C.plugin_active) {
+    body->plugin.active = true;
+    body->plugin.element = C.plugin_elem;
+    mjs_setString(body->plugin.plugin_name, C.plugin_name.c_str());
+    mjs_setString(body->plugin.name, C.plugin_instance.c_str());
+  }
+
+  // update orientation
+  for (int i = 0; i < 4; i++) prev_quat[i] = this_quat[i];
+
+  // curvature joint
+  if (!first || C.initial != "none") {
+    mjsJoint* jnt = mjs_addJoint(body, nullptr);
+    CopyJointTemplate(jnt, C.jtmpl);
+    mjs_setDefault(jnt->element, mjs_getDefault(body->element));
+    jnt->type = (first && C.initial == "free") ? mjJNT_FREE : mjJNT_BALL;
+    if (jnt->type == mjJNT_FREE)
+      for (int i = 0; i <= mjNPOLY; i++) jnt->damping[i] = 0;
+    jnt->armature = jnt->type == mjJNT_FREE ? 0 : jnt->armature;
+    jnt->frictionloss = jnt->type == mjJNT_FREE ? 0 : jnt->frictionloss;
+    mjs_setName(jnt->element, this_joint);
+  }
+
+  // exclude contact pair
+  if (!last) {
+    mjsExclude* exclude = mjs_addExclude(spec_);
+    mjs_setString(exclude->bodyname1, this_body);
+    mjs_setString(exclude->bodyname2, next_body);
+  }
+
+  // boundary site
+  if (last || first) {
+    mjsSite* site = mjs_addSite(body, nullptr);
+    CopySiteTemplate(site, C.stmpl);
+    mjs_setString(site->material, C.smaterial.c_str());
+    mjs_setDefault(site->element, mjs_getDefault(body->element));
+    mjs_setName(site->element, txt_site);
+    site->pos[0] = last ? length : 0; site->pos[1] = 0; site->pos[2] = 0;
+    site->quat[0] = 1; site->quat[1] = 0; site->quat[2] = 0; site->quat[3] = 0;
+  }
+
+  return body;
+}
+
+// MakeCableBones (user_composite.cc): one bone per (ix,iy), bind pose from the
+// geom template half-sizes; bodyname appended to the skin, the rest accumulated.
+void Builder::MakeCableBones(CableComp& C, mjsSkin* skin,
+                             std::vector<float>& bindpos,
+                             std::vector<float>& bindquat,
+                             std::vector<std::vector<int>>& vertid,
+                             std::vector<std::vector<float>>& vertweight) {
+  char this_body[100];
+  const char* p = C.prefix.c_str();
+  int N = C.count[0]*C.count[1];
+  double s0 = C.gtmpl.size[0], s1 = C.gtmpl.size[1];
+  for (int ix = 0; ix < C.count[0]; ix++) {
+    for (int iy = 0; iy < C.count[1]; iy++) {
+      if (ix == 0) std::snprintf(this_body, 100, "%sB_first", p);
+      else if (ix >= C.count[0]-2) std::snprintf(this_body, 100, "%sB_last", p);
+      else std::snprintf(this_body, 100, "%sB_%d", p, ix);
+
+      mjs_appendString(skin->bodyname, this_body);
+      double bx = (ix == C.count[0]-1) ? -2*s0 : 0;
+      if (iy == 0) {
+        bindpos.push_back((float)bx); bindpos.push_back((float)(-s1)); bindpos.push_back(0);
+      } else {
+        bindpos.push_back((float)bx); bindpos.push_back((float)(s1)); bindpos.push_back(0);
+      }
+      bindquat.push_back(1); bindquat.push_back(0);
+      bindquat.push_back(0); bindquat.push_back(0);
+
+      vertid.push_back({ix*C.count[1]+iy, N + ix*C.count[1]+iy});
+      vertweight.push_back({1, 1});
+    }
+  }
+}
+
+// MakeSkin2 (user_composite.cc): plain (non-subgrid) box-cable skin.
+void Builder::MakeCableSkin2(CableComp& C, double inflate) {
+  char txt[100];
+  int N = C.count[0]*C.count[1];
+  const int c0 = C.count[0], c1 = C.count[1];
+
+  mjsSkin* skin = mjs_addSkin(spec_);
+  std::snprintf(txt, 100, "%sSkin", C.prefix.c_str());
+  mjs_setName(skin->element, txt);
+  mjs_setString(skin->material, C.skinmaterial.c_str());
+  for (int i = 0; i < 4; i++) skin->rgba[i] = C.skinrgba[i];
+  skin->inflate = (float)inflate;
+  skin->group = C.skingroup;
+
+  std::vector<float> vert, texcoord;
+  std::vector<int> face;
+  // two sides
+  for (int i = 0; i < 2; i++) {
+    for (int ix = 0; ix < c0; ix++) {
+      for (int iy = 0; iy < c1; iy++) {
+        vert.push_back(0); vert.push_back(0); vert.push_back(0);
+        if (C.skintexcoord) {
+          texcoord.push_back(ix/(float)(c0-1));
+          texcoord.push_back(iy/(float)(c1-1));
+        }
+        if (ix < c0-1 && iy < c1-1) {
+          face.push_back(i*N + ix*c1+iy);
+          face.push_back(i*N + (ix+1)*c1+iy+(i == 1));
+          face.push_back(i*N + (ix+1)*c1+iy+(i == 0));
+          face.push_back(i*N + ix*c1+iy);
+          face.push_back(i*N + (ix+(i == 0))*c1+iy+1);
+          face.push_back(i*N + (ix+(i == 1))*c1+iy+1);
+        }
+      }
+    }
+  }
+  // thin triangles: X, iy=0
+  for (int ix = 0; ix < c0-1; ix++) {
+    face.push_back(ix*c1);
+    face.push_back(N + (ix+1)*c1);
+    face.push_back((ix+1)*c1);
+    face.push_back(ix*c1);
+    face.push_back(N + ix*c1);
+    face.push_back(N + (ix+1)*c1);
+  }
+  // thin triangles: X, iy=c1-1
+  for (int ix = 0; ix < c0-1; ix++) {
+    face.push_back(ix*c1 + c1-1);
+    face.push_back((ix+1)*c1 + c1-1);
+    face.push_back(N + (ix+1)*c1 + c1-1);
+    face.push_back(ix*c1 + c1-1);
+    face.push_back(N + (ix+1)*c1 + c1-1);
+    face.push_back(N + ix*c1 + c1-1);
+  }
+  // thin triangles: Y, ix=0
+  for (int iy = 0; iy < c1-1; iy++) {
+    face.push_back(iy);
+    face.push_back(iy+1);
+    face.push_back(N + iy+1);
+    face.push_back(iy);
+    face.push_back(N + iy+1);
+    face.push_back(N + iy);
+  }
+  // thin triangles: Y, ix=c0-1
+  for (int iy = 0; iy < c1-1; iy++) {
+    face.push_back(iy + (c0-1)*c1);
+    face.push_back(N + iy+1 + (c0-1)*c1);
+    face.push_back(iy+1 + (c0-1)*c1);
+    face.push_back(iy + (c0-1)*c1);
+    face.push_back(N + iy + (c0-1)*c1);
+    face.push_back(N + iy+1 + (c0-1)*c1);
+  }
+
+  std::vector<float> bindpos, bindquat;
+  std::vector<std::vector<int>> vertid;
+  std::vector<std::vector<float>> vertweight;
+  MakeCableBones(C, skin, bindpos, bindquat, vertid, vertweight);
+
+  // CopyIntoSkin
+  mjs_setInt(skin->face, face.data(), (int)face.size());
+  mjs_setFloat(skin->vert, vert.data(), (int)vert.size());
+  mjs_setFloat(skin->bindpos, bindpos.data(), (int)bindpos.size());
+  mjs_setFloat(skin->bindquat, bindquat.data(), (int)bindquat.size());
+  mjs_setFloat(skin->texcoord, texcoord.data(), (int)texcoord.size());
+  for (auto& v : vertid) mjs_appendIntVec(skin->vertid, v.data(), (int)v.size());
+  for (auto& v : vertweight) mjs_appendFloatVec(skin->vertweight, v.data(), (int)v.size());
+}
+
+// --- subgrid bicubic subdivision (user_composite.cc) --------------------- //
+// C = W * [f; f_x; f_y; f_xy]; the Dxx sparse encodings pick the finite-
+// difference stencil per big-square corner. Verbatim from user_composite.cc.
+namespace {
+const mjtNum subW[16*16] = {
+  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,
+ -3,  0,  0,  3,  0,  0,  0,  0, -2,  0,  0, -1,  0,  0,  0,  0,
+  2,  0,  0, -2,  0,  0,  0,  0,  1,  0,  0,  1,  0,  0,  0,  0,
+  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,  0,  0,
+  0,  0,  0,  0, -3,  0,  0,  3,  0,  0,  0,  0, -2,  0,  0, -1,
+  0,  0,  0,  0,  2,  0,  0, -2,  0,  0,  0,  0,  1,  0,  0,  1,
+ -3,  3,  0,  0, -2, -1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  0,  0,  0,  0,  0,  0,  0, -3,  3,  0,  0, -2, -1,  0,  0,
+  9, -9,  9, -9,  6,  3, -3, -6,  6, -6, -3,  3,  4,  2,  1,  2,
+ -6,  6, -6,  6, -4, -2,  2,  4, -3,  3,  3, -3, -2, -1, -1, -2,
+  2, -2,  0,  0,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+  0,  0,  0,  0,  0,  0,  0,  0,  2, -2,  0,  0,  1,  1,  0,  0,
+ -6,  6, -6,  6, -3, -3,  3,  3, -4,  4,  2, -2, -2, -2, -1, -1,
+  4, -4,  4, -4,  2,  2, -2, -2,  2, -2, -2,  2,  1,  1,  1,  1
+};
+const mjtNum subD00[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  5, -1,   9,  1,   -1,  5, -0.5, 13, 0.5, -1,  6, -0.5, 14, 0.5, -1,  6, -1,   10, 1,   -1,
+  5, -1,   6,  1,   -1,  9, -1,   10, 1,   -1,  9, -0.5, 11, 0.5, -1,  5, -0.5, 7,  0.5, -1,
+  9,  -1,    6, -1,    5, 1,    10, 1,    -1,  13, -0.5,  6, -0.5,  5, 0.5,  14, 0.5,  -1,
+  13, -0.25, 7, -0.25, 5, 0.25, 15, 0.25, -1,  9,  -0.5,  7, -0.5,  5, 0.5,  11, 0.5,  -1
+};
+const mjtNum subD10[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  1, -0.5, 9,  0.5, -1,  5, -0.5, 13, 0.5, -1,  6, -0.5, 14, 0.5, -1,  2, -0.5, 10, 0.5, -1,
+  5, -1,   6,  1,   -1,  9, -1,   10, 1,   -1,  9, -0.5, 11, 0.5, -1,  5, -0.5, 7,  0.5, -1,
+  9,  -0.5,  2, -0.5,  1, 0.5,  10, 0.5,  -1,  13, -0.5,  6, -0.5,  5, 0.5,  14, 0.5,  -1,
+  13, -0.25, 7, -0.25, 5, 0.25, 15, 0.25, -1,  9,  -0.25, 3, -0.25, 1, 0.25, 11, 0.25, -1
+};
+const mjtNum subD20[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  1, -0.5, 9,  0.5, -1,  5, -1,   9,  1,   -1,  6, -1,   10, 1,   -1,  2, -0.5, 10, 0.5, -1,
+  5, -1,   6,  1,   -1,  9, -1,   10, 1,   -1,  9, -0.5, 11, 0.5, -1,  5, -0.5, 7,  0.5, -1,
+  9, -0.5,  2, -0.5,  1, 0.5,  10, 0.5,  -1,  9, -1,    6, -1,    5, 1,    10, 1,    -1,
+  9, -0.5,  7, -0.5,  5, 0.5,  11, 0.5,  -1,  9, -0.25, 3, -0.25, 1, 0.25, 11, 0.25, -1
+};
+const mjtNum subD01[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  5, -1,   9,  1,   -1,  5, -0.5, 13, 0.5, -1,  6, -0.5, 14, 0.5, -1,  6, -1,   10, 1,   -1,
+  4, -0.5, 6,  0.5, -1,  8, -0.5, 10, 0.5, -1,  9, -0.5, 11, 0.5, -1,  5, -0.5, 7,  0.5, -1,
+  8,  -0.5,  6, -0.5,  4, 0.5,  10, 0.5,  -1,  12, -0.25, 6, -0.25, 4, 0.25, 14, 0.25, -1,
+  13, -0.25, 7, -0.25, 5, 0.25, 15, 0.25, -1,  9,  -0.5,  7, -0.5,  5, 0.5,  11, 0.5,  -1
+};
+const mjtNum subD11[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  1, -0.5, 9,  0.5, -1,  5, -0.5, 13, 0.5, -1,  6, -0.5, 14, 0.5, -1,  2, -0.5, 10, 0.5, -1,
+  4, -0.5, 6,  0.5, -1,  8, -0.5, 10, 0.5, -1,  9, -0.5, 11, 0.5, -1,  5, -0.5, 7,  0.5, -1,
+  8,  -0.25, 2, -0.25, 0, 0.25, 10, 0.25, -1,  12, -0.25, 6, -0.25, 4, 0.25, 14, 0.25, -1,
+  13, -0.25, 7, -0.25, 5, 0.25, 15, 0.25, -1,  9,  -0.25, 3, -0.25, 1, 0.25, 11, 0.25, -1
+};
+const mjtNum subD21[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  1, -0.5, 9,  0.5, -1,  5, -1,   9,  1,   -1,  6, -1,   10, 1,   -1,  2, -0.5, 10, 0.5, -1,
+  4, -0.5, 6,  0.5, -1,  8, -0.5, 10, 0.5, -1,  9, -0.5, 11, 0.5, -1,  5, -0.5, 7,  0.5, -1,
+  8, -0.25, 2, -0.25, 0, 0.25, 10, 0.25, -1,  8, -0.5,  6, -0.5,  4, 0.5,  10, 0.5,  -1,
+  9, -0.5,  7, -0.5,  5, 0.5,  11, 0.5,  -1,  9, -0.25, 3, -0.25, 1, 0.25, 11, 0.25, -1
+};
+const mjtNum subD02[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  5, -1,   9,  1,   -1,  5, -0.5, 13, 0.5, -1,  6, -0.5, 14, 0.5, -1,  6, -1,   10, 1,   -1,
+  4, -0.5, 6,  0.5, -1,  8, -0.5, 10, 0.5, -1,  9, -1,   10, 1,   -1,  5, -1,   6,  1,   -1,
+  8,  -0.5,  6, -0.5,  4, 0.5,  10, 0.5,  -1,  12, -0.25, 6, -0.25, 4, 0.25, 14, 0.25, -1,
+  13, -0.5,  6, -0.5,  5, 0.5,  14, 0.5,  -1,  9,  -1,    6, -1,    5, 1,    10, 1,    -1
+};
+const mjtNum subD12[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  1, -0.5, 9,  0.5, -1,  5, -0.5, 13, 0.5, -1,  6, -0.5, 14, 0.5, -1,  2, -0.5, 10, 0.5, -1,
+  4, -0.5, 6,  0.5, -1,  8, -0.5, 10, 0.5, -1,  9, -1,   10, 1,   -1,  5, -1,   6,  1,   -1,
+  8,  -0.25, 2, -0.25, 0, 0.25, 10, 0.25, -1,  12, -0.25, 6, -0.25, 4, 0.25, 14, 0.25, -1,
+  13, -0.5,  6, -0.5,  5, 0.5,  14, 0.5,  -1,  9,  -0.5,  2, -0.5,  1, 0.5,  10, 0.5,  -1
+};
+const mjtNum subD22[] = {
+  5,  1, -1,  9,  1, -1,  10, 1, -1,  6,  1, -1,
+  1, -0.5, 9,  0.5, -1,  5, -1,   9,  1,   -1,  6, -1,   10, 1,   -1,  2, -0.5, 10, 0.5, -1,
+  4, -0.5, 6,  0.5, -1,  8, -0.5, 10, 0.5, -1,  9, -1,   10, 1,   -1,  5, -1,   6,  1,   -1,
+  8, -0.25, 2, -0.25, 0, 0.25, 10, 0.25, -1,  8, -0.5,  6, -0.5,  4, 0.5,  10, 0.5,  -1,
+  9, -1,    6, -1,    5, 1,    10, 1,    -1,  9, -0.5,  2, -0.5,  1, 0.5,  10, 0.5,  -1
+};
+}  // namespace
+
+// MakeCableBonesSubgrid (user_composite.cc): 3-bone bind poses (iy 0/1/2),
+// empty vertid/vertweight to be filled by the weight loop.
+void Builder::MakeCableBonesSubgrid(CableComp& C, mjsSkin* skin,
+                                    std::vector<float>& bindquat,
+                                    std::vector<std::vector<int>>& vertid,
+                                    std::vector<std::vector<float>>& vertweight,
+                                    std::vector<float>& bindpos) {
+  char txt[100];
+  const char* p = C.prefix.c_str();
+  double s0 = C.gtmpl.size[0], s1 = C.gtmpl.size[1];
+  for (int ix = 0; ix < C.count[0]; ix++) {
+    for (int iy = 0; iy < C.count[1]; iy++) {
+      if (ix == 0) std::snprintf(txt, 100, "%sB_first", p);
+      else if (ix >= C.count[0]-2) std::snprintf(txt, 100, "%sB_last", p);
+      else std::snprintf(txt, 100, "%sB_%d", p, ix);
+
+      double bx = (ix == C.count[0]-1) ? -2*s0 : 0;
+      if (iy == 0) {
+        bindpos.push_back((float)bx); bindpos.push_back((float)(-s1)); bindpos.push_back(0);
+      } else if (iy == 2) {
+        bindpos.push_back((float)bx); bindpos.push_back((float)(s1)); bindpos.push_back(0);
+      } else {
+        bindpos.push_back((float)bx); bindpos.push_back(0); bindpos.push_back(0);
+      }
+      mjs_appendString(skin->bodyname, txt);
+      bindquat.push_back(1); bindquat.push_back(0);
+      bindquat.push_back(0); bindquat.push_back(0);
+      vertid.push_back({});
+      vertweight.push_back({});
+    }
+  }
+}
+
+// MakeSkin2Subgrid (user_composite.cc): bicubic-subdivided box-cable skin.
+void Builder::MakeCableSkin2Subgrid(CableComp& C, double inflate) {
+  const mjtNum* Dp[3][3] = {
+    {subD00, subD01, subD02},
+    {subD10, subD11, subD12},
+    {subD20, subD21, subD22}
+  };
+  const int sg = C.skinsubgrid;
+  const int N = (2+sg)*(2+sg);
+  mjtNum* XY = (mjtNum*) mju_malloc(N*16*sizeof(mjtNum));
+  mjtNum* XY_W = (mjtNum*) mju_malloc(N*16*sizeof(mjtNum));
+  mjtNum* Weight = (mjtNum*) mju_malloc(9*N*16*sizeof(mjtNum));
+  mjtNum* D = (mjtNum*) mju_malloc(16*16*sizeof(mjtNum));
+
+  const mjtNum step = 1.0/(1+sg);
+  int rxy = 0;
+  for (int sx = 0; sx <= 1+sg; sx++) {
+    for (int sy = 0; sy <= 1+sg; sy++) {
+      mjtNum x = sx*step, y = sy*step;
+      XY[16*rxy + 0] = 1;      XY[16*rxy + 1] = y;      XY[16*rxy + 2] = y*y;      XY[16*rxy + 3] = y*y*y;
+      XY[16*rxy + 4] = x*1;    XY[16*rxy + 5] = x*y;    XY[16*rxy + 6] = x*y*y;    XY[16*rxy + 7] = x*y*y*y;
+      XY[16*rxy + 8] = x*x*1;  XY[16*rxy + 9] = x*x*y;  XY[16*rxy + 10] = x*x*y*y; XY[16*rxy + 11] = x*x*y*y*y;
+      XY[16*rxy + 12] = x*x*x*1; XY[16*rxy + 13] = x*x*x*y; XY[16*rxy + 14] = x*x*x*y*y; XY[16*rxy + 15] = x*x*x*y*y*y;
+      rxy++;
+    }
+  }
+  mju_mulMatMat(XY_W, XY, subW, N, 16, 16);
+  for (int dx = 0; dx < 3; dx++) {
+    for (int dy = 0; dy < 3; dy++) {
+      mju_zero(D, 16*16);
+      int cnt = 0, r = 0, c;
+      while (r < 16) {
+        while ((c = mju_round(Dp[dx][dy][cnt])) != -1) {
+          D[r*16+c] = Dp[dx][dy][cnt+1];
+          cnt += 2;
+        }
+        r++;
+        cnt++;
+      }
+      mju_mulMatMat(Weight + (dx*3+dy)*N*16, XY_W, D, N, 16, 16);
+    }
+  }
+
+  char txt[100];
+  mjsSkin* skin = mjs_addSkin(spec_);
+  std::snprintf(txt, 100, "%sSkin", C.prefix.c_str());
+  mjs_setName(skin->element, txt);
+  mjs_setString(skin->material, C.skinmaterial.c_str());
+  for (int i = 0; i < 4; i++) skin->rgba[i] = C.skinrgba[i];
+  skin->inflate = (float)inflate;
+  skin->group = C.skingroup;
+
+  std::vector<float> vert, texcoord;
+  std::vector<int> face;
+  mjtNum S = 0;
+  int C0 = C.count[0] + (C.count[0]-1)*sg;
+  int C1 = C.count[1] + (C.count[1]-1)*sg;
+  int NN = C0*C1;
+  for (int i = 0; i < 2; i++) {
+    for (int ix = 0; ix < C0; ix++) {
+      for (int iy = 0; iy < C1; iy++) {
+        vert.push_back((float)(ix*S)); vert.push_back((float)(iy*S)); vert.push_back(0);
+        if (C.skintexcoord) {
+          texcoord.push_back(ix/(float)(C0-1));
+          texcoord.push_back(iy/(float)(C1-1));
+        }
+        if (ix < C0-1 && iy < C1-1) {
+          face.push_back(i*NN + ix*C1+iy);
+          face.push_back(i*NN + (ix+1)*C1+iy+(i == 1));
+          face.push_back(i*NN + (ix+1)*C1+iy+(i == 0));
+          face.push_back(i*NN + ix*C1+iy);
+          face.push_back(i*NN + (ix+(i == 0))*C1+iy+1);
+          face.push_back(i*NN + (ix+(i == 1))*C1+iy+1);
+        }
+      }
+    }
+  }
+  for (int ix = 0; ix < C0-1; ix++) {
+    face.push_back(ix*C1);
+    face.push_back(NN + (ix+1)*C1);
+    face.push_back((ix+1)*C1);
+    face.push_back(ix*C1);
+    face.push_back(NN + ix*C1);
+    face.push_back(NN + (ix+1)*C1);
+  }
+  for (int ix = 0; ix < C0-1; ix++) {
+    face.push_back(ix*C1 + C1-1);
+    face.push_back((ix+1)*C1 + C1-1);
+    face.push_back(NN + (ix+1)*C1 + C1-1);
+    face.push_back(ix*C1 + C1-1);
+    face.push_back(NN + (ix+1)*C1 + C1-1);
+    face.push_back(NN + ix*C1 + C1-1);
+  }
+  for (int iy = 0; iy < C1-1; iy++) {
+    face.push_back(iy);
+    face.push_back(iy+1);
+    face.push_back(NN + iy+1);
+    face.push_back(iy);
+    face.push_back(NN + iy+1);
+    face.push_back(NN + iy);
+  }
+  for (int iy = 0; iy < C1-1; iy++) {
+    face.push_back(iy + (C0-1)*C1);
+    face.push_back(NN + iy+1 + (C0-1)*C1);
+    face.push_back(iy+1 + (C0-1)*C1);
+    face.push_back(iy + (C0-1)*C1);
+    face.push_back(NN + iy + (C0-1)*C1);
+    face.push_back(NN + iy+1 + (C0-1)*C1);
+  }
+
+  std::vector<float> bindpos, bindquat;
+  std::vector<std::vector<int>> vertid;
+  std::vector<std::vector<float>> vertweight;
+  MakeCableBonesSubgrid(C, skin, bindquat, vertid, vertweight, bindpos);
+
+  // bind vertices to bones: one big square at a time
+  for (int ix = 0; ix < C.count[0]-1; ix++) {
+    for (int iy = 0; iy < C.count[1]-1; iy++) {
+      int d = 3 * (ix == 0 ? 0 : (ix == C.count[0]-2 ? 2 : 1)) +
+              (iy == 0 ? 0 : (iy == C.count[1]-2 ? 2 : 1));
+      int boneid[16];
+      int cnt = 0;
+      for (int dx = -1; dx < 3; dx++)
+        for (int dy = -1; dy < 3; dy++)
+          boneid[cnt++] = (ix+dx)*C.count[1] + (iy+dy);
+      for (int dx = 0; dx < 1+sg+(ix == C.count[0]-2); dx++) {
+        for (int dy = 0; dy < 1+sg+(iy == C.count[1]-2); dy++) {
+          int vid = (ix*(1+sg)+dx)*C1 + iy*(1+sg)+dy;
+          int n = dx*(2+sg) + dy;
+          for (int bi = 0; bi < 16; bi++) {
+            mjtNum w = Weight[d*N*16 + n*16 + bi];
+            if (w) {
+              vertid[boneid[bi]].push_back(vid);
+              vertid[boneid[bi]].push_back(vid+NN);
+              vertweight[boneid[bi]].push_back((float)w);
+              vertweight[boneid[bi]].push_back((float)w);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // CopyIntoSkin
+  mjs_setInt(skin->face, face.data(), (int)face.size());
+  mjs_setFloat(skin->vert, vert.data(), (int)vert.size());
+  mjs_setFloat(skin->bindpos, bindpos.data(), (int)bindpos.size());
+  mjs_setFloat(skin->bindquat, bindquat.data(), (int)bindquat.size());
+  mjs_setFloat(skin->texcoord, texcoord.data(), (int)texcoord.size());
+  for (auto& v : vertid) mjs_appendIntVec(skin->vertid, v.data(), (int)v.size());
+  for (auto& v : vertweight) mjs_appendFloatVec(skin->vertweight, v.data(), (int)v.size());
+
+  mju_free(XY);
+  mju_free(XY_W);
+  mju_free(Weight);
+  mju_free(D);
+}
+
+// --- <composite> (direct build) ------------------------------------------ //
+// Mirror of mjXReader::OneComposite + mjCComposite::Make/MakeCable, authored
+// directly onto spec_. Deprecated composite types surface the SAME reader
+// deprecation error (verified by probe) so Auto/XmlPath and MjsPath agree.
+void Builder::BuildComposite(mjsBody* host, const Composite& e, mjsFrame* frame) {
+  CableComp C;
+  C.prefix = e.prefix.value_or("");
+  C.initial = e.initial.value_or("ball");
+  C.frame = frame;
+  if (e.offset.has_value()) for (int i = 0; i < 3; i++) C.offset[i] = (*e.offset)[i];
+  if (e.quat.has_value()) for (int i = 0; i < 4; i++) C.quat[i] = (*e.quat)[i];
+  if (e.count.has_value())
+    for (int i = 0; i < 3 && i < (int)e.count->size(); i++) C.count[i] = (*e.count)[i];
+  double size[3] = {1, 0, 0};
+  if (e.size.has_value())
+    for (int i = 0; i < 3 && i < (int)e.size->size(); i++) size[i] = (*e.size)[i];
+
+  // dispatch on type: deprecated families raise the exact reader error
+  const CompositeType ctype = e.type.value_or(CompositeType::particle);
+  auto fail = [&](const char* msg) { if (err_.empty()) err_ = msg; };
+  switch (ctype) {
+    case CompositeType::particle:
+      return fail("The \"particle\" composite type is deprecated. Please use "
+                  "\"replicate\" instead.");
+    case CompositeType::grid:
+      return fail("The \"grid\" composite type is deprecated. Please use "
+                  "\"flex\" instead.");
+    case CompositeType::rope:
+      return fail("The \"rope\" composite type is deprecated. Please use "
+                  "\"cable\" instead.");
+    case CompositeType::loop:
+      return fail("The \"loop\" composite type is deprecated. Please use "
+                  "\"flexcomp\" instead.");
+    case CompositeType::cloth:
+      return fail("The \"cloth\" composite type is deprecated. Please use "
+                  "\"shell\" instead.");
+    case CompositeType::cable:
+      break;
+  }
+
+  // curve string -> curve[3] (mirror OneComposite token loop / shape_map)
+  int curve[3] = {kCompShapeZero, kCompShapeZero, kCompShapeZero};
+  if (e.curve.has_value()) {
+    std::istringstream iss(*e.curve);
+    std::string tok;
+    int i = 0;
+    while (iss >> tok) {
+      if (i > 2) return fail("The curve array must have a maximum of 3 components");
+      curve[i] = CompShapeFromToken(tok);
+      if (curve[i] == -1) return fail("The curve array contains an invalid shape");
+      i++;
+    }
+  }
+
+  // skin element
+  const CompositeSkin* sk = nullptr;
+  for (const auto& s : e.compositeSkins) if (s) { sk = s.get(); break; }
+  if (sk) {
+    C.skin = true;
+    C.skintexcoord = sk->texcoord.value_or(false);
+    C.skinmaterial = sk->material.has_value() ? sk->material->name : "";
+    if (sk->rgba.has_value()) for (int i = 0; i < 4; i++) C.skinrgba[i] = (*sk->rgba)[i];
+    C.skininflate = sk->inflate.value_or(0);
+    C.skinsubgrid = sk->subgrid.value_or(0);
+    C.skingroup = sk->group.value_or(0);
+  }
+
+  // uservert (stored as float: the XML leg round-trips <vertex> through float)
+  if (e.vertex.has_value())
+    for (double v : *e.vertex) C.uservert.push_back((float)v);
+
+  // --- def[0]/defjoint value-templates (SetDefault + <geom>/<site>/<joint>) ---
+  mjs_defaultGeom(&C.gtmpl);
+  mjs_defaultSite(&C.stmpl);
+  mjs_defaultJoint(&C.jtmpl);
+  // SetDefault: all groups 3, then cable makes geom visible (group 0); site 3.
+  C.gtmpl.group = 0;  // (!skin || type==CABLE) branch always taken for cable
+  C.stmpl.group = 3;
+  C.jtmpl.group = 3;  // AddDefaultJoint
+  // <geom> overrides
+  const CompositeGeom* cg = nullptr;
+  for (const auto& g : e.compositeGeoms) if (g) { cg = g.get(); break; }
+  if (cg) {
+    if (cg->type.has_value()) C.gtmpl.type = CableGeomTypeToMjt(*cg->type);
+    if (cg->size.has_value())
+      for (int i = 0; i < 3 && i < (int)cg->size->size(); i++) C.gtmpl.size[i] = (*cg->size)[i];
+    if (cg->contype.has_value()) C.gtmpl.contype = *cg->contype;
+    if (cg->conaffinity.has_value()) C.gtmpl.conaffinity = *cg->conaffinity;
+    if (cg->condim.has_value()) C.gtmpl.condim = *cg->condim;
+    if (cg->group.has_value()) C.gtmpl.group = *cg->group;
+    if (cg->priority.has_value()) C.gtmpl.priority = *cg->priority;
+    if (cg->friction.has_value())
+      for (int i = 0; i < 3 && i < (int)cg->friction->size(); i++) C.gtmpl.friction[i] = (*cg->friction)[i];
+    if (cg->solmix.has_value()) C.gtmpl.solmix = *cg->solmix;
+    if (cg->solref.has_value())
+      for (int i = 0; i < mjNREF && i < (int)cg->solref->size(); i++) C.gtmpl.solref[i] = (*cg->solref)[i];
+    if (cg->solimp.has_value())
+      for (int i = 0; i < mjNIMP && i < (int)cg->solimp->size(); i++) C.gtmpl.solimp[i] = (*cg->solimp)[i];
+    if (cg->margin.has_value()) C.gtmpl.margin = *cg->margin;
+    if (cg->gap.has_value()) C.gtmpl.gap = *cg->gap;
+    if (cg->surfacevel.has_value()) for (int i = 0; i < 6; i++) C.gtmpl.surfacevel[i] = (*cg->surfacevel)[i];
+    if (cg->material.has_value()) C.gmaterial = cg->material->name;
+    if (cg->rgba.has_value()) for (int i = 0; i < 4; i++) C.gtmpl.rgba[i] = (*cg->rgba)[i];
+    if (cg->mass.has_value()) C.gtmpl.mass = *cg->mass;
+    if (cg->density.has_value()) C.gtmpl.density = *cg->density;
+  }
+  // <site> overrides
+  const CompositeSite* cs = nullptr;
+  for (const auto& s : e.compositeSites) if (s) { cs = s.get(); break; }
+  if (cs) {
+    if (cs->size.has_value())
+      for (int i = 0; i < 3 && i < (int)cs->size->size(); i++) C.stmpl.size[i] = (*cs->size)[i];
+    if (cs->group.has_value()) C.stmpl.group = *cs->group;
+    if (cs->material.has_value()) C.smaterial = cs->material->name;
+    if (cs->rgba.has_value()) for (int i = 0; i < 4; i++) C.stmpl.rgba[i] = (*cs->rgba)[i];
+  }
+  // <joint> overrides (cable allows exactly one kind)
+  const CompositeJoint* cj = nullptr;
+  int njoint = 0;
+  for (const auto& j : e.compositeJoints) if (j) { if (!cj) cj = j.get(); njoint++; }
+  if (njoint > 1) return fail("Only particles are allowed to have multiple joints");
+  C.has_joint = cj != nullptr;
+  if (cj) {
+    if (cj->type.has_value()) C.jtmpl.type = CableJointTypeToMjt(*cj->type);
+    if (cj->axis.has_value()) for (int i = 0; i < 3; i++) C.jtmpl.axis[i] = (*cj->axis)[i];
+    if (cj->group.has_value()) C.jtmpl.group = *cj->group;
+    if (cj->limited.has_value())
+      C.jtmpl.limited = static_cast<mjtLimited>(
+          *cj->limited == TriState::false_ ? mjLIMITED_FALSE :
+          *cj->limited == TriState::true_ ? mjLIMITED_TRUE : mjLIMITED_AUTO);
+    if (cj->solreflimit.has_value())
+      for (int i = 0; i < mjNREF && i < (int)cj->solreflimit->size(); i++) C.jtmpl.solref_limit[i] = (*cj->solreflimit)[i];
+    if (cj->solimplimit.has_value())
+      for (int i = 0; i < mjNIMP && i < (int)cj->solimplimit->size(); i++) C.jtmpl.solimp_limit[i] = (*cj->solimplimit)[i];
+    if (cj->solreffriction.has_value())
+      for (int i = 0; i < mjNREF && i < (int)cj->solreffriction->size(); i++) C.jtmpl.solref_friction[i] = (*cj->solreffriction)[i];
+    if (cj->solimpfriction.has_value())
+      for (int i = 0; i < mjNIMP && i < (int)cj->solimpfriction->size(); i++) C.jtmpl.solimp_friction[i] = (*cj->solimpfriction)[i];
+    if (cj->stiffness.has_value()) C.jtmpl.stiffness[0] = *cj->stiffness;
+    if (cj->range.has_value()) { C.jtmpl.range[0] = (*cj->range)[0]; C.jtmpl.range[1] = (*cj->range)[1]; }
+    if (cj->margin.has_value()) C.jtmpl.margin = *cj->margin;
+    if (cj->armature.has_value()) C.jtmpl.armature = *cj->armature;
+    if (cj->damping.has_value()) C.jtmpl.damping[0] = *cj->damping;
+    if (cj->frictionloss.has_value()) C.jtmpl.frictionloss = *cj->frictionloss;
+  }
+
+  // --- plugin (mirror OnePlugin + the Make instance-name overwrite) ---
+  const PluginRef* pr = nullptr;
+  for (const auto& pp : e.plugin) if (pp) { pr = pp.get(); break; }
+  if (pr) {
+    C.plugin_active = true;
+    C.plugin_name = pr->plugin.value_or("");
+    const bool inline_inst = !(pr->instance.has_value() && !pr->instance->name.empty());
+    mjsPlugin* inst = nullptr;
+    if (inline_inst) {
+      inst = mjs_addPlugin(spec_);
+      mjs_setString(inst->plugin_name, C.plugin_name.c_str());
+      ApplyPluginConfigs(pr->config, inst);
+      C.plugin_elem = inst->element;
+    } else {
+      C.plugin_instance = pr->instance->name;
+    }
+    // Make: only cable supports plugins; only the cable elasticity plugin.
+    if (C.plugin_name != "mujoco.elasticity.cable")
+      return fail("Only mujoco.elasticity.cable is supported by composites");
+    // Make: empty instance name -> "composite"+prefix, stamped on the instance.
+    if (C.plugin_instance.empty()) {
+      C.plugin_instance = "composite" + C.prefix;
+      if (inst) mjs_setString(inst->name, C.plugin_instance.c_str());
+    }
+  }
+
+  // --- Make() validation (mirror mjCComposite::Make) ---
+  for (int i = 0; i < 3; i++)
+    if (C.count[i] < 1) return fail("Positive counts expected in composite");
+  double sizedot = size[0]*size[0] + size[1]*size[1] + size[2]*size[2];
+  if (sizedot < mjMINVAL && C.uservert.empty())
+    return fail("Positive spacing or length expected in composite");
+  if (!C.uservert.empty()) {
+    if (C.count[0] > 1) return fail("Either vertex or count can be specified, not both");
+    C.count[0] = (int)C.uservert.size()/3;
+    C.count[1] = 1;
+  }
+  int dim = 0;
+  bool sawone = false;
+  for (int i = 0; i < 3; i++) {
+    if (C.count[i] == 1) sawone = true;
+    else { dim++; if (sawone) return fail("Singleton counts must come last"); }
+  }
+  if (dim != 1) return fail("Cable must be one-dimensional");
+  if (C.gtmpl.type != mjGEOM_CYLINDER && C.gtmpl.type != mjGEOM_CAPSULE &&
+      C.gtmpl.type != mjGEOM_BOX)
+    return fail("Cable geom type must be sphere, capsule or box");
+
+  // name text (composite_<prefix> -> rope_<prefix>)
+  mjsText* pte = mjs_addText(spec_);
+  mjs_setName(pte->element, ("composite_" + C.prefix).c_str());
+  mjs_setString(pte->data, ("rope_" + C.prefix).c_str());
+
+  // populate uservert from the curve if not prescribed (verts stored as float)
+  if (C.uservert.empty()) {
+    for (int ix = 0; ix < C.count[0]; ix++) {
+      double v[3];
+      for (int k = 0; k < 3; k++) {
+        switch (curve[k]) {
+          case kCompShapeLine: v[k] = ix*size[0]/(C.count[0]-1); break;
+          case kCompShapeCos: v[k] = size[1]*std::cos(mjPI*ix*size[2]/(C.count[0]-1)); break;
+          case kCompShapeSin: v[k] = size[1]*std::sin(mjPI*ix*size[2]/(C.count[0]-1)); break;
+          case kCompShapeZero: default: v[k] = 0; break;
+        }
+      }
+      double r[3];
+      MjuuRotVecQuat(r, v, C.quat);
+      C.uservert.push_back((float)r[0]);
+      C.uservert.push_back((float)r[1]);
+      C.uservert.push_back((float)r[2]);
+    }
+  }
+
+  // add the body chain
+  double normal[3] = {0, 1, 0}, prev_quat[4] = {1, 0, 0, 0};
+  mjsBody* body = host;
+  for (int ix = 0; ix < C.count[0]-1; ix++)
+    body = AddCableBody(C, body, ix, normal, prev_quat);
+
+  // skin (box geom only; subgrid vs plain; count[1] temporarily bumped)
+  if (C.gtmpl.type == mjGEOM_BOX) {
+    if (C.skinsubgrid > 0) {
+      C.count[1] += 2;
+      MakeCableSkin2Subgrid(C, 2*C.gtmpl.size[2]);
+      C.count[1] -= 2;
+    } else {
+      C.count[1] += 1;
+      MakeCableSkin2(C, 2*C.gtmpl.size[2]);
+      C.count[1] -= 1;
+    }
+  }
+}
+
+
 void Builder::Build(const Model& m, const CompileOptions& opts) {
   base_dir_ = opts.base_dir;
-  model_ = &m;
   BuildCompiler(m, opts);
   for (const auto& o : m.options) if (o) BuildOption(*o);
   for (const auto& s : m.sizes) if (s) BuildSize(*s);
@@ -2449,7 +3439,8 @@ void ScanFlexcompSubtree(const std::vector<BodyChildAny>& subtree,
 //   * coordinate="global" [always-error]: removed from MuJoCo (2.3.3+);
 //     mjsCompiler has no global field, so the mjs build would silently
 //     reinterpret it as local. Deprecated composite types are NOT guarded here --
-//     they surface their own reader error when GraftComposite parses the fragment.
+//     BuildComposite raises the exact reader deprecation error directly (same
+//     text on both legs; verified by probe), so no scan entry is needed.
 //   * flexcomp mesh/interp/plugin combined with a gapped feature [fallbackable]:
 //     the generated (grid/box/square + cylinder/ellipsoid/disc/circle) and direct
 //     flexcomp families, including <pin>, inline point/element topology, and
