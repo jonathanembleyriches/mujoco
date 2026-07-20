@@ -111,25 +111,47 @@ std::string AbsBaseDir(const std::string& base) {
 // meshdir/texturedir assets resolve only if the emitted XML carries ABSOLUTE
 // asset dirs (verification (c): probe_bytes -- a dir-less reparse fails with
 // "Error opening file"). Add them to the emitted <compiler> tag, or insert one.
+// Rewrite one dir attribute inside the <compiler> tag span [cpos, end): an
+// EXISTING attribute's value is replaced by absdir/<old-value> resolved absolute
+// (a duplicate attribute would be an XML parse error -- the Franka regression);
+// a missing one is appended as absdir itself. Returns the new end-of-tag index.
+std::size_t UpsertDirAttr(std::string& xml, std::size_t cpos, std::size_t end,
+                          const char* attr, const std::string& absdir) {
+  const std::string needle = std::string(attr) + "=\"";
+  const std::size_t apos = xml.find(needle, cpos);
+  if (apos != std::string::npos && apos < end) {
+    const std::size_t vbeg = apos + needle.size();
+    const std::size_t vend = xml.find('"', vbeg);
+    if (vend != std::string::npos && vend <= end) {
+      const std::string old = xml.substr(vbeg, vend - vbeg);
+      std::filesystem::path p(old);
+      const std::string abs_value =
+          p.is_absolute() ? old : (std::filesystem::path(absdir) / p).string();
+      xml.replace(vbeg, vend - vbeg, abs_value);
+      return end - (vend - vbeg) + abs_value.size();
+    }
+    return end;
+  }
+  const std::string ins = " " + std::string(attr) + "=\"" + absdir + "\"";
+  const std::size_t at = (end > cpos && xml[end - 1] == '/') ? end - 1 : end;
+  xml.insert(at, ins);
+  return end + ins.size();
+}
+
 void InjectAssetDirs(std::string& xml, const std::string& absdir) {
-  const std::string attrs =
-      " meshdir=\"" + absdir + "\" texturedir=\"" + absdir + "\"";
-  const std::size_t cpos = xml.find("<compiler");
-  if (cpos != std::string::npos) {
-    const std::size_t end = xml.find('>', cpos);
-    if (end != std::string::npos) {
-      const std::size_t ins = (end > cpos && xml[end - 1] == '/') ? end - 1 : end;
-      xml.insert(ins, attrs);
-      return;
-    }
+  std::size_t cpos = xml.find("<compiler");
+  if (cpos == std::string::npos) {
+    const std::size_t mjpos = xml.find("<mujoco");
+    if (mjpos == std::string::npos) return;
+    const std::size_t mjend = xml.find('>', mjpos);
+    if (mjend == std::string::npos) return;
+    xml.insert(mjend + 1, "\n  <compiler/>");
+    cpos = xml.find("<compiler", mjend);
   }
-  const std::size_t mjpos = xml.find("<mujoco");
-  if (mjpos != std::string::npos) {
-    const std::size_t end = xml.find('>', mjpos);
-    if (end != std::string::npos) {
-      xml.insert(end + 1, "\n  <compiler" + attrs + "/>");
-    }
-  }
+  std::size_t end = xml.find('>', cpos);
+  if (end == std::string::npos) return;
+  end = UpsertDirAttr(xml, cpos, end, "meshdir", absdir);
+  end = UpsertDirAttr(xml, cpos, end, "texturedir", absdir);
 }
 
 const char* GetModelToLoad(ModelPlugin* self, int* size, char* content_type,
