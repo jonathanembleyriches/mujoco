@@ -1,9 +1,11 @@
-"""Windowless tests of the joint rigger core (docs/rigger_plan.md P1).
+"""Windowless tests of the joint rigger core (docs/rigger_plan.md P1 + P2).
 
 Compiles ``studio/editor/test/test_rigger_windowless.cc`` -- which splices in
-``studio/editor/joint_rig.cc`` -- and runs it. This pins every rigger visual
-against an independent ``mj_loadXML`` + ``mj_forward`` reference, with no window,
-no ImGui and no Studio host:
+``studio/editor/joint_rig.cc`` plus the PURE part of ``rig_handles.cc`` (the
+ImGui controller is compiled out via ``PS_RIG_HANDLES_NO_CONTROLLER``) and
+``undo.cc`` (the gesture undo storage) -- and runs it. This pins every rigger
+visual, and the P2 handle math, against an independent ``mj_loadXML`` +
+``mj_forward`` reference, with no window, no ImGui and no Studio host:
 
 * scrub pose == reference forward at the same qpos (bitwise); no-commit invariants
 * snap-back == qpos0 forward; dirty / undo untouched
@@ -13,6 +15,13 @@ no ImGui and no Studio host:
 * hinge range arc / slide travel: JointLimitChildPoint == mj_forward at
   qpos=range[k] to 1e-12, on a degree hinge, a radian twin, and a slide
 * limited=auto pin (m->jnt_limited), unit display (degree / radian / slide)
+* P2 cursor->dof mapping: a constructed ray at a known angle / axial position
+  maps back to it (hinge + slide); snap rounding
+* P2 commit round-trip: drag target (radians/metres) -> authored write (the one
+  DofToAuthored conversion) -> recompile -> m->jnt_range == target (degree
+  fixture + radian twin + slide, proving no double-convert); undo restores
+* P2 endpoint cancel restores compiled + authored state, no undo step
+* P2 slider == limb-scrub: both reduce to the same qpos write -> bitwise pose
 
 Build strategy mirrors ``test_plugin_windowless.py``: g++ against the prebuilt
 ``libprotospec_core.a`` + ``libmujoco.so`` from the studio ``build_ps`` tree.

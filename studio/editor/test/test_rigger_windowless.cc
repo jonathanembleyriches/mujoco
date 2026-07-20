@@ -33,10 +33,20 @@
 
 #include "bridge.h"    // ps::mjcf::Compile / CompileToXml / CompileOptions
 #include "editor/editor_context.h"
+#include "editor/element_access.h"  // FindSerialAs
 #include "mjcf.h"      // ps::mjcf::io::ParseMjcfString
 
 // Splice the rigger core so its functions are reachable directly.
 #include "editor/joint_rig.cc"
+// Splice the PURE part of the P2 handle core (the ImGui controller is compiled
+// out via PS_RIG_HANDLES_NO_CONTROLLER, leaving only the windowless cursor->dof
+// mapping + the single unit-conversion write helper).
+#define PS_RIG_HANDLES_NO_CONTROLLER
+#include "editor/rig_handles.cc"
+// The commit/undo/cancel tests exercise EditorContext's gesture flow, whose undo
+// storage lives in undo.cc (not the linked core lib) -- splice it in too. It only
+// needs the SDK serial-preserving clone (already in libprotospec_core.a).
+#include "editor/undo.cc"
 
 namespace ps::studio {
 namespace {
@@ -386,6 +396,177 @@ int TestArcContractOne(const std::string& xml, const char* tag) {
   return 0;
 }
 
+// --- P2: interactive handles (rig_handles.cc pure core) --------------------- //
+
+constexpr double kPiT = 3.14159265358979323846;
+
+// Recompile the (possibly mutated) tree through the same XmlPath bridge and read
+// back the first Joint's compiled jnt_range -- the editor's post-commit compile.
+bool RecompileFirstJointRange(mj::Model& tree, double out[2]) {
+  mj::CompileOptions opts;
+  opts.path = mj::CompilePath::XmlPath;
+  mj::Compiled c = mj::Compile(tree, opts);
+  if (!c.ok()) return false;
+  const mjModel* m = c.model.get();
+  for (const mj::Binding::Entry& e : c.binding.entries()) {
+    if (e.etype == mj::ElementType::Joint && e.id >= 0) {
+      out[0] = m->jnt_range[2 * e.id + 0];
+      out[1] = m->jnt_range[2 * e.id + 1];
+      return true;
+    }
+  }
+  return false;
+}
+
+// Cursor->dof mapping: a synthetic camera ray whose plane/axis intersection is a
+// CONSTRUCTED point at a known angle / axial position must map back to it.
+int TestMappingFunctions() {
+  // Hinge: axis +Y through origin, reference direction +X (u). A point at angle
+  // theta in the (u, v=xaxis x u) plane, hit by a ray straight down the axis.
+  const double anchor[3] = {0, 0, 0};
+  const double yaxis[3] = {0, 1, 0};
+  const double p_ref[3] = {1, 0, 0};
+  for (double theta : {-0.9, -0.3, 0.0, 0.4, 1.1}) {
+    // Construct the hit point via the pinned contract, then a ray onto it.
+    double hit[3];
+    JointLimitChildPoint(mjJNT_HINGE, anchor, yaxis, /*q_now=*/0.0, theta, p_ref,
+                         hit);
+    double ray_d[3] = {0, -1, 0};  // down the -axis, so it crosses the y=0 plane
+    double ray_o[3] = {hit[0] - ray_d[0] * 5, hit[1] - ray_d[1] * 5,
+                       hit[2] - ray_d[2] * 5};
+    const double q = HingeDofFromRay(anchor, yaxis, p_ref, 0.0, ray_o, ray_d);
+    CHECK(std::fabs(q - theta) < 1e-12);
+  }
+  // Slide: axis +X through the origin, p_ref at the anchor (s0=0); a ray crossing
+  // the axis at x=s maps to q = s.
+  const double xaxis[3] = {1, 0, 0};
+  const double s_ref[3] = {0, 0, 0};
+  const double origin[3] = {0, 0, 0};
+  for (double s : {-0.4, 0.0, 0.25, 0.7}) {
+    double ray_o[3] = {s, 2, 0};
+    double ray_d[3] = {0, -1, 0};
+    const double q = SlideDofFromRay(origin, xaxis, s_ref, 0.0, ray_o, ray_d);
+    CHECK(std::fabs(q - s) < 1e-12);
+  }
+  // Snap: rounds to the step when on, identity when off.
+  CHECK(SnapDof(mjJNT_HINGE, 0.20, false, 0.1, 0.1) == 0.20);
+  CHECK(std::fabs(SnapDof(mjJNT_HINGE, 0.23, true, 0.1, 0.05) - 0.20) < 1e-12);
+  CHECK(std::fabs(SnapDof(mjJNT_SLIDE, 0.23, true, 0.1, 0.05) - 0.25) < 1e-12);
+  std::printf("  cursor->dof mapping + snap: ok\n");
+  return 0;
+}
+
+// The commit round-trip (plan §3 P2): drag an endpoint to a radian/metre target,
+// write the authored field through the ONE conversion (DofToAuthored), recompile
+// -> m->jnt_range equals the target (no double-convert); undo restores authored.
+int TestCommitRoundTripOne(const std::string& xml, const char* tag, double target,
+                           int endpoint) {
+  Fixture f;
+  CHECK(BuildFixture(f, xml));
+  mjModel* m = f.ctx.compiled.model.get();
+  const int type = f.jtype;
+  const bool deg = AngleIsDegree(*f.ctx.tree);
+  mj::Joint* j = FindSerialAs<mj::Joint>(*f.ctx.tree, f.jserial);
+  CHECK(j != nullptr && j->range.has_value());
+  const std::array<double, 2> orig_auth = *j->range;
+
+  // Gesture: BeginEdit, preview-patch the compiled range (authored untouched),
+  // then on release write the authored field via the single conversion + commit.
+  f.ctx.BeginEdit();
+  m->jnt_range[2 * f.jid + endpoint] = target;  // live preview (compiled-only)
+  std::array<double, 2> auth = *j->range;
+  auth[endpoint] = DofToAuthored(type, m->jnt_range[2 * f.jid + endpoint], deg);
+  j->range = auth;
+  f.ctx.CommitEdit("joint range");
+  CHECK(f.ctx.dirty);
+  CHECK(f.ctx.recompile_requested);
+  CHECK(f.ctx.history.can_undo());
+  // The non-dragged endpoint keeps its exact authored number (no round-trip).
+  CHECK((*j->range)[1 - endpoint] == orig_auth[1 - endpoint]);
+
+  // Recompile: the dragged endpoint's compiled value equals the drag target.
+  double rr[2];
+  CHECK(RecompileFirstJointRange(*f.ctx.tree, rr));
+  if (!(std::fabs(rr[endpoint] - target) < 1e-9)) {
+    std::fprintf(stderr, "commit[%s] endpoint %d: got %.12g want %.12g\n", tag,
+                 endpoint, rr[endpoint], target);
+    return 1;
+  }
+
+  // Undo restores the prior authored range exactly.
+  f.ctx.tree = f.ctx.history.Undo(std::move(f.ctx.tree));
+  mj::Joint* j2 = FindSerialAs<mj::Joint>(*f.ctx.tree, f.jserial);
+  CHECK(j2 != nullptr && j2->range.has_value());
+  CHECK((*j2->range)[0] == orig_auth[0] && (*j2->range)[1] == orig_auth[1]);
+  std::printf("  commit round-trip + undo [%s]: ok\n", tag);
+  return 0;
+}
+
+// Esc mid-drag: the compiled preview patch is restored and the authored tree is
+// untouched (the drag never mutated it), with no undo step recorded.
+int TestEndpointCancel() {
+  Fixture f;
+  CHECK(BuildFixture(f, kDegHinge));
+  mjModel* m = f.ctx.compiled.model.get();
+  mj::Joint* j = FindSerialAs<mj::Joint>(*f.ctx.tree, f.jserial);
+  CHECK(j != nullptr && j->range.has_value());
+  const std::array<double, 2> orig_auth = *j->range;
+  const double g0 = m->jnt_range[2 * f.jid + 0], g1 = m->jnt_range[2 * f.jid + 1];
+
+  f.ctx.BeginEdit();
+  m->jnt_range[2 * f.jid + 1] = 1.2;  // live preview
+  // Esc cancel: restore the compiled patch + deferred CancelEdit (no undo step).
+  m->jnt_range[2 * f.jid + 0] = g0;
+  m->jnt_range[2 * f.jid + 1] = g1;
+  f.ctx.CancelEdit();
+  CHECK(m->jnt_range[2 * f.jid + 1] == g1);
+  CHECK((*j->range)[0] == orig_auth[0] && (*j->range)[1] == orig_auth[1]);
+  CHECK(f.ctx.history.can_undo() == false);
+  std::printf("  endpoint cancel restores state: ok\n");
+  return 0;
+}
+
+// Slider scrub and limb-drag scrub are the SAME qpos write: a limb-drag maps the
+// cursor to q via JointDofFromRay, a slider hands q straight to SetJointPreview
+// -- so both produce a bitwise-identical mirrored pose for the same value.
+int TestSliderLimbEquivalence() {
+  Fixture f;
+  CHECK(BuildFixture(f, kDegHinge));
+  mjModel* m = f.ctx.compiled.model.get();
+  mjData* d = f.ctx.sim_data;
+  const int refg = PickArcReferenceGeom(m, d, f.jid);
+  CHECK(refg >= 0);
+  double p_ref[3];
+  for (int k = 0; k < 3; ++k) p_ref[k] = d->geom_xpos[3 * refg + k];
+  const double q_now = d->qpos[f.qadr];
+  const double target = 15.0 * kPiT / 180.0;
+
+  // Limb-drag: construct a ray onto where p_ref lands at q=target, map it back.
+  double hit[3];
+  JointLimitChildPoint(mjJNT_HINGE, d->xanchor + 3 * f.jid, d->xaxis + 3 * f.jid,
+                       q_now, target, p_ref, hit);
+  double ray_d[3], ray_o[3];
+  for (int k = 0; k < 3; ++k) {
+    ray_d[k] = -d->xaxis[3 * f.jid + k];
+    ray_o[k] = hit[k] - ray_d[k] * 5.0;
+  }
+  const double q_mapped =
+      JointDofFromRay(mjJNT_HINGE, d->xanchor + 3 * f.jid, d->xaxis + 3 * f.jid,
+                      p_ref, q_now, ray_o, ray_d);
+  CHECK(std::fabs(q_mapped - target) < 1e-9);
+
+  // Limb-scrub pose at the mapped q.
+  CHECK(SetJointPreview(f.ctx, f.jserial, q_mapped));
+  std::vector<double> limb_x(d->geom_xpos, d->geom_xpos + 3 * m->ngeom);
+  std::vector<double> limb_q(d->qpos, d->qpos + m->nq);
+  // Slider pose at the SAME value (independent reset inside SetJointPreview).
+  CHECK(SetJointPreview(f.ctx, f.jserial, q_mapped));
+  CHECK(MaxAbsDiff(limb_x.data(), d->geom_xpos, 3 * m->ngeom) == 0.0);
+  CHECK(MaxAbsDiff(limb_q.data(), d->qpos, m->nq) == 0.0);
+  std::printf("  slider == limb-scrub pose: ok\n");
+  return 0;
+}
+
 int RunTests() {
   if (TestUnitsAndLimited()) return 1;
   if (TestScrubAndSnapback()) return 1;
@@ -393,6 +574,14 @@ int RunTests() {
   if (TestArcContractOne(kDegHinge, "deg-hinge")) return 1;
   if (TestArcContractOne(kRadHinge, "rad-hinge")) return 1;
   if (TestArcContractOne(kSlide, "slide")) return 1;
+  if (TestMappingFunctions()) return 1;
+  if (TestCommitRoundTripOne(kDegHinge, "deg-hinge", 60.0 * kPiT / 180.0, 1))
+    return 1;
+  if (TestCommitRoundTripOne(kRadHinge, "rad-hinge", 60.0 * kPiT / 180.0, 1))
+    return 1;
+  if (TestCommitRoundTripOne(kSlide, "slide", 0.4, 1)) return 1;
+  if (TestEndpointCancel()) return 1;
+  if (TestSliderLimbEquivalence()) return 1;
   std::printf("rigger_windowless: all checks passed\n");
   return 0;
 }

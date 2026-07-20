@@ -31,6 +31,7 @@
 #include "editor/placement.h"
 #include "editor/joint_overlay.h"
 #include "editor/joint_rig.h"
+#include "editor/rig_handles.h"
 #include "editor/layers.h"
 #include "editor/plugin_abi.h"
 #include "editor/plugins.h"
@@ -48,6 +49,7 @@ namespace mj = ps::mjcf;
 struct ViewportEditor {
   EditorContext* ctx = nullptr;
   GizmoController gizmo;
+  RigHandleController rig;  // range-endpoint handles + limb-scrub (plan P2)
   mjvOption vis_option;
 
   // Click-through cycling: successive clicks at ~the same pixel walk overlapping
@@ -397,22 +399,34 @@ void HandlePick(ViewportEditor& ve, const ViewportInput& in) {
   ResolvePick(ctx, geom, body);
 }
 
-// The mouse organism: gizmo grab/drag first, then click-select, then right-click
-// "add here". Returns true when the gizmo owns the mouse this frame.
+// The mouse organism, in strict pick priority (stated + tested in
+// test_rigger_windowless): gizmo handles > rig handles > limb-scrub > selection
+// click, then right-click "add here". The gizmo runs first and, if it grabbed a
+// handle, consumes the mouse; the rig controller only sees the mouse when the
+// gizmo declines (endpoint handles + limb-scrub live inside it, and it itself
+// defers a bare click on a subtree geom to selection). Returns true when the
+// gizmo OR the rig owns the mouse this frame.
 bool HandleViewportMouse(ViewportEditor& ve, const ViewportInput& in) {
   EditorContext& ctx = *ve.ctx;
   const bool consumed = ve.gizmo.HandleMouse(ctx, in);
+  const bool rig_consumed = consumed ? false : ve.rig.HandleMouse(ctx, in);
+  const bool any = consumed || rig_consumed;
 
   const bool press = in.left_down && !ve.prev_left;
   const bool release = !in.left_down && ve.prev_left;
-  if (press && !consumed) {
+  if (press && !any) {
     ve.press_x = in.x;
     ve.press_y = in.y;
     ve.press_x_set = true;
   }
-  if (release && ve.press_x_set && !ctx.gizmo_active) {
-    const float dx = in.x - ve.press_x, dy = in.y - ve.press_y;
-    if ((dx * dx + dy * dy) < (0.006f * 0.006f)) HandlePick(ve, in);
+  if (release) {
+    // Selection click: only when neither the gizmo nor the rig owned the gesture
+    // (an armed-but-never-moved limb-scrub returns not-consumed here, so a bare
+    // click on a subtree geom still selects).
+    if (ve.press_x_set && !ctx.gizmo_active && !rig_consumed) {
+      const float dx = in.x - ve.press_x, dy = in.y - ve.press_y;
+      if ((dx * dx + dy * dy) < (0.006f * 0.006f)) HandlePick(ve, in);
+    }
     ve.press_x_set = false;
   }
   ve.prev_left = in.left_down;
@@ -433,7 +447,7 @@ bool HandleViewportMouse(ViewportEditor& ve, const ViewportInput& in) {
     ve.press_r_set = false;
   }
   ve.prev_right = in.right_down;
-  return consumed;
+  return any;
 }
 
 void DrawDropMenu(ViewportEditor* ve) {
@@ -624,7 +638,9 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   // the rig joint is no longer the selection, editing is closed (Edit-exit / sim
   // advanced), or the gizmo is engaging (a held scrub pose would otherwise feed a
   // corrupt qpos into BuildJointDragFrame, which expects qpos0). Plan §5 risks 1/3.
-  if (ctx.rig_preview.active &&
+  // ...unless the rig controller is itself driving the scrub this frame (a
+  // limb-drag owns rig_preview and must not be snapped out from under itself).
+  if (ctx.rig_preview.active && !ve->rig.active() &&
       (ctx.selected_serial != ctx.rig_preview.serial || !ctx.CanEdit() ||
        ctx.gizmo_active || ve->gizmo.hot())) {
     ClearJointPreview(ctx);
@@ -633,9 +649,11 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   const ViewportInput in = MakeInput(*ve);
 
   // Interact only over the 3D scene (no ImGui window hovered), OR while a drag is
-  // already in flight (we set WantCaptureMouse ourselves, so the flag is true).
+  // already in flight (we set WantCaptureMouse ourselves, so the flag is true) --
+  // a gizmo drag or an active rig handle / limb-scrub.
   const ImGuiIO& io = ImGui::GetIO();
-  const bool over_scene = !io.WantCaptureMouse || ctx.gizmo_active;
+  const bool over_scene =
+      !io.WantCaptureMouse || ctx.gizmo_active || ve->rig.active();
   if (over_scene) {
     HandleViewportMouse(*ve, in);
   } else {
@@ -665,6 +683,7 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
   vc.aspect_ratio = in.aspect_ratio;
   vc.edit_mode = ctx.CanEdit();
   ve->gizmo.Draw(ctx, vc);
+  ve->rig.Draw(ctx, vc);  // range-endpoint handles + drag readout (plan P2)
   if (vc.edit_mode) {
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const ViewProj vp = BuildViewProj(m, ctx.sim_data, ctx.camera, in.aspect_ratio);
@@ -676,7 +695,8 @@ bool ViewportUpdate(ModelPlugin* self, mjModel* host_model, mjData* host_data) {
 
   // Suppress the host camera next frame while the gizmo owns the mouse (hover a
   // handle or drag). 1-frame handoff; app.cc gates camera on WantCaptureMouse.
-  if (over_scene && (ctx.gizmo_active || ve->gizmo.hot())) {
+  if (over_scene && (ctx.gizmo_active || ve->gizmo.hot() || ve->rig.hot() ||
+                     ve->rig.active())) {
     ImGui::SetNextFrameWantCaptureMouse(true);
   }
   return false;

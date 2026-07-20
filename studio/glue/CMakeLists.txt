@@ -139,6 +139,7 @@ add_library(protospec_editor STATIC
   ${PROTOSPEC_EDITOR}/panels.cc
   ${PROTOSPEC_EDITOR}/placement.cc
   ${PROTOSPEC_EDITOR}/protospec_editor.cc
+  ${PROTOSPEC_EDITOR}/rig_handles.cc
   ${PROTOSPEC_EDITOR}/screenshot_service.cc
   ${PROTOSPEC_EDITOR}/transform_math.cc
   ${PROTOSPEC_EDITOR}/undo.cc
