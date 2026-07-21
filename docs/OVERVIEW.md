@@ -192,7 +192,83 @@ we deliberately don't replicate (each with a paste-ready issue draft).
 
 ---
 
-## 7. Doc index
+## 7. Importing into a new repo (repackaging checklist)
+
+Everything below is what actually matters when moving this work into a fresh
+repository (internal hosting, monorepo, wherever). The project is TWO logical
+pieces sharing one git history today; they separate cleanly.
+
+### Piece 1 — the ProtoSpec repo content (branch `protospec`)
+
+Import the whole working tree of the `protospec` branch. Per-directory role:
+
+| Dir | Role | Import? |
+|---|---|---|
+| `protospec/` | the product: schema, generator, lib (incl. committed `generated/` — gated by `emit --check`, import as-is), snapshots (drift-gate ground truth), python, tests | **yes, all** |
+| `studio/` | the editor plugin (`editor/`) + the fork-facing build glue (`glue/`) | **yes, all** |
+| `docs/` | contracts + rituals (`SYNC_STATE.md`, `mujoco_bump.md`, `EXCEPTIONS.md`, `public_api.md` are load-bearing) | **yes** |
+| `pyproject.toml`, `uv.lock` | the python env; package = `protospec/protospec_gen`, testpaths = `protospec/tests` + `attic/tests` | **yes** (trim `attic/tests` from testpaths if attic is dropped) |
+| `attic/` | parked native compiler + old standalone host; not built | optional (history keeps it) |
+| `.github/` | minimal CI (drift gate + pytest) | optional |
+| root `mug_coacd.xml`, `test.xml` | untracked scratch | no |
+
+Git **tags do not transfer** — the pin and rollback anchors live as SHAs inside
+`docs/SYNC_STATE.md`; keep that file authoritative. No absolute paths are baked
+into the build; test conveniences that reference sibling checkouts
+(`../mujoco-studio`, menagerie, coacd assets) degrade to skips when absent.
+
+### Piece 2 — the Studio fork (branch `studio`)
+
+Do NOT import the fork's history. The fork is exactly:
+**pinned upstream MuJoCo (`3990305373b8`, records in `SYNC_STATE.md`) + a
+3-file delta (+45/−8)** — `.gitignore`, the `studio/CMakeLists.txt` mount
+block, the `app.cc` keyhandler-first hunk. Regenerate it anywhere with:
+
+```
+git diff 3990305373b8..studio > protospec-studio-fork.patch   # from this repo
+# new location: clone upstream mujoco at the pin, git apply the patch
+```
+
+Consider committing that patch file into the new repo (e.g.
+`studio/fork/PIN` + `studio/fork/fork.patch`) so the fork is reproducible from
+upstream + the new repo alone. Future MuJoCo bumps re-derive it via the ritual
+(`docs/mujoco_bump.md`).
+
+### The one cross-piece coupling
+
+The fork's mount block consumes a single CMake cache var:
+`PROTOSPEC_ROOT` → must point at the imported ProtoSpec tree root (it mounts
+`${PROTOSPEC_ROOT}/studio/glue`, which locates `studio/editor/` and
+`protospec/lib/` relative to itself). That variable is the ENTIRE contract
+between the two pieces.
+
+Build configure (from `docs/studio_build.md`):
+`-DMUJOCO_USE_FILAMENT=ON -DMUJOCO_BUILD_STUDIO=ON -DMUJOCO_STUDIO_PROTOSPEC=ON
+-DPROTOSPEC_ROOT=<protospec-tree>`; build targets `mujoco_studio` **plus**
+`elasticity sdf_plugin sensor actuator` (plugin `.so`s are not attached to the
+app target).
+
+### Environment variables the gates/tools understand (all optional)
+
+`PROTOSPEC_MUJOCO_SRC` (MuJoCo source for snapshot extractors),
+`PROTOSPEC_CORPUS` (big-corpus differential), `PROTOSPEC_BUILD_PS_LIB` /
+`PROTOSPEC_MJ_INCLUDE` (harness lib/header override), `PROTOSPEC_PLUGIN_DIR`
+(first-party plugin `.so` dir), `PROTOSPEC_PYD` (prebuilt python extension),
+`PROTOSPEC_STUDIO_EXE` / `PROTOSPEC_STUDIO_SRC` (smoke/attic tests),
+`PROTOSPEC_PATHDIFF_SKIP`, `PROTOSPEC_RUN_ASAN`, `PROTOSPEC_NATIVE`.
+Runtime: `MUJOCO_SCREENSHOT_DIR/_AFTER/_COUNT/_EXIT` (headless capture).
+
+### Post-import acceptance (15 minutes)
+
+1. `uv sync` → `uv run python -m protospec_gen.emit --check` (clean) →
+   `uv run pytest -q` (313+ passed; build_ps-linked tests skip until step 3).
+2. Clone upstream MuJoCo at the pin, apply the fork patch.
+3. Configure + build `build_ps` (flags above) → rerun `uv run pytest -q`
+   (differential + windowless suites now run).
+4. Headless smoke with a jointed model (`--gfx=classic` + the screenshot env
+   vars) → viewport renders, Diagnostics shows `compiled ok path=mjs`.
+
+## 8. Doc index
 
 - `docs/plan.md` — the canonical design record (DRs).
 - `docs/public_api.md` — the SDK contract, stability tiers, Python surface, semver.
