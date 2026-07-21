@@ -23,11 +23,13 @@
 #include <imgui_stdlib.h>
 
 #include "binding.h"
+#include "editor/element_access.h"  // FindSerialAs (rig range editing)
 #include "editor/authoring_ops.h"  // CaptureKeyframeOp (Pose-table keyframe)
 #include "editor/editor_ops.h"
 #include "editor/joint_overlay.h"
 #include "editor/joint_rig.h"
 #include "editor/layers.h"
+#include "editor/rig_handles.h"    // DofToAuthored (rig range editing)
 #include "editor/plugin_abi.h"
 #include "platform/ux/plugin.h"
 #include "protospec/builders.h"  // sdk::AddMaterialLayer / SetLayer* / RemoveMaterialLayer
@@ -884,14 +886,76 @@ void RenderRigRow(EditorContext& ctx, const mjModel* m, const mjData* d,
     RemoveJointPreview(ctx, jv.serial);  // snap THIS joint back unless Hold is on
   }
 
-  // Readouts: range / limited(auto) / ref, all in display units.
-  if (limited) {
-    const bool authored_auto = !aj || !aj->limited ||
-                               *aj->limited == mj::TriState::auto_;
-    ImGui::TextDisabled("range [%.3g, %.3g] %s   limited=%s", lo, hi, unit,
-                        authored_auto ? "auto" : "true");
+  // Range EDITING (display units): the rig must be able to CREATE a range, not
+  // just move one -- an unlimited slide/hinge has no arc endpoints to grab, so
+  // this row is the only rig path to limits. The limited toggle writes authored
+  // limited (seeding range from the shown slider span on first enable); the
+  // min/max drags stage in display units and commit the authored range through
+  // the single unit conversion (DofToAuthored) on gesture end.
+  mj::Joint* aj_mut = FindSerialAs<mj::Joint>(*ctx.tree, jv.serial);
+  if (aj_mut && ctx.CanEdit()) {
+    bool lim = limited;
+    if (ImGui::Checkbox("limited##rig", &lim)) {
+      EditBegin(ctx);
+      if (lim) {
+        aj_mut->limited = mj::TriState::true_;
+        if (!aj_mut->range) {  // seed from the span the slider showed
+          aj_mut->range = std::array<double, 2>{
+              DofToAuthored(type, JointDisplayToDof(type, lo, degree), degree),
+              DofToAuthored(type, JointDisplayToDof(type, hi, degree), degree)};
+        }
+      } else {
+        aj_mut->limited = mj::TriState::false_;
+      }
+      EditCommit(ctx, "joint limited");
+    }
+    if (limited) {
+      // Staging: reseed from the compiled range whenever neither drag is active
+      // (tracks recompiles) or the row changed joints; hold while dragging.
+      static std::uint64_t stage_serial = 0;
+      static bool stage_active = false;
+      static double stage[2] = {0, 0};
+      if (stage_serial != jv.serial || !stage_active) {
+        stage[0] = lo;
+        stage[1] = hi;
+        stage_serial = jv.serial;
+      }
+      bool commit = false;
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(kFieldWidth);
+      ImGui::DragScalar("##rmin", ImGuiDataType_Double, &stage[0], 0.01f);
+      commit = GestureShouldCommit(ctx) || commit;
+      const bool a0 = ImGui::IsItemActive();
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(kFieldWidth);
+      ImGui::DragScalar("##rmax", ImGuiDataType_Double, &stage[1], 0.01f);
+      commit = GestureShouldCommit(ctx) || commit;
+      stage_active = a0 || ImGui::IsItemActive();
+      ImGui::SameLine();
+      const bool authored_auto = !aj || !aj->limited ||
+                                 *aj->limited == mj::TriState::auto_;
+      ImGui::TextDisabled("%s  limited=%s", unit, authored_auto ? "auto" : "true");
+      if (commit) {
+        if (stage[0] > stage[1]) std::swap(stage[0], stage[1]);
+        aj_mut->range = std::array<double, 2>{
+            DofToAuthored(type, JointDisplayToDof(type, stage[0], degree), degree),
+            DofToAuthored(type, JointDisplayToDof(type, stage[1], degree), degree)};
+        EditCommit(ctx, "joint range");
+      }
+    } else {
+      ImGui::SameLine();
+      ImGui::TextDisabled("(unlimited %s)", unit);
+    }
   } else {
-    ImGui::TextDisabled("range unlimited %s   [unlimited]", unit);
+    // Read-only fallback (Play mode / foreign layer): the old readout.
+    if (limited) {
+      const bool authored_auto = !aj || !aj->limited ||
+                                 *aj->limited == mj::TriState::auto_;
+      ImGui::TextDisabled("range [%.3g, %.3g] %s   limited=%s", lo, hi, unit,
+                          authored_auto ? "auto" : "true");
+    } else {
+      ImGui::TextDisabled("range unlimited %s   [unlimited]", unit);
+    }
   }
   const double ref = JointDofToDisplay(type, m->qpos0[qadr], degree);
   if (std::fabs(ref) > 1e-9) {
