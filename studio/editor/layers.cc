@@ -757,22 +757,53 @@ static bool WriteStack(EditorContext& ctx, const std::string& root_path,
     top.push_back(c);
   }
   const std::string* active_key = ctx.ActiveLayerKey();
+
+  // In-place save keeps the SOURCE/root document as the <mujoco> ROOT document:
+  // the layer whose file IS root_path stays in `main` (root <mujoco> attrs plus
+  // its own content plus include refs to the other layers), and only the other
+  // layers become <mujocoinclude> fragments. Export -- and any in-place save
+  // whose root_path matches no layer -- writes every layer to its own fragment,
+  // leaving `main` an include-only <mujoco>: still a valid root document, never a
+  // fragment. Demoting the root layer to a fragment here (the prior bug) wrote a
+  // <mujocoinclude> over root_path, leaving no <mujoco> root -> unloadable.
+  std::string root_key;
+  if (in_place) {
+    const int ri = LayerIndexForKey(ctx, root_path);
+    if (ri >= 0) root_key = ctx.layers[ri].key;
+  }
+
+  std::vector<xt::XMLElement*> root_children;  // kept in the <mujoco> root doc
+  std::unordered_set<std::string> included;    // foreign layers already <include>d
   for (xt::XMLElement* c : top) {
     std::string k = st.TagOf(c);
     if (k.empty() && active_key) k = *active_key;  // defensive; stamped normally
+    if (!root_key.empty() && k == root_key) {
+      root_children.push_back(c);  // the root layer is the document, not a fragment
+      continue;
+    }
     ExportFile& f = st.FileFor(k);
     f.top_level = true;
     xt::XMLElement* clone = CloneWithTags(c, *f.doc, tags);
     f.root->InsertEndChild(clone);
+    // With a root layer, the include replaces this layer's content in place (at
+    // its first appearance), preserving the original <include> position; without
+    // one, includes are appended below in layer order.
+    if (!root_key.empty() && included.insert(k).second) {
+      xt::XMLElement* inc = main.NewElement("include");
+      inc->SetAttribute("file", f.include_attr.c_str());
+      InsertBefore(mroot, inc, c);
+    }
     mroot->DeleteChild(c);
   }
-  if (st.files.empty()) {
+  if (st.files.empty() && root_key.empty()) {
     if (error) *error = "no enabled layer content to export";
     return false;
   }
 
-  // Nested extraction inside each top-level file (fragments append to
-  // st.files as they are discovered; index loop tolerates growth).
+  // Nested extraction: foreign subtrees inside a top-level file -- or inside the
+  // kept root-layer content -- become their own fragments + <include>s.
+  // Fragments append to st.files as discovered; the index loop tolerates growth.
+  for (xt::XMLElement* c : root_children) ExtractForeign(c, root_key, st);
   for (std::size_t fi = 0; fi < st.files.size(); ++fi) {
     ExportFile& f = *st.files[fi];
     std::vector<xt::XMLElement*> kids;
@@ -783,24 +814,28 @@ static bool WriteStack(EditorContext& ctx, const std::string& root_path,
     for (xt::XMLElement* c : kids) ExtractForeign(c, f.key, st);
   }
 
-  // Root document: the <mujoco> attrs plus the include lines, ordered by the
-  // layer display order (unknown keys, if any, trail in creation order).
-  for (const Layer& l : ctx.layers) {
+  // Include-only root document (export, or in-place with no root layer): the
+  // <mujoco> attrs plus one include per top-level file in layer display order
+  // (unknown keys, if any, trail in creation order). The root-layer branch above
+  // already placed its includes inline.
+  if (root_key.empty()) {
+    for (const Layer& l : ctx.layers) {
+      for (auto& f : st.files) {
+        if (f->top_level && f->key == l.key) {
+          xt::XMLElement* inc = main.NewElement("include");
+          inc->SetAttribute("file", f->include_attr.c_str());
+          mroot->InsertEndChild(inc);
+          f->top_level = false;  // consumed
+        }
+      }
+    }
     for (auto& f : st.files) {
-      if (f->top_level && f->key == l.key) {
+      if (f->top_level) {
         xt::XMLElement* inc = main.NewElement("include");
         inc->SetAttribute("file", f->include_attr.c_str());
         mroot->InsertEndChild(inc);
-        f->top_level = false;  // consumed
+        f->top_level = false;
       }
-    }
-  }
-  for (auto& f : st.files) {
-    if (f->top_level) {
-      xt::XMLElement* inc = main.NewElement("include");
-      inc->SetAttribute("file", f->include_attr.c_str());
-      mroot->InsertEndChild(inc);
-      f->top_level = false;
     }
   }
 

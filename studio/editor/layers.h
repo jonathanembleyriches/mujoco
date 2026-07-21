@@ -137,9 +137,13 @@ bool ExportLayeredMjcf(EditorContext& ctx, const std::string& root_path,
 
 // Save the stack IN PLACE: each file-backed layer writes back to its own file
 // (its key), an authored layer is assigned <root dir>/<slug>.xml on first save
-// (and retagged file-backed), and `root_path` gets the root <include> document.
-// Unlike Export, disabled layers ARE written -- enable/disable is compile
-// state, not file state. SaveModel dispatches here for multi-layer models.
+// (and retagged file-backed). The layer whose file IS `root_path` (the source
+// document) is written as the <mujoco> ROOT: its own content plus an <include>
+// ref to every other layer, at that layer's original position -- so the root
+// document stays a loadable <mujoco> root, never a <mujocoinclude> fragment. If
+// no layer maps to `root_path`, the root becomes an include-only <mujoco> (still
+// a valid root). Unlike Export, disabled layers ARE written -- enable/disable is
+// compile state, not file state. SaveModel dispatches here for multi-layer models.
 bool SaveLayeredMjcf(EditorContext& ctx, const std::string& root_path,
                      std::string* error);
 
