@@ -128,6 +128,7 @@ add_library(protospec_editor STATIC
   ${PROTOSPEC_EDITOR}/details_panel.cc
   ${PROTOSPEC_EDITOR}/dock_layout.cc
   ${PROTOSPEC_EDITOR}/editor_ops.cc
+  ${PROTOSPEC_EDITOR}/focus_frame.cc
   ${PROTOSPEC_EDITOR}/gizmo.cc
   ${PROTOSPEC_EDITOR}/gizmo_math.cc
   ${PROTOSPEC_EDITOR}/hierarchy_icons.cc

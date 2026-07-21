@@ -27,6 +27,7 @@
 
 #include "editor/authoring_ops.h"
 #include "editor/editor_ops.h"
+#include "editor/focus_frame.h"
 #include "editor/gizmo.h"
 #include "editor/gizmo_math.h"
 #include "editor/placement.h"
@@ -446,7 +447,7 @@ bool TryPickJoint(ViewportEditor& ve, const ViewportInput& in) {
     }
   }
   if (best_serial != 0) {
-    SelectBySerial(ctx, best_serial);
+    SelectAndReveal(ctx, best_serial);  // SE2: scroll the picked joint into view
     ctx.Diagnose(DiagEntry{DiagEntry::Severity::Info,
                            "pick -> joint serial " + std::to_string(best_serial),
                            best_serial, {}});
@@ -483,6 +484,7 @@ void HandlePick(ViewportEditor& ve, const ViewportInput& in) {
   ve.last_click_y = in.y;
   const auto& [geom, body] = hits[ve.cycle_index];
   ResolvePick(ctx, geom, body);
+  ctx.reveal_serial = ctx.selected_serial;  // SE2: scroll the picked element in
 }
 
 // The mouse organism, in strict pick priority (stated + tested in
@@ -567,44 +569,25 @@ void DrawDropMenu(ViewportEditor* ve) {
   }
 }
 
-bool WorldPosOfSerial(const mjModel* m, const mjData* d,
-                      const mj::Binding& binding, std::uint64_t serial,
-                      double out[3]) {
-  for (const mj::Binding::Entry& e : binding.entries()) {
-    if (e.serial != serial || e.id < 0) continue;
-    const double* src = nullptr;
-    switch (e.etype) {
-      case mj::ElementType::Body: src = d->xpos + 3 * e.id; break;
-      case mj::ElementType::Geom: src = d->geom_xpos + 3 * e.id; break;
-      case mj::ElementType::Site: src = d->site_xpos + 3 * e.id; break;
-      case mj::ElementType::Camera: src = d->cam_xpos + 3 * e.id; break;
-      case mj::ElementType::Joint:
-      case mj::ElementType::FreeJoint:
-        if (e.id < m->njnt) src = d->xanchor + 3 * e.id;
-        break;
-      default: break;
-    }
-    if (src) {
-      for (int k = 0; k < 3; ++k) out[k] = src[k];
-      return true;
-    }
-  }
-  return false;
-}
-
-// F / Hierarchy-double-click focus: recentre the camera lookat on the requested
-// element (punt #4). The cached host camera is mutable via the pre_compile
-// const_cast, so writing lookat is well-defined (App::camera_ is non-const).
+// F / Edit-menu / Hierarchy-double-click focus (SE3): frame the requested
+// element -- recentre the camera lookat AND pull the distance in to fit its
+// bounding radius, keeping azimuth/elevation (an orbit-in, not a jump-cut).
+// View-only, so it runs in Edit and Play alike (no CanEdit gate). INVARIANT:
+// vc.camera aliases the host's stable &App::camera_ (cached in the pre_compile
+// dispatch); App::camera_ is non-const, so these writes are well-defined and the
+// host reads them next frame. Measured off the editor's own forwarded preview
+// data (vc.data == ctx.sim_data), id-consistent with ctx.compiled.binding.
 void ServiceFocus(EditorContext& ctx, const ViewportContext& vc) {
   if (ctx.focus_request_serial == 0 || !vc.camera || !vc.model || !vc.data)
     return;
   const std::uint64_t serial = ctx.focus_request_serial;
   ctx.focus_request_serial = 0;
   if (ctx.compiled.model.get() != vc.model) return;
-  double p[3];
-  if (WorldPosOfSerial(vc.model, vc.data, ctx.compiled.binding, serial, p)) {
-    for (int k = 0; k < 3; ++k) vc.camera->lookat[k] = p[k];
-  }
+  const FocusFrame frame =
+      ComputeFocusFrame(vc.model, vc.data, ctx.compiled.binding, serial);
+  if (!frame.ok) return;
+  for (int k = 0; k < 3; ++k) vc.camera->lookat[k] = frame.center[k];
+  vc.camera->distance = frame.distance;
 }
 
 void ServiceDiagnosticsReveal(EditorContext& ctx) {
@@ -856,6 +839,11 @@ void RegisterViewportEditor(EditorContext& ctx) {
               [](KeyHandlerPlugin* s) {
                 SetTool(*ctx_cast<ViewportEditor>(s)->ctx, GizmoTool::Scale);
               }, ve);
+  // F frames the selection (ServiceFocus recentres + fits). Our KeyHandler
+  // dispatches before the host built-ins, so this SHADOWS the host's F
+  // contact-force visualization toggle -- the same accepted tradeoff as Q/E
+  // shadowing their host bindings. View-only, so it is offered in Play too
+  // (no CanEdit gate); the Edit menu carries the same verb for discoverability.
   RegisterKey("Frame Selection", ImGuiKey_F,
               [](KeyHandlerPlugin* s) {
                 EditorContext& c = *ctx_cast<ViewportEditor>(s)->ctx;

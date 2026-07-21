@@ -92,6 +92,14 @@ ElementRef FindBySerial(EditorContext& ctx, std::uint64_t serial);
 // through so the two-way sync stays consistent.
 bool SelectBySerial(EditorContext& ctx, std::uint64_t serial);
 
+// SelectBySerial, and if it resolved, also request a one-shot Hierarchy
+// auto-reveal of `serial` (ctx.reveal_serial). The funnel for NAVIGATIONAL
+// selections -- viewport picks, Diagnostics/driver cross-links, and freshly
+// created/imported/reparented elements -- that jump to a node the user may not
+// have visible. Hierarchy-row clicks and in-place Details edits keep calling
+// plain SelectBySerial (no reveal). Returns SelectBySerial's found flag.
+bool SelectAndReveal(EditorContext& ctx, std::uint64_t serial);
+
 // Rename the element with `serial` and rewrite every typed referrer
 // (sdk::Rename). Returns the SDK RenameResult: `ok` with `updated` referrer
 // count on success (including an accepted no-op / nameless element gaining its
@@ -127,10 +135,12 @@ std::vector<std::string> PreviewDeleteReferrers(EditorContext& ctx,
 // --- Undo / redo ---------------------------------------------------------- //
 
 // Restore the previous / next authored state, re-resolve the selection by serial,
-// mark dirty, and schedule a recompile. Returns false when the corresponding
+// mark dirty, and schedule a recompile. Posts a viewport toast naming the step's
+// label with a remaining-depth hint (or a gentle "Nothing to undo/redo" on an
+// empty deque), stamped at host-clock `now`. Returns false when the corresponding
 // history deque is empty.
-bool Undo(EditorContext& ctx);
-bool Redo(EditorContext& ctx);
+bool Undo(EditorContext& ctx, double now = 0.0);
+bool Redo(EditorContext& ctx, double now = 0.0);
 
 }  // namespace ps::studio
 

@@ -624,7 +624,7 @@ static void DiagnosticsBody(EditorContext* c) {
     // a stray click never changes the selection.
     if (d.serial) {
       if (ImGui::Selectable(label.c_str())) {
-        SelectBySerial(*c, *d.serial);
+        SelectAndReveal(*c, *d.serial);  // SE2: jump to the blamed element
       }
     } else {
       ImGui::TextUnformatted(label.c_str());
@@ -842,11 +842,11 @@ static void ShellEditMenu(EditorContext* c) {
   const bool editable = c->CanEdit();
   if (ImGui::MenuItem("Undo", "Ctrl+Z", false,
                       editable && c->history.can_undo())) {
-    Undo(*c);
+    Undo(*c, ImGui::GetTime());
   }
   if (ImGui::MenuItem("Redo", "Ctrl+Y", false,
                       editable && c->history.can_redo())) {
-    Redo(*c);
+    Redo(*c, ImGui::GetTime());
   }
   ImGui::Separator();
   const bool has_sel = editable && c->selected_serial != 0 &&
@@ -856,6 +856,12 @@ static void ShellEditMenu(EditorContext* c) {
   }
   if (ImGui::MenuItem("Delete", "Del", false, has_sel)) {
     c->delete_request_serial = c->selected_serial;
+  }
+  // Frame the selection (F). View-only, so unlike the edits above it is offered
+  // in Play too -- gated on a selection, not on CanEdit. Routes through the
+  // viewport's focus_request_serial consumer (ServiceFocus), same as F.
+  if (ImGui::MenuItem("Focus (F)", nullptr, false, c->selected_serial != 0)) {
+    c->focus_request_serial = c->selected_serial;
   }
   ImGui::EndMenu();
 }
@@ -1100,13 +1106,13 @@ void RegisterEditorPanels(EditorContext& ctx) {
       "Undo", ImGuiMod_Ctrl | ImGuiKey_Z,
       [](KeyHandlerPlugin* self) {
         EditorContext* c = ctx_cast<EditorContext>(self);
-        if (c->CanEdit()) Undo(*c);
+        if (c->CanEdit()) Undo(*c, ImGui::GetTime());
       }, ctx);
   RegisterKey(
       "Redo", ImGuiMod_Ctrl | ImGuiKey_Y,
       [](KeyHandlerPlugin* self) {
         EditorContext* c = ctx_cast<EditorContext>(self);
-        if (c->CanEdit()) Redo(*c);
+        if (c->CanEdit()) Redo(*c, ImGui::GetTime());
       }, ctx);
   RegisterKey(
       "Save", ImGuiMod_Ctrl | ImGuiKey_S,

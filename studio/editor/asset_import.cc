@@ -142,7 +142,7 @@ MeshImportResult ImportMesh(EditorContext& ctx, const std::string& file_path,
     return r;
   }
   ctx.CommitEdit("Import mesh");
-  SelectBySerial(ctx, one.body_serial);
+  SelectAndReveal(ctx, one.body_serial);  // SE2: reveal the imported body
   r.mesh_serial = one.mesh_serial;
   r.body_serial = one.body_serial;
   r.vfs = one.vfs;
@@ -197,7 +197,7 @@ MultiMeshImportResult ImportMeshes(EditorContext& ctx,
   }
   ctx.CommitEdit("Import " + std::to_string(r.imported) + " mesh" +
                  (r.imported == 1 ? "" : "es"));
-  SelectBySerial(ctx, r.last_body_serial);
+  SelectAndReveal(ctx, r.last_body_serial);  // SE2: reveal the last imported body
   r.error = skipped_msg;
   r.ok = true;
   return r;

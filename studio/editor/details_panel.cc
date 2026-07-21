@@ -778,7 +778,7 @@ void RenderDriverBadges(EditorContext& ctx, const mjModel* m, int jid) {
         (drv.name.empty() ? ("#" + std::to_string(drv.id)) : drv.name);
     ImGui::PushID(drv.objtype * 100003 + drv.id);
     ImGui::BeginDisabled(drv.serial == 0);  // macro-expanded: no tree element
-    if (ImGui::SmallButton(label.c_str())) SelectBySerial(ctx, drv.serial);
+    if (ImGui::SmallButton(label.c_str())) SelectAndReveal(ctx, drv.serial);
     ImGui::EndDisabled();
     ImGui::PopID();
   }

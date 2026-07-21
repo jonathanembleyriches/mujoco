@@ -96,7 +96,7 @@ std::uint64_t DoAdd(EditorContext& ctx, const std::string& label, Fn&& fn) {
     return 0;
   }
   ctx.CommitEdit(label);
-  SelectBySerial(ctx, s);
+  SelectAndReveal(ctx, s);  // SE2: reveal the newly created element
   return s;
 }
 
@@ -573,7 +573,7 @@ std::uint64_t DuplicateOp(EditorContext& ctx, std::uint64_t serial) {
     return 0;
   }
   ctx.CommitEdit("Duplicate");
-  SelectBySerial(ctx, new_serial);
+  SelectAndReveal(ctx, new_serial);  // SE2: reveal the duplicate
   return new_serial;
 }
 
@@ -661,7 +661,7 @@ ReparentResult ReparentOp(EditorContext& ctx, std::uint64_t elem_serial,
   }
 
   ctx.CommitEdit("Reparent");
-  SelectBySerial(ctx, elem_serial);
+  SelectAndReveal(ctx, elem_serial);  // SE2: reveal at the new parent
   r.ok = true;
   r.serial = elem_serial;
   return r;

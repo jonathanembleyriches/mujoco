@@ -5,7 +5,9 @@
 #include <cfloat>
 #include <cstring>
 #include <string>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <cstdint>
 
@@ -107,6 +109,16 @@ void DrawNewAssetMenu(EditorContext& ctx) {
 bool IsContainerNode(const HierNode& n) {
   return n.type == mj::ElementType::Body || n.type == mj::ElementType::Frame;
 }
+
+// A one-frame auto-reveal plan (SE2), computed from the pending reveal_serial
+// against the CURRENT filtered view: `open` are the ancestor nodes to force
+// open this frame so the target's row renders, `scroll` is the target row to
+// bring into view. Pointers alias nodes in the caller's stable per-frame view
+// tree. Empty (all null) when there is no request or the target is not present.
+struct RevealPlan {
+  std::unordered_set<const HierNode*> open;
+  const HierNode* scroll = nullptr;
+};
 
 // The layer edit-scope gate (layers.h), O(1) off the node's recorded key.
 // Mutating an EXISTING element requires its layer to be active; creating a NEW
@@ -306,10 +318,15 @@ bool NodeLayerDisabled(const EditorContext& ctx, const HierNode& n) {
 }
 
 void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
-              bool ancestor_off = false) {
+              bool ancestor_off = false, const RevealPlan* reveal = nullptr) {
   if (node.is_section) {
     const std::string section_label =
         std::string(kSectionIcon) + "  " + node.label;
+    // Force a family section open when it is on the reveal chain (the target
+    // lives inside it), overriding a user-collapsed section this one frame.
+    if (reveal && reveal->open.count(&node)) {
+      ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+    }
     const bool open = ImGui::TreeNodeEx(section_label.c_str(),
                                         ImGuiTreeNodeFlags_DefaultOpen |
                                             ImGuiTreeNodeFlags_SpanAvailWidth);
@@ -400,7 +417,7 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
     }
     if (open) {
       for (const HierNode& c : node.children) {
-        DrawNode(ctx, c, st, ancestor_off);
+        DrawNode(ctx, c, st, ancestor_off, reveal);
       }
       ImGui::TreePop();
     }
@@ -451,9 +468,18 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
     ImGui::PushStyleColor(ImGuiCol_Text,
                           ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
   }
+  // Force this element's node open when it is a strict ancestor of the reveal
+  // target (its subtree carries the target); the target row itself is only
+  // scrolled to, not forced open.
+  if (reveal && reveal->open.count(&node)) {
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+  }
   const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
   if (selected || off) {
     ImGui::PopStyleColor();
+  }
+  if (reveal && reveal->scroll == &node) {
+    ImGui::SetScrollHereY(0.5f);  // bring the revealed row to the viewport centre
   }
 
   DrawReparentDragDrop(ctx, node, st);
@@ -476,7 +502,7 @@ void DrawNode(EditorContext& ctx, const HierNode& node, HierUiState& st,
 
   if (open && !leaf) {
     for (const HierNode& c : node.children) {
-      DrawNode(ctx, c, st, off);
+      DrawNode(ctx, c, st, off, reveal);
     }
     ImGui::TreePop();
   }
@@ -568,11 +594,36 @@ void HierarchyUpdate(GuiPlugin* self) {
   }
   ImGui::Separator();
 
-  const HierNode view = FilterHierarchy(model, st.search);
+  // Consume the one-shot auto-reveal request (SE2): find the target's ancestor
+  // chain in the drawn tree and force those nodes open + scroll to the target.
+  const std::uint64_t reveal_serial = c->reveal_serial;
+  c->reveal_serial = 0;  // one-shot, cleared whether or not it resolves
+
+  HierNode view = FilterHierarchy(model, st.search);
+  if (reveal_serial != 0 && !st.search.empty()) {
+    std::vector<const HierNode*> probe;
+    if (!HierChainToSerial(view, reveal_serial, probe) &&
+        HierChainToSerial(model, reveal_serial, probe)) {
+      // A navigational pick/cross-link outranks a name filter that would hide
+      // its target: clear the filter so the element can be revealed.
+      st.search.clear();
+      view = FilterHierarchy(model, st.search);
+    }
+  }
+  RevealPlan plan;
+  if (reveal_serial != 0) {
+    std::vector<const HierNode*> chain;
+    if (HierChainToSerial(view, reveal_serial, chain) && !chain.empty()) {
+      plan.scroll = chain.back();  // the target row
+      for (std::size_t i = 0; i + 1 < chain.size(); ++i) {
+        plan.open.insert(chain[i]);  // its ancestors (incl. any family section)
+      }
+    }
+  }
 
   ImGui::BeginChild("##hier_tree");
   for (const HierNode& section : view.children) {
-    DrawNode(*c, section, st);
+    DrawNode(*c, section, st, /*ancestor_off=*/false, &plan);
   }
   ImGui::EndChild();
 

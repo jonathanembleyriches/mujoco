@@ -45,6 +45,15 @@ HierNode BuildHierarchyModel(const ps::mjcf::Model& model);
 // matched element, its whole subtree. Empty query returns the tree unchanged.
 HierNode FilterHierarchy(const HierNode& root, const std::string& query);
 
+// Fills `out_chain` with pointers from `root` down to the node carrying
+// `serial`, inclusive (root first, target last), and returns true; returns
+// false and empties `out_chain` when no node carries `serial` (serial 0 never
+// matches, so section nodes are never targets but ARE included on the path when
+// the target sits inside a family section). Pure/windowless: the Hierarchy draw
+// force-opens the chain's ancestors and scrolls to its last node (the target).
+bool HierChainToSerial(const HierNode& root, std::uint64_t serial,
+                       std::vector<const HierNode*>& out_chain);
+
 // Number of element (non-section) nodes whose name or tag matches `query`
 // (case-insensitive substring). Zero for an empty query. Counts genuine matches,
 // not the ancestor/subtree rows FilterHierarchy keeps for context.

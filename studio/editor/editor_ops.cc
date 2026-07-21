@@ -463,6 +463,12 @@ bool SelectBySerial(EditorContext& ctx, std::uint64_t serial) {
   return true;
 }
 
+bool SelectAndReveal(EditorContext& ctx, std::uint64_t serial) {
+  const bool found = SelectBySerial(ctx, serial);
+  ctx.reveal_serial = found ? serial : 0;
+  return found;
+}
+
 sdk::RenameResult RenameBySerial(EditorContext& ctx, std::uint64_t serial,
                                  const std::string& new_name) {
   if (!ctx.tree) {
@@ -526,8 +532,12 @@ std::vector<std::string> PreviewDeleteReferrers(EditorContext& ctx,
       sdk::DeleteSubtree(*probe, target, /*cascade=*/false).dangling);
 }
 
-bool Undo(EditorContext& ctx) {
-  if (!ctx.history.can_undo() || !ctx.tree) {
+bool Undo(EditorContext& ctx, double now) {
+  if (!ctx.tree) {
+    return false;
+  }
+  if (!ctx.history.can_undo()) {
+    ctx.status_toast.Post("Nothing to undo", StatusToast::Kind::Info, now);
     return false;
   }
   std::string label;
@@ -540,11 +550,17 @@ bool Undo(EditorContext& ctx) {
                          ctx.selected_serial ? std::optional(ctx.selected_serial)
                                              : std::nullopt,
                          {}});
+  ctx.status_toast.Post(UndoToastText("Undo", label, ctx.history.undo_depth()),
+                        StatusToast::Kind::Info, now);
   return true;
 }
 
-bool Redo(EditorContext& ctx) {
-  if (!ctx.history.can_redo() || !ctx.tree) {
+bool Redo(EditorContext& ctx, double now) {
+  if (!ctx.tree) {
+    return false;
+  }
+  if (!ctx.history.can_redo()) {
+    ctx.status_toast.Post("Nothing to redo", StatusToast::Kind::Info, now);
     return false;
   }
   std::string label;
@@ -557,6 +573,8 @@ bool Redo(EditorContext& ctx) {
                          ctx.selected_serial ? std::optional(ctx.selected_serial)
                                              : std::nullopt,
                          {}});
+  ctx.status_toast.Post(UndoToastText("Redo", label, ctx.history.redo_depth()),
+                        StatusToast::Kind::Info, now);
   return true;
 }
 

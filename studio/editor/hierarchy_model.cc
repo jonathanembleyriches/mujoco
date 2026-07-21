@@ -275,6 +275,21 @@ int CountHierarchyMatches(const HierNode& root, const std::string& query) {
   return CountSelfMatches(root, ToLower(query));
 }
 
+bool HierChainToSerial(const HierNode& root, std::uint64_t serial,
+                       std::vector<const HierNode*>& out_chain) {
+  out_chain.push_back(&root);
+  if (serial != 0 && root.serial == serial) {
+    return true;  // target reached; chain is root..target inclusive
+  }
+  for (const HierNode& c : root.children) {
+    if (HierChainToSerial(c, serial, out_chain)) {
+      return true;
+    }
+  }
+  out_chain.pop_back();  // this branch does not contain the target
+  return false;
+}
+
 HierNode FilterHierarchy(const HierNode& root, const std::string& query) {
   if (query.empty()) {
     return root;

@@ -9,6 +9,7 @@
 #ifndef PS_STUDIO_EDITOR_EDITOR_CONTEXT_H_
 #define PS_STUDIO_EDITOR_EDITOR_CONTEXT_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <map>
@@ -147,6 +148,21 @@ struct StatusToast {
   }
   bool Visible(double now) const { return Alpha(now) > 0.0f; }
 };
+
+// The viewport-toast text for an undo/redo step (SE0 ease-of-use):
+// "<verb>: <label>" with a trailing "(<n> more)" depth hint when steps remain.
+// An empty label (a commit that passed none) renders as "edit". Pure/windowless
+// so the toast text is unit-tested without a window.
+inline std::string UndoToastText(std::string_view verb, std::string_view label,
+                                 std::size_t remaining) {
+  std::string out(verb);
+  out += ": ";
+  out += label.empty() ? std::string_view("edit") : label;
+  if (remaining > 0) {
+    out += " (" + std::to_string(remaining) + " more)";
+  }
+  return out;
+}
 
 // A request for the host to open a native OS file dialog on the editor's behalf
 // (the editor library carries no windowing/dialog dependency). The menu posts a
@@ -390,6 +406,14 @@ struct EditorContext {
   // A double-click focus request the viewport consumes for framing (F). Non-zero
   // == a fresh request for that serial.
   std::uint64_t focus_request_serial = 0;
+
+  // One-shot Hierarchy auto-reveal request (SE2). A NAVIGATIONAL selection (a
+  // viewport pick, a Diagnostics-row click, a driver-badge cross-link, or a
+  // freshly created/imported element) sets this to the target serial; the next
+  // Hierarchy tree draw force-opens the target's ancestor chain, scrolls its row
+  // into view, and clears it. Hierarchy-row clicks do NOT set it (the user is
+  // already there). 0 == no request.
+  std::uint64_t reveal_serial = 0;
 
   // A delete request from the viewport (Del key). The Hierarchy panel services it
   // through the SE1a referrer-confirm flow (preview -> cascade/cancel modal).
