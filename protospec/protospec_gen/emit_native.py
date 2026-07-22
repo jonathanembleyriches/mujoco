@@ -55,6 +55,7 @@ SCHEMA = os.path.join(ROOT, "schema", "mujoco.spec")
 MUJOCO_ROOT = os.path.dirname(ROOT)
 OUT_PATH = os.path.join(MUJOCO_ROOT, "src", "xml", "xml_native_schema.inc")
 KEYWORD_OUT_PATH = os.path.join(MUJOCO_ROOT, "src", "xml", "xml_native_keywords.inc")
+ATTRBIND_OUT_PATH = os.path.join(MUJOCO_ROOT, "src", "xml", "xml_native_attrbind.inc")
 
 HEADER = (
     "// Generated from protospec/schema/mujoco.spec by protospec_gen.emit_native"
@@ -377,6 +378,196 @@ def generate(schema_path: str = SCHEMA) -> str:
     return "\n".join(out) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# Attribute-binding generation (xml_native_attrbind.inc, Stage B).
+#
+# Each mjXReader::One<Elem> parser is a long run of mechanical
+# ``ReadAttr(elem, "attr", arity, &field, text[, req, exact])`` /
+# ``ReadAttrInt`` / ``MapValue`` / ``ReadAttrTxt``+``mjs_setString`` calls -- a
+# straight attr->mjs-field copy. This emits, per converted element, a table of
+# ``AttrBind`` rows ``{xml_name, kind, len, offsetof(mjsStruct, field), exact,
+# map, mapsz}`` that a single generic ``ReadAttrBinds`` loop in the reader drives.
+#
+# Everything is derived from ground truth: the attr name + arity + enum come from
+# the IDL element field (schema/mujoco.spec); the destination mjs field name comes
+# from emit_mjs's alias tables (ELEM_ALIAS / GLOBAL_ALIAS, else same name); the C
+# type (double vs float vs int) and array extent come from snapshots/
+# mjspec_fields.json; the enum keyword map + size come from KEYWORD_MAPS above.
+# ``exact`` is derived from the schema arity kind -- a fixed/scalar field reads
+# exactly N values (exact=true), a range field reads a filled prefix (exact=false)
+# -- which reproduces the reader's per-attr exact flag.
+#
+# A field is left hand-written (NOT emitted here) when it needs semantics beyond a
+# copy: the ``name`` identity (mjs_setName + error), the ``class`` default ref
+# (read by the caller, not the parser), orientation (quat/alt -> ReadQuat/
+# ReadAlternative), unbounded vectors (user/output -> ReadVector/MapValues), bool
+# flags (bool_map + ``(n==1)`` into an mjtBool field), variant "shape" groups
+# (fromto/type inference), and the per-element interplay quirks named in
+# ATTR_ELEMENTS. The generator asserts every emitted field resolves to a real mjs
+# field of a compatible kind; the differential suite proves per-element identity.
+
+AttrElem = namedtuple("AttrElem", "elem struct quirks")
+
+# Elements whose mechanical attribute reads are generated. `quirks` names fields
+# kept hand-written beyond the automatic skips (name/class/orientation/unbounded/
+# bool/variant), with the reason:
+ATTR_ELEMENTS = [
+    AttrElem("Site", "mjsSite", ()),               # fromto/type-inference ride the `shape` variant (auto-skipped)
+    AttrElem("Camera", "mjsCamera", ("sensorsize", "fovy")),  # fovy/sensorsize are mutually exclusive (throw)
+    AttrElem("Light", "mjsLight", ("type",)),      # `type` interplays with the `directional` bool alias (throw)
+    AttrElem("Material", "mjsMaterial", ()),       # `texture`/`layer` fold into textures[] via mjs_setInStringVec
+    AttrElem("Pair", "mjsPair", ("geom1", "geom2")),  # geom names are read only when !readingdefaults
+]
+
+_FIELDS_JSON = os.path.join(ROOT, "snapshots", "mjspec_fields.json")
+
+ATTRBIND_HEADER = (
+    "// Generated from protospec/schema/mujoco.spec + snapshots/mjspec_fields.json"
+    " by\n"
+    "// protospec_gen.emit_native -- do not edit.\n"
+    "//\n"
+    "// Per-element AttrBind tables: the mechanical attr->mjs-field reads of each\n"
+    "// One<Elem> parser, driven by mjXReader::ReadAttrBinds. Fields needing more\n"
+    "// than a copy (name, class, orientation, vectors, bool flags, variant shape,\n"
+    "// per-element interplay quirks) stay hand-written in xml_native_reader.cc.\n"
+    "// Regenerate with: uv run python -m protospec_gen.emit_native --write\n"
+)
+
+
+def _attr_binds():
+    """Resolve every ATTR_ELEMENTS element into (elem, struct, [bind-row, ...]).
+
+    A bind-row is (xml_name, kind, length, field, exact, map, mapsz). Raises on any
+    field that cannot be cleanly disposed (unknown mjs field, kind mismatch, missing
+    enum map) -- that failure is the maintenance contract.
+    """
+    import json as _json
+
+    doc = parse_spec(SCHEMA).to_json()
+    elems = {e["name"]: e for e in doc["elements"]}
+    enum_to_map = {b.enum: b for b in KEYWORD_MAPS}
+
+    with open(_FIELDS_JSON, encoding="utf-8") as fh:
+        fields_doc = _json.load(fh)
+    structs = {s["name"]: {f["name"]: f for f in s["fields"]}
+               for s in fields_doc["structs"]}
+
+    # Imported lazily so emit_native stays importable without the mjSpec shim on
+    # the path; both modules live in this package.
+    from . import emit_mjs
+
+    def field_xml(f):
+        return f.get("annotations", {}).get("xml", f["name"])
+
+    out = []
+    for ae in ATTR_ELEMENTS:
+        elem = elems[ae.elem]
+        mjs = structs[ae.struct]
+        rows = []
+        for f in elem["fields"]:
+            xml = field_xml(f)
+            t = f["type"]
+            kind = t["kind"]
+            # --- automatic skips (hand-written) ---
+            if xml == "name":
+                continue
+            if kind == "ref" and t.get("target") == "Default":  # class
+                continue
+            if kind == "variant":
+                continue
+            if xml in ae.quirks:
+                continue
+            arity = t.get("arity")
+            if arity is not None and arity.get("kind") == "unbounded":
+                continue
+            # orientation quat (resolver alias) is ReadQuat, hand-written
+            if f.get("annotations", {}).get("resolver") == "orientation":
+                continue
+
+            # --- resolve destination mjs field ---
+            # Element-specific alias wins; then an exact same-name mjs field (a
+            # GLOBAL_ALIAS like solreffriction->solref_friction is joint/tendon
+            # specific and must not shadow mjsPair.solreffriction); then the
+            # global alias.
+            mjs_name = emit_mjs.ELEM_ALIAS.get((ae.elem, f["name"]))
+            if mjs_name is None:
+                if f["name"] in mjs:
+                    mjs_name = f["name"]
+                else:
+                    mjs_name = emit_mjs.GLOBAL_ALIAS.get(f["name"], f["name"])
+            if mjs_name not in mjs:
+                raise KeyError(
+                    f"{ae.elem}.{xml}: mjs field {mjs_name!r} not in {ae.struct}")
+            mf = mjs[mjs_name]
+            ctype = mf["ctype"]
+
+            # bool flags are read via bool_map + (n==1); leave hand-written
+            if ctype == "mjtBool":
+                continue
+
+            # --- classify kind / length / exact ---
+            if arity is None:
+                length, exact = 1, True
+            elif arity["kind"] == "fixed":
+                length, exact = arity["size"], True
+            elif arity["kind"] == "range":
+                length, exact = arity["max"], False
+            else:
+                raise ValueError(f"{ae.elem}.{xml}: unexpected arity {arity}")
+
+            bmap, bmapsz = "nullptr", "0"
+            if kind == "named":  # enum
+                enum = t["name"]
+                b = enum_to_map.get(enum)
+                if b is None:
+                    raise KeyError(
+                        f"{ae.elem}.{xml}: enum {enum!r} has no KEYWORD_MAPS entry")
+                bkind, length, exact = "kBindEnum", 0, True
+                bmap, bmapsz = b.map, b.size
+            elif kind == "ref":  # name reference -> string handle
+                if ctype != "mjString":
+                    raise TypeError(
+                        f"{ae.elem}.{xml}: ref maps to non-string {ctype}")
+                bkind, length, exact = "kBindString", 0, True
+            elif ctype in ("double", "mjtNum"):
+                bkind = "kBindDouble"
+            elif ctype == "float":
+                bkind = "kBindFloat"
+            elif ctype == "int":
+                bkind = "kBindInt" if arity is None else "kBindIntArr"
+            else:
+                raise TypeError(f"{ae.elem}.{xml}: unhandled ctype {ctype!r}")
+
+            rows.append((xml, bkind, length, ae.struct, mjs_name, exact,
+                         bmap, bmapsz))
+        out.append((ae.elem, ae.struct, rows))
+    return out
+
+
+def generate_attrbinds(schema_path: str = SCHEMA) -> str:
+    binds = _attr_binds()
+    out = [ATTRBIND_HEADER.rstrip("\n"), "", "// clang-format off"]
+    for elem, struct, rows in binds:
+        var = f"k{elem}Binds"
+        out.append("")
+        out.append(f"const AttrBind {var}[] = {{")
+        # column widths for readability
+        wname = max(len(f'"{r[0]}",') for r in rows)
+        wkind = max(len(r[1] + ",") for r in rows)
+        for xml, bkind, length, st, field, exact, bmap, bmapsz in rows:
+            off = f"offsetof({st}, {field})"
+            name_col = ('"' + xml + '",').ljust(wname)
+            kind_col = (bkind + ",").ljust(wkind)
+            exact_col = "true" if exact else "false"
+            row = ("  {" + name_col + " " + kind_col + " "
+                   + f"{length}, {off}, {exact_col}, {bmap}, {bmapsz}" + "},")
+            out.append(row)
+        out.append("};")
+        out.append(f"const int {var}N = {len(rows)};")
+    out.append("// clang-format on")
+    return "\n".join(out) + "\n"
+
+
 def generate_keywords(schema_path: str = SCHEMA) -> str:
     """Emit xml_native_keywords.inc: the schema-backed mjMap keyword tables."""
     doc = parse_spec(schema_path).to_json()
@@ -420,6 +611,9 @@ def _targets():
         (KEYWORD_OUT_PATH, generate_keywords,
          "xml_native_keywords.inc is out of date",
          lambda c: f"{len(KEYWORD_MAPS)} maps"),
+        (ATTRBIND_OUT_PATH, generate_attrbinds,
+         "xml_native_attrbind.inc is out of date",
+         lambda c: f"{c.count('const AttrBind ')} elements"),
     ]
 
 

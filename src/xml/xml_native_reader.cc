@@ -242,6 +242,87 @@ const mjMap meshtype_map[2] = {
 
 
 
+//---------------------------------- generated attribute-binding tables ----------------------------
+
+// The mechanical attr->mjs-field reads of the per-element parsers (OneSite,
+// OneCamera, ...) are generated from schema/mujoco.spec + snapshots/
+// mjspec_fields.json (protospec_gen.emit_native, ATTR_ELEMENTS) into the include
+// below and driven by ReadAttrBinds. Each row targets an mjs field by offset;
+// fields needing more than a copy stay hand-written in the parser.
+namespace {
+
+enum AttrBindKind {
+  kBindDouble,   // ReadAttr<double>(len, exact)
+  kBindFloat,    // ReadAttr<float>(len, exact)
+  kBindIntArr,   // ReadAttr<int>(len, exact)
+  kBindInt,      // ReadAttrInt (scalar)
+  kBindEnum,     // MapValue(map, mapsz) -> int-width enum field
+  kBindString,   // ReadAttrTxt -> mjs_setString(handle)
+};
+
+struct AttrBind {
+  const char* name;    // MJCF attribute name
+  AttrBindKind kind;
+  int len;             // vector length (numeric kinds)
+  size_t off;          // offsetof(mjsStruct, field)
+  bool exact;          // ReadAttr exact flag (false for range fields)
+  const mjMap* map;    // enum keyword map (kBindEnum)
+  int mapsz;           // enum map size (kBindEnum)
+};
+
+}  // namespace
+
+#include "xml_native_attrbind.inc"
+
+namespace {
+
+// Drive a generated AttrBind table against an mjs struct instance: each row is a
+// straight attr->field copy, reproducing the hand-written ReadAttr/ReadAttrInt/
+// MapValue/ReadAttrTxt calls the parser used to make inline.
+void ReadAttrBinds(tinyxml2::XMLElement* elem, void* base, const AttrBind* binds,
+                   int n, std::string& text) {
+  char* p = static_cast<char*>(base);
+  for (int i = 0; i < n; ++i) {
+    const AttrBind& b = binds[i];
+    void* dst = p + b.off;
+    switch (b.kind) {
+      case kBindDouble:
+        mjXUtil::ReadAttr(elem, b.name, b.len, static_cast<double*>(dst), text,
+                          false, b.exact);
+        break;
+      case kBindFloat:
+        mjXUtil::ReadAttr(elem, b.name, b.len, static_cast<float*>(dst), text,
+                          false, b.exact);
+        break;
+      case kBindIntArr:
+        mjXUtil::ReadAttr(elem, b.name, b.len, static_cast<int*>(dst), text,
+                          false, b.exact);
+        break;
+      case kBindInt:
+        mjXUtil::ReadAttrInt(elem, b.name, static_cast<int*>(dst));
+        break;
+      case kBindEnum: {
+        int v;
+        if (mjXUtil::MapValue(elem, b.name, &v, b.map, b.mapsz)) {
+          *static_cast<int*>(dst) = v;
+        }
+        break;
+      }
+      case kBindString: {
+        std::string t;
+        if (mjXUtil::ReadAttrTxt(elem, b.name, t)) {
+          mjs_setString(*reinterpret_cast<mjString**>(dst), t.c_str());
+        }
+        break;
+      }
+    }
+  }
+}
+
+}  // namespace
+
+
+
 //---------------------------------- class mjXReader implementation --------------------------------
 
 // constructor
@@ -1067,14 +1148,9 @@ void mjXReader::OneMaterial(XMLElement* elem, mjsMaterial* material) {
   if (MapValue(elem, "texuniform", &n, bool_map, 2)) {
     material->texuniform = (n == 1);
   }
-  ReadAttr(elem, "texrepeat", 2, material->texrepeat, text);
-  ReadAttr(elem, "emission", 1, &material->emission, text);
-  ReadAttr(elem, "specular", 1, &material->specular, text);
-  ReadAttr(elem, "shininess", 1, &material->shininess, text);
-  ReadAttr(elem, "reflectance", 1, &material->reflectance, text);
-  ReadAttr(elem, "metallic", 1, &material->metallic, text);
-  ReadAttr(elem, "roughness", 1, &material->roughness, text);
-  ReadAttr(elem, "rgba", 4, material->rgba, text);
+  // mechanical attr->field reads (texrepeat, emission, specular, shininess,
+  // reflectance, metallic, roughness, rgba)
+  ReadAttrBinds(elem, material, kMaterialBinds, kMaterialBindsN, text);
 
   // write error info
   mjs_setString(material->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
@@ -1213,10 +1289,8 @@ void mjXReader::OneGeom(XMLElement* elem, mjsGeom* geom) {
 
 // site element parser
 void mjXReader::OneSite(XMLElement* elem, mjsSite* site) {
-  int n;
   string text, name;
   std::vector<double> userdata;
-  string material;
 
   // read attributes
   if (ReadAttrTxt(elem, "name", name)) {
@@ -1224,17 +1298,9 @@ void mjXReader::OneSite(XMLElement* elem, mjsSite* site) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  if (MapValue(elem, "type", &n, geom_map, mjNGEOMTYPES)) {
-    site->type = (mjtGeom)n;
-  }
-  ReadAttr(elem, "size", 3, site->size, text, false, false);
-  ReadAttrInt(elem, "group", &site->group);
-  ReadAttr(elem, "pos", 3, site->pos, text);
+  // mechanical attr->field reads (type, size, group, pos, material, rgba)
+  ReadAttrBinds(elem, site, kSiteBinds, kSiteBindsN, text);
   ReadQuat(elem, "quat", site->quat, text);
-  if (ReadAttrTxt(elem, "material", material)) {
-    mjs_setString(site->material, material.c_str());
-  }
-  ReadAttr(elem, "rgba", 4, site->rgba, text);
   ReadAttr(elem, "fromto", 6, site->fromto, text);
   ReadAlternative(elem, site->alt);
   if (ReadVector(elem, "user", userdata, text)) {
@@ -1249,8 +1315,7 @@ void mjXReader::OneSite(XMLElement* elem, mjsSite* site) {
 
 // camera element parser
 void mjXReader::OneCamera(XMLElement* elem, mjsCamera* camera) {
-  int n;
-  string text, name, targetbody;
+  string text, name;
   std::vector<double> userdata;
 
   // read attributes
@@ -1259,26 +1324,11 @@ void mjXReader::OneCamera(XMLElement* elem, mjsCamera* camera) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  if (ReadAttrTxt(elem, "target", targetbody)) {
-    mjs_setString(camera->targetbody, targetbody.c_str());
-  }
-  if (MapValue(elem, "mode", &n, camlight_map, camlight_sz)) {
-    camera->mode = (mjtCamLight)n;
-  }
-  ReadAttr(elem, "pos", 3, camera->pos, text);
+  // mechanical attr->field reads (target, mode, pos, ipd, projection,
+  // principal*, focal*, resolution)
+  ReadAttrBinds(elem, camera, kCameraBinds, kCameraBindsN, text);
   ReadQuat(elem, "quat", camera->quat, text);
   ReadAlternative(elem, camera->alt);
-  ReadAttr(elem, "ipd", 1, &camera->ipd, text);
-
-  if (MapValue(elem, "projection", &n, projection_map, 2)) {
-    camera->proj = (mjtProjection)n;
-  }
-
-  ReadAttr(elem, "principalpixel", 2, camera->principal_pixel, text);
-  ReadAttr(elem, "principal", 2, camera->principal_length, text);
-  ReadAttr(elem, "focalpixel", 2, camera->focal_pixel, text);
-  ReadAttr(elem, "focal", 2, camera->focal_length, text);
-  ReadAttr(elem, "resolution", 2, camera->resolution, text);
 
   // read output attribute as space-separated bitflags
   std::vector<int> outvals(mjNCAMOUT);
@@ -1310,7 +1360,7 @@ void mjXReader::OneCamera(XMLElement* elem, mjsCamera* camera) {
 void mjXReader::OneLight(XMLElement* elem, mjsLight* light) {
   int n;
   bool has_directional = false;
-  string text, name, texture, targetbody;
+  string text, name;
 
   // read attributes
   if (ReadAttrTxt(elem, "name", name)) {
@@ -1318,15 +1368,7 @@ void mjXReader::OneLight(XMLElement* elem, mjsLight* light) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  if (ReadAttrTxt(elem, "texture", texture)) {
-    mjs_setString(light->texture, texture.c_str());
-  }
-  if (ReadAttrTxt(elem, "target", targetbody)) {
-    mjs_setString(light->targetbody, targetbody.c_str());
-  }
-  if (MapValue(elem, "mode", &n, camlight_map, camlight_sz)) {
-    light->mode = (mjtCamLight)n;
-  }
+  // type interplays with the `directional` bool alias, stays hand-written
   if (MapValue(elem, "directional", &n, bool_map, 2)) {
     light->type = (n == 1) ? mjLIGHT_DIRECTIONAL : mjLIGHT_SPOT;
     has_directional = true;
@@ -1343,17 +1385,9 @@ void mjXReader::OneLight(XMLElement* elem, mjsLight* light) {
   if (MapValue(elem, "active", &n, bool_map, 2)) {
     light->active = (n == 1);
   }
-  ReadAttr(elem, "pos", 3, light->pos, text);
-  ReadAttr(elem, "dir", 3, light->dir, text);
-  ReadAttr(elem, "bulbradius", 1, &light->bulbradius, text);
-  ReadAttr(elem, "intensity", 1, &light->intensity, text);
-  ReadAttr(elem, "range", 1, &light->range, text);
-  ReadAttr(elem, "attenuation", 3, light->attenuation, text);
-  ReadAttr(elem, "cutoff", 1, &light->cutoff, text);
-  ReadAttr(elem, "exponent", 1, &light->exponent, text);
-  ReadAttr(elem, "ambient", 3, light->ambient, text);
-  ReadAttr(elem, "diffuse", 3, light->diffuse, text);
-  ReadAttr(elem, "specular", 3, light->specular, text);
+  // mechanical attr->field reads (texture, target, mode, pos, dir, bulbradius,
+  // intensity, range, attenuation, cutoff, exponent, ambient, diffuse, specular)
+  ReadAttrBinds(elem, light, kLightBinds, kLightBindsN, text);
 
   // write error info
   mjs_setString(light->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
@@ -1381,14 +1415,9 @@ void mjXReader::OnePair(XMLElement* elem, mjsPair* pair) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  ReadAttrInt(elem, "condim", &pair->condim);
-  ReadAttr(elem, "solref", mjNREF, pair->solref, text, false, false);
-  ReadAttr(elem, "solreffriction", mjNREF, pair->solreffriction, text, false, false);
-  ReadAttr(elem, "solimp", mjNIMP, pair->solimp, text, false, false);
-  ReadAttr(elem, "margin", 1, &pair->margin, text);
-  ReadAttr(elem, "gap", 1, &pair->gap, text);
-  ReadAttr(elem, "adhesion", 1, &pair->adhesion, text);
-  ReadAttr(elem, "friction", 5, pair->friction, text, false, false);
+  // mechanical attr->field reads (condim, friction, solref, solreffriction,
+  // solimp, gap, margin, adhesion)
+  ReadAttrBinds(elem, pair, kPairBinds, kPairBindsN, text);
 
   // write error info
   mjs_setString(pair->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
