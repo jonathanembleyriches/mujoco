@@ -641,3 +641,90 @@ def test_error_union_empty_members():
     # `union U =` with no member is a parse error (at least one element required).
     exc = _expect_error('mujoco_version "3.10.0"\nunion U =\n')
     assert "union member element name" in exc.message
+
+
+# --------------------------------------------------------------------------- #
+# Enum / member / binding annotations (ProtoSpec binding facts in the schema). #
+# --------------------------------------------------------------------------- #
+_BIND = 'mujoco_version "3.11.0"\n'
+
+
+def test_enum_and_member_annotations_parse():
+    j = parse_spec(
+        _BIND
+        + "enum GainType (ctype=mjtGain) {\n"
+        + '  fixed = "fixed" (c=mjGAIN_FIXED)\n'
+        + '  so3 = "so3" (c=mjGAIN_SO3, no_mjs)\n'
+        + "}\n"
+        + "enum TriState (ctype=mjtLimited, cmap=TFAuto_map) {\n"
+        + '  false_ = "false" (mjs_c=mjLIMITED_FALSE)\n'
+        + "}\n"
+    ).to_json()
+    gain = next(e for e in j["enums"] if e["name"] == "GainType")
+    assert gain["annotations"] == {"ctype": "mjtGain"}
+    members = {m["name"]: m for m in gain["members"]}
+    assert members["fixed"]["annotations"] == {"c": "mjGAIN_FIXED"}
+    assert members["so3"]["annotations"] == {"c": "mjGAIN_SO3", "no_mjs": True}
+    tri = next(e for e in j["enums"] if e["name"] == "TriState")
+    assert tri["annotations"] == {"ctype": "mjtLimited", "cmap": "TFAuto_map"}
+    assert tri["members"][0]["annotations"] == {"mjs_c": "mjLIMITED_FALSE"}
+
+
+def test_ordinal_int_member_annotation():
+    j = parse_spec(
+        _BIND + 'enum I (ctype=int) { zoh = "zoh" (c=0) linear = "lin" (c=1) }\n'
+    ).to_json()
+    m = {x["name"]: x for x in j["enums"][0]["members"]}
+    assert m["zoh"]["annotations"] == {"c": "0"}
+    assert m["linear"]["annotations"] == {"c": "1"}
+
+
+def test_element_and_field_mjs_annotations():
+    j = parse_spec(
+        _BIND
+        + "element Inertial (mjs=mjsBody) {\n"
+        + "  pos : double[3] (mjs=ipos)\n"
+        + "  surfacevel : double[3] (lenient)\n"
+        + "}\n"
+    ).to_json()
+    el = j["elements"][0]
+    assert el["annotations"] == {"mjs": "mjsBody"}
+    fields = {f["name"]: f for f in el["fields"]}
+    assert fields["pos"]["annotations"] == {"mjs": "ipos"}
+    assert fields["surfacevel"]["annotations"] == {"lenient": True}
+
+
+def test_enum_member_annotation_fixpoint():
+    text = (
+        _BIND + "enum G (ctype=mjtGain) {\n"
+        '  fixed = "fixed" (c=mjGAIN_FIXED)  # doc kept\n'
+        "}\n"
+    )
+    s = parse_spec(text)
+    j = s.to_json()
+    assert Schema.from_json(j).to_json() == j
+
+
+def test_unknown_annotation_key_rejected():
+    exc = _expect_error(_BIND + 'enum E (bogus=x) { a = "a" }\n')
+    assert "unknown annotation key 'bogus'" in exc.message
+
+
+def test_annotation_wrong_context_rejected():
+    # A member annotation is not valid on a field, and vice versa.
+    exc = _expect_error(_BIND + "struct S { f : int32 (c=mjX) }\n")
+    assert "annotation 'c' is not valid on fields" in exc.message
+    exc = _expect_error(_BIND + 'enum E { a = "a" (mjs=foo) }\n')
+    assert "annotation 'mjs' is not valid on members" in exc.message
+    exc = _expect_error(_BIND + 'enum E (xml="x") { a = "a" }\n')
+    assert "annotation 'xml' is not valid on enums" in exc.message
+
+
+def test_binding_annotation_rejects_quoted_string():
+    exc = _expect_error(_BIND + 'enum E (ctype="mjtGain") { a = "a" }\n')
+    assert "bare identifier or integer" in exc.message
+
+
+def test_binding_annotation_requires_value():
+    exc = _expect_error(_BIND + "element E (mjs) { name : string }\n")
+    assert "annotation 'mjs' requires a value" in exc.message

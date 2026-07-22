@@ -15,7 +15,7 @@ resolved conservatively and noted):
     schema     := header (enumdef | structdef | variantdef | uniondef
                           | mixindef | elemdef)*
     header     := "mujoco_version" STRING
-    enumdef    := "enum" NAME "{" (NAME "=" STRING)+ "}"
+    enumdef    := "enum" NAME annots? "{" (NAME "=" STRING annots?)+ "}"
     structdef  := "struct" NAME "{" field* "}"
     variantdef := "variant" NAME "{" (NAME ":" type)+ "}"          # ADDED (see below)
     uniondef   := "union" NAME "=" NAME ("|" NAME)*                 # ADDED (see below)
@@ -88,8 +88,9 @@ them, so ``to_json -> from_json -> to_json`` is a fixpoint.
 
     Schema      {mujoco_version, enums[], structs[], variants[], unions[],
                  mixins[], elements[], line, col}
-    EnumDef     {name, members[], line, col}
-    EnumMember  {name, value, doc?, line, col}          # value = XML keyword
+    EnumDef     {name, annotations?{ctype,cmap}, members[], line, col}
+    EnumMember  {name, value, annotations?{c,mjs_c,no_mjs}, doc?, line, col}
+                                                        # value = XML keyword
     StructDef   {name, fields[], line, col}
     VariantDef  {name, arms[], line, col}
     VariantArm  {tag, type, doc?, line, col}
@@ -160,10 +161,44 @@ _FIELD_ANNOTS = frozenset(
         # validation cover these fields instead of leaving them silently
         # untracked (docs/refs_design.md, category D).
         "target_from",
+        # mjSpec-side binding facts, moved out of emit_mjs.py/emit_native.py's
+        # Python dict literals into the schema (the entity each fact describes).
+        # A field-level `mjs=<name>` renames the destination mjsStruct field a
+        # non-identity attribute binds to (was ELEM_ALIAS / GLOBAL_ALIAS); a
+        # field-level `lenient` reads a short prefix of a fixed/scalar attr
+        # (exact=false in the attribute-binding table; was LENIENT_EXACT_FALSE).
+        "mjs",
+        "lenient",
     }
 )
-_ELEMENT_ANNOTS = frozenset({"xml"})
-_FLAG_ANNOTS = frozenset({"required", "element_text"})
+# An element-level `mjs=<struct>` names the mjsStruct a non-identity element
+# binds to (was ELEMENT_STRUCT). An element whose struct is `mjs<Name>` is
+# identity and carries no annotation.
+_ELEMENT_ANNOTS = frozenset({"xml", "mjs"})
+# An enum-level `ctype=<mjt*|int>` marks the enum as authored to mjSpec through
+# a generated ToMjt switch of that cast type (was the key column of ENUM_MJT);
+# `cmap=<map>` names a shared primitive keyword map the reader binds this enum's
+# attributes through instead of an own map (was ENUM_PRIM_MAP).
+_ENUM_ANNOTS = frozenset({"ctype", "cmap"})
+# A member-level `c=<C-constant|int>` is the reader keyword table's value column
+# (was the value lists in KEYWORD_MAPS), reused as the ToMjt constant when the
+# enum is ctype'd; `mjs_c=<C-constant>` overrides that constant (or supplies it
+# when the enum backs no reader map -- the mjspec.h-side spellings that diverge
+# from the reader, was the divergent ENUM_MJT entries); `no_mjs` excludes a
+# member from the ToMjt switch though it has a reader `c` value.
+_MEMBER_ANNOTS = frozenset({"c", "mjs_c", "no_mjs"})
+_ALL_ANNOTS = _FIELD_ANNOTS | _ELEMENT_ANNOTS | _ENUM_ANNOTS | _MEMBER_ANNOTS
+_ANNOTS_BY_CONTEXT = {
+    "field": _FIELD_ANNOTS,
+    "element": _ELEMENT_ANNOTS,
+    "enum": _ENUM_ANNOTS,
+    "member": _MEMBER_ANNOTS,
+}
+_FLAG_ANNOTS = frozenset({"required", "element_text", "lenient", "no_mjs"})
+# Annotations whose value is a bare identifier / integer (no quotes), required.
+_IDENT_ANNOTS = frozenset(
+    {"resolver", "target_from", "mjs", "ctype", "cmap", "c", "mjs_c"}
+)
 _CARDINALITY = {"*": "zero_or_more", "?": "zero_or_one", "!": "one"}
 
 
@@ -348,9 +383,12 @@ class EnumMember:
     line: int
     col: int
     doc: Optional[str] = None
+    annotations: dict = _dc_field(default_factory=dict)
 
     def to_json(self) -> dict:
         d: dict[str, Any] = {"name": self.name, "value": self.value}
+        if self.annotations:
+            d["annotations"] = dict(sorted(self.annotations.items()))
         if self.doc is not None:
             d["doc"] = self.doc
         d["line"] = self.line
@@ -362,6 +400,7 @@ class EnumMember:
         return EnumMember(
             name=d["name"], value=d["value"], line=d["line"], col=d["col"],
             doc=d.get("doc"),
+            annotations=dict(d.get("annotations", {})),
         )
 
 
@@ -371,20 +410,23 @@ class EnumDef:
     line: int
     col: int
     members: list[EnumMember] = _dc_field(default_factory=list)
+    annotations: dict = _dc_field(default_factory=dict)
 
     def to_json(self) -> dict:
-        return {
-            "name": self.name,
-            "members": [m.to_json() for m in self.members],
-            "line": self.line,
-            "col": self.col,
-        }
+        d: dict[str, Any] = {"name": self.name}
+        if self.annotations:
+            d["annotations"] = dict(sorted(self.annotations.items()))
+        d["members"] = [m.to_json() for m in self.members]
+        d["line"] = self.line
+        d["col"] = self.col
+        return d
 
     @staticmethod
     def from_json(d: dict) -> "EnumDef":
         return EnumDef(
             name=d["name"], line=d["line"], col=d["col"],
             members=[EnumMember.from_json(m) for m in d["members"]],
+            annotations=dict(d.get("annotations", {})),
         )
 
 
@@ -824,6 +866,9 @@ class _Parser:
         kw = self._advance()  # 'enum'
         name = self._expect_name("an enum name")
         node = EnumDef(name=name.value, line=name.line, col=name.col)
+        if self._check("PUNCT", "("):
+            raw = self._parse_annots()
+            node.annotations, _ = self._normalize_annots(raw, "enum")
         open_brace = self._expect_punct("{")
         while True:
             if self._check("PUNCT", "}"):
@@ -834,6 +879,10 @@ class _Parser:
             mname = self._expect_name("an enum member name")
             self._expect_punct("=")
             val = self._expect("STRING", what="an XML keyword string")
+            annotations: dict = {}
+            if self._check("PUNCT", "("):
+                raw = self._parse_annots()
+                annotations, _ = self._normalize_annots(raw, "member")
             node.members.append(
                 EnumMember(
                     name=mname.value,
@@ -841,6 +890,7 @@ class _Parser:
                     line=mname.line,
                     col=mname.col,
                     doc=self._trailing_doc(),
+                    annotations=annotations,
                 )
             )
         if not node.members:
@@ -925,7 +975,7 @@ class _Parser:
         node = ElementDef(name=name.value, line=name.line, col=name.col)
         if self._check("PUNCT", "("):
             raw = self._parse_annots()
-            node.annotations, _ = self._normalize_annots(raw, _ELEMENT_ANNOTS, "element")
+            node.annotations, _ = self._normalize_annots(raw, "element")
         open_brace = self._expect_punct("{")
         while True:
             if self._check("PUNCT", "}"):
@@ -984,7 +1034,7 @@ class _Parser:
         required = False
         if self._check("PUNCT", "("):
             raw = self._parse_annots()
-            annotations, required = self._normalize_annots(raw, _FIELD_ANNOTS, "field")
+            annotations, required = self._normalize_annots(raw, "field")
         default = None
         if self._check("PUNCT", "="):
             default = self._parse_default()
@@ -1187,12 +1237,13 @@ class _Parser:
         return raw
 
     def _normalize_annots(
-        self, raw: list[tuple], allowed: frozenset, context: str
+        self, raw: list[tuple], context: str
     ) -> tuple[dict, bool]:
+        allowed = _ANNOTS_BY_CONTEXT[context]
         result: dict = {}
         required = False
         for key, value, is_string, tok in raw:
-            if key not in _FIELD_ANNOTS:
+            if key not in _ALL_ANNOTS:
                 raise self._error(f"unknown annotation key {key!r}", tok)
             if key not in allowed:
                 raise self._error(
@@ -1243,9 +1294,17 @@ class _Parser:
                 if value is None:
                     raise self._error("annotation 'resolver' requires a value", tok)
                 result[key] = value
-            else:  # target_from
+            else:  # target_from / mjs / ctype / cmap / c / mjs_c: bare-identifier
+                # (or integer) value, required. A quoted string is rejected so the
+                # binding facts read as identifiers (mjsBody, mjGAIN_FIXED, 0).
                 if value is None:
                     raise self._error(f"annotation {key!r} requires a value", tok)
+                if is_string:
+                    raise self._error(
+                        f"annotation {key!r} takes a bare identifier or integer, "
+                        "not a quoted string",
+                        tok,
+                    )
                 result[key] = value
         return result, required
 
