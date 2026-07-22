@@ -3044,18 +3044,15 @@ void mjXReader::Body(XMLElement* section, mjsBody* body, mjsFrame* frame,
       if (ReadAttrTxt(elem, "childclass", childclass)) {
         mjs_setString(child->childclass, childclass.c_str());
       }
-      ReadAttr(elem, "pos", 3, child->pos, text);
+      // mechanical attr->field reads (pos, gravcomp, sleep)
+      ReadAttrBinds(elem, child, kBodyBinds, kBodyBindsN, text);
       ReadQuat(elem, "quat", child->quat, text);
       if (MapValue(elem, "mocap", &n, bool_map, 2)) {
         child->mocap = (n == 1);
       }
       ReadAlternative(elem, child->alt);
 
-      // gravcomp, sleep policy
-      ReadAttr(elem, "gravcomp", 1, &child->gravcomp, text);
-      if (MapValue(elem, "sleep", &n, bodysleep_map, bodysleep_sz)) {
-        child->sleep = (mjtSleepPolicy) n;
-      }
+      // simple (byte-width enum) stays hand-written
       if (MapValue(elem, "simple", &n, FAuto_map, 2)) {
         child->simple = (mjtByte) n;
       }

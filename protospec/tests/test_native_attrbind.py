@@ -35,7 +35,7 @@ INC = REPO / "src" / "xml" / "xml_native_attrbind.inc"
 EXPECTED_COUNTS = {
     "Site": 6, "Camera": 10, "Light": 14, "Material": 8, "Pair": 8,
     "Geom": 24, "Joint": 20, "ActuatorGeneral": 14, "Spatial": 17, "Connect": 2,
-    "Mesh": 5, "Touch": 6, "Texture": 12, "Hfield": 3,
+    "Mesh": 5, "Touch": 6, "Texture": 12, "Hfield": 3, "Body": 3,
 }
 
 # Elements converted with an allow-list (only a mechanical prefix); the rest of
@@ -49,7 +49,7 @@ ALLOWLIST_ELEMS = {ae.elem for ae in emit_native.ATTR_ELEMENTS if ae.include}
 # attribute of the same name for a different target, so the strict "no inline
 # read anywhere in the body" check does not apply -- the differential suite is the
 # behavioral proof for these.
-SHARED_SECTION_PARSERS = {"Asset"}
+SHARED_SECTION_PARSERS = {"Asset", "Body"}
 
 
 def _binds():
@@ -97,7 +97,7 @@ ELEM_METHOD = {
     "Joint": "OneJoint", "ActuatorGeneral": "OneActuator",
     "Spatial": "OneTendon", "Connect": "OneEquality",
     "Mesh": "OneMesh", "Touch": "Sensor",
-    "Texture": "Asset", "Hfield": "Asset",
+    "Texture": "Asset", "Hfield": "Asset", "Body": "Body",
 }
 
 

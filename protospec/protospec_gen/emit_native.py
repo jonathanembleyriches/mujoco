@@ -480,6 +480,11 @@ ATTR_ELEMENTS = [
     # Hfield: content_type/nrow/ncol are plain copies. size is a required read and
     # file/elevation need vfs / reverse-row handling, so they stay hand-written.
     AttrElem("Hfield", "mjsHField", ("file", "size")),
+    # Body: only the unambiguous plain copies (pos, gravcomp, sleep). name, quat/
+    # alt (orientation), mocap (bool), simple (byte-width enum), childclass (also
+    # drives the childdef lookup) and user stay hand-written in the recursive Body
+    # parser.
+    AttrElem("Body", "mjsBody", (), ("pos", "gravcomp", "sleep")),
 ]
 
 # Schema enums whose reader keyword map is a shared primitive/hand map, not their

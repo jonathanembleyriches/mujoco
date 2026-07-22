@@ -213,4 +213,11 @@ const AttrBind kHfieldBinds[] = {
   {"ncol",         kBindInt,    1, offsetof(mjsHField, ncol), true, nullptr, 0},
 };
 const int kHfieldBindsN = 3;
+
+const AttrBind kBodyBinds[] = {
+  {"pos",      kBindDouble, 3, offsetof(mjsBody, pos), true, nullptr, 0},
+  {"gravcomp", kBindDouble, 1, offsetof(mjsBody, gravcomp), true, nullptr, 0},
+  {"sleep",    kBindEnum,   0, offsetof(mjsBody, sleep), true, bodysleep_map, bodysleep_sz},
+};
+const int kBodyBindsN = 3;
 // clang-format on
