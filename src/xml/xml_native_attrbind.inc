@@ -144,4 +144,31 @@ const AttrBind kActuatorGeneralBinds[] = {
   {"armature",     kBindDouble, 1, offsetof(mjsActuator, armature), false, nullptr, 0},
 };
 const int kActuatorGeneralBindsN = 14;
+
+const AttrBind kSpatialBinds[] = {
+  {"group",              kBindInt,    1, offsetof(mjsTendon, group), true, nullptr, 0},
+  {"limited",            kBindEnum,   0, offsetof(mjsTendon, limited), true, TFAuto_map, 3},
+  {"actuatorfrclimited", kBindEnum,   0, offsetof(mjsTendon, actfrclimited), true, TFAuto_map, 3},
+  {"range",              kBindDouble, 2, offsetof(mjsTendon, range), true, nullptr, 0},
+  {"actuatorfrcrange",   kBindDouble, 2, offsetof(mjsTendon, actfrcrange), true, nullptr, 0},
+  {"solreflimit",        kBindDouble, 2, offsetof(mjsTendon, solref_limit), false, nullptr, 0},
+  {"solimplimit",        kBindDouble, 5, offsetof(mjsTendon, solimp_limit), false, nullptr, 0},
+  {"solreffriction",     kBindDouble, 2, offsetof(mjsTendon, solref_friction), false, nullptr, 0},
+  {"solimpfriction",     kBindDouble, 5, offsetof(mjsTendon, solimp_friction), false, nullptr, 0},
+  {"frictionloss",       kBindDouble, 1, offsetof(mjsTendon, frictionloss), true, nullptr, 0},
+  {"width",              kBindDouble, 1, offsetof(mjsTendon, width), true, nullptr, 0},
+  {"material",           kBindString, 0, offsetof(mjsTendon, material), true, nullptr, 0},
+  {"margin",             kBindDouble, 1, offsetof(mjsTendon, margin), true, nullptr, 0},
+  {"stiffness",          kBindDouble, 3, offsetof(mjsTendon, stiffness), false, nullptr, 0},
+  {"damping",            kBindDouble, 3, offsetof(mjsTendon, damping), false, nullptr, 0},
+  {"armature",           kBindDouble, 1, offsetof(mjsTendon, armature), true, nullptr, 0},
+  {"rgba",               kBindFloat,  4, offsetof(mjsTendon, rgba), true, nullptr, 0},
+};
+const int kSpatialBindsN = 17;
+
+const AttrBind kConnectBinds[] = {
+  {"solref", kBindDouble, 2, offsetof(mjsEquality, solref), false, nullptr, 0},
+  {"solimp", kBindDouble, 5, offsetof(mjsEquality, solimp), false, nullptr, 0},
+};
+const int kConnectBindsN = 2;
 // clang-format on

@@ -454,6 +454,11 @@ ATTR_ELEMENTS = [
         "actlimited", "ctrlrange", "forcerange", "actrange", "lengthrange",
         "gear", "damping", "armature",
     )),
+    # Tendon: OneTendon is shared by spatial and fixed; Spatial is the superset.
+    AttrElem("Spatial", "mjsTendon", ("springlength",)),  # springlength: 1-or-2 with copy-to-second logic
+    # Equality: OneEquality is dominated by objtype/objname dispatch into data[];
+    # only the common solref/solimp tail is a clean copy (active folds to (n==1)).
+    AttrElem("Connect", "mjsEquality", (), ("solref", "solimp")),
 ]
 
 # Schema enums whose reader keyword map is a shared primitive/hand map, not their

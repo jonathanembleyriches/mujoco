@@ -1484,12 +1484,12 @@ void mjXReader::OneEquality(XMLElement* elem, mjsEquality* equality) {
     }
   }
 
-  // read attributes
+  // read attributes (active folds a bool spelling, stays hand-written)
   if (MapValue(elem, "active", &n, bool_map, 2)) {
     equality->active = (n == 1);
   }
-  ReadAttr(elem, "solref", mjNREF, equality->solref, text, false, false);
-  ReadAttr(elem, "solimp", mjNIMP, equality->solimp, text, false, false);
+  // mechanical attr->field reads (solref, solimp)
+  ReadAttrBinds(elem, equality, kConnectBinds, kConnectBindsN, text);
 
   // write error info
   mjs_setString(equality->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
@@ -1499,7 +1499,7 @@ void mjXReader::OneEquality(XMLElement* elem, mjsEquality* equality) {
 
 // tendon element parser
 void mjXReader::OneTendon(XMLElement* elem, mjsTendon* tendon) {
-  string text, name, material;
+  string text, name;
   std::vector<double> userdata;
 
   // read attributes
@@ -1508,32 +1508,14 @@ void mjXReader::OneTendon(XMLElement* elem, mjsTendon* tendon) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  ReadAttrInt(elem, "group", &tendon->group);
-  if (ReadAttrTxt(elem, "material", material)) {
-    mjs_setString(tendon->material, material.c_str());
-  }
-  MapValue(elem, "limited", &tendon->limited, TFAuto_map, 3);
-  MapValue(elem, "actuatorfrclimited", &tendon->actfrclimited, TFAuto_map, 3);
-  ReadAttr(elem, "width", 1, &tendon->width, text);
-  ReadAttr(elem, "solreflimit", mjNREF, tendon->solref_limit, text, false, false);
-  ReadAttr(elem, "solimplimit", mjNIMP, tendon->solimp_limit, text, false, false);
-  ReadAttr(elem, "solreffriction", mjNREF, tendon->solref_friction, text, false, false);
-  ReadAttr(elem, "solimpfriction", mjNIMP, tendon->solimp_friction, text, false, false);
-  ReadAttr(elem, "range", 2, tendon->range, text);
-  ReadAttr(elem, "actuatorfrcrange", 2, tendon->actfrcrange, text);
-  ReadAttr(elem, "margin", 1, &tendon->margin, text);
-
-  ReadAttr(elem, "stiffness", 1+mjNPOLY, tendon->stiffness, text, false, false);
-
-  ReadAttr(elem, "damping", 1+mjNPOLY, tendon->damping, text, false, false);
-
-  ReadAttr(elem, "armature", 1, &tendon->armature, text);
-  ReadAttr(elem, "frictionloss", 1, &tendon->frictionloss, text);
+  // mechanical attr->field reads (group, material, limited, actuatorfrclimited,
+  // width, sol*, range, actuatorfrcrange, margin, stiffness, damping, armature,
+  // frictionloss, rgba)
+  ReadAttrBinds(elem, tendon, kSpatialBinds, kSpatialBindsN, text);
   // read springlength, either one or two values; if one, copy to second value
   if (ReadAttr(elem, "springlength", 2, tendon->springlength, text, false, false) == 1) {
     tendon->springlength[1] = tendon->springlength[0];
   }
-  ReadAttr(elem, "rgba", 4, tendon->rgba, text);
 
   // read userdata
   if (ReadVector(elem, "user", userdata, text)) {
