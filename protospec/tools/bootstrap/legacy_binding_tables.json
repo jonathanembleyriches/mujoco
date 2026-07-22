@@ -1,0 +1,849 @@
+{
+  "_note": "Frozen snapshot of the pre-annotation binding dict literals from emit_native.py / emit_mjs.py, captured at branch proto-annotations base. Provenance for tools/write_binding_annotations.py, which used these to mechanically write the explicit schema annotations. The dicts were then deleted from the emitters.",
+  "KEYWORD_MAPS": [
+    [
+      "coordinate_map",
+      "Coordinate",
+      "2",
+      null,
+      [
+        "0",
+        "1"
+      ]
+    ],
+    [
+      "angle_map",
+      "AngleUnit",
+      "2",
+      null,
+      [
+        "0",
+        "1"
+      ]
+    ],
+    [
+      "fluid_map",
+      "FluidShape",
+      "2",
+      null,
+      [
+        "0",
+        "1"
+      ]
+    ],
+    [
+      "FAuto_map",
+      "SimpleMode",
+      "2",
+      null,
+      [
+        "0",
+        "1"
+      ]
+    ],
+    [
+      "bodysleep_map",
+      "BodySleep",
+      "bodysleep_sz",
+      "4",
+      [
+        "mjSLEEP_AUTO",
+        "mjSLEEP_NEVER",
+        "mjSLEEP_ALLOWED",
+        "mjSLEEP_INIT"
+      ]
+    ],
+    [
+      "joint_map",
+      "JointType",
+      "joint_sz",
+      "4",
+      [
+        "mjJNT_FREE",
+        "mjJNT_BALL",
+        "mjJNT_SLIDE",
+        "mjJNT_HINGE"
+      ]
+    ],
+    [
+      "geom_map",
+      "GeomType",
+      "mjNGEOMTYPES",
+      null,
+      [
+        "mjGEOM_PLANE",
+        "mjGEOM_HFIELD",
+        "mjGEOM_SPHERE",
+        "mjGEOM_CAPSULE",
+        "mjGEOM_ELLIPSOID",
+        "mjGEOM_CYLINDER",
+        "mjGEOM_BOX",
+        "mjGEOM_MESH",
+        "mjGEOM_SDF"
+      ]
+    ],
+    [
+      "projection_map",
+      "CameraProjection",
+      "projection_sz",
+      "2",
+      [
+        "mjPROJ_PERSPECTIVE",
+        "mjPROJ_ORTHOGRAPHIC"
+      ]
+    ],
+    [
+      "camlight_map",
+      "CamLightMode",
+      "camlight_sz",
+      "5",
+      [
+        "mjCAMLIGHT_FIXED",
+        "mjCAMLIGHT_TRACK",
+        "mjCAMLIGHT_TRACKCOM",
+        "mjCAMLIGHT_TARGETBODY",
+        "mjCAMLIGHT_TARGETBODYCOM"
+      ]
+    ],
+    [
+      "lighttype_map",
+      "LightType",
+      "lighttype_sz",
+      "4",
+      [
+        "mjLIGHT_SPOT",
+        "mjLIGHT_DIRECTIONAL",
+        "mjLIGHT_POINT",
+        "mjLIGHT_IMAGE"
+      ]
+    ],
+    [
+      "texrole_map",
+      "TexRole",
+      "texrole_sz",
+      "mjNTEXROLE - 1",
+      [
+        "mjTEXROLE_RGB",
+        "mjTEXROLE_OCCLUSION",
+        "mjTEXROLE_ROUGHNESS",
+        "mjTEXROLE_METALLIC",
+        "mjTEXROLE_NORMAL",
+        "mjTEXROLE_OPACITY",
+        "mjTEXROLE_EMISSIVE",
+        "mjTEXROLE_RGBA",
+        "mjTEXROLE_ORM"
+      ]
+    ],
+    [
+      "integrator_map",
+      "Integrator",
+      "integrator_sz",
+      "4",
+      [
+        "mjINT_EULER",
+        "mjINT_RK4",
+        "mjINT_IMPLICIT",
+        "mjINT_IMPLICITFAST"
+      ]
+    ],
+    [
+      "cone_map",
+      "Cone",
+      "cone_sz",
+      "2",
+      [
+        "mjCONE_PYRAMIDAL",
+        "mjCONE_ELLIPTIC"
+      ]
+    ],
+    [
+      "jac_map",
+      "JacobianType",
+      "jac_sz",
+      "3",
+      [
+        "mjJAC_DENSE",
+        "mjJAC_SPARSE",
+        "mjJAC_AUTO"
+      ]
+    ],
+    [
+      "solver_map",
+      "SolverType",
+      "solver_sz",
+      "3",
+      [
+        "mjSOL_PGS",
+        "mjSOL_CG",
+        "mjSOL_NEWTON"
+      ]
+    ],
+    [
+      "texture_map",
+      "TextureType",
+      "texture_sz",
+      "3",
+      [
+        "mjTEXTURE_2D",
+        "mjTEXTURE_CUBE",
+        "mjTEXTURE_SKYBOX"
+      ]
+    ],
+    [
+      "colorspace_map",
+      "ColorSpace",
+      "colorspace_sz",
+      "3",
+      [
+        "mjCOLORSPACE_AUTO",
+        "mjCOLORSPACE_LINEAR",
+        "mjCOLORSPACE_SRGB"
+      ]
+    ],
+    [
+      "builtin_map",
+      "TextureBuiltin",
+      "builtin_sz",
+      "4",
+      [
+        "mjBUILTIN_NONE",
+        "mjBUILTIN_GRADIENT",
+        "mjBUILTIN_CHECKER",
+        "mjBUILTIN_FLAT"
+      ]
+    ],
+    [
+      "mark_map",
+      "TextureMark",
+      "mark_sz",
+      "4",
+      [
+        "mjMARK_NONE",
+        "mjMARK_EDGE",
+        "mjMARK_CROSS",
+        "mjMARK_RANDOM"
+      ]
+    ],
+    [
+      "dyn_map",
+      "DynType",
+      "dyn_sz",
+      "7",
+      [
+        "mjDYN_NONE",
+        "mjDYN_INTEGRATOR",
+        "mjDYN_FILTER",
+        "mjDYN_FILTEREXACT",
+        "mjDYN_MUSCLE",
+        "mjDYN_DCMOTOR",
+        "mjDYN_USER"
+      ]
+    ],
+    [
+      "dcmotorinput_map",
+      "DcMotorInput",
+      "dcmotorinput_sz",
+      "3",
+      [
+        "0",
+        "1",
+        "2"
+      ]
+    ],
+    [
+      "gain_map",
+      "GainType",
+      "gain_sz",
+      "6",
+      [
+        "mjGAIN_FIXED",
+        "mjGAIN_AFFINE",
+        "mjGAIN_MUSCLE",
+        "mjGAIN_DCMOTOR",
+        "mjGAIN_SO3",
+        "mjGAIN_USER"
+      ]
+    ],
+    [
+      "input_map",
+      "SO3Input",
+      "input_sz",
+      "2",
+      [
+        "mjCHART_EXPMAP",
+        "mjCHART_QUAT"
+      ]
+    ],
+    [
+      "bias_map",
+      "BiasType",
+      "bias_sz",
+      "6",
+      [
+        "mjBIAS_NONE",
+        "mjBIAS_AFFINE",
+        "mjBIAS_MUSCLE",
+        "mjBIAS_DCMOTOR",
+        "mjBIAS_SO3",
+        "mjBIAS_USER"
+      ]
+    ],
+    [
+      "interp_map",
+      "InterpType",
+      "interp_sz",
+      "3",
+      [
+        "0",
+        "1",
+        "2"
+      ]
+    ],
+    [
+      "stage_map",
+      "NeedStage",
+      "stage_sz",
+      "4",
+      [
+        "mjSTAGE_NONE",
+        "mjSTAGE_POS",
+        "mjSTAGE_VEL",
+        "mjSTAGE_ACC"
+      ]
+    ],
+    [
+      "datatype_map",
+      "DataType",
+      "datatype_sz",
+      "4",
+      [
+        "mjDATATYPE_REAL",
+        "mjDATATYPE_POSITIVE",
+        "mjDATATYPE_AXIS",
+        "mjDATATYPE_QUATERNION"
+      ]
+    ],
+    [
+      "condata_map",
+      "ContactData",
+      "mjNCONDATA",
+      null,
+      [
+        "mjCONDATA_FOUND",
+        "mjCONDATA_FORCE",
+        "mjCONDATA_TORQUE",
+        "mjCONDATA_DIST",
+        "mjCONDATA_POS",
+        "mjCONDATA_NORMAL",
+        "mjCONDATA_TANGENT"
+      ]
+    ],
+    [
+      "raydata_map",
+      "RayData",
+      "mjNRAYDATA",
+      null,
+      [
+        "mjRAYDATA_DIST",
+        "mjRAYDATA_DIR",
+        "mjRAYDATA_ORIGIN",
+        "mjRAYDATA_POINT",
+        "mjRAYDATA_NORMAL",
+        "mjRAYDATA_DEPTH"
+      ]
+    ],
+    [
+      "camout_map",
+      "CameraOutput",
+      "mjNCAMOUT",
+      "mjNCAMOUT",
+      [
+        "mjCAMOUT_RGB",
+        "mjCAMOUT_DEPTH",
+        "mjCAMOUT_DIST",
+        "mjCAMOUT_NORMAL",
+        "mjCAMOUT_SEG"
+      ]
+    ],
+    [
+      "reduce_map",
+      "ContactReduce",
+      "reduce_sz",
+      "4",
+      [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    ],
+    [
+      "conflict_map",
+      "Conflict",
+      "conflict_sz",
+      "3",
+      [
+        "mjCONFLICT_WARNING",
+        "mjCONFLICT_MERGE",
+        "mjCONFLICT_ERROR"
+      ]
+    ],
+    [
+      "lrmode_map",
+      "LRMode",
+      "lrmode_sz",
+      "4",
+      [
+        "mjLRMODE_NONE",
+        "mjLRMODE_MUSCLE",
+        "mjLRMODE_MUSCLEUSER",
+        "mjLRMODE_ALL"
+      ]
+    ],
+    [
+      "comp_map",
+      "CompositeType",
+      "mjNCOMPTYPES",
+      null,
+      [
+        "mjCOMPTYPE_PARTICLE",
+        "mjCOMPTYPE_GRID",
+        "mjCOMPTYPE_ROPE",
+        "mjCOMPTYPE_LOOP",
+        "mjCOMPTYPE_CABLE",
+        "mjCOMPTYPE_CLOTH"
+      ]
+    ],
+    [
+      "meshinertia_map",
+      "MeshInertia",
+      "4",
+      null,
+      [
+        "mjMESH_INERTIA_CONVEX",
+        "mjMESH_INERTIA_LEGACY",
+        "mjMESH_INERTIA_EXACT",
+        "mjMESH_INERTIA_SHELL"
+      ]
+    ],
+    [
+      "meshbuiltin_map",
+      "MeshBuiltin",
+      "meshbuiltin_sz",
+      "8",
+      [
+        "mjMESH_BUILTIN_NONE",
+        "mjMESH_BUILTIN_SPHERE",
+        "mjMESH_BUILTIN_HEMISPHERE",
+        "mjMESH_BUILTIN_CONE",
+        "mjMESH_BUILTIN_SUPERTORUS",
+        "mjMESH_BUILTIN_SUPERSPHERE",
+        "mjMESH_BUILTIN_WEDGE",
+        "mjMESH_BUILTIN_PLATE"
+      ]
+    ],
+    [
+      "fcomp_map",
+      "FlexcompType",
+      "mjNFCOMPTYPES",
+      null,
+      [
+        "mjFCOMPTYPE_GRID",
+        "mjFCOMPTYPE_BOX",
+        "mjFCOMPTYPE_CYLINDER",
+        "mjFCOMPTYPE_ELLIPSOID",
+        "mjFCOMPTYPE_SQUARE",
+        "mjFCOMPTYPE_DISC",
+        "mjFCOMPTYPE_CIRCLE",
+        "mjFCOMPTYPE_MESH",
+        "mjFCOMPTYPE_GMSH",
+        "mjFCOMPTYPE_DIRECT"
+      ]
+    ],
+    [
+      "fdof_map",
+      "FlexDof",
+      "mjNFCOMPDOFS",
+      null,
+      [
+        "mjFCOMPDOF_FULL",
+        "mjFCOMPDOF_RADIAL",
+        "mjFCOMPDOF_TRILINEAR",
+        "mjFCOMPDOF_QUADRATIC",
+        "mjFCOMPDOF_2D"
+      ]
+    ],
+    [
+      "flexself_map",
+      "FlexSelfCollide",
+      "5",
+      null,
+      [
+        "mjFLEXSELF_NONE",
+        "mjFLEXSELF_NARROW",
+        "mjFLEXSELF_BVH",
+        "mjFLEXSELF_SAP",
+        "mjFLEXSELF_AUTO"
+      ]
+    ],
+    [
+      "elastic2d_map",
+      "Elastic2D",
+      "5",
+      null,
+      [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    ],
+    [
+      "flexeq_map",
+      "FlexEquality",
+      "4",
+      null,
+      [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    ]
+  ],
+  "ENUM_PRIM_MAP": {
+    "TriState": [
+      "TFAuto_map",
+      "3"
+    ]
+  },
+  "LENIENT_EXACT_FALSE": [
+    [
+      "ActuatorGeneral",
+      "armature"
+    ],
+    [
+      "Geom",
+      "surfacevel"
+    ]
+  ],
+  "ELEMENT_STRUCT": {
+    "Body": "mjsBody",
+    "Inertial": "mjsBody",
+    "Frame": "mjsFrame",
+    "Joint": "mjsJoint",
+    "FreeJoint": "mjsJoint",
+    "Geom": "mjsGeom",
+    "Site": "mjsSite",
+    "Camera": "mjsCamera",
+    "Light": "mjsLight",
+    "Mesh": "mjsMesh",
+    "Hfield": "mjsHField",
+    "Skin": "mjsSkin",
+    "Texture": "mjsTexture",
+    "Material": "mjsMaterial",
+    "Pair": "mjsPair",
+    "Exclude": "mjsExclude",
+    "Connect": "mjsEquality",
+    "Weld": "mjsEquality",
+    "EqualityJoint": "mjsEquality",
+    "EqualityTendon": "mjsEquality",
+    "EqualityFlex": "mjsEquality",
+    "Flexvert": "mjsEquality",
+    "Flexstrain": "mjsEquality",
+    "EqualityDefault": "mjsEquality",
+    "Spatial": "mjsTendon",
+    "Fixed": "mjsTendon",
+    "TendonDefault": "mjsTendon",
+    "Numeric": "mjsNumeric",
+    "Text": "mjsText",
+    "Tuple": "mjsTuple",
+    "Key": "mjsKey",
+    "Flex": "mjsFlex",
+    "Compiler": "mjsCompiler",
+    "ActuatorGeneral": "mjsActuator",
+    "Motor": "mjsActuator",
+    "Position": "mjsActuator",
+    "Velocity": "mjsActuator",
+    "IntVelocity": "mjsActuator",
+    "Orientation": "mjsActuator",
+    "Damper": "mjsActuator",
+    "Cylinder": "mjsActuator",
+    "Muscle": "mjsActuator",
+    "Adhesion": "mjsActuator",
+    "DcMotor": "mjsActuator",
+    "ActuatorPlugin": "mjsActuator",
+    "Touch": "mjsSensor",
+    "Accelerometer": "mjsSensor",
+    "Velocimeter": "mjsSensor",
+    "Gyro": "mjsSensor",
+    "Force": "mjsSensor",
+    "Torque": "mjsSensor",
+    "Magnetometer": "mjsSensor",
+    "Camprojection": "mjsSensor",
+    "Rangefinder": "mjsSensor",
+    "Jointpos": "mjsSensor",
+    "Jointvel": "mjsSensor",
+    "Tendonpos": "mjsSensor",
+    "Tendonvel": "mjsSensor",
+    "Actuatorpos": "mjsSensor",
+    "Actuatorvel": "mjsSensor",
+    "Actuatorfrc": "mjsSensor",
+    "Jointactuatorfrc": "mjsSensor",
+    "Tendonactuatorfrc": "mjsSensor",
+    "Ballquat": "mjsSensor",
+    "Ballangvel": "mjsSensor",
+    "Jointlimitpos": "mjsSensor",
+    "Jointlimitvel": "mjsSensor",
+    "Jointlimitfrc": "mjsSensor",
+    "Tendonlimitpos": "mjsSensor",
+    "Tendonlimitvel": "mjsSensor",
+    "Tendonlimitfrc": "mjsSensor",
+    "Framepos": "mjsSensor",
+    "Framequat": "mjsSensor",
+    "Framexaxis": "mjsSensor",
+    "Frameyaxis": "mjsSensor",
+    "Framezaxis": "mjsSensor",
+    "Framelinvel": "mjsSensor",
+    "Frameangvel": "mjsSensor",
+    "Framelinacc": "mjsSensor",
+    "Frameangacc": "mjsSensor",
+    "Subtreecom": "mjsSensor",
+    "Subtreelinvel": "mjsSensor",
+    "Subtreeangmom": "mjsSensor",
+    "Insidesite": "mjsSensor",
+    "Distance": "mjsSensor",
+    "Normal": "mjsSensor",
+    "Fromto": "mjsSensor",
+    "SensorContact": "mjsSensor",
+    "EPotential": "mjsSensor",
+    "EKinetic": "mjsSensor",
+    "Clock": "mjsSensor",
+    "Tactile": "mjsSensor",
+    "SensorUser": "mjsSensor",
+    "SensorPlugin": "mjsSensor"
+  },
+  "GLOBAL_ALIAS": {
+    "user": "userdata",
+    "actuatorfrclimited": "actfrclimited",
+    "actuatorfrcrange": "actfrcrange",
+    "solreflimit": "solref_limit",
+    "solimplimit": "solimp_limit",
+    "solreffriction": "solref_friction",
+    "solimpfriction": "solimp_friction"
+  },
+  "ELEM_ALIAS": {
+    "Frame.dclass": "childclass",
+    "Inertial.pos": "ipos",
+    "Inertial.diaginertia": "inertia",
+    "Joint.actuatorgravcomp": "actgravcomp",
+    "Geom.hfield": "hfieldname",
+    "Geom.mesh": "meshname",
+    "Geom.fluidcoef": "fluid_coefs",
+    "Camera.target": "targetbody",
+    "Camera.focal": "focal_length",
+    "Camera.focalpixel": "focal_pixel",
+    "Camera.principal": "principal_length",
+    "Camera.principalpixel": "principal_pixel",
+    "Camera.sensorsize": "sensor_size",
+    "Camera.projection": "proj",
+    "Light.target": "targetbody",
+    "Mesh.vertex": "uservert",
+    "Mesh.normal": "usernormal",
+    "Mesh.texcoord": "usertexcoord",
+    "Mesh.face": "userface",
+    "Pair.geom1": "geomname1",
+    "Pair.geom2": "geomname2",
+    "Exclude.body1": "bodyname1",
+    "Exclude.body2": "bodyname2",
+    "Flex.body": "vertbody",
+    "Flex.node": "nodebody",
+    "Flex.vertex": "vert",
+    "Flex.element": "elem",
+    "Hfield.elevation": "userdata",
+    "Skin.vertex": "vert"
+  },
+  "ENUM_MJT": {
+    "GeomType": {
+      "ctype": "mjtGeom",
+      "members": {
+        "plane": "mjGEOM_PLANE",
+        "hfield": "mjGEOM_HFIELD",
+        "sphere": "mjGEOM_SPHERE",
+        "capsule": "mjGEOM_CAPSULE",
+        "ellipsoid": "mjGEOM_ELLIPSOID",
+        "cylinder": "mjGEOM_CYLINDER",
+        "box": "mjGEOM_BOX",
+        "mesh": "mjGEOM_MESH",
+        "sdf": "mjGEOM_SDF"
+      }
+    },
+    "JointType": {
+      "ctype": "mjtJoint",
+      "members": {
+        "free": "mjJNT_FREE",
+        "ball": "mjJNT_BALL",
+        "slide": "mjJNT_SLIDE",
+        "hinge": "mjJNT_HINGE"
+      }
+    },
+    "TriState": {
+      "ctype": "mjtLimited",
+      "members": {
+        "false_": "mjLIMITED_FALSE",
+        "true_": "mjLIMITED_TRUE",
+        "auto": "mjLIMITED_AUTO"
+      }
+    },
+    "Conflict": {
+      "ctype": "mjtConflict",
+      "members": {
+        "warning": "mjCONFLICT_WARNING",
+        "merge": "mjCONFLICT_MERGE",
+        "error": "mjCONFLICT_ERROR"
+      }
+    },
+    "SimpleMode": {
+      "ctype": "mjtByte",
+      "members": {
+        "false_": "0",
+        "auto": "1"
+      }
+    },
+    "InertiaFromGeom": {
+      "ctype": "mjtInertiaFromGeom",
+      "members": {
+        "false_": "mjINERTIAFROMGEOM_FALSE",
+        "true_": "mjINERTIAFROMGEOM_TRUE",
+        "auto": "mjINERTIAFROMGEOM_AUTO"
+      }
+    },
+    "MeshInertia": {
+      "ctype": "mjtMeshInertia",
+      "members": {
+        "convex": "mjMESH_INERTIA_CONVEX",
+        "exact": "mjMESH_INERTIA_EXACT",
+        "legacy": "mjMESH_INERTIA_LEGACY",
+        "shell": "mjMESH_INERTIA_SHELL"
+      }
+    },
+    "BodySleep": {
+      "ctype": "mjtSleepPolicy",
+      "members": {
+        "auto": "mjSLEEP_AUTO",
+        "never": "mjSLEEP_NEVER",
+        "allowed": "mjSLEEP_ALLOWED",
+        "init": "mjSLEEP_INIT"
+      }
+    },
+    "CamLightMode": {
+      "ctype": "mjtCamLight",
+      "members": {
+        "fixed": "mjCAMLIGHT_FIXED",
+        "track": "mjCAMLIGHT_TRACK",
+        "trackcom": "mjCAMLIGHT_TRACKCOM",
+        "targetbody": "mjCAMLIGHT_TARGETBODY",
+        "targetbodycom": "mjCAMLIGHT_TARGETBODYCOM"
+      }
+    },
+    "CameraProjection": {
+      "ctype": "mjtProjection",
+      "members": {
+        "perspective": "mjPROJ_PERSPECTIVE",
+        "orthographic": "mjPROJ_ORTHOGRAPHIC"
+      }
+    },
+    "LightType": {
+      "ctype": "mjtLightType",
+      "members": {
+        "spot": "mjLIGHT_SPOT",
+        "directional": "mjLIGHT_DIRECTIONAL",
+        "point": "mjLIGHT_POINT",
+        "image": "mjLIGHT_IMAGE"
+      }
+    },
+    "TextureType": {
+      "ctype": "mjtTexture",
+      "members": {
+        "twod": "mjTEXTURE_2D",
+        "cube": "mjTEXTURE_CUBE",
+        "skybox": "mjTEXTURE_SKYBOX"
+      }
+    },
+    "ColorSpace": {
+      "ctype": "mjtColorSpace",
+      "members": {
+        "auto": "mjCOLORSPACE_AUTO",
+        "linear": "mjCOLORSPACE_LINEAR",
+        "sRGB": "mjCOLORSPACE_SRGB"
+      }
+    },
+    "TextureMark": {
+      "ctype": "mjtMark",
+      "members": {
+        "none": "mjMARK_NONE",
+        "edge": "mjMARK_EDGE",
+        "cross": "mjMARK_CROSS",
+        "random": "mjMARK_RANDOM"
+      }
+    },
+    "DynType": {
+      "ctype": "mjtDyn",
+      "members": {
+        "none": "mjDYN_NONE",
+        "integrator": "mjDYN_INTEGRATOR",
+        "filter": "mjDYN_FILTER",
+        "filterexact": "mjDYN_FILTEREXACT",
+        "muscle": "mjDYN_MUSCLE",
+        "dcmotor": "mjDYN_DCMOTOR",
+        "user": "mjDYN_USER"
+      }
+    },
+    "GainType": {
+      "ctype": "mjtGain",
+      "members": {
+        "fixed": "mjGAIN_FIXED",
+        "affine": "mjGAIN_AFFINE",
+        "muscle": "mjGAIN_MUSCLE",
+        "dcmotor": "mjGAIN_DCMOTOR",
+        "user": "mjGAIN_USER"
+      }
+    },
+    "BiasType": {
+      "ctype": "mjtBias",
+      "members": {
+        "none": "mjBIAS_NONE",
+        "affine": "mjBIAS_AFFINE",
+        "muscle": "mjBIAS_MUSCLE",
+        "dcmotor": "mjBIAS_DCMOTOR",
+        "user": "mjBIAS_USER"
+      }
+    },
+    "DataType": {
+      "ctype": "mjtDataType",
+      "members": {
+        "real": "mjDATATYPE_REAL",
+        "positive": "mjDATATYPE_POSITIVE",
+        "axis": "mjDATATYPE_AXIS",
+        "quaternion": "mjDATATYPE_QUATERNION"
+      }
+    },
+    "NeedStage": {
+      "ctype": "mjtStage",
+      "members": {
+        "none": "mjSTAGE_NONE",
+        "pos": "mjSTAGE_POS",
+        "vel": "mjSTAGE_VEL",
+        "acc": "mjSTAGE_ACC"
+      }
+    },
+    "InterpType": {
+      "ctype": "int",
+      "members": {
+        "zoh": "0",
+        "linear": "1",
+        "cubic": "2"
+      }
+    }
+  }
+}

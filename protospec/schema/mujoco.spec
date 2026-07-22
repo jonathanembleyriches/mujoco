@@ -8,319 +8,319 @@ mujoco_version "3.10.1"
 # --- Enums (keyword tables from the MJCF mjMap[] surface) ------------------
 
 enum AngleUnit {
-  radian         = "radian"
-  degree         = "degree"
+  radian         = "radian" (c=0)
+  degree         = "degree" (c=1)
 }
 
-enum BiasType {
-  none           = "none"
-  affine         = "affine"
-  muscle         = "muscle"
-  dcmotor        = "dcmotor"
-  so3            = "so3"
-  user           = "user"
+enum BiasType (ctype=mjtBias) {
+  none           = "none" (c=mjBIAS_NONE)
+  affine         = "affine" (c=mjBIAS_AFFINE)
+  muscle         = "muscle" (c=mjBIAS_MUSCLE)
+  dcmotor        = "dcmotor" (c=mjBIAS_DCMOTOR)
+  so3            = "so3" (c=mjBIAS_SO3, no_mjs)
+  user           = "user" (c=mjBIAS_USER)
 }
 
-enum BodySleep {
-  auto           = "auto"
-  never          = "never"
-  allowed        = "allowed"
-  init           = "init"
+enum BodySleep (ctype=mjtSleepPolicy) {
+  auto           = "auto" (c=mjSLEEP_AUTO)
+  never          = "never" (c=mjSLEEP_NEVER)
+  allowed        = "allowed" (c=mjSLEEP_ALLOWED)
+  init           = "init" (c=mjSLEEP_INIT)
 }
 
-enum CamLightMode {
-  fixed          = "fixed"
-  track          = "track"
-  trackcom       = "trackcom"
-  targetbody     = "targetbody"
-  targetbodycom  = "targetbodycom"
+enum CamLightMode (ctype=mjtCamLight) {
+  fixed          = "fixed" (c=mjCAMLIGHT_FIXED)
+  track          = "track" (c=mjCAMLIGHT_TRACK)
+  trackcom       = "trackcom" (c=mjCAMLIGHT_TRACKCOM)
+  targetbody     = "targetbody" (c=mjCAMLIGHT_TARGETBODY)
+  targetbodycom  = "targetbodycom" (c=mjCAMLIGHT_TARGETBODYCOM)
 }
 
 enum CameraOutput {
-  rgb            = "rgb"
-  depth          = "depth"
-  distance       = "distance"
-  normal         = "normal"
-  segmentation   = "segmentation"
+  rgb            = "rgb" (c=mjCAMOUT_RGB)
+  depth          = "depth" (c=mjCAMOUT_DEPTH)
+  distance       = "distance" (c=mjCAMOUT_DIST)
+  normal         = "normal" (c=mjCAMOUT_NORMAL)
+  segmentation   = "segmentation" (c=mjCAMOUT_SEG)
 }
 
-enum CameraProjection {
-  perspective    = "perspective"
-  orthographic   = "orthographic"
+enum CameraProjection (ctype=mjtProjection) {
+  perspective    = "perspective" (c=mjPROJ_PERSPECTIVE)
+  orthographic   = "orthographic" (c=mjPROJ_ORTHOGRAPHIC)
 }
 
-enum ColorSpace {
-  auto           = "auto"
-  linear         = "linear"
-  sRGB           = "sRGB"
+enum ColorSpace (ctype=mjtColorSpace) {
+  auto           = "auto" (c=mjCOLORSPACE_AUTO)
+  linear         = "linear" (c=mjCOLORSPACE_LINEAR)
+  sRGB           = "sRGB" (c=mjCOLORSPACE_SRGB)
 }
 
 enum CompositeType {
-  particle       = "particle"
-  grid           = "grid"
-  rope           = "rope"
-  loop           = "loop"
-  cable          = "cable"
-  cloth          = "cloth"
+  particle       = "particle" (c=mjCOMPTYPE_PARTICLE)
+  grid           = "grid" (c=mjCOMPTYPE_GRID)
+  rope           = "rope" (c=mjCOMPTYPE_ROPE)
+  loop           = "loop" (c=mjCOMPTYPE_LOOP)
+  cable          = "cable" (c=mjCOMPTYPE_CABLE)
+  cloth          = "cloth" (c=mjCOMPTYPE_CLOTH)
 }
 
 enum Cone {
-  pyramidal      = "pyramidal"
-  elliptic       = "elliptic"
+  pyramidal      = "pyramidal" (c=mjCONE_PYRAMIDAL)
+  elliptic       = "elliptic" (c=mjCONE_ELLIPTIC)
 }
 
-enum Conflict {
-  warning        = "warning"
-  merge          = "merge"
-  error          = "error"
+enum Conflict (ctype=mjtConflict) {
+  warning        = "warning" (c=mjCONFLICT_WARNING)
+  merge          = "merge" (c=mjCONFLICT_MERGE)
+  error          = "error" (c=mjCONFLICT_ERROR)
 }
 
 enum ContactData {
-  found          = "found"
-  force          = "force"
-  torque         = "torque"
-  dist           = "dist"
-  pos            = "pos"
-  normal         = "normal"
-  tangent        = "tangent"
+  found          = "found" (c=mjCONDATA_FOUND)
+  force          = "force" (c=mjCONDATA_FORCE)
+  torque         = "torque" (c=mjCONDATA_TORQUE)
+  dist           = "dist" (c=mjCONDATA_DIST)
+  pos            = "pos" (c=mjCONDATA_POS)
+  normal         = "normal" (c=mjCONDATA_NORMAL)
+  tangent        = "tangent" (c=mjCONDATA_TANGENT)
 }
 
 enum ContactReduce {
-  none           = "none"
-  mindist        = "mindist"
-  maxforce       = "maxforce"
-  netforce       = "netforce"
+  none           = "none" (c=0)
+  mindist        = "mindist" (c=1)
+  maxforce       = "maxforce" (c=2)
+  netforce       = "netforce" (c=3)
 }
 
 enum Coordinate {
-  local          = "local"
-  global         = "global"
+  local          = "local" (c=0)
+  global         = "global" (c=1)
 }
 
-enum DataType {
-  real           = "real"
-  positive       = "positive"
-  axis           = "axis"
-  quaternion     = "quaternion"
+enum DataType (ctype=mjtDataType) {
+  real           = "real" (c=mjDATATYPE_REAL)
+  positive       = "positive" (c=mjDATATYPE_POSITIVE)
+  axis           = "axis" (c=mjDATATYPE_AXIS)
+  quaternion     = "quaternion" (c=mjDATATYPE_QUATERNION)
 }
 
 enum DcMotorInput {
-  voltage        = "voltage"
-  position       = "position"
-  velocity       = "velocity"
+  voltage        = "voltage" (c=0)
+  position       = "position" (c=1)
+  velocity       = "velocity" (c=2)
 }
 
 enum SO3Input {
-  expmap         = "expmap"
-  quat           = "quat"
+  expmap         = "expmap" (c=mjCHART_EXPMAP)
+  quat           = "quat" (c=mjCHART_QUAT)
 }
 
-enum DynType {
-  none           = "none"
-  integrator     = "integrator"
-  filter         = "filter"
-  filterexact    = "filterexact"
-  muscle         = "muscle"
-  dcmotor        = "dcmotor"
-  user           = "user"
+enum DynType (ctype=mjtDyn) {
+  none           = "none" (c=mjDYN_NONE)
+  integrator     = "integrator" (c=mjDYN_INTEGRATOR)
+  filter         = "filter" (c=mjDYN_FILTER)
+  filterexact    = "filterexact" (c=mjDYN_FILTEREXACT)
+  muscle         = "muscle" (c=mjDYN_MUSCLE)
+  dcmotor        = "dcmotor" (c=mjDYN_DCMOTOR)
+  user           = "user" (c=mjDYN_USER)
 }
 
 enum Elastic2D {
-  none           = "none"
-  bend           = "bend"
-  stretch        = "stretch"
-  both           = "both"
+  none           = "none" (c=0)
+  bend           = "bend" (c=1)
+  stretch        = "stretch" (c=2)
+  both           = "both" (c=3)
 }
 
 enum FlexDof {
-  full           = "full"
-  radial         = "radial"
-  trilinear      = "trilinear"
-  quadratic      = "quadratic"
-  twod           = "2d"
+  full           = "full" (c=mjFCOMPDOF_FULL)
+  radial         = "radial" (c=mjFCOMPDOF_RADIAL)
+  trilinear      = "trilinear" (c=mjFCOMPDOF_TRILINEAR)
+  quadratic      = "quadratic" (c=mjFCOMPDOF_QUADRATIC)
+  twod           = "2d" (c=mjFCOMPDOF_2D)
 }
 
 enum FlexEquality {
-  false_         = "false"
-  true_          = "true"
-  vert           = "vert"
-  strain         = "strain"
+  false_         = "false" (c=0)
+  true_          = "true" (c=1)
+  vert           = "vert" (c=2)
+  strain         = "strain" (c=3)
 }
 
 enum FlexSelfCollide {
-  none           = "none"
-  narrow         = "narrow"
-  bvh            = "bvh"
-  sap            = "sap"
-  auto           = "auto"
+  none           = "none" (c=mjFLEXSELF_NONE)
+  narrow         = "narrow" (c=mjFLEXSELF_NARROW)
+  bvh            = "bvh" (c=mjFLEXSELF_BVH)
+  sap            = "sap" (c=mjFLEXSELF_SAP)
+  auto           = "auto" (c=mjFLEXSELF_AUTO)
 }
 
 enum FlexcompType {
-  grid           = "grid"
-  box            = "box"
-  cylinder       = "cylinder"
-  ellipsoid      = "ellipsoid"
-  square         = "square"
-  disc           = "disc"
-  circle         = "circle"
-  mesh           = "mesh"
-  gmsh           = "gmsh"
-  direct         = "direct"
+  grid           = "grid" (c=mjFCOMPTYPE_GRID)
+  box            = "box" (c=mjFCOMPTYPE_BOX)
+  cylinder       = "cylinder" (c=mjFCOMPTYPE_CYLINDER)
+  ellipsoid      = "ellipsoid" (c=mjFCOMPTYPE_ELLIPSOID)
+  square         = "square" (c=mjFCOMPTYPE_SQUARE)
+  disc           = "disc" (c=mjFCOMPTYPE_DISC)
+  circle         = "circle" (c=mjFCOMPTYPE_CIRCLE)
+  mesh           = "mesh" (c=mjFCOMPTYPE_MESH)
+  gmsh           = "gmsh" (c=mjFCOMPTYPE_GMSH)
+  direct         = "direct" (c=mjFCOMPTYPE_DIRECT)
 }
 
 enum FluidShape {
-  none           = "none"
-  ellipsoid      = "ellipsoid"
+  none           = "none" (c=0)
+  ellipsoid      = "ellipsoid" (c=1)
 }
 
-enum GainType {
-  fixed          = "fixed"
-  affine         = "affine"
-  muscle         = "muscle"
-  dcmotor        = "dcmotor"
-  so3            = "so3"
-  user           = "user"
+enum GainType (ctype=mjtGain) {
+  fixed          = "fixed" (c=mjGAIN_FIXED)
+  affine         = "affine" (c=mjGAIN_AFFINE)
+  muscle         = "muscle" (c=mjGAIN_MUSCLE)
+  dcmotor        = "dcmotor" (c=mjGAIN_DCMOTOR)
+  so3            = "so3" (c=mjGAIN_SO3, no_mjs)
+  user           = "user" (c=mjGAIN_USER)
 }
 
-enum GeomType {
-  plane          = "plane"
-  hfield         = "hfield"
-  sphere         = "sphere"
-  capsule        = "capsule"
-  ellipsoid      = "ellipsoid"
-  cylinder       = "cylinder"
-  box            = "box"
-  mesh           = "mesh"
-  sdf            = "sdf"
+enum GeomType (ctype=mjtGeom) {
+  plane          = "plane" (c=mjGEOM_PLANE)
+  hfield         = "hfield" (c=mjGEOM_HFIELD)
+  sphere         = "sphere" (c=mjGEOM_SPHERE)
+  capsule        = "capsule" (c=mjGEOM_CAPSULE)
+  ellipsoid      = "ellipsoid" (c=mjGEOM_ELLIPSOID)
+  cylinder       = "cylinder" (c=mjGEOM_CYLINDER)
+  box            = "box" (c=mjGEOM_BOX)
+  mesh           = "mesh" (c=mjGEOM_MESH)
+  sdf            = "sdf" (c=mjGEOM_SDF)
 }
 
-enum InertiaFromGeom {
-  false_         = "false"
-  true_          = "true"
-  auto           = "auto"
+enum InertiaFromGeom (ctype=mjtInertiaFromGeom) {
+  false_         = "false" (mjs_c=mjINERTIAFROMGEOM_FALSE)
+  true_          = "true" (mjs_c=mjINERTIAFROMGEOM_TRUE)
+  auto           = "auto" (mjs_c=mjINERTIAFROMGEOM_AUTO)
 }
 
 enum Integrator {
-  Euler          = "Euler"
-  RK4            = "RK4"
-  implicit       = "implicit"
-  implicitfast   = "implicitfast"
+  Euler          = "Euler" (c=mjINT_EULER)
+  RK4            = "RK4" (c=mjINT_RK4)
+  implicit       = "implicit" (c=mjINT_IMPLICIT)
+  implicitfast   = "implicitfast" (c=mjINT_IMPLICITFAST)
 }
 
-enum InterpType {
-  zoh            = "zoh"
-  linear         = "linear"
-  cubic          = "cubic"
+enum InterpType (ctype=int) {
+  zoh            = "zoh" (c=0)
+  linear         = "linear" (c=1)
+  cubic          = "cubic" (c=2)
 }
 
 enum JacobianType {
-  dense          = "dense"
-  sparse         = "sparse"
-  auto           = "auto"
+  dense          = "dense" (c=mjJAC_DENSE)
+  sparse         = "sparse" (c=mjJAC_SPARSE)
+  auto           = "auto" (c=mjJAC_AUTO)
 }
 
-enum JointType {
-  free           = "free"
-  ball           = "ball"
-  slide          = "slide"
-  hinge          = "hinge"
+enum JointType (ctype=mjtJoint) {
+  free           = "free" (c=mjJNT_FREE)
+  ball           = "ball" (c=mjJNT_BALL)
+  slide          = "slide" (c=mjJNT_SLIDE)
+  hinge          = "hinge" (c=mjJNT_HINGE)
 }
 
 enum LRMode {
-  none           = "none"
-  muscle         = "muscle"
-  muscleuser     = "muscleuser"
-  all            = "all"
+  none           = "none" (c=mjLRMODE_NONE)
+  muscle         = "muscle" (c=mjLRMODE_MUSCLE)
+  muscleuser     = "muscleuser" (c=mjLRMODE_MUSCLEUSER)
+  all            = "all" (c=mjLRMODE_ALL)
 }
 
-enum LightType {
-  spot           = "spot"
-  directional    = "directional"
-  point          = "point"
-  image          = "image"
+enum LightType (ctype=mjtLightType) {
+  spot           = "spot" (c=mjLIGHT_SPOT)
+  directional    = "directional" (c=mjLIGHT_DIRECTIONAL)
+  point          = "point" (c=mjLIGHT_POINT)
+  image          = "image" (c=mjLIGHT_IMAGE)
 }
 
 enum MeshBuiltin {
-  none           = "none"
-  sphere         = "sphere"
-  hemisphere     = "hemisphere"
-  cone           = "cone"
-  supertorus     = "supertorus"
-  supersphere    = "supersphere"
-  wedge          = "wedge"
-  plate          = "plate"
+  none           = "none" (c=mjMESH_BUILTIN_NONE)
+  sphere         = "sphere" (c=mjMESH_BUILTIN_SPHERE)
+  hemisphere     = "hemisphere" (c=mjMESH_BUILTIN_HEMISPHERE)
+  cone           = "cone" (c=mjMESH_BUILTIN_CONE)
+  supertorus     = "supertorus" (c=mjMESH_BUILTIN_SUPERTORUS)
+  supersphere    = "supersphere" (c=mjMESH_BUILTIN_SUPERSPHERE)
+  wedge          = "wedge" (c=mjMESH_BUILTIN_WEDGE)
+  plate          = "plate" (c=mjMESH_BUILTIN_PLATE)
 }
 
-enum MeshInertia {
-  convex         = "convex"
-  legacy         = "legacy"
-  exact          = "exact"
-  shell          = "shell"
+enum MeshInertia (ctype=mjtMeshInertia) {
+  convex         = "convex" (c=mjMESH_INERTIA_CONVEX)
+  legacy         = "legacy" (c=mjMESH_INERTIA_LEGACY)
+  exact          = "exact" (c=mjMESH_INERTIA_EXACT)
+  shell          = "shell" (c=mjMESH_INERTIA_SHELL)
 }
 
-enum NeedStage {
-  none           = "none"
-  pos            = "pos"
-  vel            = "vel"
-  acc            = "acc"
+enum NeedStage (ctype=mjtStage) {
+  none           = "none" (c=mjSTAGE_NONE)
+  pos            = "pos" (c=mjSTAGE_POS)
+  vel            = "vel" (c=mjSTAGE_VEL)
+  acc            = "acc" (c=mjSTAGE_ACC)
 }
 
 enum RayData {
-  dist           = "dist"
-  dir            = "dir"
-  origin         = "origin"
-  point          = "point"
-  normal         = "normal"
-  depth          = "depth"
+  dist           = "dist" (c=mjRAYDATA_DIST)
+  dir            = "dir" (c=mjRAYDATA_DIR)
+  origin         = "origin" (c=mjRAYDATA_ORIGIN)
+  point          = "point" (c=mjRAYDATA_POINT)
+  normal         = "normal" (c=mjRAYDATA_NORMAL)
+  depth          = "depth" (c=mjRAYDATA_DEPTH)
 }
 
-enum SimpleMode {
-  false_         = "false"
-  auto           = "auto"
+enum SimpleMode (ctype=mjtByte) {
+  false_         = "false" (c=0)
+  auto           = "auto" (c=1)
 }
 
 enum SolverType {
-  PGS            = "PGS"
-  CG             = "CG"
-  Newton         = "Newton"
+  PGS            = "PGS" (c=mjSOL_PGS)
+  CG             = "CG" (c=mjSOL_CG)
+  Newton         = "Newton" (c=mjSOL_NEWTON)
 }
 
 enum TexRole {
-  rgb            = "rgb"
-  occlusion      = "occlusion"
-  roughness      = "roughness"
-  metallic       = "metallic"
-  normal         = "normal"
-  opacity        = "opacity"
-  emissive       = "emissive"
-  rgba           = "rgba"
-  orm            = "orm"
+  rgb            = "rgb" (c=mjTEXROLE_RGB)
+  occlusion      = "occlusion" (c=mjTEXROLE_OCCLUSION)
+  roughness      = "roughness" (c=mjTEXROLE_ROUGHNESS)
+  metallic       = "metallic" (c=mjTEXROLE_METALLIC)
+  normal         = "normal" (c=mjTEXROLE_NORMAL)
+  opacity        = "opacity" (c=mjTEXROLE_OPACITY)
+  emissive       = "emissive" (c=mjTEXROLE_EMISSIVE)
+  rgba           = "rgba" (c=mjTEXROLE_RGBA)
+  orm            = "orm" (c=mjTEXROLE_ORM)
 }
 
 enum TextureBuiltin {
-  none           = "none"
-  gradient       = "gradient"
-  checker        = "checker"
-  flat           = "flat"
+  none           = "none" (c=mjBUILTIN_NONE)
+  gradient       = "gradient" (c=mjBUILTIN_GRADIENT)
+  checker        = "checker" (c=mjBUILTIN_CHECKER)
+  flat           = "flat" (c=mjBUILTIN_FLAT)
 }
 
-enum TextureMark {
-  none           = "none"
-  edge           = "edge"
-  cross          = "cross"
-  random         = "random"
+enum TextureMark (ctype=mjtMark) {
+  none           = "none" (c=mjMARK_NONE)
+  edge           = "edge" (c=mjMARK_EDGE)
+  cross          = "cross" (c=mjMARK_CROSS)
+  random         = "random" (c=mjMARK_RANDOM)
 }
 
-enum TextureType {
-  twod           = "2d"
-  cube           = "cube"
-  skybox         = "skybox"
+enum TextureType (ctype=mjtTexture) {
+  twod           = "2d" (c=mjTEXTURE_2D)
+  cube           = "cube" (c=mjTEXTURE_CUBE)
+  skybox         = "skybox" (c=mjTEXTURE_SKYBOX)
 }
 
-enum TriState {
-  false_         = "false"
-  true_          = "true"
-  auto           = "auto"
+enum TriState (ctype=mjtLimited, cmap=TFAuto_map) {
+  false_         = "false" (mjs_c=mjLIMITED_FALSE)
+  true_          = "true" (mjs_c=mjLIMITED_TRUE)
+  auto           = "auto" (mjs_c=mjLIMITED_AUTO)
 }
 
 # --- Shape / texture variants (DR-3) + canonical orientation --------------
@@ -361,7 +361,7 @@ mixin SensorTail {
   interval : double[0..2]
   cutoff   : double
   noise    : double
-  user     : double[]
+  user     : double[] (mjs=userdata)
 }
 
 # Shared leading block of every <actuator> element except <plugin> (which
@@ -382,9 +382,9 @@ mixin ActuatorHead {
 mixin Transmission {
   gear          : double[0..6] = {1}   # length and transmitted force scaling
   damping       : double[0..3]   # damping coefficients
-  armature      : double   # armature inertia
+  armature      : double (lenient)   # armature inertia
   cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
+  user          : double[] (mjs=userdata)   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
   tendon        : ref<TendonAny>
@@ -778,20 +778,20 @@ element Default {
   children subclasses : Default *
 }
 
-element EqualityDefault (xml="equality") {
+element EqualityDefault (xml="equality", mjs=mjsEquality) {
   active : bool = true   # is equality initially active
   solref : double[0..2]   # solver reference
   solimp : double[0..5]   # solver impedance
 }
 
-element TendonDefault (xml="tendon") {
+element TendonDefault (xml="tendon", mjs=mjsTendon) {
   group          : int32   # group
   limited        : TriState   # does tendon have limits (mjtLimited)
   range          : double[2]   # length limits
-  solreflimit    : double[0..2]   # solver reference: tendon limits
-  solimplimit    : double[0..5]   # solver impedance: tendon limits
-  solreffriction : double[0..2]   # solver reference: tendon friction
-  solimpfriction : double[0..5]   # solver impedance: tendon friction
+  solreflimit    : double[0..2] (mjs=solref_limit)   # solver reference: tendon limits
+  solimplimit    : double[0..5] (mjs=solimp_limit)   # solver impedance: tendon limits
+  solreffriction : double[0..2] (mjs=solref_friction)   # solver reference: tendon friction
+  solimpfriction : double[0..5] (mjs=solimp_friction)   # solver impedance: tendon friction
   frictionloss   : double   # friction loss
   springlength   : double[2] (resolver=springlength) = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring (canonical pair; a lone value is duplicated)
   width          : double = 0.003   # width for rendering
@@ -800,7 +800,7 @@ element TendonDefault (xml="tendon") {
   stiffness      : double[0..3]   # stiffness coefficients (mjNPOLY+1)
   damping        : double[0..3]   # damping coefficients (mjNPOLY+1)
   rgba           : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
-  user           : double[]   # user data
+  user           : double[] (mjs=userdata)   # user data
 }
 
 element Extension {
@@ -863,10 +863,10 @@ element Mesh {
   dclass       : ref<Default> (xml="class")   # default class
   content_type : string   # content type of file
   file         : string   # mesh file
-  vertex       : double[]
-  normal       : double[]
-  texcoord     : float[]
-  face         : int32[]
+  vertex       : double[] (mjs=uservert)
+  normal       : double[] (mjs=usernormal)
+  texcoord     : float[] (mjs=usertexcoord)
+  face         : int32[] (mjs=userface)
   refpos       : double[3]   # reference position
   refquat      : double[4]   # reference orientation
   scale        : double[3] = {1, 1, 1}   # rescale mesh
@@ -885,14 +885,14 @@ element PluginRef (xml="plugin") {
   children config : Config *
 }
 
-element Hfield {
+element Hfield (mjs=mjsHField) {
   name         : string   # element name
   content_type : string   # content type of file
   file         : string   # file: (nrow, ncol, [elevation data])
   nrow         : int32   # number of rows
   ncol         : int32   # number of columns
   size         : double[4]   # hfield size (ignore referencing geom size)
-  elevation    : double[]
+  elevation    : double[] (mjs=userdata)
 }
 
 element Skin {
@@ -901,7 +901,7 @@ element Skin {
   material : ref<Material>   # name of material used for rendering
   rgba     : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   inflate  : float   # inflate in normal direction
-  vertex   : float[]   # vertex positions
+  vertex   : float[] (mjs=vert)   # vertex positions
   texcoord : float[]   # texture coordinates
   face     : int32[]   # faces
   group    : int32   # group for visualization
@@ -976,16 +976,16 @@ element Body {
   gravcomp   : double   # gravity compensation
   sleep      : BodySleep   # sleep policy
   simple     : SimpleMode = auto   # simple body optimization (false/auto, FAuto_map)
-  user       : double[]   # user data
+  user       : double[] (mjs=userdata)   # user data
   children inertial : Inertial ?
   children subtree : BodyChildAny *
 }
 
-element Inertial {
-  pos         : double[3]   # frame position
+element Inertial (mjs=mjsBody) {
+  pos         : double[3] (mjs=ipos)   # frame position
   mass        : double   # mass
   iquat       : double[4] (aliases="euler axisangle xyaxes zaxis", resolver=orientation, xml="quat")   # inertial frame orientation (canonical quat)
-  diaginertia : double[3] (aliases="fullinertia", resolver=inertia)   # diagonal inertia (canonical; also accepts fullinertia)
+  diaginertia : double[3] (aliases="fullinertia", resolver=inertia, mjs=inertia)   # diagonal inertia (canonical; also accepts fullinertia)
 }
 
 element Joint {
@@ -997,25 +997,25 @@ element Joint {
   axis               : double[3] = {0, 0, 1}   # joint axis
   springdamper       : double[2]   # timeconst, dampratio
   limited            : TriState   # does joint have limits (mjtLimited)
-  actuatorfrclimited : TriState   # are actuator forces on joint limited (mjtLimited)
-  solreflimit        : double[0..2]   # solver reference: joint limits
-  solimplimit        : double[0..5]   # solver impedance: joint limits
-  solreffriction     : double[0..2]   # solver reference: dof friction
-  solimpfriction     : double[0..5]   # solver impedance: dof friction
+  actuatorfrclimited : TriState (mjs=actfrclimited)   # are actuator forces on joint limited (mjtLimited)
+  solreflimit        : double[0..2] (mjs=solref_limit)   # solver reference: joint limits
+  solimplimit        : double[0..5] (mjs=solimp_limit)   # solver impedance: joint limits
+  solreffriction     : double[0..2] (mjs=solref_friction)   # solver reference: dof friction
+  solimpfriction     : double[0..5] (mjs=solimp_friction)   # solver impedance: dof friction
   stiffness          : double[0..3]   # stiffness coefficients (mjNPOLY+1)
   range              : double[2] (unit=angle)   # joint limits
-  actuatorfrcrange   : double[2]   # actuator force limits
-  actuatorgravcomp   : bool   # is gravcomp force applied via actuators
+  actuatorfrcrange   : double[2] (mjs=actfrcrange)   # actuator force limits
+  actuatorgravcomp   : bool (mjs=actgravcomp)   # is gravcomp force applied via actuators
   margin             : double   # margin value for joint limit detection
   ref                : double (unit=angle)   # value at reference configuration: qpos0
   springref          : double (unit=angle)   # spring reference value: qpos_spring
   armature           : double   # armature inertia (mass for slider)
   damping            : double[0..3]   # damping coefficients (mjNPOLY+1)
   frictionloss       : double   # friction loss
-  user               : double[]   # user data
+  user               : double[] (mjs=userdata)   # user data
 }
 
-element FreeJoint {
+element FreeJoint (mjs=mjsJoint) {
   name  : string   # element name
   group : int32   # group
   align : TriState   # align free joint with body com (false/true/auto, TFAuto_map)
@@ -1042,15 +1042,15 @@ element Geom {
   solimp       : double[0..5]   # solver impedance
   margin       : double   # margin for contact detection
   gap          : double   # additional contact detection buffer
-  surfacevel   : double[6]   # surface velocity in local frame: linear, angular
+  surfacevel   : double[6] (lenient)   # surface velocity in local frame: linear, angular
   adhesion     : double   # adhesion coefficient (contact-driven adhesion)
-  hfield       : ref<Hfield>   # heightfield attached to geom
-  mesh         : ref<Mesh>   # mesh attached to geom
+  hfield       : ref<Hfield> (mjs=hfieldname)   # heightfield attached to geom
+  mesh         : ref<Mesh> (mjs=meshname)   # mesh attached to geom
   fitscale     : double = 1   # scale mesh uniformly
   rgba         : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   fluidshape   : FluidShape
-  fluidcoef    : double[0..5] = {0.5, 0.25, 1.5, 1, 1}   # ellipsoid-fluid interaction coefs
-  user         : double[]   # user data
+  fluidcoef    : double[0..5] (mjs=fluid_coefs) = {0.5, 0.25, 1.5, 1, 1}   # ellipsoid-fluid interaction coefs
+  user         : double[] (mjs=userdata)   # user data
   shape        : variant GeomShape   # explicit size or fromto endpoints
   children plugin : PluginRef *
 }
@@ -1071,7 +1071,7 @@ element Site {
   material : ref<Material>   # name of material
   size     : double[0..3] = {0.005, 0.005, 0.005}   # geom size
   rgba     : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
-  user     : double[]   # user data
+  user     : double[] (mjs=userdata)   # user data
   shape    : variant GeomShape   # explicit size or fromto endpoints
 }
 
@@ -1079,19 +1079,19 @@ element Camera {
   use Posed
   name           : string   # element name
   dclass         : ref<Default> (xml="class")   # default class
-  projection     : CameraProjection
+  projection     : CameraProjection (mjs=proj)
   ipd            : double = 0.068   # inter-pupillary distance
   resolution     : int32[2] = {1, 1}   # resolution (pixel)
   output         : CameraOutput[]   # bit flags for output type
   mode           : CamLightMode = fixed   # tracking mode
-  target         : ref<Body>   # target body for tracking/targeting
-  focalpixel     : float[2]   # focal length (pixel)
-  principal      : float[2]   # principal point (length)
-  principalpixel : float[2]   # principal point (pixel)
-  sensorsize     : float[2]   # sensor size (length)
-  user           : double[]   # user data
+  target         : ref<Body> (mjs=targetbody)   # target body for tracking/targeting
+  focalpixel     : float[2] (mjs=focal_pixel)   # focal length (pixel)
+  principal      : float[2] (mjs=principal_length)   # principal point (length)
+  principalpixel : float[2] (mjs=principal_pixel)   # principal point (pixel)
+  sensorsize     : float[2] (mjs=sensor_size)   # sensor size (length)
+  user           : double[] (mjs=userdata)   # user data
   fovy           : double   # vertical field of view (deg; length if ortho)
-  focal          : double[2]   # focal length (length)
+  focal          : double[2] (mjs=focal_length)   # focal length (length)
 }
 
 element Light {
@@ -1112,7 +1112,7 @@ element Light {
   diffuse     : float[3] = {0.7, 0.7, 0.7}   # diffuse color
   specular    : float[3] = {0.3, 0.3, 0.3}   # specular color
   mode        : CamLightMode = fixed   # tracking mode
-  target      : ref<Body>   # target body for targeting
+  target      : ref<Body> (mjs=targetbody)   # target body for targeting
   texture     : ref<Texture>   # texture name for image lights
 }
 
@@ -1275,12 +1275,12 @@ element Flex {
   material     : ref<Material>   # name of material used for rendering
   rgba         : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
   flatskin     : bool   # render flex skin with flat shading
-  body         : ref<Body>[]
-  vertex       : double[]   # vertex positions
-  element      : int32[]   # element connectivity
+  body         : ref<Body>[] (mjs=vertbody)
+  vertex       : double[] (mjs=vert)   # vertex positions
+  element      : int32[] (mjs=elem)   # element connectivity
   texcoord     : float[]   # vertex texture coordinates
   elemtexcoord : int32[]   # element texture coordinates
-  node         : ref<Body>[]   # node body names
+  node         : ref<Body>[] (mjs=nodebody)   # node body names
   cellcount    : int32[3] = {1, 1, 1}   # grid cell count for finite cell method
   dof          : FlexDof
   children flexContacts : FlexContact ?
@@ -1301,8 +1301,8 @@ element Contact {
 element Pair {
   name           : string   # element name
   dclass         : ref<Default> (xml="class")   # default class
-  geom1          : ref<Geom>   # name of geom 1
-  geom2          : ref<Geom>   # name of geom 2
+  geom1          : ref<Geom> (mjs=geomname1)   # name of geom 1
+  geom2          : ref<Geom> (mjs=geomname2)   # name of geom 2
   condim         : int32 = 3   # contact dimensionality
   friction       : double[0..5] = {1, 1, 0.005, 0.0001, 0.0001}   # full contact friction
   solref         : double[0..2]   # solver reference, normal direction
@@ -1315,15 +1315,15 @@ element Pair {
 
 element Exclude {
   name  : string   # element name
-  body1 : ref<Body>   # name of body 1
-  body2 : ref<Body>   # name of body 2
+  body1 : ref<Body> (mjs=bodyname1)   # name of body 1
+  body2 : ref<Body> (mjs=bodyname2)   # name of body 2
 }
 
 element Equality {
   children equalities : EqualityAny *
 }
 
-element Connect {
+element Connect (mjs=mjsEquality) {
   name   : string   # element name
   dclass : ref<Default> (xml="class")   # default class
   body1  : ref<Body>
@@ -1336,7 +1336,7 @@ element Connect {
   solimp : double[0..5]   # solver impedance
 }
 
-element Weld {
+element Weld (mjs=mjsEquality) {
   name        : string   # element name
   dclass      : ref<Default> (xml="class")   # default class
   body1       : ref<Body>
@@ -1351,7 +1351,7 @@ element Weld {
   torquescale : double
 }
 
-element EqualityJoint (xml="joint") {
+element EqualityJoint (xml="joint", mjs=mjsEquality) {
   name     : string   # element name
   dclass   : ref<Default> (xml="class")   # default class
   joint1   : ref<Joint>
@@ -1362,7 +1362,7 @@ element EqualityJoint (xml="joint") {
   solimp   : double[0..5]   # solver impedance
 }
 
-element EqualityTendon (xml="tendon") {
+element EqualityTendon (xml="tendon", mjs=mjsEquality) {
   name     : string   # element name
   dclass   : ref<Default> (xml="class")   # default class
   tendon1  : ref<TendonAny>
@@ -1373,7 +1373,7 @@ element EqualityTendon (xml="tendon") {
   solimp   : double[0..5]   # solver impedance
 }
 
-element EqualityFlex (xml="flex") {
+element EqualityFlex (xml="flex", mjs=mjsEquality) {
   name   : string   # element name
   dclass : ref<Default> (xml="class")   # default class
   flex   : ref<Flex>
@@ -1382,7 +1382,7 @@ element EqualityFlex (xml="flex") {
   solimp : double[0..5]   # solver impedance
 }
 
-element Flexvert {
+element Flexvert (mjs=mjsEquality) {
   name   : string   # element name
   dclass : ref<Default> (xml="class")   # default class
   flex   : ref<Flex>
@@ -1391,7 +1391,7 @@ element Flexvert {
   solimp : double[0..5]   # solver impedance
 }
 
-element Flexstrain {
+element Flexstrain (mjs=mjsEquality) {
   name   : string   # element name
   dclass : ref<Default> (xml="class")   # default class
   flex   : ref<Flex>
@@ -1405,18 +1405,18 @@ element Tendon {
   children tendons : TendonAny *
 }
 
-element Spatial {
+element Spatial (mjs=mjsTendon) {
   name               : string   # element name
   dclass             : ref<Default> (xml="class")   # default class
   group              : int32   # group
   limited            : TriState   # does tendon have limits (mjtLimited)
-  actuatorfrclimited : TriState   # does tendon have actuator force limits
+  actuatorfrclimited : TriState (mjs=actfrclimited)   # does tendon have actuator force limits
   range              : double[2]   # length limits
-  actuatorfrcrange   : double[2]   # actuator force limits
-  solreflimit        : double[0..2]   # solver reference: tendon limits
-  solimplimit        : double[0..5]   # solver impedance: tendon limits
-  solreffriction     : double[0..2]   # solver reference: tendon friction
-  solimpfriction     : double[0..5]   # solver impedance: tendon friction
+  actuatorfrcrange   : double[2] (mjs=actfrcrange)   # actuator force limits
+  solreflimit        : double[0..2] (mjs=solref_limit)   # solver reference: tendon limits
+  solimplimit        : double[0..5] (mjs=solimp_limit)   # solver impedance: tendon limits
+  solreffriction     : double[0..2] (mjs=solref_friction)   # solver reference: tendon friction
+  solimpfriction     : double[0..5] (mjs=solimp_friction)   # solver impedance: tendon friction
   frictionloss       : double   # friction loss
   springlength       : double[2] (resolver=springlength) = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring (canonical pair; a lone value is duplicated)
   width              : double = 0.003   # width for rendering
@@ -1426,7 +1426,7 @@ element Spatial {
   damping            : double[0..3]   # damping coefficients
   armature           : double   # inertia associated with tendon velocity
   rgba               : float[4] = {0.5, 0.5, 0.5, 1}   # rgba when material is omitted
-  user               : double[]   # user data
+  user               : double[] (mjs=userdata)   # user data
   children path : PathItemAny *
 }
 
@@ -1443,25 +1443,25 @@ element Pulley {
   divisor : double
 }
 
-element Fixed {
+element Fixed (mjs=mjsTendon) {
   name               : string   # element name
   dclass             : ref<Default> (xml="class")   # default class
   group              : int32   # group
   limited            : TriState   # does tendon have limits (mjtLimited)
-  actuatorfrclimited : TriState   # does tendon have actuator force limits
+  actuatorfrclimited : TriState (mjs=actfrclimited)   # does tendon have actuator force limits
   range              : double[2]   # length limits
-  actuatorfrcrange   : double[2]   # actuator force limits
-  solreflimit        : double[0..2]   # solver reference: tendon limits
-  solimplimit        : double[0..5]   # solver impedance: tendon limits
-  solreffriction     : double[0..2]   # solver reference: tendon friction
-  solimpfriction     : double[0..5]   # solver impedance: tendon friction
+  actuatorfrcrange   : double[2] (mjs=actfrcrange)   # actuator force limits
+  solreflimit        : double[0..2] (mjs=solref_limit)   # solver reference: tendon limits
+  solimplimit        : double[0..5] (mjs=solimp_limit)   # solver impedance: tendon limits
+  solreffriction     : double[0..2] (mjs=solref_friction)   # solver reference: tendon friction
+  solimpfriction     : double[0..5] (mjs=solimp_friction)   # solver impedance: tendon friction
   frictionloss       : double   # friction loss
   springlength       : double[2] (resolver=springlength) = {-1, -1}   # spring resting length; {-1, -1}: use qpos_spring (canonical pair; a lone value is duplicated)
   margin             : double   # margin value for tendon limit detection
   stiffness          : double[0..3]   # stiffness coefficients
   damping            : double[0..3]   # damping coefficients
   armature           : double   # inertia associated with tendon velocity
-  user               : double[]   # user data
+  user               : double[] (mjs=userdata)   # user data
   children fixedJoints : FixedJoint *
 }
 
@@ -1474,7 +1474,7 @@ element Actuator {
   children actuators : ActuatorAny *
 }
 
-element ActuatorGeneral (xml="general") {
+element ActuatorGeneral (xml="general", mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1496,7 +1496,7 @@ element ActuatorGeneral (xml="general") {
   actearly      : bool   # apply next activations to qfrc
 }
 
-element Motor {
+element Motor (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1506,7 +1506,7 @@ element Motor {
   use Transmission
 }
 
-element Position {
+element Position (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1521,7 +1521,7 @@ element Position {
   timeconst     : double   # time constant of the activation dynamics
 }
 
-element Velocity {
+element Velocity (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1532,7 +1532,7 @@ element Velocity {
   kv            : double   # velocity feedback gain
 }
 
-element IntVelocity {
+element IntVelocity (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1548,12 +1548,12 @@ element IntVelocity {
   dampratio     : double   # damping ratio, in units of critical damping
 }
 
-element Orientation {
+element Orientation (mjs=mjsActuator) {
   use ActuatorHead
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
   forcerange    : double[2]   # force range
-  user          : double[]   # user data
+  user          : double[] (mjs=userdata)   # user data
   joint         : ref<Joint>
   site          : ref<Site>   # site transmission target
   refsite       : ref<Site>   # reference site, for site transmission
@@ -1563,7 +1563,7 @@ element Orientation {
   input         : SO3Input   # SO3 control chart (expmap/quat); sets ctrlspec
 }
 
-element Damper {
+element Damper (mjs=mjsActuator) {
   use ActuatorHead
   forcelimited  : TriState   # are force limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
@@ -1573,7 +1573,7 @@ element Damper {
   kv            : double   # velocity feedback gain
 }
 
-element Cylinder {
+element Cylinder (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1586,7 +1586,7 @@ element Cylinder {
   bias          : double[3]   # cylinder bias parameters
 }
 
-element Muscle {
+element Muscle (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   forcelimited  : TriState   # are force limits defined (mjtLimited)
@@ -1597,7 +1597,7 @@ element Muscle {
   damping       : double[0..3]   # damping coefficients
   armature      : double   # armature inertia
   cranklength   : double   # crank length, for slider-crank
-  user          : double[]   # user data
+  user          : double[] (mjs=userdata)   # user data
   joint         : ref<Joint>
   jointinparent : ref<Joint>
   tendon        : ref<TendonAny>
@@ -1615,17 +1615,17 @@ element Muscle {
   fvmax         : double   # active force at saturating lengthening velocity
 }
 
-element Adhesion {
+element Adhesion (mjs=mjsActuator) {
   use ActuatorHead
   forcelimited : TriState   # are force limits defined (mjtLimited)
   ctrlrange    : double[2]   # control range
   forcerange   : double[2]   # force range
-  user         : double[]   # user data
+  user         : double[] (mjs=userdata)   # user data
   body         : ref<Body>
   gain         : double   # adhesion gain
 }
 
-element DcMotor {
+element DcMotor (mjs=mjsActuator) {
   use ActuatorHead
   ctrllimited   : TriState   # are control limits defined (mjtLimited)
   ctrlrange     : double[2]   # control range
@@ -1643,7 +1643,7 @@ element DcMotor {
   input         : DcMotorInput
 }
 
-element ActuatorPlugin (xml="plugin") {
+element ActuatorPlugin (xml="plugin", mjs=mjsActuator) {
   name          : string   # element name
   dclass        : ref<Default> (xml="class")   # default class
   plugin        : string   # plugin name
@@ -1672,7 +1672,7 @@ element ActuatorPlugin (xml="plugin") {
   tendon        : ref<TendonAny>
   cranksite     : ref<Site>
   slidersite    : ref<Site>   # site defining cylinder, for slider-crank
-  user          : double[]   # user data
+  user          : double[] (mjs=userdata)   # user data
   actearly      : bool   # apply next activations to qfrc
   children config : Config *
 }
@@ -1681,56 +1681,56 @@ element Sensor {
   children sensors : SensorAny *
 }
 
-element Touch {
+element Touch (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Accelerometer {
+element Accelerometer (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Velocimeter {
+element Velocimeter (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Gyro {
+element Gyro (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Force {
+element Force (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Torque {
+element Torque (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Magnetometer {
+element Magnetometer (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   use SensorTail
 }
 
-element Camprojection {
+element Camprojection (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   camera   : ref<Camera>
   use SensorTail
 }
 
-element Rangefinder {
+element Rangefinder (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   camera   : ref<Camera>
@@ -1738,109 +1738,109 @@ element Rangefinder {
   use SensorTail
 }
 
-element Jointpos {
+element Jointpos (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Jointvel {
+element Jointvel (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Tendonpos {
+element Tendonpos (mjs=mjsSensor) {
   name     : string   # element name
   tendon   : ref<TendonAny>
   use SensorTail
 }
 
-element Tendonvel {
+element Tendonvel (mjs=mjsSensor) {
   name     : string   # element name
   tendon   : ref<TendonAny>
   use SensorTail
 }
 
-element Actuatorpos {
+element Actuatorpos (mjs=mjsSensor) {
   name     : string   # element name
   actuator : ref<ActuatorAny>
   use SensorTail
 }
 
-element Actuatorvel {
+element Actuatorvel (mjs=mjsSensor) {
   name     : string   # element name
   actuator : ref<ActuatorAny>
   use SensorTail
 }
 
-element Actuatorfrc {
+element Actuatorfrc (mjs=mjsSensor) {
   name     : string   # element name
   actuator : ref<ActuatorAny>
   use SensorTail
 }
 
-element Jointactuatorfrc {
+element Jointactuatorfrc (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Tendonactuatorfrc {
+element Tendonactuatorfrc (mjs=mjsSensor) {
   name     : string   # element name
   tendon   : ref<TendonAny>
   use SensorTail
 }
 
-element Ballquat {
+element Ballquat (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Ballangvel {
+element Ballangvel (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Jointlimitpos {
+element Jointlimitpos (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Jointlimitvel {
+element Jointlimitvel (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Jointlimitfrc {
+element Jointlimitfrc (mjs=mjsSensor) {
   name     : string   # element name
   joint    : ref<Joint>
   use SensorTail
 }
 
-element Tendonlimitpos {
+element Tendonlimitpos (mjs=mjsSensor) {
   name     : string   # element name
   tendon   : ref<TendonAny>
   use SensorTail
 }
 
-element Tendonlimitvel {
+element Tendonlimitvel (mjs=mjsSensor) {
   name     : string   # element name
   tendon   : ref<TendonAny>
   use SensorTail
 }
 
-element Tendonlimitfrc {
+element Tendonlimitfrc (mjs=mjsSensor) {
   name     : string   # element name
   tendon   : ref<TendonAny>
   use SensorTail
 }
 
-element Framepos {
+element Framepos (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1849,7 +1849,7 @@ element Framepos {
   use SensorTail
 }
 
-element Framequat {
+element Framequat (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1858,7 +1858,7 @@ element Framequat {
   use SensorTail
 }
 
-element Framexaxis {
+element Framexaxis (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1867,7 +1867,7 @@ element Framexaxis {
   use SensorTail
 }
 
-element Frameyaxis {
+element Frameyaxis (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1876,7 +1876,7 @@ element Frameyaxis {
   use SensorTail
 }
 
-element Framezaxis {
+element Framezaxis (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1885,7 +1885,7 @@ element Framezaxis {
   use SensorTail
 }
 
-element Framelinvel {
+element Framelinvel (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1894,7 +1894,7 @@ element Framelinvel {
   use SensorTail
 }
 
-element Frameangvel {
+element Frameangvel (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
@@ -1903,39 +1903,39 @@ element Frameangvel {
   use SensorTail
 }
 
-element Framelinacc {
+element Framelinacc (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
   use SensorTail
 }
 
-element Frameangacc {
+element Frameangacc (mjs=mjsSensor) {
   name     : string   # element name
   objtype  : string
   objname  : string (target_from=objtype)
   use SensorTail
 }
 
-element Subtreecom {
+element Subtreecom (mjs=mjsSensor) {
   name     : string   # element name
   body     : ref<Body>
   use SensorTail
 }
 
-element Subtreelinvel {
+element Subtreelinvel (mjs=mjsSensor) {
   name     : string   # element name
   body     : ref<Body>
   use SensorTail
 }
 
-element Subtreeangmom {
+element Subtreeangmom (mjs=mjsSensor) {
   name     : string   # element name
   body     : ref<Body>
   use SensorTail
 }
 
-element Insidesite {
+element Insidesite (mjs=mjsSensor) {
   name     : string   # element name
   site     : ref<Site>
   objtype  : string
@@ -1943,7 +1943,7 @@ element Insidesite {
   use SensorTail
 }
 
-element Distance {
+element Distance (mjs=mjsSensor) {
   name     : string   # element name
   geom1    : ref<Geom>
   geom2    : ref<Geom>
@@ -1952,7 +1952,7 @@ element Distance {
   use SensorTail
 }
 
-element Normal {
+element Normal (mjs=mjsSensor) {
   name     : string   # element name
   geom1    : ref<Geom>
   geom2    : ref<Geom>
@@ -1961,7 +1961,7 @@ element Normal {
   use SensorTail
 }
 
-element Fromto {
+element Fromto (mjs=mjsSensor) {
   name     : string   # element name
   geom1    : ref<Geom>
   geom2    : ref<Geom>
@@ -1970,7 +1970,7 @@ element Fromto {
   use SensorTail
 }
 
-element SensorContact (xml="contact") {
+element SensorContact (xml="contact", mjs=mjsSensor) {
   name     : string   # element name
   geom1    : ref<Geom>
   geom2    : ref<Geom>
@@ -1985,22 +1985,22 @@ element SensorContact (xml="contact") {
   use SensorTail
 }
 
-element EPotential (xml="e_potential") {
+element EPotential (xml="e_potential", mjs=mjsSensor) {
   name     : string   # element name
   use SensorTail
 }
 
-element EKinetic (xml="e_kinetic") {
+element EKinetic (xml="e_kinetic", mjs=mjsSensor) {
   name     : string   # element name
   use SensorTail
 }
 
-element Clock {
+element Clock (mjs=mjsSensor) {
   name     : string   # element name
   use SensorTail
 }
 
-element Tactile {
+element Tactile (mjs=mjsSensor) {
   name     : string   # element name
   geom     : ref<Geom>
   mesh     : ref<Mesh>
@@ -2008,10 +2008,10 @@ element Tactile {
   interp   : InterpType
   delay    : double
   interval : double[0..2]
-  user     : double[]
+  user     : double[] (mjs=userdata)
 }
 
-element SensorUser (xml="user") {
+element SensorUser (xml="user", mjs=mjsSensor) {
   name      : string   # element name
   objtype   : string
   objname   : string (target_from=objtype)
@@ -2020,10 +2020,10 @@ element SensorUser (xml="user") {
   dim       : int32
   cutoff    : double
   noise     : double
-  user      : double[]
+  user      : double[] (mjs=userdata)
 }
 
-element SensorPlugin (xml="plugin") {
+element SensorPlugin (xml="plugin", mjs=mjsSensor) {
   name     : string   # element name
   plugin   : string
   instance : ref<PluginInstance>
@@ -2032,7 +2032,7 @@ element SensorPlugin (xml="plugin") {
   objname  : string (target_from=objtype)
   reftype  : string
   refname  : string (target_from=reftype)
-  user     : double[]
+  user     : double[] (mjs=userdata)
   children config : Config *
 }
 
@@ -2054,7 +2054,7 @@ element Key {
 element Frame {
   use Posed
   name   : string
-  dclass : ref<Default> (xml="class")   # childclass applied to descendants
+  dclass : ref<Default> (xml="class", mjs=childclass)   # childclass applied to descendants
   children inertial : Inertial ?
   children subtree : BodyChildAny *
 }
