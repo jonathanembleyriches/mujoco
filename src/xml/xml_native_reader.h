@@ -101,8 +101,8 @@ class mjXReader : public mjXBase {
   mujoco::user::FilePath texturedir_;
 };
 
-// MJCF schema
-#define nMJCF 249
-extern std::vector<const char*> MJCF[nMJCF];
+// MJCF schema (table + row count nMJCF_GENERATED are generated into
+// src/xml/xml_native_schema.inc by protospec_gen.emit_native).
+extern std::vector<const char*> MJCF[];
 
 #endif  // MUJOCO_SRC_XML_XML_NATIVE_READER_H_
