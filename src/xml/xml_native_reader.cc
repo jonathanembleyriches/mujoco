@@ -181,32 +181,13 @@ static void UpdateString(string& psuffix, int count, int i) {
 #include "xml_native_keywords.inc"
 
 
-// The remaining maps are not schema-backed 1:1 and stay hand-written:
-//   bool_map / enable_map -- generic on/off, no backing enum;
-//   TFAuto_map -- generic tri-state reused across many attributes (two schema
-//     enums, TriState and InertiaFromGeom, share its exact spelling);
-//   equality_map -- equality types are a union of child elements, not an enum;
-//   jkind_map / shape_map -- composite keyword sets, no enum;
-//   meshtype_map -- bool-spelled false/true mapped to inertia constants.
-
-// bool type
-const mjMap bool_map[2] = {
-  {"false",   0},
-  {"true",    1}
-};
-
-// enable type
-const mjMap enable_map[2] = {
-  {"disable", 0},
-  {"enable",  1}
-};
-
-// TFAuto type
-const mjMap TFAuto_map[3] = {
-  {"false",   0},
-  {"true",    1},
-  {"auto",    2}
-};
+// Three maps stay hand-written because they fit none of the generated paths:
+//   equality_map -- the EqualityAny union supplies 7 of its 8 arms, but the 8th
+//     (distance -> mjEQ_DISTANCE) has no union member, so it is not cleanly
+//     union-derivable;
+//   jkind_map / shape_map -- single-entry / expression-keyword composite maps;
+//     composite is quarantined and promoting them to schema enums would ripple
+//     through the other generators for no behavioral gain.
 
 // constraint type
 const int equality_sz = 8;
@@ -232,12 +213,6 @@ const mjMap shape_map[mjNCOMPSHAPES] = {
   {"cos(s)",        mjCOMPSHAPE_COS},
   {"sin(s)",        mjCOMPSHAPE_SIN},
   {"0",             mjCOMPSHAPE_ZERO}
-};
-
-// mesh type
-const mjMap meshtype_map[2] = {
-  {"false",         mjINERTIA_VOLUME},
-  {"true",          mjINERTIA_SHELL},
 };
 
 

@@ -3089,40 +3089,6 @@
     ]
   },
   "keyword_maps": {
-    "bool_map": [
-      {
-        "key": "false",
-        "value": "0"
-      },
-      {
-        "key": "true",
-        "value": "1"
-      }
-    ],
-    "enable_map": [
-      {
-        "key": "disable",
-        "value": "0"
-      },
-      {
-        "key": "enable",
-        "value": "1"
-      }
-    ],
-    "TFAuto_map": [
-      {
-        "key": "false",
-        "value": "0"
-      },
-      {
-        "key": "true",
-        "value": "1"
-      },
-      {
-        "key": "auto",
-        "value": "2"
-      }
-    ],
     "equality_map": [
       {
         "key": "connect",
@@ -3179,16 +3145,6 @@
       {
         "key": "0",
         "value": "mjCOMPSHAPE_ZERO"
-      }
-    ],
-    "meshtype_map": [
-      {
-        "key": "false",
-        "value": "mjINERTIA_VOLUME"
-      },
-      {
-        "key": "true",
-        "value": "mjINERTIA_SHELL"
       }
     ],
     "coordinate_map": [
@@ -3995,6 +3951,50 @@
       {
         "key": "strain",
         "value": "3"
+      }
+    ],
+    "bool_map": [
+      {
+        "key": "false",
+        "value": "0"
+      },
+      {
+        "key": "true",
+        "value": "1"
+      }
+    ],
+    "enable_map": [
+      {
+        "key": "disable",
+        "value": "0"
+      },
+      {
+        "key": "enable",
+        "value": "1"
+      }
+    ],
+    "TFAuto_map": [
+      {
+        "key": "false",
+        "value": "0"
+      },
+      {
+        "key": "true",
+        "value": "1"
+      },
+      {
+        "key": "auto",
+        "value": "2"
+      }
+    ],
+    "meshtype_map": [
+      {
+        "key": "false",
+        "value": "mjINERTIA_VOLUME"
+      },
+      {
+        "key": "true",
+        "value": "mjINERTIA_SHELL"
       }
     ]
   },

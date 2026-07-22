@@ -3,10 +3,11 @@
 // The reader's schema-backed `const mjMap NAME[]` keyword tables. Each map's
 // keyword spellings and order are an IDL enum's member values; the value
 // column (C constants / integers) and array-size tokens are the MuJoCo-side
-// mapping the emitter owns (KEYWORD_MAPS in emit_native.py). Maps that are not
-// schema-backed 1:1 (bool_map, enable_map, TFAuto_map, equality_map,
-// jkind_map, shape_map, meshtype_map) stay hand-written in xml_native_reader.cc.
-// Regenerate with: uv run python -m protospec_gen.emit_native --write
+// mapping the emitter owns (KEYWORD_MAPS in emit_native.py). The trailing
+// primitive-backed maps (bool/enable/TFAuto/meshtype) come from PRIMITIVE_MAPS.
+// Maps still hand-written in xml_native_reader.cc (equality_map, jkind_map,
+// shape_map) are not cleanly enum/union/primitive-derivable -- see the header
+// there. Regenerate with: uv run python -m protospec_gen.emit_native --write
 
 // clang-format off
 
@@ -380,5 +381,33 @@ const mjMap flexeq_map[4] = {
   {"true",   1},
   {"vert",   2},
   {"strain", 3},
+};
+
+// Primitive-backed maps (boolean / tri-state spellings; no IDL enum). The
+// keyword spellings and value column are emitter-owned (PRIMITIVE_MAPS).
+
+// primitive -> bool_map
+const mjMap bool_map[2] = {
+  {"false", 0},
+  {"true",  1},
+};
+
+// primitive -> enable_map
+const mjMap enable_map[2] = {
+  {"disable", 0},
+  {"enable",  1},
+};
+
+// primitive -> TFAuto_map
+const mjMap TFAuto_map[3] = {
+  {"false", 0},
+  {"true",  1},
+  {"auto",  2},
+};
+
+// primitive -> meshtype_map
+const mjMap meshtype_map[2] = {
+  {"false", mjINERTIA_VOLUME},
+  {"true",  mjINERTIA_SHELL},
 };
 // clang-format on

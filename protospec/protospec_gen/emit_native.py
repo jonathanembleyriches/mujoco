@@ -136,15 +136,36 @@ _ELEMENT_INPUT_ALIASES = {"Material": ["texture"]}
 # {keyword, value} pairs equal the git-recovered hand tables. A schema enum that
 # gains/loses a member, or is reordered, therefore fails loudly here at emit time.
 #
-# Maps deliberately left hand-written (not schema-backed 1:1) -- see the test and
-# report: bool_map / enable_map (generic on/off, no enum), TFAuto_map (generic
-# tri-state reused across many attrs; two enums -- TriState, InertiaFromGeom --
-# share its exact spelling, so it is not uniquely derivable), equality_map
-# (equality is a union of child elements, not an enum), jkind_map / shape_map
-# (composite keyword sets, no enum), meshtype_map (bool-spelled false/true mapped
-# to inertia constants, no enum).
+# Some reader maps have no backing IDL enum because their keywords are type-system
+# spellings, not enum members: bool_map / enable_map (boolean on/off with two
+# spellings), TFAuto_map (the tri-state limited/auto primitive, reused across many
+# attributes -- two enums, TriState and InertiaFromGeom, share its spelling, so it
+# is NOT an enum but the primitive itself), meshtype_map (a boolean shellinertia
+# flag whose two spellings map to inertia constants). These are emitted from
+# PRIMITIVE_MAPS below -- the emitter owns both the keyword spellings and the value
+# column, since the schema models them as primitives, not enums.
+#
+# Maps still left hand-written (do not fit either path), enumerated in the test and
+# report: equality_map (the EqualityAny union supplies 7 of its 8 arms but the 8th,
+# distance->mjEQ_DISTANCE, has no union member, so it is not cleanly union-derived),
+# jkind_map / shape_map (single-entry / expression-keyword composite maps; composite
+# is quarantined and promoting them to schema enums would ripple through the other
+# generators for no behavioral gain).
 
 MapBind = namedtuple("MapBind", "map enum size sz_expr values")
+
+# Primitive-backed maps: no IDL enum, the (keyword, value) column is emitter-owned
+# because the schema models these as boolean / tri-state primitives.
+PrimMapBind = namedtuple("PrimMapBind", "map size sz_expr pairs")
+
+PRIMITIVE_MAPS = [
+    PrimMapBind('bool_map', '2', None, [('false', '0'), ('true', '1')]),
+    PrimMapBind('enable_map', '2', None, [('disable', '0'), ('enable', '1')]),
+    PrimMapBind('TFAuto_map', '3', None,
+                [('false', '0'), ('true', '1'), ('auto', '2')]),
+    PrimMapBind('meshtype_map', '2', None,
+                [('false', 'mjINERTIA_VOLUME'), ('true', 'mjINERTIA_SHELL')]),
+]
 
 KEYWORD_MAPS = [
     MapBind('coordinate_map', 'Coordinate', '2', None, ['0', '1']),
@@ -197,10 +218,11 @@ KEYWORD_HEADER = (
     "// The reader's schema-backed `const mjMap NAME[]` keyword tables. Each map's\n"
     "// keyword spellings and order are an IDL enum's member values; the value\n"
     "// column (C constants / integers) and array-size tokens are the MuJoCo-side\n"
-    "// mapping the emitter owns (KEYWORD_MAPS in emit_native.py). Maps that are not\n"
-    "// schema-backed 1:1 (bool_map, enable_map, TFAuto_map, equality_map,\n"
-    "// jkind_map, shape_map, meshtype_map) stay hand-written in xml_native_reader.cc.\n"
-    "// Regenerate with: uv run python -m protospec_gen.emit_native --write\n"
+    "// mapping the emitter owns (KEYWORD_MAPS in emit_native.py). The trailing\n"
+    "// primitive-backed maps (bool/enable/TFAuto/meshtype) come from PRIMITIVE_MAPS.\n"
+    "// Maps still hand-written in xml_native_reader.cc (equality_map, jkind_map,\n"
+    "// shape_map) are not cleanly enum/union/primitive-derivable -- see the header\n"
+    "// there. Regenerate with: uv run python -m protospec_gen.emit_native --write\n"
 )
 
 
@@ -597,6 +619,21 @@ def generate_keywords(schema_path: str = SCHEMA) -> str:
         for k, v in zip(keylits, b.values):
             out.append(f"  {{{(k + ',').ljust(width + 1)} {v}}},")
         out.append("};")
+
+    out.append("")
+    out.append("// Primitive-backed maps (boolean / tri-state spellings; no IDL"
+               " enum). The")
+    out.append("// keyword spellings and value column are emitter-owned"
+               " (PRIMITIVE_MAPS).")
+    for pb in PRIMITIVE_MAPS:
+        out.append("")
+        out.append(f"// primitive -> {pb.map}")
+        keylits = [f'"{k}"' for k, _ in pb.pairs]
+        width = max(len(k) for k in keylits)
+        out.append(f"const mjMap {pb.map}[{pb.size}] = {{")
+        for (k, v), klit in zip(pb.pairs, keylits):
+            out.append(f"  {{{(klit + ',').ljust(width + 1)} {v}}},")
+        out.append("};")
     out.append("// clang-format on")
     return "\n".join(out) + "\n"
 
@@ -610,7 +647,7 @@ def _targets():
          lambda c: f"{c.split('#define nMJCF_GENERATED ', 1)[1].splitlines()[0]} rows"),
         (KEYWORD_OUT_PATH, generate_keywords,
          "xml_native_keywords.inc is out of date",
-         lambda c: f"{len(KEYWORD_MAPS)} maps"),
+         lambda c: f"{len(KEYWORD_MAPS) + len(PRIMITIVE_MAPS)} maps"),
         (ATTRBIND_OUT_PATH, generate_attrbinds,
          "xml_native_attrbind.inc is out of date",
          lambda c: f"{c.count('const AttrBind ')} elements"),

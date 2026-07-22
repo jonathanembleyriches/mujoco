@@ -44,12 +44,9 @@ KEYWORDS_INC = REPO / "src" / "xml" / "xml_native_keywords.inc"
 READER = REPO / "src" / "xml" / "xml_native_reader.cc"
 HAND_REF = "main:src/xml/xml_native_reader.cc"
 
-# Maps that are not schema-backed 1:1 and stay hand-written (mirrors KEYWORD_HEADER
-# in emit_native.py).
-HAND_ONLY = {
-    "bool_map", "enable_map", "TFAuto_map", "equality_map",
-    "jkind_map", "shape_map", "meshtype_map",
-}
+# Maps still hand-written in the reader (fit none of the generated paths: enum,
+# union, or primitive) -- mirrors the header in xml_native_reader.cc.
+HAND_ONLY = {"equality_map", "jkind_map", "shape_map"}
 
 
 def _git_show(ref: str) -> str | None:
@@ -83,8 +80,9 @@ def generated_maps():
 
 
 def test_generated_include_carries_expected_map_count(generated_maps):
-    # 48 schema-region maps total, 7 left hand-written -> 41 generated.
-    assert len(generated_maps) == 41
+    # 48 schema-region maps total, 3 left hand-written -> 45 generated
+    # (41 enum-backed + 4 primitive-backed: bool/enable/TFAuto/meshtype).
+    assert len(generated_maps) == 45
 
 
 def test_no_hand_only_map_leaked_into_generated(generated_maps):
