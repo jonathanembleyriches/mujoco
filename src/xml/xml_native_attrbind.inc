@@ -74,4 +74,56 @@ const AttrBind kPairBinds[] = {
   {"adhesion",       kBindDouble, 1, offsetof(mjsPair, adhesion), true, nullptr, 0},
 };
 const int kPairBindsN = 8;
+
+const AttrBind kGeomBinds[] = {
+  {"pos",         kBindDouble, 3, offsetof(mjsGeom, pos), true, nullptr, 0},
+  {"type",        kBindEnum,   0, offsetof(mjsGeom, type), true, geom_map, mjNGEOMTYPES},
+  {"contype",     kBindInt,    1, offsetof(mjsGeom, contype), true, nullptr, 0},
+  {"conaffinity", kBindInt,    1, offsetof(mjsGeom, conaffinity), true, nullptr, 0},
+  {"condim",      kBindInt,    1, offsetof(mjsGeom, condim), true, nullptr, 0},
+  {"group",       kBindInt,    1, offsetof(mjsGeom, group), true, nullptr, 0},
+  {"priority",    kBindInt,    1, offsetof(mjsGeom, priority), true, nullptr, 0},
+  {"size",        kBindDouble, 3, offsetof(mjsGeom, size), false, nullptr, 0},
+  {"material",    kBindString, 0, offsetof(mjsGeom, material), true, nullptr, 0},
+  {"friction",    kBindDouble, 3, offsetof(mjsGeom, friction), false, nullptr, 0},
+  {"mass",        kBindDouble, 1, offsetof(mjsGeom, mass), true, nullptr, 0},
+  {"density",     kBindDouble, 1, offsetof(mjsGeom, density), true, nullptr, 0},
+  {"solmix",      kBindDouble, 1, offsetof(mjsGeom, solmix), true, nullptr, 0},
+  {"solref",      kBindDouble, 2, offsetof(mjsGeom, solref), false, nullptr, 0},
+  {"solimp",      kBindDouble, 5, offsetof(mjsGeom, solimp), false, nullptr, 0},
+  {"margin",      kBindDouble, 1, offsetof(mjsGeom, margin), true, nullptr, 0},
+  {"gap",         kBindDouble, 1, offsetof(mjsGeom, gap), true, nullptr, 0},
+  {"surfacevel",  kBindDouble, 6, offsetof(mjsGeom, surfacevel), false, nullptr, 0},
+  {"adhesion",    kBindDouble, 1, offsetof(mjsGeom, adhesion), true, nullptr, 0},
+  {"hfield",      kBindString, 0, offsetof(mjsGeom, hfieldname), true, nullptr, 0},
+  {"mesh",        kBindString, 0, offsetof(mjsGeom, meshname), true, nullptr, 0},
+  {"fitscale",    kBindDouble, 1, offsetof(mjsGeom, fitscale), true, nullptr, 0},
+  {"rgba",        kBindFloat,  4, offsetof(mjsGeom, rgba), true, nullptr, 0},
+  {"fluidcoef",   kBindDouble, 5, offsetof(mjsGeom, fluid_coefs), false, nullptr, 0},
+};
+const int kGeomBindsN = 24;
+
+const AttrBind kJointBinds[] = {
+  {"type",               kBindEnum,   0, offsetof(mjsJoint, type), true, joint_map, joint_sz},
+  {"group",              kBindInt,    1, offsetof(mjsJoint, group), true, nullptr, 0},
+  {"pos",                kBindDouble, 3, offsetof(mjsJoint, pos), true, nullptr, 0},
+  {"axis",               kBindDouble, 3, offsetof(mjsJoint, axis), true, nullptr, 0},
+  {"springdamper",       kBindDouble, 2, offsetof(mjsJoint, springdamper), true, nullptr, 0},
+  {"limited",            kBindEnum,   0, offsetof(mjsJoint, limited), true, TFAuto_map, 3},
+  {"actuatorfrclimited", kBindEnum,   0, offsetof(mjsJoint, actfrclimited), true, TFAuto_map, 3},
+  {"solreflimit",        kBindDouble, 2, offsetof(mjsJoint, solref_limit), false, nullptr, 0},
+  {"solimplimit",        kBindDouble, 5, offsetof(mjsJoint, solimp_limit), false, nullptr, 0},
+  {"solreffriction",     kBindDouble, 2, offsetof(mjsJoint, solref_friction), false, nullptr, 0},
+  {"solimpfriction",     kBindDouble, 5, offsetof(mjsJoint, solimp_friction), false, nullptr, 0},
+  {"stiffness",          kBindDouble, 3, offsetof(mjsJoint, stiffness), false, nullptr, 0},
+  {"range",              kBindDouble, 2, offsetof(mjsJoint, range), true, nullptr, 0},
+  {"actuatorfrcrange",   kBindDouble, 2, offsetof(mjsJoint, actfrcrange), true, nullptr, 0},
+  {"margin",             kBindDouble, 1, offsetof(mjsJoint, margin), true, nullptr, 0},
+  {"ref",                kBindDouble, 1, offsetof(mjsJoint, ref), true, nullptr, 0},
+  {"springref",          kBindDouble, 1, offsetof(mjsJoint, springref), true, nullptr, 0},
+  {"armature",           kBindDouble, 1, offsetof(mjsJoint, armature), true, nullptr, 0},
+  {"damping",            kBindDouble, 3, offsetof(mjsJoint, damping), false, nullptr, 0},
+  {"frictionloss",       kBindDouble, 1, offsetof(mjsJoint, frictionloss), true, nullptr, 0},
+};
+const int kJointBindsN = 20;
 // clang-format on

@@ -34,6 +34,7 @@ INC = REPO / "src" / "xml" / "xml_native_attrbind.inc"
 
 EXPECTED_COUNTS = {
     "Site": 6, "Camera": 10, "Light": 14, "Material": 8, "Pair": 8,
+    "Geom": 24, "Joint": 20,
 }
 
 
@@ -78,7 +79,8 @@ def _fn_body(source: str, method: str) -> str:
 
 ELEM_METHOD = {
     "Site": "OneSite", "Camera": "OneCamera", "Light": "OneLight",
-    "Material": "OneMaterial", "Pair": "OnePair",
+    "Material": "OneMaterial", "Pair": "OnePair", "Geom": "OneGeom",
+    "Joint": "OneJoint",
 }
 
 

@@ -439,7 +439,22 @@ ATTR_ELEMENTS = [
     AttrElem("Light", "mjsLight", ("type",)),      # `type` interplays with the `directional` bool alias (throw)
     AttrElem("Material", "mjsMaterial", ()),       # `texture`/`layer` fold into textures[] via mjs_setInStringVec
     AttrElem("Pair", "mjsPair", ("geom1", "geom2")),  # geom names are read only when !readingdefaults
+    AttrElem("Geom", "mjsGeom", ("shellinertia", "fluidshape")),  # shellinertia->typeinertia via meshtype_map; fluidshape folds to (n==1)
+    AttrElem("Joint", "mjsJoint", ("actuatorgravcomp",)),  # actgravcomp folds to (n==1)
 ]
+
+# Schema enums whose reader keyword map is a shared primitive/hand map, not their
+# own KEYWORD_MAPS entry (so the enum path can still emit a kBindEnum row).
+ENUM_PRIM_MAP = {
+    "TriState": ("TFAuto_map", "3"),  # limited/actuatorfrclimited/align tri-state
+}
+
+# (element, xml) fixed-arity fields the reader reads leniently (exact=false),
+# against the fixed->exact-true default. These are the handful of fixed vectors
+# the reader accepts a short prefix of.
+LENIENT_FIXED = {
+    ("Geom", "surfacevel"),
+}
 
 _FIELDS_JSON = os.path.join(ROOT, "snapshots", "mjspec_fields.json")
 
@@ -531,7 +546,8 @@ def _attr_binds():
             if arity is None:
                 length, exact = 1, True
             elif arity["kind"] == "fixed":
-                length, exact = arity["size"], True
+                length = arity["size"]
+                exact = (ae.elem, xml) not in LENIENT_FIXED
             elif arity["kind"] == "range":
                 length, exact = arity["max"], False
             else:
@@ -541,11 +557,14 @@ def _attr_binds():
             if kind == "named":  # enum
                 enum = t["name"]
                 b = enum_to_map.get(enum)
-                if b is None:
+                if b is not None:
+                    bmap, bmapsz = b.map, b.size
+                elif enum in ENUM_PRIM_MAP:
+                    bmap, bmapsz = ENUM_PRIM_MAP[enum]
+                else:
                     raise KeyError(
-                        f"{ae.elem}.{xml}: enum {enum!r} has no KEYWORD_MAPS entry")
+                        f"{ae.elem}.{xml}: enum {enum!r} has no keyword map")
                 bkind, length, exact = "kBindEnum", 0, True
-                bmap, bmapsz = b.map, b.size
             elif kind == "ref":  # name reference -> string handle
                 if ctype != "mjString":
                     raise TypeError(

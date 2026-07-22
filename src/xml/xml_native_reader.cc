@@ -1145,32 +1145,11 @@ void mjXReader::OneJoint(XMLElement* elem, mjsJoint* joint) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  if (MapValue(elem, "type", &n, joint_map, joint_sz)) {
-    joint->type = (mjtJoint)n;
-  }
-  MapValue(elem, "limited", &joint->limited, TFAuto_map, 3);
-  MapValue(elem, "actuatorfrclimited", &joint->actfrclimited, TFAuto_map, 3);
-  ReadAttrInt(elem, "group", &joint->group);
-  ReadAttr(elem, "solreflimit", mjNREF, joint->solref_limit, text, false, false);
-  ReadAttr(elem, "solimplimit", mjNIMP, joint->solimp_limit, text, false, false);
-  ReadAttr(elem, "solreffriction", mjNREF, joint->solref_friction, text, false, false);
-  ReadAttr(elem, "solimpfriction", mjNIMP, joint->solimp_friction, text, false, false);
-  ReadAttr(elem, "pos", 3, joint->pos, text);
-  ReadAttr(elem, "axis", 3, joint->axis, text);
-  ReadAttr(elem, "springdamper", 2, joint->springdamper, text);
-
-  ReadAttr(elem, "stiffness", 1+mjNPOLY, joint->stiffness, text, false, false);
-
-  ReadAttr(elem, "range", 2, joint->range, text);
-  ReadAttr(elem, "actuatorfrcrange", 2, joint->actfrcrange, text);
-  ReadAttr(elem, "margin", 1, &joint->margin, text);
-  ReadAttr(elem, "ref", 1, &joint->ref, text);
-  ReadAttr(elem, "springref", 1, &joint->springref, text);
-  ReadAttr(elem, "armature", 1, &joint->armature, text);
-
-  ReadAttr(elem, "damping", 1+mjNPOLY, joint->damping, text, false, false);
-
-  ReadAttr(elem, "frictionloss", 1, &joint->frictionloss, text);
+  // mechanical attr->field reads (type, group, pos, axis, springdamper,
+  // limited, actuatorfrclimited, sol*, stiffness, range, actuatorfrcrange,
+  // margin, ref, springref, armature, damping, frictionloss)
+  ReadAttrBinds(elem, joint, kJointBinds, kJointBindsN, text);
+  // actuatorgravcomp folds a bool spelling into actgravcomp, stays hand-written
   if (MapValue(elem, "actuatorgravcomp", &n, bool_map, 2)) {
     joint->actgravcomp = (n == 1);
   }
@@ -1190,7 +1169,6 @@ void mjXReader::OneJoint(XMLElement* elem, mjsJoint* joint) {
 void mjXReader::OneGeom(XMLElement* elem, mjsGeom* geom) {
   string text, name;
   std::vector<double> userdata;
-  string hfieldname, meshname, material;
   int n;
 
   // read attributes
@@ -1199,38 +1177,21 @@ void mjXReader::OneGeom(XMLElement* elem, mjsGeom* geom) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  if (MapValue(elem, "type", &n, geom_map, mjNGEOMTYPES)) {
-    geom->type = (mjtGeom)n;
-  }
-  ReadAttr(elem, "size", 3, geom->size, text, false, false);
-  ReadAttrInt(elem, "contype", &geom->contype);
-  ReadAttrInt(elem, "conaffinity", &geom->conaffinity);
-  ReadAttrInt(elem, "condim", &geom->condim);
-  ReadAttrInt(elem, "group", &geom->group);
-  ReadAttrInt(elem, "priority", &geom->priority);
-  ReadAttr(elem, "friction", 3, geom->friction, text, false, false);
-  ReadAttr(elem, "solmix", 1, &geom->solmix, text);
-  ReadAttr(elem, "solref", mjNREF, geom->solref, text, false, false);
-  ReadAttr(elem, "solimp", mjNIMP, geom->solimp, text, false, false);
-  ReadAttr(elem, "margin", 1, &geom->margin, text);
-  ReadAttr(elem, "gap", 1, &geom->gap, text);
-  ReadAttr(elem, "surfacevel", 6, geom->surfacevel, text, false, false);
-  ReadAttr(elem, "adhesion", 1, &geom->adhesion, text);
-  if (ReadAttrTxt(elem, "hfield", hfieldname)) {
-    mjs_setString(geom->hfieldname, hfieldname.c_str());
-  }
-  if (ReadAttrTxt(elem, "mesh", meshname)) {
-    mjs_setString(geom->meshname, meshname.c_str());
-  }
-  ReadAttr(elem, "fitscale", 1, &geom->fitscale, text);
-  if (ReadAttrTxt(elem, "material", material)) {
-    mjs_setString(geom->material, material.c_str());
-  }
-  ReadAttr(elem, "rgba", 4, geom->rgba, text);
+  // mechanical attr->field reads (type, size, con*, group, priority, size,
+  // material, friction, mass, density, sol*, margin, gap, surfacevel, adhesion,
+  // hfield, mesh, fitscale, rgba, fluidcoef, pos)
+  ReadAttrBinds(elem, geom, kGeomBinds, kGeomBindsN, text);
+  ReadAttr(elem, "fromto", 6, geom->fromto, text);
+  ReadQuat(elem, "quat", geom->quat, text);
+  ReadAlternative(elem, geom->alt);
+  // fluidshape folds a bool spelling into fluid_ellipsoid, stays hand-written
   if (MapValue(elem, "fluidshape", &n, fluid_map, 2)) {
     geom->fluid_ellipsoid = (n == 1);
   }
-  ReadAttr(elem, "fluidcoef", 5, geom->fluid_coefs, text, false, false);
+  // shellinertia is a bool spelling selecting the typeinertia enum
+  if (MapValue(elem, "shellinertia", &n, meshtype_map, 2)) {
+    geom->typeinertia = (mjtGeomInertia)n;
+  }
 
   // read userdata
   if (ReadVector(elem, "user", userdata, text)) {
@@ -1241,19 +1202,6 @@ void mjXReader::OneGeom(XMLElement* elem, mjsGeom* geom) {
   XMLElement* eplugin = FirstChildElement(elem, "plugin");
   if (eplugin) {
     OnePlugin(eplugin, &geom->plugin);
-  }
-
-  // remaining attributes
-  ReadAttr(elem, "mass", 1, &geom->mass, text);
-  ReadAttr(elem, "density", 1, &geom->density, text);
-  ReadAttr(elem, "fromto", 6, geom->fromto, text);
-  ReadAttr(elem, "pos", 3, geom->pos, text);
-  ReadQuat(elem, "quat", geom->quat, text);
-  ReadAlternative(elem, geom->alt);
-
-  // compute inertia using either solid or shell geometry
-  if (MapValue(elem, "shellinertia", &n, meshtype_map, 2)) {
-    geom->typeinertia = (mjtGeomInertia)n;
   }
 
   // write error info
