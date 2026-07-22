@@ -1,0 +1,2549 @@
+{
+  "source": {
+    "headers": [
+      "include/mujoco/mjtype.h",
+      "include/mujoco/mjspec.h",
+      "src/user/user_composite.h",
+      "src/user/user_flexcomp.h"
+    ],
+    "mujoco_version": "3.11.0"
+  },
+  "enums": [
+    {
+      "name": "mjtAlignFree",
+      "tag": "mjtAlignFree",
+      "header": "mjspec.h",
+      "doc": "whether to align free joints with the inertial frame",
+      "enumerators": [
+        {
+          "name": "mjALIGNFREE_FALSE",
+          "value": 0,
+          "comment": "don't align"
+        },
+        {
+          "name": "mjALIGNFREE_TRUE",
+          "value": 1,
+          "comment": "align"
+        },
+        {
+          "name": "mjALIGNFREE_AUTO",
+          "value": 2,
+          "comment": "respect the global compiler flag"
+        }
+      ]
+    },
+    {
+      "name": "mjtBias",
+      "tag": "mjtBias",
+      "header": "mjtype.h",
+      "doc": "type of actuator bias",
+      "enumerators": [
+        {
+          "name": "mjBIAS_NONE",
+          "value": 0,
+          "comment": "no bias"
+        },
+        {
+          "name": "mjBIAS_AFFINE",
+          "value": 1,
+          "comment": "const + kp*length + kv*velocity"
+        },
+        {
+          "name": "mjBIAS_MUSCLE",
+          "value": 2,
+          "comment": "muscle passive force computed by mju_muscleBias()"
+        },
+        {
+          "name": "mjBIAS_DCMOTOR",
+          "value": 3,
+          "comment": "DC motor bias: back-EMF, cogging, LuGre friction"
+        },
+        {
+          "name": "mjBIAS_SO3",
+          "value": 4,
+          "comment": "damping term of the SO3 geodesic servo"
+        },
+        {
+          "name": "mjBIAS_USER",
+          "value": 5,
+          "comment": "user-defined bias type"
+        }
+      ]
+    },
+    {
+      "name": "mjtBuiltin",
+      "tag": "mjtBuiltin",
+      "header": "mjspec.h",
+      "doc": "type of built-in procedural texture",
+      "enumerators": [
+        {
+          "name": "mjBUILTIN_NONE",
+          "value": 0,
+          "comment": "no built-in texture"
+        },
+        {
+          "name": "mjBUILTIN_GRADIENT",
+          "value": 1,
+          "comment": "gradient: rgb1->rgb2"
+        },
+        {
+          "name": "mjBUILTIN_CHECKER",
+          "value": 2,
+          "comment": "checker pattern: rgb1, rgb2"
+        },
+        {
+          "name": "mjBUILTIN_FLAT",
+          "value": 3,
+          "comment": "2d: rgb1; cube: rgb1-up, rgb2-side, rgb3-down"
+        }
+      ]
+    },
+    {
+      "name": "mjtCTimer",
+      "tag": "mjtCTimer",
+      "header": "mjspec.h",
+      "doc": "compiler timing categories",
+      "enumerators": [
+        {
+          "name": "mjCTIMER_TOTAL",
+          "value": 0,
+          "comment": "total compile time"
+        },
+        {
+          "name": "mjCTIMER_ASSETS",
+          "value": 1,
+          "comment": "asset compilation"
+        },
+        {
+          "name": "mjCTIMER_TEXTURE",
+          "value": 2,
+          "comment": "textures"
+        },
+        {
+          "name": "mjCTIMER_MESH_LOAD",
+          "value": 3,
+          "comment": "mesh: file loading"
+        },
+        {
+          "name": "mjCTIMER_MESH_HULL",
+          "value": 4,
+          "comment": "mesh: convex hull"
+        },
+        {
+          "name": "mjCTIMER_MESH_POLYGON",
+          "value": 5,
+          "comment": "mesh: normals and polygons"
+        },
+        {
+          "name": "mjCTIMER_MESH_INERTIA",
+          "value": 6,
+          "comment": "mesh: volume, CoM, inertia"
+        },
+        {
+          "name": "mjCTIMER_MESH_BVH",
+          "value": 7,
+          "comment": "mesh: bounding volume hierarchy"
+        },
+        {
+          "name": "mjCTIMER_MESH_OCTREE",
+          "value": 8,
+          "comment": "mesh: octree and SDF"
+        },
+        {
+          "name": "mjNCTIMER",
+          "value": 9,
+          "comment": "number of compiler timers"
+        }
+      ]
+    },
+    {
+      "name": "mjtCamLight",
+      "tag": "mjtCamLight",
+      "header": "mjtype.h",
+      "doc": "tracking mode for camera and light",
+      "enumerators": [
+        {
+          "name": "mjCAMLIGHT_FIXED",
+          "value": 0,
+          "comment": "pos and rot fixed in body"
+        },
+        {
+          "name": "mjCAMLIGHT_TRACK",
+          "value": 1,
+          "comment": "pos tracks body, rot fixed in global"
+        },
+        {
+          "name": "mjCAMLIGHT_TRACKCOM",
+          "value": 2,
+          "comment": "pos tracks subtree com, rot fixed in body"
+        },
+        {
+          "name": "mjCAMLIGHT_TARGETBODY",
+          "value": 3,
+          "comment": "pos fixed in body, rot tracks target body"
+        },
+        {
+          "name": "mjCAMLIGHT_TARGETBODYCOM",
+          "value": 4,
+          "comment": "pos fixed in body, rot tracks target subtree com"
+        }
+      ]
+    },
+    {
+      "name": "mjtCamOutBit",
+      "tag": "mjtCamOutBit",
+      "header": "mjtype.h",
+      "doc": "camera output type bitflags",
+      "enumerators": [
+        {
+          "name": "mjCAMOUT_RGB",
+          "value": 1,
+          "comment": "RGB image"
+        },
+        {
+          "name": "mjCAMOUT_DEPTH",
+          "value": 2,
+          "comment": "depth image (distance from camera plane)"
+        },
+        {
+          "name": "mjCAMOUT_DIST",
+          "value": 4,
+          "comment": "distance image (distance from camera origin)"
+        },
+        {
+          "name": "mjCAMOUT_NORMAL",
+          "value": 8,
+          "comment": "normal image"
+        },
+        {
+          "name": "mjCAMOUT_SEG",
+          "value": 16,
+          "comment": "segmentation image"
+        },
+        {
+          "name": "mjNCAMOUT",
+          "value": 5,
+          "comment": "number of camera output types"
+        }
+      ]
+    },
+    {
+      "name": "mjtColorSpace",
+      "tag": "mjtColorSpace",
+      "header": "mjtype.h",
+      "doc": "type of color space encoding",
+      "enumerators": [
+        {
+          "name": "mjCOLORSPACE_AUTO",
+          "value": 0,
+          "comment": "attempts to autodetect color space, defaults to linear"
+        },
+        {
+          "name": "mjCOLORSPACE_LINEAR",
+          "value": 1,
+          "comment": "linear color space"
+        },
+        {
+          "name": "mjCOLORSPACE_SRGB",
+          "value": 2,
+          "comment": "standard RGB color space"
+        }
+      ]
+    },
+    {
+      "name": "mjtCompKind",
+      "tag": "_mjtCompKind",
+      "header": "user_composite.h",
+      "doc": "",
+      "enumerators": [
+        {
+          "name": "mjCOMPKIND_JOINT",
+          "value": 0,
+          "comment": ""
+        },
+        {
+          "name": "mjNCOMPKINDS",
+          "value": 1,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtCompShape",
+      "tag": "_mjtCompShape",
+      "header": "user_composite.h",
+      "doc": "",
+      "enumerators": [
+        {
+          "name": "mjCOMPSHAPE_INVALID",
+          "value": -1,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPSHAPE_LINE",
+          "value": 0,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPSHAPE_COS",
+          "value": 1,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPSHAPE_SIN",
+          "value": 2,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPSHAPE_ZERO",
+          "value": 3,
+          "comment": ""
+        },
+        {
+          "name": "mjNCOMPSHAPES",
+          "value": 4,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtCompType",
+      "tag": "_mjtCompType",
+      "header": "user_composite.h",
+      "doc": "",
+      "enumerators": [
+        {
+          "name": "mjCOMPTYPE_PARTICLE",
+          "value": 0,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPTYPE_GRID",
+          "value": 1,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPTYPE_CABLE",
+          "value": 2,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPTYPE_ROPE",
+          "value": 3,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPTYPE_LOOP",
+          "value": 4,
+          "comment": ""
+        },
+        {
+          "name": "mjCOMPTYPE_CLOTH",
+          "value": 5,
+          "comment": ""
+        },
+        {
+          "name": "mjNCOMPTYPES",
+          "value": 6,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtConDataField",
+      "tag": "mjtConDataField",
+      "header": "mjtype.h",
+      "doc": "data fields returned by contact sensors",
+      "enumerators": [
+        {
+          "name": "mjCONDATA_FOUND",
+          "value": 0,
+          "comment": "whether a contact was found"
+        },
+        {
+          "name": "mjCONDATA_FORCE",
+          "value": 1,
+          "comment": "contact force"
+        },
+        {
+          "name": "mjCONDATA_TORQUE",
+          "value": 2,
+          "comment": "contact torque"
+        },
+        {
+          "name": "mjCONDATA_DIST",
+          "value": 3,
+          "comment": "contact penetration distance"
+        },
+        {
+          "name": "mjCONDATA_POS",
+          "value": 4,
+          "comment": "contact position"
+        },
+        {
+          "name": "mjCONDATA_NORMAL",
+          "value": 5,
+          "comment": "contact frame normal"
+        },
+        {
+          "name": "mjCONDATA_TANGENT",
+          "value": 6,
+          "comment": "contact frame first tangent"
+        },
+        {
+          "name": "mjNCONDATA",
+          "value": 7,
+          "comment": "number of contact sensor data fields"
+        }
+      ]
+    },
+    {
+      "name": "mjtCone",
+      "tag": "mjtCone",
+      "header": "mjtype.h",
+      "doc": "type of friction cone",
+      "enumerators": [
+        {
+          "name": "mjCONE_PYRAMIDAL",
+          "value": 0,
+          "comment": "pyramidal"
+        },
+        {
+          "name": "mjCONE_ELLIPTIC",
+          "value": 1,
+          "comment": "elliptic"
+        }
+      ]
+    },
+    {
+      "name": "mjtConflict",
+      "tag": "mjtConflict",
+      "header": "mjspec.h",
+      "doc": "conflict resolution for attach",
+      "enumerators": [
+        {
+          "name": "mjCONFLICT_WARNING",
+          "value": 0,
+          "comment": "keep parent, warn on conflict"
+        },
+        {
+          "name": "mjCONFLICT_MERGE",
+          "value": 1,
+          "comment": "merge: min/max/error per field"
+        },
+        {
+          "name": "mjCONFLICT_ERROR",
+          "value": 2,
+          "comment": "error on any conflict"
+        }
+      ]
+    },
+    {
+      "name": "mjtConstraint",
+      "tag": "mjtConstraint",
+      "header": "mjtype.h",
+      "doc": "type of constraint",
+      "enumerators": [
+        {
+          "name": "mjCNSTR_EQUALITY",
+          "value": 0,
+          "comment": "equality constraint"
+        },
+        {
+          "name": "mjCNSTR_FRICTION_DOF",
+          "value": 1,
+          "comment": "dof friction"
+        },
+        {
+          "name": "mjCNSTR_FRICTION_TENDON",
+          "value": 2,
+          "comment": "tendon friction"
+        },
+        {
+          "name": "mjCNSTR_LIMIT_JOINT",
+          "value": 3,
+          "comment": "joint limit"
+        },
+        {
+          "name": "mjCNSTR_LIMIT_TENDON",
+          "value": 4,
+          "comment": "tendon limit"
+        },
+        {
+          "name": "mjCNSTR_CONTACT_FRICTIONLESS",
+          "value": 5,
+          "comment": "frictionless contact"
+        },
+        {
+          "name": "mjCNSTR_CONTACT_PYRAMIDAL",
+          "value": 6,
+          "comment": "frictional contact, pyramidal friction cone"
+        },
+        {
+          "name": "mjCNSTR_CONTACT_ELLIPTIC",
+          "value": 7,
+          "comment": "frictional contact, elliptic friction cone"
+        }
+      ]
+    },
+    {
+      "name": "mjtConstraintState",
+      "tag": "mjtConstraintState",
+      "header": "mjtype.h",
+      "doc": "constraint state",
+      "enumerators": [
+        {
+          "name": "mjCNSTRSTATE_SATISFIED",
+          "value": 0,
+          "comment": "constraint satisfied, zero cost (limit, contact)"
+        },
+        {
+          "name": "mjCNSTRSTATE_QUADRATIC",
+          "value": 1,
+          "comment": "quadratic cost (equality, friction, limit, contact)"
+        },
+        {
+          "name": "mjCNSTRSTATE_LINEARNEG",
+          "value": 2,
+          "comment": "linear cost, negative side (friction)"
+        },
+        {
+          "name": "mjCNSTRSTATE_LINEARPOS",
+          "value": 3,
+          "comment": "linear cost, positive side (friction)"
+        },
+        {
+          "name": "mjCNSTRSTATE_CONE",
+          "value": 4,
+          "comment": "squared distance to cone cost (elliptic contact)"
+        }
+      ]
+    },
+    {
+      "name": "mjtCtrlChart",
+      "tag": "mjtCtrlChart",
+      "header": "mjtype.h",
+      "doc": "so3 input signature (actuator_ctrlspec): orientation chart",
+      "enumerators": [
+        {
+          "name": "mjCHART_EXPMAP",
+          "value": 1,
+          "comment": "exponential-map orientation target: 3 controls"
+        },
+        {
+          "name": "mjCHART_QUAT",
+          "value": 2,
+          "comment": "quaternion orientation target: 4 controls"
+        }
+      ]
+    },
+    {
+      "name": "mjtDataType",
+      "tag": "mjtDataType",
+      "header": "mjtype.h",
+      "doc": "data type for sensors",
+      "enumerators": [
+        {
+          "name": "mjDATATYPE_REAL",
+          "value": 0,
+          "comment": "real values, no constraints"
+        },
+        {
+          "name": "mjDATATYPE_POSITIVE",
+          "value": 1,
+          "comment": "positive values; 0 or negative: inactive"
+        },
+        {
+          "name": "mjDATATYPE_AXIS",
+          "value": 2,
+          "comment": "3D unit vector"
+        },
+        {
+          "name": "mjDATATYPE_QUATERNION",
+          "value": 3,
+          "comment": "unit quaternion"
+        }
+      ]
+    },
+    {
+      "name": "mjtDisableBit",
+      "tag": "mjtDisableBit",
+      "header": "mjtype.h",
+      "doc": "disable default feature bitflags",
+      "enumerators": [
+        {
+          "name": "mjDSBL_CONSTRAINT",
+          "value": 1,
+          "comment": "entire constraint solver"
+        },
+        {
+          "name": "mjDSBL_EQUALITY",
+          "value": 2,
+          "comment": "equality constraints"
+        },
+        {
+          "name": "mjDSBL_FRICTIONLOSS",
+          "value": 4,
+          "comment": "joint and tendon frictionloss constraints"
+        },
+        {
+          "name": "mjDSBL_LIMIT",
+          "value": 8,
+          "comment": "joint and tendon limit constraints"
+        },
+        {
+          "name": "mjDSBL_CONTACT",
+          "value": 16,
+          "comment": "contact constraints"
+        },
+        {
+          "name": "mjDSBL_SPRING",
+          "value": 32,
+          "comment": "passive spring forces"
+        },
+        {
+          "name": "mjDSBL_DAMPER",
+          "value": 64,
+          "comment": "passive damping forces"
+        },
+        {
+          "name": "mjDSBL_GRAVITY",
+          "value": 128,
+          "comment": "gravitational forces"
+        },
+        {
+          "name": "mjDSBL_CLAMPCTRL",
+          "value": 256,
+          "comment": "clamp control to specified range"
+        },
+        {
+          "name": "mjDSBL_WARMSTART",
+          "value": 512,
+          "comment": "warmstart constraint solver"
+        },
+        {
+          "name": "mjDSBL_FILTERPARENT",
+          "value": 1024,
+          "comment": "remove collisions with parent body"
+        },
+        {
+          "name": "mjDSBL_ACTUATION",
+          "value": 2048,
+          "comment": "apply actuation forces"
+        },
+        {
+          "name": "mjDSBL_REFSAFE",
+          "value": 4096,
+          "comment": "integrator safety: make ref[0]>=2*timestep"
+        },
+        {
+          "name": "mjDSBL_SENSOR",
+          "value": 8192,
+          "comment": "sensors"
+        },
+        {
+          "name": "mjDSBL_MIDPHASE",
+          "value": 16384,
+          "comment": "mid-phase collision filtering"
+        },
+        {
+          "name": "mjDSBL_EULERDAMP",
+          "value": 32768,
+          "comment": "implicit integration of joint damping in Euler integrator"
+        },
+        {
+          "name": "mjDSBL_AUTORESET",
+          "value": 65536,
+          "comment": "automatic reset when numerical issues are detected"
+        },
+        {
+          "name": "mjDSBL_NATIVECCD",
+          "value": 131072,
+          "comment": "native convex collision detection"
+        },
+        {
+          "name": "mjDSBL_ISLAND",
+          "value": 262144,
+          "comment": "constraint island discovery"
+        },
+        {
+          "name": "mjDSBL_MULTICCD",
+          "value": 524288,
+          "comment": "multiple CCD contact points"
+        },
+        {
+          "name": "mjNDISABLE",
+          "value": 20,
+          "comment": "number of disable flags"
+        }
+      ]
+    },
+    {
+      "name": "mjtDof",
+      "tag": "_mjtDof",
+      "header": "user_flexcomp.h",
+      "doc": "",
+      "enumerators": [
+        {
+          "name": "mjFCOMPDOF_FULL",
+          "value": 0,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPDOF_RADIAL",
+          "value": 1,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPDOF_TRILINEAR",
+          "value": 2,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPDOF_QUADRATIC",
+          "value": 3,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPDOF_2D",
+          "value": 4,
+          "comment": ""
+        },
+        {
+          "name": "mjNFCOMPDOFS",
+          "value": 5,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtDyn",
+      "tag": "mjtDyn",
+      "header": "mjtype.h",
+      "doc": "type of actuator dynamics",
+      "enumerators": [
+        {
+          "name": "mjDYN_NONE",
+          "value": 0,
+          "comment": "no internal dynamics; ctrl specifies force"
+        },
+        {
+          "name": "mjDYN_INTEGRATOR",
+          "value": 1,
+          "comment": "integrator: da/dt = u"
+        },
+        {
+          "name": "mjDYN_FILTER",
+          "value": 2,
+          "comment": "linear filter: da/dt = (u-a) / tau"
+        },
+        {
+          "name": "mjDYN_FILTEREXACT",
+          "value": 3,
+          "comment": "linear filter: da/dt = (u-a) / tau, with exact integration"
+        },
+        {
+          "name": "mjDYN_MUSCLE",
+          "value": 4,
+          "comment": "piecewise linear filter with two time constants"
+        },
+        {
+          "name": "mjDYN_DCMOTOR",
+          "value": 5,
+          "comment": "DC motor electrical dynamics"
+        },
+        {
+          "name": "mjDYN_USER",
+          "value": 6,
+          "comment": "user-defined dynamics type"
+        }
+      ]
+    },
+    {
+      "name": "mjtEnableBit",
+      "tag": "mjtEnableBit",
+      "header": "mjtype.h",
+      "doc": "enable optional feature bitflags",
+      "enumerators": [
+        {
+          "name": "mjENBL_OVERRIDE",
+          "value": 1,
+          "comment": "override contact parameters"
+        },
+        {
+          "name": "mjENBL_ENERGY",
+          "value": 2,
+          "comment": "energy computation"
+        },
+        {
+          "name": "mjENBL_FWDINV",
+          "value": 4,
+          "comment": "record solver statistics"
+        },
+        {
+          "name": "mjENBL_INVDISCRETE",
+          "value": 8,
+          "comment": "discrete-time inverse dynamics"
+        },
+        {
+          "name": "mjENBL_SLEEP",
+          "value": 16,
+          "comment": "sleeping"
+        },
+        {
+          "name": "mjENBL_DIAGEXACT",
+          "value": 32,
+          "comment": "exact diagonal of constraint inertia"
+        },
+        {
+          "name": "mjNENABLE",
+          "value": 6,
+          "comment": "number of enable flags"
+        }
+      ]
+    },
+    {
+      "name": "mjtEq",
+      "tag": "mjtEq",
+      "header": "mjtype.h",
+      "doc": "type of equality constraint",
+      "enumerators": [
+        {
+          "name": "mjEQ_CONNECT",
+          "value": 0,
+          "comment": "connect two bodies at a point (ball joint)"
+        },
+        {
+          "name": "mjEQ_WELD",
+          "value": 1,
+          "comment": "fix relative position and orientation of two bodies"
+        },
+        {
+          "name": "mjEQ_JOINT",
+          "value": 2,
+          "comment": "couple the values of two scalar joints with cubic"
+        },
+        {
+          "name": "mjEQ_TENDON",
+          "value": 3,
+          "comment": "couple the lengths of two tendons with cubic"
+        },
+        {
+          "name": "mjEQ_FLEX",
+          "value": 4,
+          "comment": "fix all edge lengths of a flex"
+        },
+        {
+          "name": "mjEQ_FLEXVERT",
+          "value": 5,
+          "comment": "fix all vertex lengths of a flex"
+        },
+        {
+          "name": "mjEQ_FLEXSTRAIN",
+          "value": 6,
+          "comment": "constrain strain of a trilinear/quadratic flex (B-bar)"
+        },
+        {
+          "name": "mjEQ_DISTANCE",
+          "value": 7,
+          "comment": "unsupported, will cause an error if used"
+        }
+      ]
+    },
+    {
+      "name": "mjtFcompType",
+      "tag": "_mjtFcompType",
+      "header": "user_flexcomp.h",
+      "doc": "",
+      "enumerators": [
+        {
+          "name": "mjFCOMPTYPE_GRID",
+          "value": 0,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_BOX",
+          "value": 1,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_CYLINDER",
+          "value": 2,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_ELLIPSOID",
+          "value": 3,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_SQUARE",
+          "value": 4,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_DISC",
+          "value": 5,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_CIRCLE",
+          "value": 6,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_MESH",
+          "value": 7,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_GMSH",
+          "value": 8,
+          "comment": ""
+        },
+        {
+          "name": "mjFCOMPTYPE_DIRECT",
+          "value": 9,
+          "comment": ""
+        },
+        {
+          "name": "mjNFCOMPTYPES",
+          "value": 10,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtFlexSelf",
+      "tag": "mjtFlexSelf",
+      "header": "mjtype.h",
+      "doc": "mode for flex selfcollide",
+      "enumerators": [
+        {
+          "name": "mjFLEXSELF_NONE",
+          "value": 0,
+          "comment": "no self-collisions"
+        },
+        {
+          "name": "mjFLEXSELF_NARROW",
+          "value": 1,
+          "comment": "skip midphase, go directly to narrowphase"
+        },
+        {
+          "name": "mjFLEXSELF_BVH",
+          "value": 2,
+          "comment": "use BVH in midphase (if midphase enabled)"
+        },
+        {
+          "name": "mjFLEXSELF_SAP",
+          "value": 3,
+          "comment": "use SAP in midphase"
+        },
+        {
+          "name": "mjFLEXSELF_AUTO",
+          "value": 4,
+          "comment": "choose between BVH and SAP automatically"
+        }
+      ]
+    },
+    {
+      "name": "mjtGain",
+      "tag": "mjtGain",
+      "header": "mjtype.h",
+      "doc": "type of actuator gain",
+      "enumerators": [
+        {
+          "name": "mjGAIN_FIXED",
+          "value": 0,
+          "comment": "fixed gain"
+        },
+        {
+          "name": "mjGAIN_AFFINE",
+          "value": 1,
+          "comment": "const + kp*length + kv*velocity"
+        },
+        {
+          "name": "mjGAIN_MUSCLE",
+          "value": 2,
+          "comment": "muscle FLV curve computed by mju_muscleGain()"
+        },
+        {
+          "name": "mjGAIN_DCMOTOR",
+          "value": 3,
+          "comment": "DC motor gain: K or K/R"
+        },
+        {
+          "name": "mjGAIN_SO3",
+          "value": 4,
+          "comment": "geodesic servo on an SO3 transmission: force = kp * log(error)"
+        },
+        {
+          "name": "mjGAIN_USER",
+          "value": 5,
+          "comment": "user-defined gain type"
+        }
+      ]
+    },
+    {
+      "name": "mjtGeom",
+      "tag": "mjtGeom",
+      "header": "mjtype.h",
+      "doc": "type of geometric shape",
+      "enumerators": [
+        {
+          "name": "mjGEOM_PLANE",
+          "value": 0,
+          "comment": "plane"
+        },
+        {
+          "name": "mjGEOM_HFIELD",
+          "value": 1,
+          "comment": "height field"
+        },
+        {
+          "name": "mjGEOM_SPHERE",
+          "value": 2,
+          "comment": "sphere"
+        },
+        {
+          "name": "mjGEOM_CAPSULE",
+          "value": 3,
+          "comment": "capsule"
+        },
+        {
+          "name": "mjGEOM_ELLIPSOID",
+          "value": 4,
+          "comment": "ellipsoid"
+        },
+        {
+          "name": "mjGEOM_CYLINDER",
+          "value": 5,
+          "comment": "cylinder"
+        },
+        {
+          "name": "mjGEOM_BOX",
+          "value": 6,
+          "comment": "box"
+        },
+        {
+          "name": "mjGEOM_MESH",
+          "value": 7,
+          "comment": "mesh"
+        },
+        {
+          "name": "mjGEOM_SDF",
+          "value": 8,
+          "comment": "signed distance field"
+        },
+        {
+          "name": "mjNGEOMTYPES",
+          "value": 9,
+          "comment": "number of regular geom types"
+        },
+        {
+          "name": "mjGEOM_ARROW",
+          "value": 100,
+          "comment": "arrow"
+        },
+        {
+          "name": "mjGEOM_ARROW1",
+          "value": 101,
+          "comment": "arrow without wedges"
+        },
+        {
+          "name": "mjGEOM_ARROW2",
+          "value": 102,
+          "comment": "arrow in both directions"
+        },
+        {
+          "name": "mjGEOM_LINE",
+          "value": 103,
+          "comment": "line"
+        },
+        {
+          "name": "mjGEOM_LINEBOX",
+          "value": 104,
+          "comment": "box with line edges"
+        },
+        {
+          "name": "mjGEOM_FLEX",
+          "value": 105,
+          "comment": "flex"
+        },
+        {
+          "name": "mjGEOM_SKIN",
+          "value": 106,
+          "comment": "skin"
+        },
+        {
+          "name": "mjGEOM_LABEL",
+          "value": 107,
+          "comment": "text label"
+        },
+        {
+          "name": "mjGEOM_TRIANGLE",
+          "value": 108,
+          "comment": "triangle"
+        },
+        {
+          "name": "mjGEOM_NONE",
+          "value": 1001,
+          "comment": "missing geom type"
+        }
+      ]
+    },
+    {
+      "name": "mjtGeomInertia",
+      "tag": "mjtGeomInertia",
+      "header": "mjspec.h",
+      "doc": "type of inertia inference",
+      "enumerators": [
+        {
+          "name": "mjINERTIA_VOLUME",
+          "value": 0,
+          "comment": "mass distributed in the volume"
+        },
+        {
+          "name": "mjINERTIA_SHELL",
+          "value": 1,
+          "comment": "mass distributed on the surface"
+        }
+      ]
+    },
+    {
+      "name": "mjtInertiaFromGeom",
+      "tag": "mjtInertiaFromGeom",
+      "header": "mjspec.h",
+      "doc": "whether to infer body inertias from child geoms",
+      "enumerators": [
+        {
+          "name": "mjINERTIAFROMGEOM_FALSE",
+          "value": 0,
+          "comment": "do not use; inertial element required"
+        },
+        {
+          "name": "mjINERTIAFROMGEOM_TRUE",
+          "value": 1,
+          "comment": "always use; overwrite inertial element"
+        },
+        {
+          "name": "mjINERTIAFROMGEOM_AUTO",
+          "value": 2,
+          "comment": "use only if inertial element is missing"
+        }
+      ]
+    },
+    {
+      "name": "mjtIntegrator",
+      "tag": "mjtIntegrator",
+      "header": "mjtype.h",
+      "doc": "integrator mode",
+      "enumerators": [
+        {
+          "name": "mjINT_EULER",
+          "value": 0,
+          "comment": "semi-implicit Euler"
+        },
+        {
+          "name": "mjINT_RK4",
+          "value": 1,
+          "comment": "4th-order Runge Kutta"
+        },
+        {
+          "name": "mjINT_IMPLICIT",
+          "value": 2,
+          "comment": "implicit in velocity"
+        },
+        {
+          "name": "mjINT_IMPLICITFAST",
+          "value": 3,
+          "comment": "implicit in velocity, no rne derivative"
+        }
+      ]
+    },
+    {
+      "name": "mjtJacobian",
+      "tag": "mjtJacobian",
+      "header": "mjtype.h",
+      "doc": "type of constraint Jacobian",
+      "enumerators": [
+        {
+          "name": "mjJAC_DENSE",
+          "value": 0,
+          "comment": "dense"
+        },
+        {
+          "name": "mjJAC_SPARSE",
+          "value": 1,
+          "comment": "sparse"
+        },
+        {
+          "name": "mjJAC_AUTO",
+          "value": 2,
+          "comment": "dense if nv<60, sparse otherwise"
+        }
+      ]
+    },
+    {
+      "name": "mjtJoint",
+      "tag": "mjtJoint",
+      "header": "mjtype.h",
+      "doc": "type of degree of freedom",
+      "enumerators": [
+        {
+          "name": "mjJNT_FREE",
+          "value": 0,
+          "comment": "global position and orientation (quat)       (7)"
+        },
+        {
+          "name": "mjJNT_BALL",
+          "value": 1,
+          "comment": "orientation (quat) relative to parent        (4)"
+        },
+        {
+          "name": "mjJNT_SLIDE",
+          "value": 2,
+          "comment": "sliding distance along body-fixed axis       (1)"
+        },
+        {
+          "name": "mjJNT_HINGE",
+          "value": 3,
+          "comment": "rotation angle (rad) around body-fixed axis  (1)"
+        }
+      ]
+    },
+    {
+      "name": "mjtLRMode",
+      "tag": "mjtLRMode",
+      "header": "mjtype.h",
+      "doc": "mode for actuator length range computation",
+      "enumerators": [
+        {
+          "name": "mjLRMODE_NONE",
+          "value": 0,
+          "comment": "do not process any actuators"
+        },
+        {
+          "name": "mjLRMODE_MUSCLE",
+          "value": 1,
+          "comment": "process muscle actuators"
+        },
+        {
+          "name": "mjLRMODE_MUSCLEUSER",
+          "value": 2,
+          "comment": "process muscle and user actuators"
+        },
+        {
+          "name": "mjLRMODE_ALL",
+          "value": 3,
+          "comment": "process all actuators"
+        }
+      ]
+    },
+    {
+      "name": "mjtLightType",
+      "tag": "mjtLightType",
+      "header": "mjtype.h",
+      "doc": "type of light",
+      "enumerators": [
+        {
+          "name": "mjLIGHT_SPOT",
+          "value": 0,
+          "comment": "spot"
+        },
+        {
+          "name": "mjLIGHT_DIRECTIONAL",
+          "value": 1,
+          "comment": "directional"
+        },
+        {
+          "name": "mjLIGHT_POINT",
+          "value": 2,
+          "comment": "point"
+        },
+        {
+          "name": "mjLIGHT_IMAGE",
+          "value": 3,
+          "comment": "image-based"
+        }
+      ]
+    },
+    {
+      "name": "mjtLimited",
+      "tag": "mjtLimited",
+      "header": "mjspec.h",
+      "doc": "type of limit specification",
+      "enumerators": [
+        {
+          "name": "mjLIMITED_FALSE",
+          "value": 0,
+          "comment": "not limited"
+        },
+        {
+          "name": "mjLIMITED_TRUE",
+          "value": 1,
+          "comment": "limited"
+        },
+        {
+          "name": "mjLIMITED_AUTO",
+          "value": 2,
+          "comment": "limited inferred from presence of range"
+        }
+      ]
+    },
+    {
+      "name": "mjtLogLevel",
+      "tag": "mjtLogLevel",
+      "header": "mjtype.h",
+      "doc": "log message severity",
+      "enumerators": [
+        {
+          "name": "mjLOG_DEBUG",
+          "value": 0,
+          "comment": "internal engine debug trace (opt-in via topic filtering)"
+        },
+        {
+          "name": "mjLOG_INFO",
+          "value": 1,
+          "comment": "informational (opt-in via topic filtering)"
+        },
+        {
+          "name": "mjLOG_WARNING",
+          "value": 2,
+          "comment": "warning"
+        },
+        {
+          "name": "mjLOG_ERROR",
+          "value": 3,
+          "comment": "error"
+        }
+      ]
+    },
+    {
+      "name": "mjtLogTopic",
+      "tag": "mjtLogTopic",
+      "header": "mjtype.h",
+      "doc": "log topic identifiers",
+      "enumerators": [
+        {
+          "name": "mjTOPIC_NONE",
+          "value": 0,
+          "comment": "no topic (always passes filtering)"
+        },
+        {
+          "name": "mjTOPIC_TIME_STP",
+          "value": 1,
+          "comment": "timing diagnostics (step)"
+        },
+        {
+          "name": "mjTOPIC_TIME_CMP",
+          "value": 2,
+          "comment": "timing diagnostics (compile)"
+        },
+        {
+          "name": "mjTOPIC_SLEEP",
+          "value": 3,
+          "comment": "sleep/wake events"
+        },
+        {
+          "name": "mjNTOPIC",
+          "value": 3,
+          "comment": "number of filterable topics"
+        }
+      ]
+    },
+    {
+      "name": "mjtMark",
+      "tag": "mjtMark",
+      "header": "mjspec.h",
+      "doc": "mark type for procedural textures",
+      "enumerators": [
+        {
+          "name": "mjMARK_NONE",
+          "value": 0,
+          "comment": "no mark"
+        },
+        {
+          "name": "mjMARK_EDGE",
+          "value": 1,
+          "comment": "edges"
+        },
+        {
+          "name": "mjMARK_CROSS",
+          "value": 2,
+          "comment": "cross"
+        },
+        {
+          "name": "mjMARK_RANDOM",
+          "value": 3,
+          "comment": "random dots"
+        }
+      ]
+    },
+    {
+      "name": "mjtMeshBuiltin",
+      "tag": "mjtMeshBuiltin",
+      "header": "mjspec.h",
+      "doc": "type of built-in procedural mesh",
+      "enumerators": [
+        {
+          "name": "mjMESH_BUILTIN_NONE",
+          "value": 0,
+          "comment": "no built-in mesh"
+        },
+        {
+          "name": "mjMESH_BUILTIN_SPHERE",
+          "value": 1,
+          "comment": "sphere"
+        },
+        {
+          "name": "mjMESH_BUILTIN_HEMISPHERE",
+          "value": 2,
+          "comment": "hemisphere"
+        },
+        {
+          "name": "mjMESH_BUILTIN_CONE",
+          "value": 3,
+          "comment": "cone"
+        },
+        {
+          "name": "mjMESH_BUILTIN_SUPERSPHERE",
+          "value": 4,
+          "comment": "supersphere"
+        },
+        {
+          "name": "mjMESH_BUILTIN_SUPERTORUS",
+          "value": 5,
+          "comment": "supertorus"
+        },
+        {
+          "name": "mjMESH_BUILTIN_WEDGE",
+          "value": 6,
+          "comment": "wedge"
+        },
+        {
+          "name": "mjMESH_BUILTIN_PLATE",
+          "value": 7,
+          "comment": "plate"
+        }
+      ]
+    },
+    {
+      "name": "mjtMeshInertia",
+      "tag": "mjtMeshInertia",
+      "header": "mjspec.h",
+      "doc": "type of mesh inertia",
+      "enumerators": [
+        {
+          "name": "mjMESH_INERTIA_CONVEX",
+          "value": 0,
+          "comment": "convex mesh inertia"
+        },
+        {
+          "name": "mjMESH_INERTIA_EXACT",
+          "value": 1,
+          "comment": "exact mesh inertia"
+        },
+        {
+          "name": "mjMESH_INERTIA_LEGACY",
+          "value": 2,
+          "comment": "legacy mesh inertia"
+        },
+        {
+          "name": "mjMESH_INERTIA_SHELL",
+          "value": 3,
+          "comment": "shell mesh inertia"
+        }
+      ]
+    },
+    {
+      "name": "mjtObj",
+      "tag": "mjtObj",
+      "header": "mjtype.h",
+      "doc": "type of MujoCo object",
+      "enumerators": [
+        {
+          "name": "mjOBJ_UNKNOWN",
+          "value": 0,
+          "comment": "unknown object type"
+        },
+        {
+          "name": "mjOBJ_BODY",
+          "value": 1,
+          "comment": "body"
+        },
+        {
+          "name": "mjOBJ_XBODY",
+          "value": 2,
+          "comment": "body, used to access regular frame instead of i-frame"
+        },
+        {
+          "name": "mjOBJ_JOINT",
+          "value": 3,
+          "comment": "joint"
+        },
+        {
+          "name": "mjOBJ_DOF",
+          "value": 4,
+          "comment": "dof"
+        },
+        {
+          "name": "mjOBJ_GEOM",
+          "value": 5,
+          "comment": "geom"
+        },
+        {
+          "name": "mjOBJ_SITE",
+          "value": 6,
+          "comment": "site"
+        },
+        {
+          "name": "mjOBJ_CAMERA",
+          "value": 7,
+          "comment": "camera"
+        },
+        {
+          "name": "mjOBJ_LIGHT",
+          "value": 8,
+          "comment": "light"
+        },
+        {
+          "name": "mjOBJ_FLEX",
+          "value": 9,
+          "comment": "flex"
+        },
+        {
+          "name": "mjOBJ_MESH",
+          "value": 10,
+          "comment": "mesh"
+        },
+        {
+          "name": "mjOBJ_SKIN",
+          "value": 11,
+          "comment": "skin"
+        },
+        {
+          "name": "mjOBJ_HFIELD",
+          "value": 12,
+          "comment": "heightfield"
+        },
+        {
+          "name": "mjOBJ_TEXTURE",
+          "value": 13,
+          "comment": "texture"
+        },
+        {
+          "name": "mjOBJ_MATERIAL",
+          "value": 14,
+          "comment": "material for rendering"
+        },
+        {
+          "name": "mjOBJ_PAIR",
+          "value": 15,
+          "comment": "geom pair to include"
+        },
+        {
+          "name": "mjOBJ_EXCLUDE",
+          "value": 16,
+          "comment": "body pair to exclude"
+        },
+        {
+          "name": "mjOBJ_EQUALITY",
+          "value": 17,
+          "comment": "equality constraint"
+        },
+        {
+          "name": "mjOBJ_TENDON",
+          "value": 18,
+          "comment": "tendon"
+        },
+        {
+          "name": "mjOBJ_ACTUATOR",
+          "value": 19,
+          "comment": "actuator"
+        },
+        {
+          "name": "mjOBJ_SENSOR",
+          "value": 20,
+          "comment": "sensor"
+        },
+        {
+          "name": "mjOBJ_NUMERIC",
+          "value": 21,
+          "comment": "numeric"
+        },
+        {
+          "name": "mjOBJ_TEXT",
+          "value": 22,
+          "comment": "text"
+        },
+        {
+          "name": "mjOBJ_TUPLE",
+          "value": 23,
+          "comment": "tuple"
+        },
+        {
+          "name": "mjOBJ_KEY",
+          "value": 24,
+          "comment": "keyframe"
+        },
+        {
+          "name": "mjOBJ_PLUGIN",
+          "value": 25,
+          "comment": "plugin instance"
+        },
+        {
+          "name": "mjNOBJECT",
+          "value": 26,
+          "comment": "number of object types"
+        },
+        {
+          "name": "mjOBJ_FRAME",
+          "value": 100,
+          "comment": "frame"
+        },
+        {
+          "name": "mjOBJ_DEFAULT",
+          "value": 101,
+          "comment": "default"
+        },
+        {
+          "name": "mjOBJ_MODEL",
+          "value": 102,
+          "comment": "entire model"
+        }
+      ]
+    },
+    {
+      "name": "mjtOrientation",
+      "tag": "mjtOrientation",
+      "header": "mjspec.h",
+      "doc": "type of orientation specifier",
+      "enumerators": [
+        {
+          "name": "mjORIENTATION_QUAT",
+          "value": 0,
+          "comment": "quaternion"
+        },
+        {
+          "name": "mjORIENTATION_AXISANGLE",
+          "value": 1,
+          "comment": "axis and angle"
+        },
+        {
+          "name": "mjORIENTATION_XYAXES",
+          "value": 2,
+          "comment": "x and y axes"
+        },
+        {
+          "name": "mjORIENTATION_ZAXIS",
+          "value": 3,
+          "comment": "z axis (minimal rotation)"
+        },
+        {
+          "name": "mjORIENTATION_EULER",
+          "value": 4,
+          "comment": "Euler angles"
+        }
+      ]
+    },
+    {
+      "name": "mjtProjection",
+      "tag": "mjtProjection",
+      "header": "mjtype.h",
+      "doc": "type of camera projection",
+      "enumerators": [
+        {
+          "name": "mjPROJ_PERSPECTIVE",
+          "value": 0,
+          "comment": "perspective"
+        },
+        {
+          "name": "mjPROJ_ORTHOGRAPHIC",
+          "value": 1,
+          "comment": "orthographic"
+        }
+      ]
+    },
+    {
+      "name": "mjtRayDataField",
+      "tag": "mjtRayDataField",
+      "header": "mjtype.h",
+      "doc": "data fields returned by rangefinder sensors",
+      "enumerators": [
+        {
+          "name": "mjRAYDATA_DIST",
+          "value": 0,
+          "comment": "distance from ray origin to nearest surface"
+        },
+        {
+          "name": "mjRAYDATA_DIR",
+          "value": 1,
+          "comment": "normalized ray direction"
+        },
+        {
+          "name": "mjRAYDATA_ORIGIN",
+          "value": 2,
+          "comment": "ray origin"
+        },
+        {
+          "name": "mjRAYDATA_POINT",
+          "value": 3,
+          "comment": "point at which ray intersects nearest surface"
+        },
+        {
+          "name": "mjRAYDATA_NORMAL",
+          "value": 4,
+          "comment": "surface normal at intersection point"
+        },
+        {
+          "name": "mjRAYDATA_DEPTH",
+          "value": 5,
+          "comment": "depth along z-axis"
+        },
+        {
+          "name": "mjNRAYDATA",
+          "value": 6,
+          "comment": "number of rangefinder sensor data fields"
+        }
+      ]
+    },
+    {
+      "name": "mjtSDFType",
+      "tag": "mjtSDFType",
+      "header": "mjtype.h",
+      "doc": "signed distance function (SDF) type",
+      "enumerators": [
+        {
+          "name": "mjSDFTYPE_SINGLE",
+          "value": 0,
+          "comment": "single SDF"
+        },
+        {
+          "name": "mjSDFTYPE_INTERSECTION",
+          "value": 1,
+          "comment": "max(A, B)"
+        },
+        {
+          "name": "mjSDFTYPE_MIDSURFACE",
+          "value": 2,
+          "comment": "A - B"
+        },
+        {
+          "name": "mjSDFTYPE_COLLISION",
+          "value": 3,
+          "comment": "A + B + abs(max(A, B))"
+        }
+      ]
+    },
+    {
+      "name": "mjtSameFrame",
+      "tag": "mjtSameFrame",
+      "header": "mjtype.h",
+      "doc": "frame alignment of bodies with their children",
+      "enumerators": [
+        {
+          "name": "mjSAMEFRAME_NONE",
+          "value": 0,
+          "comment": "no alignment"
+        },
+        {
+          "name": "mjSAMEFRAME_BODY",
+          "value": 1,
+          "comment": "frame is same as body frame"
+        },
+        {
+          "name": "mjSAMEFRAME_INERTIA",
+          "value": 2,
+          "comment": "frame is same as inertial frame"
+        },
+        {
+          "name": "mjSAMEFRAME_BODYROT",
+          "value": 3,
+          "comment": "frame orientation is same as body orientation"
+        },
+        {
+          "name": "mjSAMEFRAME_INERTIAROT",
+          "value": 4,
+          "comment": "frame orientation is same as inertia orientation"
+        }
+      ]
+    },
+    {
+      "name": "mjtSensor",
+      "tag": "mjtSensor",
+      "header": "mjtype.h",
+      "doc": "type of sensor",
+      "enumerators": [
+        {
+          "name": "mjSENS_TOUCH",
+          "value": 0,
+          "comment": "scalar contact normal forces summed over sensor zone"
+        },
+        {
+          "name": "mjSENS_ACCELEROMETER",
+          "value": 1,
+          "comment": "3D linear acceleration, in local frame"
+        },
+        {
+          "name": "mjSENS_VELOCIMETER",
+          "value": 2,
+          "comment": "3D linear velocity, in local frame"
+        },
+        {
+          "name": "mjSENS_GYRO",
+          "value": 3,
+          "comment": "3D angular velocity, in local frame"
+        },
+        {
+          "name": "mjSENS_FORCE",
+          "value": 4,
+          "comment": "3D force between site's body and its parent body"
+        },
+        {
+          "name": "mjSENS_TORQUE",
+          "value": 5,
+          "comment": "3D torque between site's body and its parent body"
+        },
+        {
+          "name": "mjSENS_MAGNETOMETER",
+          "value": 6,
+          "comment": "3D magnetometer"
+        },
+        {
+          "name": "mjSENS_RANGEFINDER",
+          "value": 7,
+          "comment": "scalar distance to nearest geom along z-axis"
+        },
+        {
+          "name": "mjSENS_CAMPROJECTION",
+          "value": 8,
+          "comment": "pixel coordinates of a site in the camera image"
+        },
+        {
+          "name": "mjSENS_JOINTPOS",
+          "value": 9,
+          "comment": "scalar joint position (hinge and slide only)"
+        },
+        {
+          "name": "mjSENS_JOINTVEL",
+          "value": 10,
+          "comment": "scalar joint velocity (hinge and slide only)"
+        },
+        {
+          "name": "mjSENS_TENDONPOS",
+          "value": 11,
+          "comment": "scalar tendon position"
+        },
+        {
+          "name": "mjSENS_TENDONVEL",
+          "value": 12,
+          "comment": "scalar tendon velocity"
+        },
+        {
+          "name": "mjSENS_ACTUATORPOS",
+          "value": 13,
+          "comment": "scalar actuator position"
+        },
+        {
+          "name": "mjSENS_ACTUATORVEL",
+          "value": 14,
+          "comment": "scalar actuator velocity"
+        },
+        {
+          "name": "mjSENS_ACTUATORFRC",
+          "value": 15,
+          "comment": "scalar actuator force"
+        },
+        {
+          "name": "mjSENS_JOINTACTFRC",
+          "value": 16,
+          "comment": "scalar actuator force, measured at the joint"
+        },
+        {
+          "name": "mjSENS_TENDONACTFRC",
+          "value": 17,
+          "comment": "scalar actuator force, measured at the tendon"
+        },
+        {
+          "name": "mjSENS_BALLQUAT",
+          "value": 18,
+          "comment": "4D ball joint quaternion"
+        },
+        {
+          "name": "mjSENS_BALLANGVEL",
+          "value": 19,
+          "comment": "3D ball joint angular velocity"
+        },
+        {
+          "name": "mjSENS_JOINTLIMITPOS",
+          "value": 20,
+          "comment": "joint limit distance-margin"
+        },
+        {
+          "name": "mjSENS_JOINTLIMITVEL",
+          "value": 21,
+          "comment": "joint limit velocity"
+        },
+        {
+          "name": "mjSENS_JOINTLIMITFRC",
+          "value": 22,
+          "comment": "joint limit force"
+        },
+        {
+          "name": "mjSENS_TENDONLIMITPOS",
+          "value": 23,
+          "comment": "tendon limit distance-margin"
+        },
+        {
+          "name": "mjSENS_TENDONLIMITVEL",
+          "value": 24,
+          "comment": "tendon limit velocity"
+        },
+        {
+          "name": "mjSENS_TENDONLIMITFRC",
+          "value": 25,
+          "comment": "tendon limit force"
+        },
+        {
+          "name": "mjSENS_FRAMEPOS",
+          "value": 26,
+          "comment": "3D position"
+        },
+        {
+          "name": "mjSENS_FRAMEQUAT",
+          "value": 27,
+          "comment": "4D unit quaternion orientation"
+        },
+        {
+          "name": "mjSENS_FRAMEXAXIS",
+          "value": 28,
+          "comment": "3D unit vector: x-axis of object's frame"
+        },
+        {
+          "name": "mjSENS_FRAMEYAXIS",
+          "value": 29,
+          "comment": "3D unit vector: y-axis of object's frame"
+        },
+        {
+          "name": "mjSENS_FRAMEZAXIS",
+          "value": 30,
+          "comment": "3D unit vector: z-axis of object's frame"
+        },
+        {
+          "name": "mjSENS_FRAMELINVEL",
+          "value": 31,
+          "comment": "3D linear velocity"
+        },
+        {
+          "name": "mjSENS_FRAMEANGVEL",
+          "value": 32,
+          "comment": "3D angular velocity"
+        },
+        {
+          "name": "mjSENS_FRAMELINACC",
+          "value": 33,
+          "comment": "3D linear acceleration"
+        },
+        {
+          "name": "mjSENS_FRAMEANGACC",
+          "value": 34,
+          "comment": "3D angular acceleration"
+        },
+        {
+          "name": "mjSENS_SUBTREECOM",
+          "value": 35,
+          "comment": "3D center of mass of subtree"
+        },
+        {
+          "name": "mjSENS_SUBTREELINVEL",
+          "value": 36,
+          "comment": "3D linear velocity of subtree"
+        },
+        {
+          "name": "mjSENS_SUBTREEANGMOM",
+          "value": 37,
+          "comment": "3D angular momentum of subtree"
+        },
+        {
+          "name": "mjSENS_INSIDESITE",
+          "value": 38,
+          "comment": "1 if object is inside a site, 0 otherwise"
+        },
+        {
+          "name": "mjSENS_GEOMDIST",
+          "value": 39,
+          "comment": "signed distance between two geoms"
+        },
+        {
+          "name": "mjSENS_GEOMNORMAL",
+          "value": 40,
+          "comment": "normal direction between two geoms"
+        },
+        {
+          "name": "mjSENS_GEOMFROMTO",
+          "value": 41,
+          "comment": "segment between two geoms"
+        },
+        {
+          "name": "mjSENS_CONTACT",
+          "value": 42,
+          "comment": "contacts which occurred during the simulation"
+        },
+        {
+          "name": "mjSENS_E_POTENTIAL",
+          "value": 43,
+          "comment": "potential energy"
+        },
+        {
+          "name": "mjSENS_E_KINETIC",
+          "value": 44,
+          "comment": "kinetic energy"
+        },
+        {
+          "name": "mjSENS_CLOCK",
+          "value": 45,
+          "comment": "simulation time"
+        },
+        {
+          "name": "mjSENS_TACTILE",
+          "value": 46,
+          "comment": "tactile sensor"
+        },
+        {
+          "name": "mjSENS_PLUGIN",
+          "value": 47,
+          "comment": "plugin-controlled"
+        },
+        {
+          "name": "mjSENS_USER",
+          "value": 48,
+          "comment": "sensor data provided by mjcb_sensor callback"
+        }
+      ]
+    },
+    {
+      "name": "mjtSleepPolicy",
+      "tag": "mjtSleepPolicy",
+      "header": "mjtype.h",
+      "doc": "per-tree sleep policy",
+      "enumerators": [
+        {
+          "name": "mjSLEEP_AUTO",
+          "value": 0,
+          "comment": "compiler chooses sleep policy"
+        },
+        {
+          "name": "mjSLEEP_AUTO_NEVER",
+          "value": 1,
+          "comment": "compiler sleep policy: never"
+        },
+        {
+          "name": "mjSLEEP_AUTO_ALLOWED",
+          "value": 2,
+          "comment": "compiler sleep policy: allowed"
+        },
+        {
+          "name": "mjSLEEP_NEVER",
+          "value": 3,
+          "comment": "user sleep policy: never"
+        },
+        {
+          "name": "mjSLEEP_ALLOWED",
+          "value": 4,
+          "comment": "user sleep policy: allowed"
+        },
+        {
+          "name": "mjSLEEP_INIT",
+          "value": 5,
+          "comment": "user sleep policy: initialized asleep"
+        }
+      ]
+    },
+    {
+      "name": "mjtSleepState",
+      "tag": "mjtSleepState",
+      "header": "mjtype.h",
+      "doc": "sleep state of an object",
+      "enumerators": [
+        {
+          "name": "mjS_STATIC",
+          "value": -1,
+          "comment": "object is static"
+        },
+        {
+          "name": "mjS_ASLEEP",
+          "value": 0,
+          "comment": "object is asleep"
+        },
+        {
+          "name": "mjS_AWAKE",
+          "value": 1,
+          "comment": "object is awake"
+        }
+      ]
+    },
+    {
+      "name": "mjtSolver",
+      "tag": "mjtSolver",
+      "header": "mjtype.h",
+      "doc": "constraint solver algorithm",
+      "enumerators": [
+        {
+          "name": "mjSOL_PGS",
+          "value": 0,
+          "comment": "PGS    (dual)"
+        },
+        {
+          "name": "mjSOL_CG",
+          "value": 1,
+          "comment": "CG     (primal)"
+        },
+        {
+          "name": "mjSOL_NEWTON",
+          "value": 2,
+          "comment": "Newton (primal)"
+        }
+      ]
+    },
+    {
+      "name": "mjtStage",
+      "tag": "mjtStage",
+      "header": "mjtype.h",
+      "doc": "computation stage",
+      "enumerators": [
+        {
+          "name": "mjSTAGE_NONE",
+          "value": 0,
+          "comment": "no computations"
+        },
+        {
+          "name": "mjSTAGE_POS",
+          "value": 1,
+          "comment": "position-dependent computations"
+        },
+        {
+          "name": "mjSTAGE_VEL",
+          "value": 2,
+          "comment": "velocity-dependent computations"
+        },
+        {
+          "name": "mjSTAGE_ACC",
+          "value": 3,
+          "comment": "acceleration/force-dependent computations"
+        }
+      ]
+    },
+    {
+      "name": "mjtState",
+      "tag": "mjtState",
+      "header": "mjtype.h",
+      "doc": "state elements",
+      "enumerators": [
+        {
+          "name": "mjSTATE_TIME",
+          "value": 1,
+          "comment": "time"
+        },
+        {
+          "name": "mjSTATE_QPOS",
+          "value": 2,
+          "comment": "position"
+        },
+        {
+          "name": "mjSTATE_QVEL",
+          "value": 4,
+          "comment": "velocity"
+        },
+        {
+          "name": "mjSTATE_ACT",
+          "value": 8,
+          "comment": "actuator activation"
+        },
+        {
+          "name": "mjSTATE_HISTORY",
+          "value": 16,
+          "comment": "history buffers (control, sensor)"
+        },
+        {
+          "name": "mjSTATE_WARMSTART",
+          "value": 32,
+          "comment": "acceleration used for warmstart"
+        },
+        {
+          "name": "mjSTATE_CTRL",
+          "value": 64,
+          "comment": "control"
+        },
+        {
+          "name": "mjSTATE_QFRC_APPLIED",
+          "value": 128,
+          "comment": "applied generalized force"
+        },
+        {
+          "name": "mjSTATE_XFRC_APPLIED",
+          "value": 256,
+          "comment": "applied Cartesian force/torque"
+        },
+        {
+          "name": "mjSTATE_EQ_ACTIVE",
+          "value": 512,
+          "comment": "enable/disable constraints"
+        },
+        {
+          "name": "mjSTATE_MOCAP_POS",
+          "value": 1024,
+          "comment": "positions of mocap bodies"
+        },
+        {
+          "name": "mjSTATE_MOCAP_QUAT",
+          "value": 2048,
+          "comment": "orientations of mocap bodies"
+        },
+        {
+          "name": "mjSTATE_USERDATA",
+          "value": 4096,
+          "comment": "user data"
+        },
+        {
+          "name": "mjSTATE_PLUGIN",
+          "value": 8192,
+          "comment": "plugin state"
+        },
+        {
+          "name": "mjNSTATE",
+          "value": 14,
+          "comment": "number of state elements"
+        },
+        {
+          "name": "mjSTATE_PHYSICS",
+          "value": 30,
+          "comment": ""
+        },
+        {
+          "name": "mjSTATE_FULLPHYSICS",
+          "value": 8223,
+          "comment": ""
+        },
+        {
+          "name": "mjSTATE_USER",
+          "value": 8128,
+          "comment": ""
+        },
+        {
+          "name": "mjSTATE_INTEGRATION",
+          "value": 16383,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtTexture",
+      "tag": "mjtTexture",
+      "header": "mjtype.h",
+      "doc": "type of texture",
+      "enumerators": [
+        {
+          "name": "mjTEXTURE_2D",
+          "value": 0,
+          "comment": "2d texture, suitable for planes and hfields"
+        },
+        {
+          "name": "mjTEXTURE_CUBE",
+          "value": 1,
+          "comment": "cube texture, suitable for all other geom types"
+        },
+        {
+          "name": "mjTEXTURE_SKYBOX",
+          "value": 2,
+          "comment": "cube texture used as skybox"
+        }
+      ]
+    },
+    {
+      "name": "mjtTextureRole",
+      "tag": "mjtTextureRole",
+      "header": "mjtype.h",
+      "doc": "role of texture map in rendering",
+      "enumerators": [
+        {
+          "name": "mjTEXROLE_USER",
+          "value": 0,
+          "comment": "unspecified"
+        },
+        {
+          "name": "mjTEXROLE_RGB",
+          "value": 1,
+          "comment": "base color (albedo)"
+        },
+        {
+          "name": "mjTEXROLE_OCCLUSION",
+          "value": 2,
+          "comment": "ambient occlusion"
+        },
+        {
+          "name": "mjTEXROLE_ROUGHNESS",
+          "value": 3,
+          "comment": "roughness"
+        },
+        {
+          "name": "mjTEXROLE_METALLIC",
+          "value": 4,
+          "comment": "metallic"
+        },
+        {
+          "name": "mjTEXROLE_NORMAL",
+          "value": 5,
+          "comment": "normal (bump) map"
+        },
+        {
+          "name": "mjTEXROLE_OPACITY",
+          "value": 6,
+          "comment": "opacity"
+        },
+        {
+          "name": "mjTEXROLE_EMISSIVE",
+          "value": 7,
+          "comment": "light emission"
+        },
+        {
+          "name": "mjTEXROLE_RGBA",
+          "value": 8,
+          "comment": "base color, opacity"
+        },
+        {
+          "name": "mjTEXROLE_ORM",
+          "value": 9,
+          "comment": "occlusion, roughness, metallic"
+        },
+        {
+          "name": "mjNTEXROLE",
+          "value": 10,
+          "comment": ""
+        }
+      ]
+    },
+    {
+      "name": "mjtTimer",
+      "tag": "mjtTimer",
+      "header": "mjtype.h",
+      "doc": "internal timers",
+      "enumerators": [
+        {
+          "name": "mjTIMER_STEP",
+          "value": 0,
+          "comment": "step"
+        },
+        {
+          "name": "mjTIMER_FORWARD",
+          "value": 1,
+          "comment": "forward"
+        },
+        {
+          "name": "mjTIMER_INVERSE",
+          "value": 2,
+          "comment": "inverse"
+        },
+        {
+          "name": "mjTIMER_POSITION",
+          "value": 3,
+          "comment": "fwdPosition"
+        },
+        {
+          "name": "mjTIMER_VELOCITY",
+          "value": 4,
+          "comment": "fwdVelocity"
+        },
+        {
+          "name": "mjTIMER_ACTUATION",
+          "value": 5,
+          "comment": "fwdActuation"
+        },
+        {
+          "name": "mjTIMER_CONSTRAINT",
+          "value": 6,
+          "comment": "fwdConstraint"
+        },
+        {
+          "name": "mjTIMER_ADVANCE",
+          "value": 7,
+          "comment": "mj_Euler, mj_implicit"
+        },
+        {
+          "name": "mjTIMER_POS_KINEMATICS",
+          "value": 8,
+          "comment": "kinematics, com, tendon, transmission"
+        },
+        {
+          "name": "mjTIMER_POS_INERTIA",
+          "value": 9,
+          "comment": "inertia computations"
+        },
+        {
+          "name": "mjTIMER_POS_COLLISION",
+          "value": 10,
+          "comment": "collision detection"
+        },
+        {
+          "name": "mjTIMER_POS_MAKE",
+          "value": 11,
+          "comment": "make constraints"
+        },
+        {
+          "name": "mjTIMER_POS_PROJECT",
+          "value": 12,
+          "comment": "project constraints"
+        },
+        {
+          "name": "mjTIMER_COL_BROAD",
+          "value": 13,
+          "comment": "broadphase"
+        },
+        {
+          "name": "mjTIMER_COL_NARROW",
+          "value": 14,
+          "comment": "narrowphase"
+        },
+        {
+          "name": "mjNTIMER",
+          "value": 15,
+          "comment": "number of timers"
+        }
+      ]
+    },
+    {
+      "name": "mjtTrn",
+      "tag": "mjtTrn",
+      "header": "mjtype.h",
+      "doc": "type of actuator transmission",
+      "enumerators": [
+        {
+          "name": "mjTRN_JOINT",
+          "value": 0,
+          "comment": "force on joint"
+        },
+        {
+          "name": "mjTRN_JOINTINPARENT",
+          "value": 1,
+          "comment": "force on joint, expressed in parent frame"
+        },
+        {
+          "name": "mjTRN_SLIDERCRANK",
+          "value": 2,
+          "comment": "force via slider-crank linkage"
+        },
+        {
+          "name": "mjTRN_TENDON",
+          "value": 3,
+          "comment": "force on tendon"
+        },
+        {
+          "name": "mjTRN_SITE",
+          "value": 4,
+          "comment": "force on site"
+        },
+        {
+          "name": "mjTRN_BODY",
+          "value": 5,
+          "comment": "adhesion force on a body's geoms"
+        },
+        {
+          "name": "mjTRN_SO3",
+          "value": 6,
+          "comment": "torque on a relative orientation (3 force outputs)"
+        },
+        {
+          "name": "mjTRN_UNDEFINED",
+          "value": 1000,
+          "comment": "undefined transmission type"
+        }
+      ]
+    },
+    {
+      "name": "mjtWarning",
+      "tag": "mjtWarning",
+      "header": "mjtype.h",
+      "doc": "warning types",
+      "enumerators": [
+        {
+          "name": "mjWARN_INERTIA",
+          "value": 0,
+          "comment": "(near) singular inertia matrix"
+        },
+        {
+          "name": "mjWARN_CONTACTFULL",
+          "value": 1,
+          "comment": "too many contacts in contact list"
+        },
+        {
+          "name": "mjWARN_CNSTRFULL",
+          "value": 2,
+          "comment": "too many constraints"
+        },
+        {
+          "name": "mjWARN_BADQPOS",
+          "value": 3,
+          "comment": "bad number in qpos"
+        },
+        {
+          "name": "mjWARN_BADQVEL",
+          "value": 4,
+          "comment": "bad number in qvel"
+        },
+        {
+          "name": "mjWARN_BADQACC",
+          "value": 5,
+          "comment": "bad number in qacc"
+        },
+        {
+          "name": "mjWARN_BADCTRL",
+          "value": 6,
+          "comment": "bad number in ctrl"
+        },
+        {
+          "name": "mjNWARNING",
+          "value": 7,
+          "comment": "number of warnings"
+        }
+      ]
+    },
+    {
+      "name": "mjtWrap",
+      "tag": "mjtWrap",
+      "header": "mjtype.h",
+      "doc": "type of tendon wrap object",
+      "enumerators": [
+        {
+          "name": "mjWRAP_NONE",
+          "value": 0,
+          "comment": "null object"
+        },
+        {
+          "name": "mjWRAP_JOINT",
+          "value": 1,
+          "comment": "constant moment arm"
+        },
+        {
+          "name": "mjWRAP_PULLEY",
+          "value": 2,
+          "comment": "pulley used to split tendon"
+        },
+        {
+          "name": "mjWRAP_SITE",
+          "value": 3,
+          "comment": "pass through site"
+        },
+        {
+          "name": "mjWRAP_SPHERE",
+          "value": 4,
+          "comment": "wrap around sphere"
+        },
+        {
+          "name": "mjWRAP_CYLINDER",
+          "value": 5,
+          "comment": "wrap around (infinite) cylinder"
+        }
+      ]
+    }
+  ]
+}
