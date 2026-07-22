@@ -1,0 +1,313 @@
+mujoco_bind "3.11.0"
+
+// READABILITY EXHIBIT -- a same-grammar OVERLAY sample, NOT loaded by any
+// emitter. Illustrates the density-hybrid layout the user is weighing:
+// the DENSE reader keyword value columns (every member's (c=)) live here,
+// keyed back to schema/mujoco.spec by enum + member name; the SPARSE facts
+// (mjs=, lenient, mjs_c) stay inline in the .spec. See the emitter-owned
+// inline implementation in schema/mujoco.spec for the version actually used.
+
+extend enum AngleUnit {
+  radian (c=0)
+  degree (c=1)
+}
+
+extend enum BiasType (ctype=mjtBias) {
+  none    (c=mjBIAS_NONE)
+  affine  (c=mjBIAS_AFFINE)
+  muscle  (c=mjBIAS_MUSCLE)
+  dcmotor (c=mjBIAS_DCMOTOR)
+  so3     (c=mjBIAS_SO3, no_mjs)
+  user    (c=mjBIAS_USER)
+}
+
+extend enum BodySleep (ctype=mjtSleepPolicy) {
+  auto    (c=mjSLEEP_AUTO)
+  never   (c=mjSLEEP_NEVER)
+  allowed (c=mjSLEEP_ALLOWED)
+  init    (c=mjSLEEP_INIT)
+}
+
+extend enum CamLightMode (ctype=mjtCamLight) {
+  fixed         (c=mjCAMLIGHT_FIXED)
+  track         (c=mjCAMLIGHT_TRACK)
+  trackcom      (c=mjCAMLIGHT_TRACKCOM)
+  targetbody    (c=mjCAMLIGHT_TARGETBODY)
+  targetbodycom (c=mjCAMLIGHT_TARGETBODYCOM)
+}
+
+extend enum CameraOutput {
+  rgb          (c=mjCAMOUT_RGB)
+  depth        (c=mjCAMOUT_DEPTH)
+  distance     (c=mjCAMOUT_DIST)
+  normal       (c=mjCAMOUT_NORMAL)
+  segmentation (c=mjCAMOUT_SEG)
+}
+
+extend enum CameraProjection (ctype=mjtProjection) {
+  perspective  (c=mjPROJ_PERSPECTIVE)
+  orthographic (c=mjPROJ_ORTHOGRAPHIC)
+}
+
+extend enum ColorSpace (ctype=mjtColorSpace) {
+  auto   (c=mjCOLORSPACE_AUTO)
+  linear (c=mjCOLORSPACE_LINEAR)
+  sRGB   (c=mjCOLORSPACE_SRGB)
+}
+
+extend enum CompositeType {
+  particle (c=mjCOMPTYPE_PARTICLE)
+  grid     (c=mjCOMPTYPE_GRID)
+  rope     (c=mjCOMPTYPE_ROPE)
+  loop     (c=mjCOMPTYPE_LOOP)
+  cable    (c=mjCOMPTYPE_CABLE)
+  cloth    (c=mjCOMPTYPE_CLOTH)
+}
+
+extend enum Cone {
+  pyramidal (c=mjCONE_PYRAMIDAL)
+  elliptic  (c=mjCONE_ELLIPTIC)
+}
+
+extend enum Conflict (ctype=mjtConflict) {
+  warning (c=mjCONFLICT_WARNING)
+  merge   (c=mjCONFLICT_MERGE)
+  error   (c=mjCONFLICT_ERROR)
+}
+
+extend enum ContactData {
+  found   (c=mjCONDATA_FOUND)
+  force   (c=mjCONDATA_FORCE)
+  torque  (c=mjCONDATA_TORQUE)
+  dist    (c=mjCONDATA_DIST)
+  pos     (c=mjCONDATA_POS)
+  normal  (c=mjCONDATA_NORMAL)
+  tangent (c=mjCONDATA_TANGENT)
+}
+
+extend enum ContactReduce {
+  none     (c=0)
+  mindist  (c=1)
+  maxforce (c=2)
+  netforce (c=3)
+}
+
+extend enum Coordinate {
+  local  (c=0)
+  global (c=1)
+}
+
+extend enum DataType (ctype=mjtDataType) {
+  real       (c=mjDATATYPE_REAL)
+  positive   (c=mjDATATYPE_POSITIVE)
+  axis       (c=mjDATATYPE_AXIS)
+  quaternion (c=mjDATATYPE_QUATERNION)
+}
+
+extend enum DcMotorInput {
+  voltage  (c=0)
+  position (c=1)
+  velocity (c=2)
+}
+
+extend enum DynType (ctype=mjtDyn) {
+  none        (c=mjDYN_NONE)
+  integrator  (c=mjDYN_INTEGRATOR)
+  filter      (c=mjDYN_FILTER)
+  filterexact (c=mjDYN_FILTEREXACT)
+  muscle      (c=mjDYN_MUSCLE)
+  dcmotor     (c=mjDYN_DCMOTOR)
+  user        (c=mjDYN_USER)
+}
+
+extend enum Elastic2D {
+  none    (c=0)
+  bend    (c=1)
+  stretch (c=2)
+  both    (c=3)
+}
+
+extend enum FlexDof {
+  full      (c=mjFCOMPDOF_FULL)
+  radial    (c=mjFCOMPDOF_RADIAL)
+  trilinear (c=mjFCOMPDOF_TRILINEAR)
+  quadratic (c=mjFCOMPDOF_QUADRATIC)
+  twod      (c=mjFCOMPDOF_2D)
+}
+
+extend enum FlexEquality {
+  false_ (c=0)
+  true_  (c=1)
+  vert   (c=2)
+  strain (c=3)
+}
+
+extend enum FlexSelfCollide {
+  none   (c=mjFLEXSELF_NONE)
+  narrow (c=mjFLEXSELF_NARROW)
+  bvh    (c=mjFLEXSELF_BVH)
+  sap    (c=mjFLEXSELF_SAP)
+  auto   (c=mjFLEXSELF_AUTO)
+}
+
+extend enum FlexcompType {
+  grid      (c=mjFCOMPTYPE_GRID)
+  box       (c=mjFCOMPTYPE_BOX)
+  cylinder  (c=mjFCOMPTYPE_CYLINDER)
+  ellipsoid (c=mjFCOMPTYPE_ELLIPSOID)
+  square    (c=mjFCOMPTYPE_SQUARE)
+  disc      (c=mjFCOMPTYPE_DISC)
+  circle    (c=mjFCOMPTYPE_CIRCLE)
+  mesh      (c=mjFCOMPTYPE_MESH)
+  gmsh      (c=mjFCOMPTYPE_GMSH)
+  direct    (c=mjFCOMPTYPE_DIRECT)
+}
+
+extend enum FluidShape {
+  none      (c=0)
+  ellipsoid (c=1)
+}
+
+extend enum GainType (ctype=mjtGain) {
+  fixed   (c=mjGAIN_FIXED)
+  affine  (c=mjGAIN_AFFINE)
+  muscle  (c=mjGAIN_MUSCLE)
+  dcmotor (c=mjGAIN_DCMOTOR)
+  so3     (c=mjGAIN_SO3, no_mjs)
+  user    (c=mjGAIN_USER)
+}
+
+extend enum GeomType (ctype=mjtGeom) {
+  plane     (c=mjGEOM_PLANE)
+  hfield    (c=mjGEOM_HFIELD)
+  sphere    (c=mjGEOM_SPHERE)
+  capsule   (c=mjGEOM_CAPSULE)
+  ellipsoid (c=mjGEOM_ELLIPSOID)
+  cylinder  (c=mjGEOM_CYLINDER)
+  box       (c=mjGEOM_BOX)
+  mesh      (c=mjGEOM_MESH)
+  sdf       (c=mjGEOM_SDF)
+}
+
+extend enum Integrator {
+  Euler        (c=mjINT_EULER)
+  RK4          (c=mjINT_RK4)
+  implicit     (c=mjINT_IMPLICIT)
+  implicitfast (c=mjINT_IMPLICITFAST)
+}
+
+extend enum InterpType (ctype=int) {
+  zoh    (c=0)
+  linear (c=1)
+  cubic  (c=2)
+}
+
+extend enum JacobianType {
+  dense  (c=mjJAC_DENSE)
+  sparse (c=mjJAC_SPARSE)
+  auto   (c=mjJAC_AUTO)
+}
+
+extend enum JointType (ctype=mjtJoint) {
+  free  (c=mjJNT_FREE)
+  ball  (c=mjJNT_BALL)
+  slide (c=mjJNT_SLIDE)
+  hinge (c=mjJNT_HINGE)
+}
+
+extend enum LRMode {
+  none       (c=mjLRMODE_NONE)
+  muscle     (c=mjLRMODE_MUSCLE)
+  muscleuser (c=mjLRMODE_MUSCLEUSER)
+  all        (c=mjLRMODE_ALL)
+}
+
+extend enum LightType (ctype=mjtLightType) {
+  spot        (c=mjLIGHT_SPOT)
+  directional (c=mjLIGHT_DIRECTIONAL)
+  point       (c=mjLIGHT_POINT)
+  image       (c=mjLIGHT_IMAGE)
+}
+
+extend enum MeshBuiltin {
+  none        (c=mjMESH_BUILTIN_NONE)
+  sphere      (c=mjMESH_BUILTIN_SPHERE)
+  hemisphere  (c=mjMESH_BUILTIN_HEMISPHERE)
+  cone        (c=mjMESH_BUILTIN_CONE)
+  supertorus  (c=mjMESH_BUILTIN_SUPERTORUS)
+  supersphere (c=mjMESH_BUILTIN_SUPERSPHERE)
+  wedge       (c=mjMESH_BUILTIN_WEDGE)
+  plate       (c=mjMESH_BUILTIN_PLATE)
+}
+
+extend enum MeshInertia (ctype=mjtMeshInertia) {
+  convex (c=mjMESH_INERTIA_CONVEX)
+  legacy (c=mjMESH_INERTIA_LEGACY)
+  exact  (c=mjMESH_INERTIA_EXACT)
+  shell  (c=mjMESH_INERTIA_SHELL)
+}
+
+extend enum NeedStage (ctype=mjtStage) {
+  none (c=mjSTAGE_NONE)
+  pos  (c=mjSTAGE_POS)
+  vel  (c=mjSTAGE_VEL)
+  acc  (c=mjSTAGE_ACC)
+}
+
+extend enum RayData {
+  dist   (c=mjRAYDATA_DIST)
+  dir    (c=mjRAYDATA_DIR)
+  origin (c=mjRAYDATA_ORIGIN)
+  point  (c=mjRAYDATA_POINT)
+  normal (c=mjRAYDATA_NORMAL)
+  depth  (c=mjRAYDATA_DEPTH)
+}
+
+extend enum SO3Input {
+  expmap (c=mjCHART_EXPMAP)
+  quat   (c=mjCHART_QUAT)
+}
+
+extend enum SimpleMode (ctype=mjtByte) {
+  false_ (c=0)
+  auto   (c=1)
+}
+
+extend enum SolverType {
+  PGS    (c=mjSOL_PGS)
+  CG     (c=mjSOL_CG)
+  Newton (c=mjSOL_NEWTON)
+}
+
+extend enum TexRole {
+  rgb       (c=mjTEXROLE_RGB)
+  occlusion (c=mjTEXROLE_OCCLUSION)
+  roughness (c=mjTEXROLE_ROUGHNESS)
+  metallic  (c=mjTEXROLE_METALLIC)
+  normal    (c=mjTEXROLE_NORMAL)
+  opacity   (c=mjTEXROLE_OPACITY)
+  emissive  (c=mjTEXROLE_EMISSIVE)
+  rgba      (c=mjTEXROLE_RGBA)
+  orm       (c=mjTEXROLE_ORM)
+}
+
+extend enum TextureBuiltin {
+  none     (c=mjBUILTIN_NONE)
+  gradient (c=mjBUILTIN_GRADIENT)
+  checker  (c=mjBUILTIN_CHECKER)
+  flat     (c=mjBUILTIN_FLAT)
+}
+
+extend enum TextureMark (ctype=mjtMark) {
+  none   (c=mjMARK_NONE)
+  edge   (c=mjMARK_EDGE)
+  cross  (c=mjMARK_CROSS)
+  random (c=mjMARK_RANDOM)
+}
+
+extend enum TextureType (ctype=mjtTexture) {
+  twod   (c=mjTEXTURE_2D)
+  cube   (c=mjTEXTURE_CUBE)
+  skybox (c=mjTEXTURE_SKYBOX)
+}
+
