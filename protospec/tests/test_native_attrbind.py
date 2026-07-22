@@ -35,6 +35,7 @@ INC = REPO / "src" / "xml" / "xml_native_attrbind.inc"
 EXPECTED_COUNTS = {
     "Site": 6, "Camera": 10, "Light": 14, "Material": 8, "Pair": 8,
     "Geom": 24, "Joint": 20, "ActuatorGeneral": 14, "Spatial": 17, "Connect": 2,
+    "Mesh": 5, "Touch": 6,
 }
 
 # Elements converted with an allow-list (only a mechanical prefix); the rest of
@@ -88,6 +89,7 @@ ELEM_METHOD = {
     "Material": "OneMaterial", "Pair": "OnePair", "Geom": "OneGeom",
     "Joint": "OneJoint", "ActuatorGeneral": "OneActuator",
     "Spatial": "OneTendon", "Connect": "OneEquality",
+    "Mesh": "OneMesh", "Touch": "Sensor",
 }
 
 

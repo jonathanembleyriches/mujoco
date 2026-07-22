@@ -171,4 +171,23 @@ const AttrBind kConnectBinds[] = {
   {"solimp", kBindDouble, 5, offsetof(mjsEquality, solimp), false, nullptr, 0},
 };
 const int kConnectBindsN = 2;
+
+const AttrBind kMeshBinds[] = {
+  {"refpos",   kBindDouble, 3, offsetof(mjsMesh, refpos), true, nullptr, 0},
+  {"refquat",  kBindDouble, 4, offsetof(mjsMesh, refquat), true, nullptr, 0},
+  {"scale",    kBindDouble, 3, offsetof(mjsMesh, scale), true, nullptr, 0},
+  {"inertia",  kBindEnum,   0, offsetof(mjsMesh, inertia), true, meshinertia_map, 4},
+  {"material", kBindString, 0, offsetof(mjsMesh, material), true, nullptr, 0},
+};
+const int kMeshBindsN = 5;
+
+const AttrBind kTouchBinds[] = {
+  {"nsample",  kBindInt,    1, offsetof(mjsSensor, nsample), true, nullptr, 0},
+  {"interp",   kBindEnum,   0, offsetof(mjsSensor, interp), true, interp_map, interp_sz},
+  {"delay",    kBindDouble, 1, offsetof(mjsSensor, delay), true, nullptr, 0},
+  {"interval", kBindDouble, 2, offsetof(mjsSensor, interval), false, nullptr, 0},
+  {"cutoff",   kBindDouble, 1, offsetof(mjsSensor, cutoff), true, nullptr, 0},
+  {"noise",    kBindDouble, 1, offsetof(mjsSensor, noise), true, nullptr, 0},
+};
+const int kTouchBindsN = 6;
 // clang-format on

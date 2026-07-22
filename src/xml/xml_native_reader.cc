@@ -917,12 +917,8 @@ void mjXReader::OneMesh(XMLElement* elem, mjsMesh* mesh, const mjVFS* vfs) {
   if (file) {
     mjs_setString(mesh->file, file->c_str());
   }
-  ReadAttr(elem, "refpos", 3, mesh->refpos, text);
-  ReadAttr(elem, "refquat", 4, mesh->refquat, text);
-  ReadAttr(elem, "scale", 3, mesh->scale, text);
-  if (MapValue(elem, "inertia", &n, meshinertia_map, 4)) {
-    mesh->inertia = (mjtMeshInertia)n;
-  }
+  // mechanical attr->field reads (refpos, refquat, scale, inertia, material)
+  ReadAttrBinds(elem, mesh, kMeshBinds, kMeshBindsN, text);
 
   XMLElement* eplugin = FirstChildElement(elem, "plugin");
   if (eplugin) {
@@ -983,11 +979,6 @@ void mjXReader::OneMesh(XMLElement* elem, mjsMesh* mesh, const mjVFS* vfs) {
     if (mjs_makeMesh(mesh, (mjtMeshBuiltin)n, params.data(), nparams)) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
-  }
-
-  std::string material;
-  if (ReadAttrTxt(elem, "material", material)) {
-    mjs_setString(mesh->material, material.c_str());
   }
 
   // write error info
@@ -3404,12 +3395,9 @@ void mjXReader::Sensor(XMLElement* section) {
         throw mjXError(elem, "%s", mjs_getError(spec));
       }
     }
-    ReadAttr(elem, "cutoff", 1, &sensor->cutoff, text);
-    ReadAttr(elem, "noise", 1, &sensor->noise, text);
-    ReadAttrInt(elem, "nsample", &sensor->nsample);
-    MapValue(elem, "interp", &sensor->interp, interp_map, interp_sz);
-    ReadAttr(elem, "delay", 1, &sensor->delay, text);
-    ReadAttr(elem, "interval", 2, sensor->interval, text, /*required=*/false, /*exact=*/false);
+    // mechanical common sensor attributes shared by every sensor type (cutoff,
+    // noise, nsample, interp, delay, interval); per-type dispatch follows.
+    ReadAttrBinds(elem, sensor, kTouchBinds, kTouchBindsN, text);
     if (ReadVector(elem, "user", userdata, text)) {
       mjs_setDouble(sensor->userdata, userdata.data(), userdata.size());
     }

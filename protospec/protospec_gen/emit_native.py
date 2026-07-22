@@ -459,6 +459,16 @@ ATTR_ELEMENTS = [
     # Equality: OneEquality is dominated by objtype/objname dispatch into data[];
     # only the common solref/solimp tail is a clean copy (active folds to (n==1)).
     AttrElem("Connect", "mjsEquality", (), ("solref", "solimp")),
+    # Mesh: refpos/refquat/scale/inertia/material are plain copies. content_type
+    # (direct std::string assign), file (vfs), smoothnormal (bool), maxhullvert
+    # (validated), builtin (drives mjs_makeMesh, not a field) stay hand-written.
+    AttrElem("Mesh", "mjsMesh",
+             ("content_type", "file", "smoothnormal", "maxhullvert", "builtin")),
+    # Sensor common prefix (identical across the whole sensor family; derived from
+    # Touch as a representative). The per-type objtype/objname/reftype dispatch and
+    # dataspec/intprm bitmask folding stay hand-written.
+    AttrElem("Touch", "mjsSensor", (),
+             ("cutoff", "noise", "nsample", "interp", "delay", "interval")),
 ]
 
 # Schema enums whose reader keyword map is a shared primitive/hand map, not their
