@@ -2590,7 +2590,7 @@ void mjXReader::Visual(XMLElement* section) {
 // asset section parser
 void mjXReader::Asset(XMLElement* section, const mjVFS* vfs) {
   int n;
-  string text, name, texname, content_type;
+  string text, name, texname;
   XMLElement* elem;
 
   // iterate over child elements
@@ -2614,36 +2614,21 @@ void mjXReader::Asset(XMLElement* section, const mjVFS* vfs) {
       mjs_setString(texture->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
 
       // read attributes
-      if (MapValue(elem, "type", &n, texture_map, texture_sz)) {
-        texture->type = (mjtTexture)n;
-      }
-      if (MapValue(elem, "colorspace", &n, colorspace_map, colorspace_sz)) {
-        texture->colorspace = (mjtColorSpace)n;
-      }
       if (ReadAttrTxt(elem, "name", texname)) {
         if (mjs_setName(texture->element, texname.c_str())) {
           throw mjXError(elem, "%s", mjs_getError(spec));
         }
       }
-      if (ReadAttrTxt(elem, "content_type", content_type)) {
-        mjs_setString(texture->content_type, content_type.c_str());
-      }
       auto file = ReadAttrFile(elem, "file", vfs, TextureDir());
       if (file.has_value()) {
         mjs_setString(texture->file, file->c_str());
       }
-      ReadAttrInt(elem, "width", &texture->width);
-      ReadAttrInt(elem, "height", &texture->height);
-      ReadAttrInt(elem, "nchannel", &texture->nchannel);
-      ReadAttr(elem, "rgb1", 3, texture->rgb1, text);
-      ReadAttr(elem, "rgb2", 3, texture->rgb2, text);
-      ReadAttr(elem, "markrgb", 3, texture->markrgb, text);
-      ReadAttr(elem, "random", 1, &texture->random, text);
+      // mechanical attr->field reads (type, colorspace, content_type, gridsize,
+      // rgb1, rgb2, mark, markrgb, random, width, height, nchannel)
+      ReadAttrBinds(elem, texture, kTextureBinds, kTextureBindsN, text);
+      // builtin rides the source variant; hflip/vflip fold bool spellings
       if (MapValue(elem, "builtin", &n, builtin_map, builtin_sz)) {
         texture->builtin = (mjtBuiltin)n;
-      }
-      if (MapValue(elem, "mark", &n, mark_map, mark_sz)) {
-        texture->mark = (mjtMark)n;
       }
       if (MapValue(elem, "hflip", &n, bool_map, 2)) {
         texture->hflip = (n != 0);
@@ -2653,7 +2638,6 @@ void mjXReader::Asset(XMLElement* section, const mjVFS* vfs) {
       }
 
       // grid
-      ReadAttr(elem, "gridsize", 2, texture->gridsize, text);
       if (ReadAttrTxt(elem, "gridlayout", text)) {
         // check length
         if (text.length() > 12) {
@@ -2713,21 +2697,18 @@ void mjXReader::Asset(XMLElement* section, const mjVFS* vfs) {
       mjs_setString(hfield->info, ("line " + std::to_string(elem->GetLineNum())).c_str());
 
       // read attributes
-      string name, content_type;
+      string name;
       if (ReadAttrTxt(elem, "name", name)) {
         if (mjs_setName(hfield->element, name.c_str())) {
           throw mjXError(elem, "%s", mjs_getError(spec));
         }
       }
-      if (ReadAttrTxt(elem, "content_type", content_type)) {
-        mjs_setString(hfield->content_type, content_type.c_str());
-      }
+      // mechanical attr->field reads (content_type, nrow, ncol)
+      ReadAttrBinds(elem, hfield, kHfieldBinds, kHfieldBindsN, text);
       auto file = ReadAttrFile(elem, "file", vfs, AssetDir());
       if (file.has_value()) {
         mjs_setString(hfield->file, file->c_str());
       }
-      ReadAttrInt(elem, "nrow", &hfield->nrow);
-      ReadAttrInt(elem, "ncol", &hfield->ncol);
       ReadAttr(elem, "size", 4, hfield->size, text, true);
 
       // allocate buffer for dynamic hfield, copy user data if given

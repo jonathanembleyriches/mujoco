@@ -469,6 +469,17 @@ ATTR_ELEMENTS = [
     # dataspec/intprm bitmask folding stay hand-written.
     AttrElem("Touch", "mjsSensor", (),
              ("cutoff", "noise", "nsample", "interp", "delay", "interval")),
+    # Texture: plain copies incl. content_type (string field). gridlayout (memcpy
+    # + length check) and the six cube-face files (fold into cubefiles[] via
+    # mjs_setInStringVec) stay hand-written; builtin/file ride the `source` variant
+    # and hflip/vflip are bool folds (all auto-skipped).
+    AttrElem("Texture", "mjsTexture", (
+        "gridlayout", "fileright", "fileleft", "fileup", "filedown",
+        "filefront", "fileback",
+    )),
+    # Hfield: content_type/nrow/ncol are plain copies. size is a required read and
+    # file/elevation need vfs / reverse-row handling, so they stay hand-written.
+    AttrElem("Hfield", "mjsHField", ("file", "size")),
 ]
 
 # Schema enums whose reader keyword map is a shared primitive/hand map, not their
@@ -599,10 +610,7 @@ def _attr_binds():
                     raise KeyError(
                         f"{ae.elem}.{xml}: enum {enum!r} has no keyword map")
                 bkind, length, exact = "kBindEnum", 0, True
-            elif kind == "ref":  # name reference -> string handle
-                if ctype != "mjString":
-                    raise TypeError(
-                        f"{ae.elem}.{xml}: ref maps to non-string {ctype}")
+            elif ctype == "mjString":  # ref name, or a direct string field
                 bkind, length, exact = "kBindString", 0, True
             elif ctype in ("double", "mjtNum"):
                 bkind = "kBindDouble"

@@ -190,4 +190,27 @@ const AttrBind kTouchBinds[] = {
   {"noise",    kBindDouble, 1, offsetof(mjsSensor, noise), true, nullptr, 0},
 };
 const int kTouchBindsN = 6;
+
+const AttrBind kTextureBinds[] = {
+  {"type",         kBindEnum,   0, offsetof(mjsTexture, type), true, texture_map, texture_sz},
+  {"colorspace",   kBindEnum,   0, offsetof(mjsTexture, colorspace), true, colorspace_map, colorspace_sz},
+  {"content_type", kBindString, 0, offsetof(mjsTexture, content_type), true, nullptr, 0},
+  {"gridsize",     kBindIntArr, 2, offsetof(mjsTexture, gridsize), true, nullptr, 0},
+  {"rgb1",         kBindDouble, 3, offsetof(mjsTexture, rgb1), true, nullptr, 0},
+  {"rgb2",         kBindDouble, 3, offsetof(mjsTexture, rgb2), true, nullptr, 0},
+  {"mark",         kBindEnum,   0, offsetof(mjsTexture, mark), true, mark_map, mark_sz},
+  {"markrgb",      kBindDouble, 3, offsetof(mjsTexture, markrgb), true, nullptr, 0},
+  {"random",       kBindDouble, 1, offsetof(mjsTexture, random), true, nullptr, 0},
+  {"width",        kBindInt,    1, offsetof(mjsTexture, width), true, nullptr, 0},
+  {"height",       kBindInt,    1, offsetof(mjsTexture, height), true, nullptr, 0},
+  {"nchannel",     kBindInt,    1, offsetof(mjsTexture, nchannel), true, nullptr, 0},
+};
+const int kTextureBindsN = 12;
+
+const AttrBind kHfieldBinds[] = {
+  {"content_type", kBindString, 0, offsetof(mjsHField, content_type), true, nullptr, 0},
+  {"nrow",         kBindInt,    1, offsetof(mjsHField, nrow), true, nullptr, 0},
+  {"ncol",         kBindInt,    1, offsetof(mjsHField, ncol), true, nullptr, 0},
+};
+const int kHfieldBindsN = 3;
 // clang-format on

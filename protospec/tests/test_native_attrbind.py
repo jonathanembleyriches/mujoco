@@ -35,7 +35,7 @@ INC = REPO / "src" / "xml" / "xml_native_attrbind.inc"
 EXPECTED_COUNTS = {
     "Site": 6, "Camera": 10, "Light": 14, "Material": 8, "Pair": 8,
     "Geom": 24, "Joint": 20, "ActuatorGeneral": 14, "Spatial": 17, "Connect": 2,
-    "Mesh": 5, "Touch": 6,
+    "Mesh": 5, "Touch": 6, "Texture": 12, "Hfield": 3,
 }
 
 # Elements converted with an allow-list (only a mechanical prefix); the rest of
@@ -43,6 +43,13 @@ EXPECTED_COUNTS = {
 # a type-specific branch (e.g. adhesion re-reads ctrlrange), so the strict
 # no-inline-read check does not apply to them.
 ALLOWLIST_ELEMS = {ae.elem for ae in emit_native.ATTR_ELEMENTS if ae.include}
+
+# Section parsers that inline-multiplex several element types (Asset handles
+# texture/hfield/mesh/material/model/skin, ...). A sibling sub-element may read an
+# attribute of the same name for a different target, so the strict "no inline
+# read anywhere in the body" check does not apply -- the differential suite is the
+# behavioral proof for these.
+SHARED_SECTION_PARSERS = {"Asset"}
 
 
 def _binds():
@@ -90,16 +97,21 @@ ELEM_METHOD = {
     "Joint": "OneJoint", "ActuatorGeneral": "OneActuator",
     "Spatial": "OneTendon", "Connect": "OneEquality",
     "Mesh": "OneMesh", "Touch": "Sensor",
+    "Texture": "Asset", "Hfield": "Asset",
 }
 
 
 @pytest.mark.parametrize("elem", sorted(EXPECTED_COUNTS))
 def test_converted_parser_uses_driver_and_drops_inline_reads(elem):
     source = READER.read_text(encoding="utf-8")
-    body = _fn_body(source, ELEM_METHOD[elem])
+    method = ELEM_METHOD[elem]
+    body = _fn_body(source, method)
     assert f"k{elem}Binds" in body, f"{elem}: ReadAttrBinds call missing"
-    if elem in ALLOWLIST_ELEMS:
-        return  # partial conversion may legitimately re-read a converted attr
+    if elem in ALLOWLIST_ELEMS or method in SHARED_SECTION_PARSERS:
+        # allow-list: a partial conversion may re-read a converted attr in a
+        # type branch; shared section parser (Asset/Sensor/...): a sibling
+        # sub-element may read a same-named attr for a different target.
+        return
     rows = _binds()[elem]
     # No generated attribute may still be read by an inline Read*/MapValue call.
     for xml, *_ in rows:
