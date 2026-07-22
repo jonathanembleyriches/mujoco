@@ -1556,20 +1556,10 @@ void mjXReader::OneActuator(XMLElement* elem, mjsActuator* actuator) {
       throw mjXError(elem, "%s", mjs_getError(spec));
     }
   }
-  ReadAttrInt(elem, "group", &actuator->group);
-  ReadAttrInt(elem, "nsample", &actuator->nsample);
-  MapValue(elem, "interp", &actuator->interp, interp_map, interp_sz);
-  ReadAttr(elem, "delay", 1, &actuator->delay, text);
-  MapValue(elem, "ctrllimited", &actuator->ctrllimited, TFAuto_map, 3);
-  MapValue(elem, "forcelimited", &actuator->forcelimited, TFAuto_map, 3);
-  MapValue(elem, "actlimited", &actuator->actlimited, TFAuto_map, 3);
-  ReadAttr(elem, "ctrlrange", 2, actuator->ctrlrange, text);
-  ReadAttr(elem, "forcerange", 2, actuator->forcerange, text);
-  ReadAttr(elem, "actrange", 2, actuator->actrange, text);
-  ReadAttr(elem, "lengthrange", 2, actuator->lengthrange, text);
-  ReadAttr(elem, "gear", 6, actuator->gear, text, false, false);
-  ReadAttr(elem, "damping", 1+mjNPOLY, actuator->damping, text, false, false);
-  ReadAttr(elem, "armature", 1, &actuator->armature, text, false, false);
+  // mechanical common attributes shared by every actuator shortcut (group,
+  // nsample, interp, delay, ctrl/force/actlimited, ctrl/force/act/lengthrange,
+  // gear, damping, armature); transmission target and per-type attrs follow.
+  ReadAttrBinds(elem, actuator, kActuatorGeneralBinds, kActuatorGeneralBindsN, text);
 
   // transmission target and type
   int cnt = 0;

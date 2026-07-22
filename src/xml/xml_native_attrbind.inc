@@ -126,4 +126,22 @@ const AttrBind kJointBinds[] = {
   {"frictionloss",       kBindDouble, 1, offsetof(mjsJoint, frictionloss), true, nullptr, 0},
 };
 const int kJointBindsN = 20;
+
+const AttrBind kActuatorGeneralBinds[] = {
+  {"group",        kBindInt,    1, offsetof(mjsActuator, group), true, nullptr, 0},
+  {"nsample",      kBindInt,    1, offsetof(mjsActuator, nsample), true, nullptr, 0},
+  {"interp",       kBindEnum,   0, offsetof(mjsActuator, interp), true, interp_map, interp_sz},
+  {"delay",        kBindDouble, 1, offsetof(mjsActuator, delay), true, nullptr, 0},
+  {"ctrllimited",  kBindEnum,   0, offsetof(mjsActuator, ctrllimited), true, TFAuto_map, 3},
+  {"forcelimited", kBindEnum,   0, offsetof(mjsActuator, forcelimited), true, TFAuto_map, 3},
+  {"actlimited",   kBindEnum,   0, offsetof(mjsActuator, actlimited), true, TFAuto_map, 3},
+  {"ctrlrange",    kBindDouble, 2, offsetof(mjsActuator, ctrlrange), true, nullptr, 0},
+  {"forcerange",   kBindDouble, 2, offsetof(mjsActuator, forcerange), true, nullptr, 0},
+  {"actrange",     kBindDouble, 2, offsetof(mjsActuator, actrange), true, nullptr, 0},
+  {"lengthrange",  kBindDouble, 2, offsetof(mjsActuator, lengthrange), true, nullptr, 0},
+  {"gear",         kBindDouble, 6, offsetof(mjsActuator, gear), false, nullptr, 0},
+  {"damping",      kBindDouble, 3, offsetof(mjsActuator, damping), false, nullptr, 0},
+  {"armature",     kBindDouble, 1, offsetof(mjsActuator, armature), false, nullptr, 0},
+};
+const int kActuatorGeneralBindsN = 14;
 // clang-format on

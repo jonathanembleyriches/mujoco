@@ -428,7 +428,12 @@ def generate(schema_path: str = SCHEMA) -> str:
 # ATTR_ELEMENTS. The generator asserts every emitted field resolves to a real mjs
 # field of a compatible kind; the differential suite proves per-element identity.
 
-AttrElem = namedtuple("AttrElem", "elem struct quirks")
+# `include`, when non-empty, restricts generation to exactly those xml attrs (an
+# allow-list, used when only a contiguous mechanical prefix of a heavily
+# special-cased parser is converted, e.g. the actuator common attributes shared
+# by every transmission/gain shortcut).
+AttrElem = namedtuple("AttrElem", "elem struct quirks include")
+AttrElem.__new__.__defaults__ = ((),)  # include defaults to empty
 
 # Elements whose mechanical attribute reads are generated. `quirks` names fields
 # kept hand-written beyond the automatic skips (name/class/orientation/unbounded/
@@ -441,6 +446,14 @@ ATTR_ELEMENTS = [
     AttrElem("Pair", "mjsPair", ("geom1", "geom2")),  # geom names are read only when !readingdefaults
     AttrElem("Geom", "mjsGeom", ("shellinertia", "fluidshape")),  # shellinertia->typeinertia via meshtype_map; fluidshape folds to (n==1)
     AttrElem("Joint", "mjsJoint", ("actuatorgravcomp",)),  # actgravcomp folds to (n==1)
+    # Only the actuator common prefix (shared by every gain/transmission
+    # shortcut). Transmission targets, slidercrank/refsite, the type dispatch and
+    # every mjs_setToXxx shortcut stay hand-written.
+    AttrElem("ActuatorGeneral", "mjsActuator", (), (
+        "group", "nsample", "interp", "delay", "ctrllimited", "forcelimited",
+        "actlimited", "ctrlrange", "forcerange", "actrange", "lengthrange",
+        "gear", "damping", "armature",
+    )),
 ]
 
 # Schema enums whose reader keyword map is a shared primitive/hand map, not their
@@ -449,11 +462,13 @@ ENUM_PRIM_MAP = {
     "TriState": ("TFAuto_map", "3"),  # limited/actuatorfrclimited/align tri-state
 }
 
-# (element, xml) fixed-arity fields the reader reads leniently (exact=false),
-# against the fixed->exact-true default. These are the handful of fixed vectors
-# the reader accepts a short prefix of.
-LENIENT_FIXED = {
+# (element, xml) fields the reader reads leniently (exact=false) against the
+# fixed/scalar -> exact-true default. The handful of fixed/scalar reads the reader
+# accepts a short prefix of. (armature is scalar, so exact is behaviorally moot,
+# but listed to keep the generated flag faithful to the hand read.)
+LENIENT_EXACT_FALSE = {
     ("Geom", "surfacevel"),
+    ("ActuatorGeneral", "armature"),
 }
 
 _FIELDS_JSON = os.path.join(ROOT, "snapshots", "mjspec_fields.json")
@@ -505,6 +520,9 @@ def _attr_binds():
             xml = field_xml(f)
             t = f["type"]
             kind = t["kind"]
+            # --- allow-list (when set, only these attrs are generated) ---
+            if ae.include and xml not in ae.include:
+                continue
             # --- automatic skips (hand-written) ---
             if xml == "name":
                 continue
@@ -544,10 +562,11 @@ def _attr_binds():
 
             # --- classify kind / length / exact ---
             if arity is None:
-                length, exact = 1, True
+                length = 1
+                exact = (ae.elem, xml) not in LENIENT_EXACT_FALSE
             elif arity["kind"] == "fixed":
                 length = arity["size"]
-                exact = (ae.elem, xml) not in LENIENT_FIXED
+                exact = (ae.elem, xml) not in LENIENT_EXACT_FALSE
             elif arity["kind"] == "range":
                 length, exact = arity["max"], False
             else:
