@@ -53,13 +53,14 @@ constexpr AttrBinding kAttrs_ActuatorGeneral[] = {
     {"refsite", "Site", 24, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"body", "Body", 25, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"actdim", "int32", 26, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"dyntype", "DynType", 27, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"gaintype", "GainType", 28, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"biastype", "BiasType", 29, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"dynprm", "double", 30, FieldKind::Double, ArityKind::Range, 0, 10, false, false, false, ""},
-    {"gainprm", "double", 31, FieldKind::Double, ArityKind::Range, 0, 10, false, false, false, ""},
-    {"biasprm", "double", 32, FieldKind::Double, ArityKind::Range, 0, 10, false, false, false, ""},
-    {"actearly", "bool", 33, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"input", "SO3Input", 27, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"dyntype", "DynType", 28, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"gaintype", "GainType", 29, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"biastype", "BiasType", 30, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"dynprm", "double", 31, FieldKind::Double, ArityKind::Range, 0, 10, false, false, false, ""},
+    {"gainprm", "double", 32, FieldKind::Double, ArityKind::Range, 0, 10, false, false, false, ""},
+    {"biasprm", "double", 33, FieldKind::Double, ArityKind::Range, 0, 10, false, false, false, ""},
+    {"actearly", "bool", 34, FieldKind::Bool, ArityKind::Scalar, 0, 0, false, false, false, ""},
 };
 
 constexpr AttrBinding kAttrs_ActuatorPlugin[] = {
@@ -326,6 +327,7 @@ constexpr AttrBinding kAttrs_CompositeGeom[] = {
     {"margin", "double", 15, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"gap", "double", 16, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"surfacevel", "double", 17, FieldKind::Double, ArityKind::Fixed, 6, 6, false, false, false, ""},
+    {"adhesion", "double", 18, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
 };
 
 constexpr AttrBinding kAttrs_CompositeJoint[] = {
@@ -993,13 +995,14 @@ constexpr AttrBinding kAttrs_Geom[] = {
     {"margin", "double", 19, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"gap", "double", 20, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"surfacevel", "double", 21, FieldKind::Double, ArityKind::Fixed, 6, 6, false, false, false, ""},
-    {"hfield", "Hfield", 22, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"mesh", "Mesh", 23, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"fitscale", "double", 24, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"rgba", "float", 25, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, ""},
-    {"fluidshape", "FluidShape", 26, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
-    {"fluidcoef", "double", 27, FieldKind::Double, ArityKind::Range, 0, 5, false, false, false, ""},
-    {"user", "double", 28, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, ""},
+    {"adhesion", "double", 22, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"hfield", "Hfield", 23, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"mesh", "Mesh", 24, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"fitscale", "double", 25, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"rgba", "float", 26, FieldKind::Float, ArityKind::Fixed, 4, 4, false, false, false, ""},
+    {"fluidshape", "FluidShape", 27, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"fluidcoef", "double", 28, FieldKind::Double, ArityKind::Range, 0, 5, false, false, false, ""},
+    {"user", "double", 29, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, ""},
 };
 constexpr InputAliasBinding kInputAliases_Geom[] = {
     {"euler", "orientation"},
@@ -1012,7 +1015,7 @@ constexpr VariantArmBinding kArms_Geom_shape[] = {
     {"fromto", "fromto"},
 };
 constexpr VariantBinding kVariants_Geom[] = {
-    {"shape", "GeomShape", 29, kArms_Geom_shape, 2},
+    {"shape", "GeomShape", 30, kArms_Geom_shape, 2},
 };
 constexpr ChildBinding kChildren_Geom[] = {
     {"plugin", "plugin", "PluginRef", ElementType::PluginRef, false},
@@ -1457,6 +1460,26 @@ constexpr ChildBinding kChildren_Option[] = {
     {"flags", "flag", "Flag", ElementType::Flag, false},
 };
 
+constexpr AttrBinding kAttrs_Orientation[] = {
+    {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"class", "Default", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"group", "int32", 2, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"nsample", "int32", 3, FieldKind::Int32, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"interp", "InterpType", 4, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"delay", "double", 5, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"forcelimited", "TriState", 6, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"ctrlrange", "double", 7, FieldKind::Double, ArityKind::Fixed, 2, 2, false, false, false, ""},
+    {"forcerange", "double", 8, FieldKind::Double, ArityKind::Fixed, 2, 2, false, false, false, ""},
+    {"user", "double", 9, FieldKind::Double, ArityKind::Unbounded, 0, 0, false, false, false, ""},
+    {"joint", "Joint", 10, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"site", "Site", 11, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"refsite", "Site", 12, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"kp", "double", 13, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"kv", "double", 14, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"dampratio", "double", 15, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"input", "SO3Input", 16, FieldKind::Enum, ArityKind::Scalar, 0, 0, false, false, false, ""},
+};
+
 constexpr AttrBinding kAttrs_Pair[] = {
     {"name", "string", 0, FieldKind::String, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"class", "Default", 1, FieldKind::Ref, ArityKind::Scalar, 0, 0, false, false, false, ""},
@@ -1469,6 +1492,7 @@ constexpr AttrBinding kAttrs_Pair[] = {
     {"solimp", "double", 8, FieldKind::Double, ArityKind::Range, 0, 5, false, false, false, ""},
     {"gap", "double", 9, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
     {"margin", "double", 10, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
+    {"adhesion", "double", 11, FieldKind::Double, ArityKind::Scalar, 0, 0, false, false, false, ""},
 };
 
 constexpr AttrBinding kAttrs_PluginDef[] = {
@@ -2094,7 +2118,7 @@ constexpr AttrBinding kAttrs_Weld[] = {
 constexpr ElementBinding kBindings[] = {
     {ElementType::Accelerometer, "accelerometer", kAttrs_Accelerometer, 9, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Actuator, "actuator", nullptr, 0, nullptr, 0, nullptr, 0, kChildren_Actuator, 1},
-    {ElementType::ActuatorGeneral, "general", kAttrs_ActuatorGeneral, 34, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::ActuatorGeneral, "general", kAttrs_ActuatorGeneral, 35, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::ActuatorPlugin, "plugin", kAttrs_ActuatorPlugin, 30, nullptr, 0, nullptr, 0, kChildren_ActuatorPlugin, 1},
     {ElementType::Actuatorfrc, "actuatorfrc", kAttrs_Actuatorfrc, 9, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Actuatorpos, "actuatorpos", kAttrs_Actuatorpos, 9, nullptr, 0, nullptr, 0, nullptr, 0},
@@ -2110,7 +2134,7 @@ constexpr ElementBinding kBindings[] = {
     {ElementType::Clock, "clock", kAttrs_Clock, 8, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Compiler, "compiler", kAttrs_Compiler, 21, nullptr, 0, nullptr, 0, kChildren_Compiler, 1},
     {ElementType::Composite, "composite", kAttrs_Composite, 9, nullptr, 0, nullptr, 0, kChildren_Composite, 5},
-    {ElementType::CompositeGeom, "geom", kAttrs_CompositeGeom, 18, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::CompositeGeom, "geom", kAttrs_CompositeGeom, 19, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::CompositeJoint, "joint", kAttrs_CompositeJoint, 17, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::CompositeSite, "site", kAttrs_CompositeSite, 4, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::CompositeSkin, "skin", kAttrs_CompositeSkin, 6, nullptr, 0, nullptr, 0, nullptr, 0},
@@ -2158,7 +2182,7 @@ constexpr ElementBinding kBindings[] = {
     {ElementType::Framezaxis, "framezaxis", kAttrs_Framezaxis, 12, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::FreeJoint, "freejoint", kAttrs_FreeJoint, 3, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Fromto, "fromto", kAttrs_Fromto, 12, nullptr, 0, nullptr, 0, nullptr, 0},
-    {ElementType::Geom, "geom", kAttrs_Geom, 29, kInputAliases_Geom, 4, kVariants_Geom, 1, kChildren_Geom, 1},
+    {ElementType::Geom, "geom", kAttrs_Geom, 30, kInputAliases_Geom, 4, kVariants_Geom, 1, kChildren_Geom, 1},
     {ElementType::Gyro, "gyro", kAttrs_Gyro, 9, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Hfield, "hfield", kAttrs_Hfield, 7, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Inertial, "inertial", kAttrs_Inertial, 4, kInputAliases_Inertial, 5, nullptr, 0, nullptr, 0},
@@ -2186,7 +2210,8 @@ constexpr ElementBinding kBindings[] = {
     {ElementType::Normal, "normal", kAttrs_Normal, 12, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::Numeric, "numeric", kAttrs_Numeric, 2, kInputAliases_Numeric, 1, nullptr, 0, nullptr, 0},
     {ElementType::Option, "option", kAttrs_Option, 27, nullptr, 0, nullptr, 0, kChildren_Option, 1},
-    {ElementType::Pair, "pair", kAttrs_Pair, 11, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::Orientation, "orientation", kAttrs_Orientation, 17, nullptr, 0, nullptr, 0, nullptr, 0},
+    {ElementType::Pair, "pair", kAttrs_Pair, 12, nullptr, 0, nullptr, 0, nullptr, 0},
     {ElementType::PluginDef, "plugin", kAttrs_PluginDef, 1, nullptr, 0, nullptr, 0, kChildren_PluginDef, 1},
     {ElementType::PluginInstance, "instance", kAttrs_PluginInstance, 1, nullptr, 0, nullptr, 0, kChildren_PluginInstance, 1},
     {ElementType::PluginRef, "plugin", kAttrs_PluginRef, 2, nullptr, 0, nullptr, 0, kChildren_PluginRef, 1},

@@ -105,6 +105,7 @@ void ApplyDefault(Muscle& e);
 void ApplyDefault(Normal& e);
 void ApplyDefault(Numeric& e);
 void ApplyDefault(Option& e);
+void ApplyDefault(Orientation& e);
 void ApplyDefault(Pair& e);
 void ApplyDefault(PluginDef& e);
 void ApplyDefault(PluginInstance& e);

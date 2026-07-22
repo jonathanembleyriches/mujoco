@@ -91,6 +91,7 @@ void CountActuator(const ActuatorAny& a, ModelSizes& s) {
     case ActuatorAny::Kind::Motor:
     case ActuatorAny::Kind::Position:
     case ActuatorAny::Kind::Velocity:
+    case ActuatorAny::Kind::Orientation:
     case ActuatorAny::Kind::Damper:
     case ActuatorAny::Kind::Cylinder:
     case ActuatorAny::Kind::Adhesion:

@@ -295,6 +295,9 @@ pyb::object WrapElement(int etype, void* p, pyb::object parent) {
     case ElementType::Option:
       return pyb::cast(static_cast<Option*>(p),
                        pyb::return_value_policy::reference_internal, parent);
+    case ElementType::Orientation:
+      return pyb::cast(static_cast<Orientation*>(p),
+                       pyb::return_value_policy::reference_internal, parent);
     case ElementType::Pair:
       return pyb::cast(static_cast<Pair*>(p),
                        pyb::return_value_policy::reference_internal, parent);
@@ -457,6 +460,8 @@ pyb::object AddActuatorByKind(pyb::object self, const std::string& kind,
     return FinishChild(self, ps::sdk::AddActuator<Velocity>(m), kw);
   if (kind == "intvelocity")
     return FinishChild(self, ps::sdk::AddActuator<IntVelocity>(m), kw);
+  if (kind == "orientation")
+    return FinishChild(self, ps::sdk::AddActuator<Orientation>(m), kw);
   if (kind == "damper")
     return FinishChild(self, ps::sdk::AddActuator<Damper>(m), kw);
   if (kind == "cylinder")
@@ -470,7 +475,7 @@ pyb::object AddActuatorByKind(pyb::object self, const std::string& kind,
   if (kind == "plugin")
     return FinishChild(self, ps::sdk::AddActuator<ActuatorPlugin>(m), kw);
   throw pyb::value_error("unknown actuator kind '" + kind +
-                         "' (general/motor/position/velocity/intvelocity/damper/cylinder/muscle/adhesion/dcmotor/plugin)");
+                         "' (general/motor/position/velocity/intvelocity/orientation/damper/cylinder/muscle/adhesion/dcmotor/plugin)");
 }
 
 pyb::object AddSensorByKind(pyb::object self, const std::string& kind,

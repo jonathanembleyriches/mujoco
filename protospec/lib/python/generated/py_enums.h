@@ -50,6 +50,7 @@ template <> struct is_enum<ps::mjcf::MeshBuiltin> : std::true_type {};
 template <> struct is_enum<ps::mjcf::MeshInertia> : std::true_type {};
 template <> struct is_enum<ps::mjcf::NeedStage> : std::true_type {};
 template <> struct is_enum<ps::mjcf::RayData> : std::true_type {};
+template <> struct is_enum<ps::mjcf::SO3Input> : std::true_type {};
 template <> struct is_enum<ps::mjcf::SimpleMode> : std::true_type {};
 template <> struct is_enum<ps::mjcf::SolverType> : std::true_type {};
 template <> struct is_enum<ps::mjcf::TexRole> : std::true_type {};

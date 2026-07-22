@@ -76,6 +76,7 @@ void ApplyMjs(const Motor& e, mjsActuator* out);
 void ApplyMjs(const Muscle& e, mjsActuator* out);
 void ApplyMjs(const Normal& e, mjsSensor* out);
 void ApplyMjs(const Numeric& e, mjsNumeric* out);
+void ApplyMjs(const Orientation& e, mjsActuator* out);
 void ApplyMjs(const Pair& e, mjsPair* out);
 void ApplyMjs(const Position& e, mjsActuator* out);
 void ApplyMjs(const Rangefinder& e, mjsSensor* out);

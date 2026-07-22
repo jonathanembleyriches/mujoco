@@ -1791,6 +1791,14 @@ void Builder::BuildActuators(const Model& m) {
         mjsActuator* a = mjs_addActuator(spec_, def);
         ApplyMjs(e, a);
 
+        // ActuatorGeneral SO3 control chart (upstream 072e963f): the `input`
+        // attribute sets ctrlspec (expmap -> mjCHART_EXPMAP, quat -> mjCHART_QUAT).
+        if constexpr (std::is_same_v<T, ActuatorGeneral>) {
+          if (e.input.has_value())
+            a->ctrlspec =
+                (*e.input == SO3Input::quat) ? mjCHART_QUAT : mjCHART_EXPMAP;
+        }
+
         // transmission (the field set varies per actuator kind -- Muscle has no
         // site/body, Adhesion has only body; guard each by presence).
         {
@@ -1854,6 +1862,19 @@ void Builder::ApplyActuatorShortcut(const T& e, mjsActuator* a) {
             mjs_setToPosition(a, kp, kv, dr, tc, ir);
           else
             mjs_setToIntVelocity(a, kp, kv, dr, tc, ir);
+        } else if constexpr (std::is_same_v<T, Orientation>) {
+          // SO3 servo (upstream 072e963f): position/velocity gains plus the
+          // control chart. ctrlspec: expmap -> mjCHART_EXPMAP, quat -> mjCHART_QUAT.
+          double kp = a->gainprm[0];
+          if (e.kp.has_value()) kp = *e.kp;
+          double kvd, *kv = nullptr;
+          if (e.kv.has_value()) { kvd = *e.kv; kv = &kvd; }
+          double drd, *dr = nullptr;
+          if (e.dampratio.has_value()) { drd = *e.dampratio; dr = &drd; }
+          if (e.input.has_value())
+            a->ctrlspec =
+                (*e.input == SO3Input::quat) ? mjCHART_QUAT : mjCHART_EXPMAP;
+          mjs_setToOrientation(a, kp, kv, dr, a->ctrlspec);
         } else if constexpr (std::is_same_v<T, Velocity>) {
           double kv = a->gainprm[0];
           if (e.kv.has_value()) kv = *e.kv;

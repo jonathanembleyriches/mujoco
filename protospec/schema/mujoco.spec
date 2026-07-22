@@ -17,6 +17,7 @@ enum BiasType {
   affine         = "affine"
   muscle         = "muscle"
   dcmotor        = "dcmotor"
+  so3            = "so3"
   user           = "user"
 }
 
@@ -109,6 +110,11 @@ enum DcMotorInput {
   velocity       = "velocity"
 }
 
+enum SO3Input {
+  expmap         = "expmap"
+  quat           = "quat"
+}
+
 enum DynType {
   none           = "none"
   integrator     = "integrator"
@@ -172,6 +178,7 @@ enum GainType {
   affine         = "affine"
   muscle         = "muscle"
   dcmotor        = "dcmotor"
+  so3            = "so3"
   user           = "user"
 }
 
@@ -395,6 +402,7 @@ union ActuatorAny =
   | Position
   | Velocity
   | IntVelocity
+  | Orientation
   | Damper
   | Cylinder
   | Muscle
@@ -1035,6 +1043,7 @@ element Geom {
   margin       : double   # margin for contact detection
   gap          : double   # additional contact detection buffer
   surfacevel   : double[6]   # surface velocity in local frame: linear, angular
+  adhesion     : double   # adhesion coefficient (contact-driven adhesion)
   hfield       : ref<Hfield>   # heightfield attached to geom
   mesh         : ref<Mesh>   # mesh attached to geom
   fitscale     : double = 1   # scale mesh uniformly
@@ -1172,6 +1181,7 @@ element CompositeGeom (xml="geom") {
   margin      : double   # margin for contact detection
   gap         : double   # additional contact detection buffer
   surfacevel  : double[6]   # surface velocity in local frame: linear, angular
+  adhesion    : double   # adhesion coefficient (contact-driven adhesion)
 }
 
 element CompositeSite (xml="site") {
@@ -1300,6 +1310,7 @@ element Pair {
   solimp         : double[0..5]   # solver impedance
   gap            : double   # additional contact detection buffer
   margin         : double   # margin for contact detection
+  adhesion       : double   # adhesion coefficient (contact-driven adhesion)
 }
 
 element Exclude {
@@ -1475,6 +1486,7 @@ element ActuatorGeneral (xml="general") {
   use Transmission
   body          : ref<Body>
   actdim        : int32   # number of activation variables
+  input         : SO3Input   # SO3 control chart (expmap/quat); sets ctrlspec
   dyntype       : DynType = none   # dynamics type
   gaintype      : GainType = fixed   # gain type
   biastype      : BiasType = none   # bias type
@@ -1534,6 +1546,21 @@ element IntVelocity {
   kp            : double   # position feedback gain
   kv            : double   # velocity feedback gain
   dampratio     : double   # damping ratio, in units of critical damping
+}
+
+element Orientation {
+  use ActuatorHead
+  forcelimited  : TriState   # are force limits defined (mjtLimited)
+  ctrlrange     : double[2]   # control range
+  forcerange    : double[2]   # force range
+  user          : double[]   # user data
+  joint         : ref<Joint>
+  site          : ref<Site>   # site transmission target
+  refsite       : ref<Site>   # reference site, for site transmission
+  kp            : double   # position feedback gain
+  kv            : double   # velocity feedback gain
+  dampratio     : double   # damping ratio, in units of critical damping
+  input         : SO3Input   # SO3 control chart (expmap/quat); sets ctrlspec
 }
 
 element Damper {

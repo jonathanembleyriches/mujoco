@@ -256,7 +256,7 @@ static void TestReflection() {
   CHECK(d.name == "Geom");
   CHECK(d.xml == "geom");
   CHECK(d.field_count == reflect::kFieldCount_Geom);
-  CHECK(d.field_count == 30);
+  CHECK(d.field_count == 31);  // +adhesion (upstream a264d0bc)
 
   // Every descriptor slot is populated and enumerable without the struct type.
   std::unordered_set<std::string> names;
@@ -303,7 +303,7 @@ static void TestReflection() {
 
   // Union descriptor lists member element types.
   const auto& u = reflect::DescribeUnion("ActuatorAny");
-  CHECK(u.member_count == 11);
+  CHECK(u.member_count == 12);  // +Orientation (upstream 072e963f)
   CHECK(u.members[0] == ElementType::ActuatorGeneral);
 
   // ActuatorAny actually carries the ActuatorGeneral variant column count too.

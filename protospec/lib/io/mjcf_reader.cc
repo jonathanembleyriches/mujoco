@@ -143,6 +143,7 @@ bool IsSupported(ElementType t) {
     case ElementType::Position:
     case ElementType::Velocity:
     case ElementType::IntVelocity:
+    case ElementType::Orientation:
     case ElementType::Damper:
     case ElementType::Cylinder:
     case ElementType::Muscle:
@@ -306,6 +307,8 @@ struct is_actuator<Velocity> : std::true_type {};
 template <>
 struct is_actuator<IntVelocity> : std::true_type {};
 template <>
+struct is_actuator<Orientation> : std::true_type {};
+template <>
 struct is_actuator<Damper> : std::true_type {};
 template <>
 struct is_actuator<Cylinder> : std::true_type {};
@@ -446,6 +449,7 @@ inline const char* NameNsLabel(ElementType et) {
     case ElementType::Position:
     case ElementType::Velocity:
     case ElementType::IntVelocity:
+    case ElementType::Orientation:
     case ElementType::Damper:
     case ElementType::Cylinder:
     case ElementType::Muscle:

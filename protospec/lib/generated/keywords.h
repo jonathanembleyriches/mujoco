@@ -80,6 +80,8 @@ std::string_view ToMjcf(NeedStage value);
 bool FromMjcf(std::string_view text, NeedStage& out);
 std::string_view ToMjcf(RayData value);
 bool FromMjcf(std::string_view text, RayData& out);
+std::string_view ToMjcf(SO3Input value);
+bool FromMjcf(std::string_view text, SO3Input& out);
 std::string_view ToMjcf(SimpleMode value);
 bool FromMjcf(std::string_view text, SimpleMode& out);
 std::string_view ToMjcf(SolverType value);

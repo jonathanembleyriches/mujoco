@@ -94,6 +94,7 @@ PS_SDK_FAMILY(Motor, motor)
 PS_SDK_FAMILY(Position, position)
 PS_SDK_FAMILY(Velocity, velocity)
 PS_SDK_FAMILY(IntVelocity, intvelocity)
+// Orientation has no <default> family (it is not a default-able actuator).
 PS_SDK_FAMILY(Damper, damper)
 PS_SDK_FAMILY(Cylinder, cylinder)
 PS_SDK_FAMILY(Muscle, muscle)

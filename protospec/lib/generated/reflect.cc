@@ -53,6 +53,7 @@ constexpr FieldDescriptor kFields_ActuatorGeneral[] = {
     {"refsite", "refsite", "Site", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "reference site, for site transmission"},
     {"body", "body", "Body", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", ""},
     {"actdim", "actdim", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "", "number of activation variables"},
+    {"input", "input", "SO3Input", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, "", "SO3 control chart (expmap/quat); sets ctrlspec"},
     {"dyntype", "dyntype", "DynType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, true, "", "dynamics type"},
     {"gaintype", "gaintype", "GainType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, true, "", "gain type"},
     {"biastype", "biastype", "BiasType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, true, "", "bias type"},
@@ -314,6 +315,7 @@ constexpr FieldDescriptor kFields_CompositeGeom[] = {
     {"margin", "margin", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "margin for contact detection"},
     {"gap", "gap", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "additional contact detection buffer"},
     {"surfacevel", "surfacevel", "double", FieldKind::Double, ArityKind::Fixed, 6, 6, true, false, "", "surface velocity in local frame: linear, angular"},
+    {"adhesion", "adhesion", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "adhesion coefficient (contact-driven adhesion)"},
 };
 
 constexpr FieldDescriptor kFields_CompositeJoint[] = {
@@ -966,6 +968,7 @@ constexpr FieldDescriptor kFields_Geom[] = {
     {"margin", "margin", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "margin for contact detection"},
     {"gap", "gap", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "additional contact detection buffer"},
     {"surfacevel", "surfacevel", "double", FieldKind::Double, ArityKind::Fixed, 6, 6, true, false, "", "surface velocity in local frame: linear, angular"},
+    {"adhesion", "adhesion", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "adhesion coefficient (contact-driven adhesion)"},
     {"hfield", "hfield", "Hfield", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "heightfield attached to geom"},
     {"mesh", "mesh", "Mesh", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "mesh attached to geom"},
     {"fitscale", "fitscale", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, true, "", "scale mesh uniformly"},
@@ -1402,6 +1405,26 @@ constexpr ChildDescriptor kChildren_Option[] = {
     {"flags", "Flag", false, Cardinality::ZeroOrOne},
 };
 
+constexpr FieldDescriptor kFields_Orientation[] = {
+    {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "", "element name"},
+    {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "default class"},
+    {"group", "group", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "", "group"},
+    {"nsample", "nsample", "int32", FieldKind::Int32, ArityKind::Scalar, 0, 0, true, false, "", "number of samples in history buffer"},
+    {"interp", "interp", "InterpType", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, "", "interpolation order (0=ZOH, 1=linear, 2=cubic)"},
+    {"delay", "delay", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "delay time in seconds; 0: no delay"},
+    {"forcelimited", "forcelimited", "TriState", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, "", "are force limits defined (mjtLimited)"},
+    {"ctrlrange", "ctrlrange", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, false, "", "control range"},
+    {"forcerange", "forcerange", "double", FieldKind::Double, ArityKind::Fixed, 2, 2, true, false, "", "force range"},
+    {"user", "user", "double", FieldKind::Double, ArityKind::Unbounded, 0, 0, true, false, "", "user data"},
+    {"joint", "joint", "Joint", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", ""},
+    {"site", "site", "Site", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "site transmission target"},
+    {"refsite", "refsite", "Site", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "reference site, for site transmission"},
+    {"kp", "kp", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "position feedback gain"},
+    {"kv", "kv", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "velocity feedback gain"},
+    {"dampratio", "dampratio", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "damping ratio, in units of critical damping"},
+    {"input", "input", "SO3Input", FieldKind::Enum, ArityKind::Scalar, 0, 0, true, false, "", "SO3 control chart (expmap/quat); sets ctrlspec"},
+};
+
 constexpr FieldDescriptor kFields_Pair[] = {
     {"name", "name", "string", FieldKind::String, ArityKind::Scalar, 0, 0, true, false, "", "element name"},
     {"dclass", "class", "Default", FieldKind::Ref, ArityKind::Scalar, 0, 0, true, false, "", "default class"},
@@ -1414,6 +1437,7 @@ constexpr FieldDescriptor kFields_Pair[] = {
     {"solimp", "solimp", "double", FieldKind::Double, ArityKind::Range, 0, 5, true, false, "", "solver impedance"},
     {"gap", "gap", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "additional contact detection buffer"},
     {"margin", "margin", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "margin for contact detection"},
+    {"adhesion", "adhesion", "double", FieldKind::Double, ArityKind::Scalar, 0, 0, true, false, "", "adhesion coefficient (contact-driven adhesion)"},
 };
 
 constexpr FieldDescriptor kFields_PluginDef[] = {
@@ -2091,13 +2115,14 @@ bool Present_ActuatorGeneral(const void* p, int fid) {
     case 24: return e.refsite.has_value();
     case 25: return e.body.has_value();
     case 26: return e.actdim.has_value();
-    case 27: return e.dyntype.has_value();
-    case 28: return e.gaintype.has_value();
-    case 29: return e.biastype.has_value();
-    case 30: return e.dynprm.has_value();
-    case 31: return e.gainprm.has_value();
-    case 32: return e.biasprm.has_value();
-    case 33: return e.actearly.has_value();
+    case 27: return e.input.has_value();
+    case 28: return e.dyntype.has_value();
+    case 29: return e.gaintype.has_value();
+    case 30: return e.biastype.has_value();
+    case 31: return e.dynprm.has_value();
+    case 32: return e.gainprm.has_value();
+    case 33: return e.biasprm.has_value();
+    case 34: return e.actearly.has_value();
     default: return false;
   }
 }
@@ -2131,13 +2156,14 @@ void Clear_ActuatorGeneral(void* p, int fid) {
     case 24: e.refsite.reset(); break;
     case 25: e.body.reset(); break;
     case 26: e.actdim.reset(); break;
-    case 27: e.dyntype.reset(); break;
-    case 28: e.gaintype.reset(); break;
-    case 29: e.biastype.reset(); break;
-    case 30: e.dynprm.reset(); break;
-    case 31: e.gainprm.reset(); break;
-    case 32: e.biasprm.reset(); break;
-    case 33: e.actearly.reset(); break;
+    case 27: e.input.reset(); break;
+    case 28: e.dyntype.reset(); break;
+    case 29: e.gaintype.reset(); break;
+    case 30: e.biastype.reset(); break;
+    case 31: e.dynprm.reset(); break;
+    case 32: e.gainprm.reset(); break;
+    case 33: e.biasprm.reset(); break;
+    case 34: e.actearly.reset(); break;
     default: break;
   }
 }
@@ -2700,6 +2726,7 @@ bool Present_CompositeGeom(const void* p, int fid) {
     case 15: return e.margin.has_value();
     case 16: return e.gap.has_value();
     case 17: return e.surfacevel.has_value();
+    case 18: return e.adhesion.has_value();
     default: return false;
   }
 }
@@ -2724,6 +2751,7 @@ void Clear_CompositeGeom(void* p, int fid) {
     case 15: e.margin.reset(); break;
     case 16: e.gap.reset(); break;
     case 17: e.surfacevel.reset(); break;
+    case 18: e.adhesion.reset(); break;
     default: break;
   }
 }
@@ -4262,14 +4290,15 @@ bool Present_Geom(const void* p, int fid) {
     case 19: return e.margin.has_value();
     case 20: return e.gap.has_value();
     case 21: return e.surfacevel.has_value();
-    case 22: return e.hfield.has_value();
-    case 23: return e.mesh.has_value();
-    case 24: return e.fitscale.has_value();
-    case 25: return e.rgba.has_value();
-    case 26: return e.fluidshape.has_value();
-    case 27: return e.fluidcoef.has_value();
-    case 28: return e.user.has_value();
-    case 29: return e.shape.has_value();
+    case 22: return e.adhesion.has_value();
+    case 23: return e.hfield.has_value();
+    case 24: return e.mesh.has_value();
+    case 25: return e.fitscale.has_value();
+    case 26: return e.rgba.has_value();
+    case 27: return e.fluidshape.has_value();
+    case 28: return e.fluidcoef.has_value();
+    case 29: return e.user.has_value();
+    case 30: return e.shape.has_value();
     default: return false;
   }
 }
@@ -4298,14 +4327,15 @@ void Clear_Geom(void* p, int fid) {
     case 19: e.margin.reset(); break;
     case 20: e.gap.reset(); break;
     case 21: e.surfacevel.reset(); break;
-    case 22: e.hfield.reset(); break;
-    case 23: e.mesh.reset(); break;
-    case 24: e.fitscale.reset(); break;
-    case 25: e.rgba.reset(); break;
-    case 26: e.fluidshape.reset(); break;
-    case 27: e.fluidcoef.reset(); break;
-    case 28: e.user.reset(); break;
-    case 29: e.shape.reset(); break;
+    case 22: e.adhesion.reset(); break;
+    case 23: e.hfield.reset(); break;
+    case 24: e.mesh.reset(); break;
+    case 25: e.fitscale.reset(); break;
+    case 26: e.rgba.reset(); break;
+    case 27: e.fluidshape.reset(); break;
+    case 28: e.fluidcoef.reset(); break;
+    case 29: e.user.reset(); break;
+    case 30: e.shape.reset(); break;
     default: break;
   }
 }
@@ -5310,6 +5340,54 @@ void Clear_Option(void* p, int fid) {
   }
 }
 
+bool Present_Orientation(const void* p, int fid) {
+  const auto& e = *static_cast<const Orientation*>(p);
+  (void)e;
+  switch (fid) {
+    case 0: return e.name.has_value();
+    case 1: return e.dclass.has_value();
+    case 2: return e.group.has_value();
+    case 3: return e.nsample.has_value();
+    case 4: return e.interp.has_value();
+    case 5: return e.delay.has_value();
+    case 6: return e.forcelimited.has_value();
+    case 7: return e.ctrlrange.has_value();
+    case 8: return e.forcerange.has_value();
+    case 9: return e.user.has_value();
+    case 10: return e.joint.has_value();
+    case 11: return e.site.has_value();
+    case 12: return e.refsite.has_value();
+    case 13: return e.kp.has_value();
+    case 14: return e.kv.has_value();
+    case 15: return e.dampratio.has_value();
+    case 16: return e.input.has_value();
+    default: return false;
+  }
+}
+void Clear_Orientation(void* p, int fid) {
+  auto& e = *static_cast<Orientation*>(p);
+  switch (fid) {
+    case 0: e.name.reset(); break;
+    case 1: e.dclass.reset(); break;
+    case 2: e.group.reset(); break;
+    case 3: e.nsample.reset(); break;
+    case 4: e.interp.reset(); break;
+    case 5: e.delay.reset(); break;
+    case 6: e.forcelimited.reset(); break;
+    case 7: e.ctrlrange.reset(); break;
+    case 8: e.forcerange.reset(); break;
+    case 9: e.user.reset(); break;
+    case 10: e.joint.reset(); break;
+    case 11: e.site.reset(); break;
+    case 12: e.refsite.reset(); break;
+    case 13: e.kp.reset(); break;
+    case 14: e.kv.reset(); break;
+    case 15: e.dampratio.reset(); break;
+    case 16: e.input.reset(); break;
+    default: break;
+  }
+}
+
 bool Present_Pair(const void* p, int fid) {
   const auto& e = *static_cast<const Pair*>(p);
   (void)e;
@@ -5325,6 +5403,7 @@ bool Present_Pair(const void* p, int fid) {
     case 8: return e.solimp.has_value();
     case 9: return e.gap.has_value();
     case 10: return e.margin.has_value();
+    case 11: return e.adhesion.has_value();
     default: return false;
   }
 }
@@ -5342,6 +5421,7 @@ void Clear_Pair(void* p, int fid) {
     case 8: e.solimp.reset(); break;
     case 9: e.gap.reset(); break;
     case 10: e.margin.reset(); break;
+    case 11: e.adhesion.reset(); break;
     default: break;
   }
 }
@@ -6847,7 +6927,7 @@ void Clear_Weld(void* p, int fid) {
   }
 }
 
-constexpr ElementType kUnionMembers_ActuatorAny[] = { ElementType::ActuatorGeneral, ElementType::Motor, ElementType::Position, ElementType::Velocity, ElementType::IntVelocity, ElementType::Damper, ElementType::Cylinder, ElementType::Muscle, ElementType::Adhesion, ElementType::DcMotor, ElementType::ActuatorPlugin };
+constexpr ElementType kUnionMembers_ActuatorAny[] = { ElementType::ActuatorGeneral, ElementType::Motor, ElementType::Position, ElementType::Velocity, ElementType::IntVelocity, ElementType::Orientation, ElementType::Damper, ElementType::Cylinder, ElementType::Muscle, ElementType::Adhesion, ElementType::DcMotor, ElementType::ActuatorPlugin };
 constexpr ElementType kUnionMembers_BodyChildAny[] = { ElementType::Geom, ElementType::Joint, ElementType::FreeJoint, ElementType::Site, ElementType::Camera, ElementType::Light, ElementType::PluginRef, ElementType::Body, ElementType::Frame, ElementType::Composite, ElementType::Flexcomp, ElementType::Replicate, ElementType::Attach };
 constexpr ElementType kUnionMembers_EqualityAny[] = { ElementType::Connect, ElementType::Weld, ElementType::EqualityJoint, ElementType::EqualityTendon, ElementType::EqualityFlex, ElementType::Flexvert, ElementType::Flexstrain };
 constexpr ElementType kUnionMembers_PathItemAny[] = { ElementType::SpatialSite, ElementType::SpatialGeom, ElementType::Pulley };
@@ -6857,7 +6937,7 @@ constexpr ElementType kUnionMembers_TendonAny[] = { ElementType::Spatial, Elemen
 constexpr ElementDescriptor kElements[] = {
     {"Accelerometer", "accelerometer", ElementType::Accelerometer, kFields_Accelerometer, 9, nullptr, 0, &Present_Accelerometer, &Clear_Accelerometer},
     {"Actuator", "actuator", ElementType::Actuator, nullptr, 0, kChildren_Actuator, 1, &Present_Actuator, &Clear_Actuator},
-    {"ActuatorGeneral", "general", ElementType::ActuatorGeneral, kFields_ActuatorGeneral, 34, nullptr, 0, &Present_ActuatorGeneral, &Clear_ActuatorGeneral},
+    {"ActuatorGeneral", "general", ElementType::ActuatorGeneral, kFields_ActuatorGeneral, 35, nullptr, 0, &Present_ActuatorGeneral, &Clear_ActuatorGeneral},
     {"ActuatorPlugin", "plugin", ElementType::ActuatorPlugin, kFields_ActuatorPlugin, 30, kChildren_ActuatorPlugin, 1, &Present_ActuatorPlugin, &Clear_ActuatorPlugin},
     {"Actuatorfrc", "actuatorfrc", ElementType::Actuatorfrc, kFields_Actuatorfrc, 9, nullptr, 0, &Present_Actuatorfrc, &Clear_Actuatorfrc},
     {"Actuatorpos", "actuatorpos", ElementType::Actuatorpos, kFields_Actuatorpos, 9, nullptr, 0, &Present_Actuatorpos, &Clear_Actuatorpos},
@@ -6873,7 +6953,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Clock", "clock", ElementType::Clock, kFields_Clock, 8, nullptr, 0, &Present_Clock, &Clear_Clock},
     {"Compiler", "compiler", ElementType::Compiler, kFields_Compiler, 21, kChildren_Compiler, 1, &Present_Compiler, &Clear_Compiler},
     {"Composite", "composite", ElementType::Composite, kFields_Composite, 9, kChildren_Composite, 5, &Present_Composite, &Clear_Composite},
-    {"CompositeGeom", "geom", ElementType::CompositeGeom, kFields_CompositeGeom, 18, nullptr, 0, &Present_CompositeGeom, &Clear_CompositeGeom},
+    {"CompositeGeom", "geom", ElementType::CompositeGeom, kFields_CompositeGeom, 19, nullptr, 0, &Present_CompositeGeom, &Clear_CompositeGeom},
     {"CompositeJoint", "joint", ElementType::CompositeJoint, kFields_CompositeJoint, 17, nullptr, 0, &Present_CompositeJoint, &Clear_CompositeJoint},
     {"CompositeSite", "site", ElementType::CompositeSite, kFields_CompositeSite, 4, nullptr, 0, &Present_CompositeSite, &Clear_CompositeSite},
     {"CompositeSkin", "skin", ElementType::CompositeSkin, kFields_CompositeSkin, 6, nullptr, 0, &Present_CompositeSkin, &Clear_CompositeSkin},
@@ -6921,7 +7001,7 @@ constexpr ElementDescriptor kElements[] = {
     {"Framezaxis", "framezaxis", ElementType::Framezaxis, kFields_Framezaxis, 12, nullptr, 0, &Present_Framezaxis, &Clear_Framezaxis},
     {"FreeJoint", "freejoint", ElementType::FreeJoint, kFields_FreeJoint, 3, nullptr, 0, &Present_FreeJoint, &Clear_FreeJoint},
     {"Fromto", "fromto", ElementType::Fromto, kFields_Fromto, 12, nullptr, 0, &Present_Fromto, &Clear_Fromto},
-    {"Geom", "geom", ElementType::Geom, kFields_Geom, 30, kChildren_Geom, 1, &Present_Geom, &Clear_Geom},
+    {"Geom", "geom", ElementType::Geom, kFields_Geom, 31, kChildren_Geom, 1, &Present_Geom, &Clear_Geom},
     {"Gyro", "gyro", ElementType::Gyro, kFields_Gyro, 9, nullptr, 0, &Present_Gyro, &Clear_Gyro},
     {"Hfield", "hfield", ElementType::Hfield, kFields_Hfield, 7, nullptr, 0, &Present_Hfield, &Clear_Hfield},
     {"Inertial", "inertial", ElementType::Inertial, kFields_Inertial, 4, nullptr, 0, &Present_Inertial, &Clear_Inertial},
@@ -6949,7 +7029,8 @@ constexpr ElementDescriptor kElements[] = {
     {"Normal", "normal", ElementType::Normal, kFields_Normal, 12, nullptr, 0, &Present_Normal, &Clear_Normal},
     {"Numeric", "numeric", ElementType::Numeric, kFields_Numeric, 2, nullptr, 0, &Present_Numeric, &Clear_Numeric},
     {"Option", "option", ElementType::Option, kFields_Option, 27, kChildren_Option, 1, &Present_Option, &Clear_Option},
-    {"Pair", "pair", ElementType::Pair, kFields_Pair, 11, nullptr, 0, &Present_Pair, &Clear_Pair},
+    {"Orientation", "orientation", ElementType::Orientation, kFields_Orientation, 17, nullptr, 0, &Present_Orientation, &Clear_Orientation},
+    {"Pair", "pair", ElementType::Pair, kFields_Pair, 12, nullptr, 0, &Present_Pair, &Clear_Pair},
     {"PluginDef", "plugin", ElementType::PluginDef, kFields_PluginDef, 1, kChildren_PluginDef, 1, &Present_PluginDef, &Clear_PluginDef},
     {"PluginInstance", "instance", ElementType::PluginInstance, kFields_PluginInstance, 1, kChildren_PluginInstance, 1, &Present_PluginInstance, &Clear_PluginInstance},
     {"PluginRef", "plugin", ElementType::PluginRef, kFields_PluginRef, 2, kChildren_PluginRef, 1, &Present_PluginRef, &Clear_PluginRef},
@@ -7000,7 +7081,7 @@ constexpr ElementDescriptor kElements[] = {
 };
 
 constexpr UnionDescriptor kUnions[] = {
-    {"ActuatorAny", kUnionMembers_ActuatorAny, 11},
+    {"ActuatorAny", kUnionMembers_ActuatorAny, 12},
     {"BodyChildAny", kUnionMembers_BodyChildAny, 13},
     {"EqualityAny", kUnionMembers_EqualityAny, 7},
     {"PathItemAny", kUnionMembers_PathItemAny, 3},

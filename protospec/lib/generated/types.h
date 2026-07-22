@@ -108,6 +108,7 @@ struct Muscle;
 struct Normal;
 struct Numeric;
 struct Option;
+struct Orientation;
 struct Pair;
 struct PluginDef;
 struct PluginInstance;
@@ -168,6 +169,7 @@ enum class BiasType {
   affine,
   muscle,
   dcmotor,
+  so3,
   user,
 };
 
@@ -323,6 +325,7 @@ enum class GainType {
   affine,
   muscle,
   dcmotor,
+  so3,
   user,
 };
 
@@ -418,6 +421,11 @@ enum class RayData {
   depth,
 };
 
+enum class SO3Input {
+  expmap,
+  quat,
+};
+
 enum class SimpleMode {
   false_,
   auto_,
@@ -492,6 +500,7 @@ struct ActuatorAny {
     Position,
     Velocity,
     IntVelocity,
+    Orientation,
     Damper,
     Cylinder,
     Muscle,
@@ -499,7 +508,7 @@ struct ActuatorAny {
     DcMotor,
     ActuatorPlugin,
   };
-  std::variant<std::unique_ptr<ActuatorGeneral>, std::unique_ptr<Motor>, std::unique_ptr<Position>, std::unique_ptr<Velocity>, std::unique_ptr<IntVelocity>, std::unique_ptr<Damper>, std::unique_ptr<Cylinder>, std::unique_ptr<Muscle>, std::unique_ptr<Adhesion>, std::unique_ptr<DcMotor>, std::unique_ptr<ActuatorPlugin>> node;
+  std::variant<std::unique_ptr<ActuatorGeneral>, std::unique_ptr<Motor>, std::unique_ptr<Position>, std::unique_ptr<Velocity>, std::unique_ptr<IntVelocity>, std::unique_ptr<Orientation>, std::unique_ptr<Damper>, std::unique_ptr<Cylinder>, std::unique_ptr<Muscle>, std::unique_ptr<Adhesion>, std::unique_ptr<DcMotor>, std::unique_ptr<ActuatorPlugin>> node;
   Kind kind() const { return static_cast<Kind>(node.index()); }
 };
 
@@ -663,6 +672,7 @@ struct ActuatorGeneral {
   ps::opt<ps::Ref<Site>> refsite = {};
   ps::opt<ps::Ref<Body>> body = {};
   ps::opt<int32_t> actdim = {};
+  ps::opt<SO3Input> input = {};
   ps::opt<DynType> dyntype = {};
   ps::opt<GainType> gaintype = {};
   ps::opt<BiasType> biastype = {};
@@ -948,6 +958,7 @@ struct CompositeGeom {
   ps::opt<double> margin = {};
   ps::opt<double> gap = {};
   ps::opt<std::array<double, 6>> surfacevel = {};
+  ps::opt<double> adhesion = {};
 };
 
 struct CompositeJoint {
@@ -1686,6 +1697,7 @@ struct Geom {
   ps::opt<double> margin = {};
   ps::opt<double> gap = {};
   ps::opt<std::array<double, 6>> surfacevel = {};
+  ps::opt<double> adhesion = {};
   ps::opt<ps::Ref<Hfield>> hfield = {};
   ps::opt<ps::Ref<Mesh>> mesh = {};
   ps::opt<double> fitscale = {};
@@ -2166,6 +2178,28 @@ struct Option {
   std::vector<std::unique_ptr<Flag>> flags;
 };
 
+struct Orientation {
+  ps::SourceLoc loc;
+  std::uint64_t serial = ps::detail::next_serial();
+  ps::opt<std::string> name = {};
+  ps::opt<ps::Ref<Default>> dclass = {};
+  ps::opt<int32_t> group = {};
+  ps::opt<int32_t> nsample = {};
+  ps::opt<InterpType> interp = {};
+  ps::opt<double> delay = {};
+  ps::opt<TriState> forcelimited = {};
+  ps::opt<std::array<double, 2>> ctrlrange = {};
+  ps::opt<std::array<double, 2>> forcerange = {};
+  ps::opt<std::vector<double>> user = {};
+  ps::opt<ps::Ref<Joint>> joint = {};
+  ps::opt<ps::Ref<Site>> site = {};
+  ps::opt<ps::Ref<Site>> refsite = {};
+  ps::opt<double> kp = {};
+  ps::opt<double> kv = {};
+  ps::opt<double> dampratio = {};
+  ps::opt<SO3Input> input = {};
+};
+
 struct Pair {
   ps::SourceLoc loc;
   std::uint64_t serial = ps::detail::next_serial();
@@ -2180,6 +2214,7 @@ struct Pair {
   ps::opt<ps::InlineVec<double, 5>> solimp = {};
   ps::opt<double> gap = {};
   ps::opt<double> margin = {};
+  ps::opt<double> adhesion = {};
 };
 
 struct PluginDef {
@@ -2958,6 +2993,7 @@ enum class ElementType {
   Normal,
   Numeric,
   Option,
+  Orientation,
   Pair,
   PluginDef,
   PluginInstance,
@@ -3103,6 +3139,7 @@ template <> struct element_type_of<Muscle> { static constexpr ElementType value 
 template <> struct element_type_of<Normal> { static constexpr ElementType value = ElementType::Normal; };
 template <> struct element_type_of<Numeric> { static constexpr ElementType value = ElementType::Numeric; };
 template <> struct element_type_of<Option> { static constexpr ElementType value = ElementType::Option; };
+template <> struct element_type_of<Orientation> { static constexpr ElementType value = ElementType::Orientation; };
 template <> struct element_type_of<Pair> { static constexpr ElementType value = ElementType::Pair; };
 template <> struct element_type_of<PluginDef> { static constexpr ElementType value = ElementType::PluginDef; };
 template <> struct element_type_of<PluginInstance> { static constexpr ElementType value = ElementType::PluginInstance; };
@@ -3447,6 +3484,9 @@ inline bool operator!=(const Numeric& a, const Numeric& b) { return !(a == b); }
 std::unique_ptr<Option> Clone(const Option& src);
 bool operator==(const Option& a, const Option& b);
 inline bool operator!=(const Option& a, const Option& b) { return !(a == b); }
+std::unique_ptr<Orientation> Clone(const Orientation& src);
+bool operator==(const Orientation& a, const Orientation& b);
+inline bool operator!=(const Orientation& a, const Orientation& b) { return !(a == b); }
 std::unique_ptr<Pair> Clone(const Pair& src);
 bool operator==(const Pair& a, const Pair& b);
 inline bool operator!=(const Pair& a, const Pair& b) { return !(a == b); }

@@ -409,6 +409,29 @@ void RegisterElements3(pybind11::module_& m) {
     ChildList(c, "flags", &Option::flags);
     Augment(c);
   }
+  { pyb::class_<Orientation> c(m, "Orientation");
+    c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
+    ElementBase(c);
+    NameField(c, &Orientation::name);
+    OptField(c, "dclass", &Orientation::dclass);
+    OptField(c, "group", &Orientation::group);
+    OptField(c, "nsample", &Orientation::nsample);
+    OptField(c, "interp", &Orientation::interp);
+    OptField(c, "delay", &Orientation::delay);
+    OptField(c, "forcelimited", &Orientation::forcelimited);
+    OptField(c, "ctrlrange", &Orientation::ctrlrange);
+    OptField(c, "forcerange", &Orientation::forcerange);
+    OptField(c, "user", &Orientation::user);
+    OptField(c, "joint", &Orientation::joint);
+    OptField(c, "site", &Orientation::site);
+    OptField(c, "refsite", &Orientation::refsite);
+    OptField(c, "kp", &Orientation::kp);
+    OptField(c, "kv", &Orientation::kv);
+    OptField(c, "dampratio", &Orientation::dampratio);
+    OptField(c, "input", &Orientation::input);
+    Augment(c);
+  }
   { pyb::class_<Pair> c(m, "Pair");
     c.def(pyb::init<>());
     InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
@@ -424,14 +447,7 @@ void RegisterElements3(pybind11::module_& m) {
     OptField(c, "solimp", &Pair::solimp);
     OptField(c, "gap", &Pair::gap);
     OptField(c, "margin", &Pair::margin);
-    Augment(c);
-  }
-  { pyb::class_<PluginDef> c(m, "PluginDef");
-    c.def(pyb::init<>());
-    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
-    ElementBase(c);
-    OptField(c, "plugin", &PluginDef::plugin);
-    ChildList(c, "pluginInstances", &PluginDef::pluginInstances);
+    OptField(c, "adhesion", &Pair::adhesion);
     Augment(c);
   }
 }

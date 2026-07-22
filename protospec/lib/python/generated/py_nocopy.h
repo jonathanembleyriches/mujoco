@@ -209,6 +209,8 @@ template <> struct is_copy_constructible<ps::mjcf::Numeric> : std::false_type {}
 template <> struct is_copy_assignable<ps::mjcf::Numeric> : std::false_type {};
 template <> struct is_copy_constructible<ps::mjcf::Option> : std::false_type {};
 template <> struct is_copy_assignable<ps::mjcf::Option> : std::false_type {};
+template <> struct is_copy_constructible<ps::mjcf::Orientation> : std::false_type {};
+template <> struct is_copy_assignable<ps::mjcf::Orientation> : std::false_type {};
 template <> struct is_copy_constructible<ps::mjcf::Pair> : std::false_type {};
 template <> struct is_copy_assignable<ps::mjcf::Pair> : std::false_type {};
 template <> struct is_copy_constructible<ps::mjcf::PluginDef> : std::false_type {};

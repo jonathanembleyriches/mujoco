@@ -102,6 +102,7 @@ std::optional<Ns> ElemNamespace(ElementType et) {
     case ElementType::Position:
     case ElementType::Velocity:
     case ElementType::IntVelocity:
+    case ElementType::Orientation:
     case ElementType::Damper:
     case ElementType::Cylinder:
     case ElementType::Muscle:

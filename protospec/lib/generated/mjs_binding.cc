@@ -852,6 +852,7 @@ void ApplyMjs(const Geom& e, mjsGeom* out) {
   if (e.margin.has_value()) { out->margin = (*e.margin); }
   if (e.gap.has_value()) { out->gap = (*e.gap); }
   if (e.surfacevel.has_value()) { for (int i = 0; i < 6; ++i) out->surfacevel[i] = (*e.surfacevel)[i]; }
+  if (e.adhesion.has_value()) { out->adhesion = (*e.adhesion); }
   if (e.hfield.has_value()) { mjs_setString(out->hfieldname, (*e.hfield).name.c_str()); }
   if (e.mesh.has_value()) { mjs_setString(out->meshname, (*e.mesh).name.c_str()); }
   if (e.fitscale.has_value()) { out->fitscale = (*e.fitscale); }
@@ -1187,6 +1188,21 @@ void ApplyMjs(const Numeric& e, mjsNumeric* out) {
   (void)out;
 }
 
+void ApplyMjs(const Orientation& e, mjsActuator* out) {
+  if (e.name.has_value()) { mjs_setName(out->element, (*e.name).c_str()); }
+  if (e.group.has_value()) { out->group = (*e.group); }
+  if (e.nsample.has_value()) { out->nsample = (*e.nsample); }
+  if (e.interp.has_value()) { out->interp = static_cast<int>(ToMjt((*e.interp))); }
+  if (e.delay.has_value()) { out->delay = (*e.delay); }
+  if (e.forcelimited.has_value()) { out->forcelimited = static_cast<mjtLimited>(ToMjt((*e.forcelimited))); }
+  if (e.ctrlrange.has_value()) { for (int i = 0; i < 2; ++i) out->ctrlrange[i] = (*e.ctrlrange)[i]; }
+  if (e.forcerange.has_value()) { for (int i = 0; i < 2; ++i) out->forcerange[i] = (*e.forcerange)[i]; }
+  if (e.user.has_value()) { ps::mjcf::compile::SetDouble(out->userdata, (*e.user)); }
+  if (e.refsite.has_value()) { mjs_setString(out->refsite, (*e.refsite).name.c_str()); }
+  (void)e;
+  (void)out;
+}
+
 void ApplyMjs(const Pair& e, mjsPair* out) {
   if (e.name.has_value()) { mjs_setName(out->element, (*e.name).c_str()); }
   if (e.geom1.has_value()) { mjs_setString(out->geomname1, (*e.geom1).name.c_str()); }
@@ -1198,6 +1214,7 @@ void ApplyMjs(const Pair& e, mjsPair* out) {
   if (e.solimp.has_value()) { for (std::size_t i = 0; i < (*e.solimp).size(); ++i) out->solimp[i] = (*e.solimp)[i]; }
   if (e.gap.has_value()) { out->gap = (*e.gap); }
   if (e.margin.has_value()) { out->margin = (*e.margin); }
+  if (e.adhesion.has_value()) { out->adhesion = (*e.adhesion); }
   (void)e;
   (void)out;
 }

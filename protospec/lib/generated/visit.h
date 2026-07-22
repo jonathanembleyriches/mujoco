@@ -212,13 +212,14 @@ template <class V> void Visit(ActuatorGeneral& e, V&& v) {
   v.field(24, "refsite", e.refsite);
   v.field(25, "body", e.body);
   v.field(26, "actdim", e.actdim);
-  v.field(27, "dyntype", e.dyntype);
-  v.field(28, "gaintype", e.gaintype);
-  v.field(29, "biastype", e.biastype);
-  v.field(30, "dynprm", e.dynprm);
-  v.field(31, "gainprm", e.gainprm);
-  v.field(32, "biasprm", e.biasprm);
-  v.field(33, "actearly", e.actearly);
+  v.field(27, "input", e.input);
+  v.field(28, "dyntype", e.dyntype);
+  v.field(29, "gaintype", e.gaintype);
+  v.field(30, "biastype", e.biastype);
+  v.field(31, "dynprm", e.dynprm);
+  v.field(32, "gainprm", e.gainprm);
+  v.field(33, "biasprm", e.biasprm);
+  v.field(34, "actearly", e.actearly);
   (void)v;
 }
 
@@ -250,13 +251,14 @@ template <class V> void Visit(const ActuatorGeneral& e, V&& v) {
   v.field(24, "refsite", e.refsite);
   v.field(25, "body", e.body);
   v.field(26, "actdim", e.actdim);
-  v.field(27, "dyntype", e.dyntype);
-  v.field(28, "gaintype", e.gaintype);
-  v.field(29, "biastype", e.biastype);
-  v.field(30, "dynprm", e.dynprm);
-  v.field(31, "gainprm", e.gainprm);
-  v.field(32, "biasprm", e.biasprm);
-  v.field(33, "actearly", e.actearly);
+  v.field(27, "input", e.input);
+  v.field(28, "dyntype", e.dyntype);
+  v.field(29, "gaintype", e.gaintype);
+  v.field(30, "biastype", e.biastype);
+  v.field(31, "dynprm", e.dynprm);
+  v.field(32, "gainprm", e.gainprm);
+  v.field(33, "biasprm", e.biasprm);
+  v.field(34, "actearly", e.actearly);
   (void)v;
 }
 
@@ -759,6 +761,7 @@ template <class V> void Visit(CompositeGeom& e, V&& v) {
   v.field(15, "margin", e.margin);
   v.field(16, "gap", e.gap);
   v.field(17, "surfacevel", e.surfacevel);
+  v.field(18, "adhesion", e.adhesion);
   (void)v;
 }
 
@@ -781,6 +784,7 @@ template <class V> void Visit(const CompositeGeom& e, V&& v) {
   v.field(15, "margin", e.margin);
   v.field(16, "gap", e.gap);
   v.field(17, "surfacevel", e.surfacevel);
+  v.field(18, "adhesion", e.adhesion);
   (void)v;
 }
 
@@ -2135,14 +2139,15 @@ template <class V> void Visit(Geom& e, V&& v) {
   v.field(19, "margin", e.margin);
   v.field(20, "gap", e.gap);
   v.field(21, "surfacevel", e.surfacevel);
-  v.field(22, "hfield", e.hfield);
-  v.field(23, "mesh", e.mesh);
-  v.field(24, "fitscale", e.fitscale);
-  v.field(25, "rgba", e.rgba);
-  v.field(26, "fluidshape", e.fluidshape);
-  v.field(27, "fluidcoef", e.fluidcoef);
-  v.field(28, "user", e.user);
-  v.field(29, "shape", e.shape);
+  v.field(22, "adhesion", e.adhesion);
+  v.field(23, "hfield", e.hfield);
+  v.field(24, "mesh", e.mesh);
+  v.field(25, "fitscale", e.fitscale);
+  v.field(26, "rgba", e.rgba);
+  v.field(27, "fluidshape", e.fluidshape);
+  v.field(28, "fluidcoef", e.fluidcoef);
+  v.field(29, "user", e.user);
+  v.field(30, "shape", e.shape);
   v.child(0, "plugin", e.plugin);
   (void)v;
 }
@@ -2170,14 +2175,15 @@ template <class V> void Visit(const Geom& e, V&& v) {
   v.field(19, "margin", e.margin);
   v.field(20, "gap", e.gap);
   v.field(21, "surfacevel", e.surfacevel);
-  v.field(22, "hfield", e.hfield);
-  v.field(23, "mesh", e.mesh);
-  v.field(24, "fitscale", e.fitscale);
-  v.field(25, "rgba", e.rgba);
-  v.field(26, "fluidshape", e.fluidshape);
-  v.field(27, "fluidcoef", e.fluidcoef);
-  v.field(28, "user", e.user);
-  v.field(29, "shape", e.shape);
+  v.field(22, "adhesion", e.adhesion);
+  v.field(23, "hfield", e.hfield);
+  v.field(24, "mesh", e.mesh);
+  v.field(25, "fitscale", e.fitscale);
+  v.field(26, "rgba", e.rgba);
+  v.field(27, "fluidshape", e.fluidshape);
+  v.field(28, "fluidcoef", e.fluidcoef);
+  v.field(29, "user", e.user);
+  v.field(30, "shape", e.shape);
   v.child(0, "plugin", e.plugin);
   (void)v;
 }
@@ -3066,6 +3072,48 @@ template <class V> void Visit(const Option& e, V&& v) {
   (void)v;
 }
 
+template <class V> void Visit(Orientation& e, V&& v) {
+  v.field(0, "name", e.name);
+  v.field(1, "dclass", e.dclass);
+  v.field(2, "group", e.group);
+  v.field(3, "nsample", e.nsample);
+  v.field(4, "interp", e.interp);
+  v.field(5, "delay", e.delay);
+  v.field(6, "forcelimited", e.forcelimited);
+  v.field(7, "ctrlrange", e.ctrlrange);
+  v.field(8, "forcerange", e.forcerange);
+  v.field(9, "user", e.user);
+  v.field(10, "joint", e.joint);
+  v.field(11, "site", e.site);
+  v.field(12, "refsite", e.refsite);
+  v.field(13, "kp", e.kp);
+  v.field(14, "kv", e.kv);
+  v.field(15, "dampratio", e.dampratio);
+  v.field(16, "input", e.input);
+  (void)v;
+}
+
+template <class V> void Visit(const Orientation& e, V&& v) {
+  v.field(0, "name", e.name);
+  v.field(1, "dclass", e.dclass);
+  v.field(2, "group", e.group);
+  v.field(3, "nsample", e.nsample);
+  v.field(4, "interp", e.interp);
+  v.field(5, "delay", e.delay);
+  v.field(6, "forcelimited", e.forcelimited);
+  v.field(7, "ctrlrange", e.ctrlrange);
+  v.field(8, "forcerange", e.forcerange);
+  v.field(9, "user", e.user);
+  v.field(10, "joint", e.joint);
+  v.field(11, "site", e.site);
+  v.field(12, "refsite", e.refsite);
+  v.field(13, "kp", e.kp);
+  v.field(14, "kv", e.kv);
+  v.field(15, "dampratio", e.dampratio);
+  v.field(16, "input", e.input);
+  (void)v;
+}
+
 template <class V> void Visit(Pair& e, V&& v) {
   v.field(0, "name", e.name);
   v.field(1, "dclass", e.dclass);
@@ -3078,6 +3126,7 @@ template <class V> void Visit(Pair& e, V&& v) {
   v.field(8, "solimp", e.solimp);
   v.field(9, "gap", e.gap);
   v.field(10, "margin", e.margin);
+  v.field(11, "adhesion", e.adhesion);
   (void)v;
 }
 
@@ -3093,6 +3142,7 @@ template <class V> void Visit(const Pair& e, V&& v) {
   v.field(8, "solimp", e.solimp);
   v.field(9, "gap", e.gap);
   v.field(10, "margin", e.margin);
+  v.field(11, "adhesion", e.adhesion);
   (void)v;
 }
 

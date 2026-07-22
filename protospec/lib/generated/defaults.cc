@@ -432,6 +432,10 @@ void ApplyDefault(Option& e) {
   (void)e;
 }
 
+void ApplyDefault(Orientation& e) {
+  (void)e;
+}
+
 void ApplyDefault(Pair& e) {
   e.condim = 3;
   e.friction = ps::InlineVec<double, 5>{1.0, 1.0, 0.005, 0.0001, 0.0001};

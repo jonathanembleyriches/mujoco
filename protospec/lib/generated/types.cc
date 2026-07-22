@@ -214,6 +214,7 @@ std::unique_ptr<ActuatorGeneral> Clone(const ActuatorGeneral& src) {
   out->refsite = src.refsite;
   out->body = src.body;
   out->actdim = src.actdim;
+  out->input = src.input;
   out->dyntype = src.dyntype;
   out->gaintype = src.gaintype;
   out->biastype = src.biastype;
@@ -252,6 +253,7 @@ bool operator==(const ActuatorGeneral& a, const ActuatorGeneral& b) {
          a.refsite == b.refsite &&
          a.body == b.body &&
          a.actdim == b.actdim &&
+         a.input == b.input &&
          a.dyntype == b.dyntype &&
          a.gaintype == b.gaintype &&
          a.biastype == b.biastype &&
@@ -778,6 +780,7 @@ std::unique_ptr<CompositeGeom> Clone(const CompositeGeom& src) {
   out->margin = src.margin;
   out->gap = src.gap;
   out->surfacevel = src.surfacevel;
+  out->adhesion = src.adhesion;
   return out;
 }
 
@@ -799,7 +802,8 @@ bool operator==(const CompositeGeom& a, const CompositeGeom& b) {
          a.solimp == b.solimp &&
          a.margin == b.margin &&
          a.gap == b.gap &&
-         a.surfacevel == b.surfacevel;
+         a.surfacevel == b.surfacevel &&
+         a.adhesion == b.adhesion;
 }
 
 std::unique_ptr<CompositeJoint> Clone(const CompositeJoint& src) {
@@ -2204,6 +2208,7 @@ std::unique_ptr<Geom> Clone(const Geom& src) {
   out->margin = src.margin;
   out->gap = src.gap;
   out->surfacevel = src.surfacevel;
+  out->adhesion = src.adhesion;
   out->hfield = src.hfield;
   out->mesh = src.mesh;
   out->fitscale = src.fitscale;
@@ -2239,6 +2244,7 @@ bool operator==(const Geom& a, const Geom& b) {
          a.margin == b.margin &&
          a.gap == b.gap &&
          a.surfacevel == b.surfacevel &&
+         a.adhesion == b.adhesion &&
          a.hfield == b.hfield &&
          a.mesh == b.mesh &&
          a.fitscale == b.fitscale &&
@@ -3161,6 +3167,49 @@ bool operator==(const Option& a, const Option& b) {
          ps::PtrVecEq(a.flags, b.flags);
 }
 
+std::unique_ptr<Orientation> Clone(const Orientation& src) {
+  auto out = std::make_unique<Orientation>();
+  out->loc = src.loc;
+  out->name = src.name;
+  out->dclass = src.dclass;
+  out->group = src.group;
+  out->nsample = src.nsample;
+  out->interp = src.interp;
+  out->delay = src.delay;
+  out->forcelimited = src.forcelimited;
+  out->ctrlrange = src.ctrlrange;
+  out->forcerange = src.forcerange;
+  out->user = src.user;
+  out->joint = src.joint;
+  out->site = src.site;
+  out->refsite = src.refsite;
+  out->kp = src.kp;
+  out->kv = src.kv;
+  out->dampratio = src.dampratio;
+  out->input = src.input;
+  return out;
+}
+
+bool operator==(const Orientation& a, const Orientation& b) {
+  return a.name == b.name &&
+         a.dclass == b.dclass &&
+         a.group == b.group &&
+         a.nsample == b.nsample &&
+         a.interp == b.interp &&
+         a.delay == b.delay &&
+         a.forcelimited == b.forcelimited &&
+         a.ctrlrange == b.ctrlrange &&
+         a.forcerange == b.forcerange &&
+         a.user == b.user &&
+         a.joint == b.joint &&
+         a.site == b.site &&
+         a.refsite == b.refsite &&
+         a.kp == b.kp &&
+         a.kv == b.kv &&
+         a.dampratio == b.dampratio &&
+         a.input == b.input;
+}
+
 std::unique_ptr<Pair> Clone(const Pair& src) {
   auto out = std::make_unique<Pair>();
   out->loc = src.loc;
@@ -3175,6 +3224,7 @@ std::unique_ptr<Pair> Clone(const Pair& src) {
   out->solimp = src.solimp;
   out->gap = src.gap;
   out->margin = src.margin;
+  out->adhesion = src.adhesion;
   return out;
 }
 
@@ -3189,7 +3239,8 @@ bool operator==(const Pair& a, const Pair& b) {
          a.solreffriction == b.solreffriction &&
          a.solimp == b.solimp &&
          a.gap == b.gap &&
-         a.margin == b.margin;
+         a.margin == b.margin &&
+         a.adhesion == b.adhesion;
 }
 
 std::unique_ptr<PluginDef> Clone(const PluginDef& src) {

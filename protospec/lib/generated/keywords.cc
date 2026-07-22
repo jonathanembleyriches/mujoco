@@ -23,6 +23,7 @@ std::string_view ToMjcf(BiasType value) {
     case BiasType::affine: return "affine";
     case BiasType::muscle: return "muscle";
     case BiasType::dcmotor: return "dcmotor";
+    case BiasType::so3: return "so3";
     case BiasType::user: return "user";
   }
   return "";
@@ -33,6 +34,7 @@ bool FromMjcf(std::string_view text, BiasType& out) {
   if (text == "affine") { out = BiasType::affine; return true; }
   if (text == "muscle") { out = BiasType::muscle; return true; }
   if (text == "dcmotor") { out = BiasType::dcmotor; return true; }
+  if (text == "so3") { out = BiasType::so3; return true; }
   if (text == "user") { out = BiasType::user; return true; }
   return false;
 }
@@ -417,6 +419,7 @@ std::string_view ToMjcf(GainType value) {
     case GainType::affine: return "affine";
     case GainType::muscle: return "muscle";
     case GainType::dcmotor: return "dcmotor";
+    case GainType::so3: return "so3";
     case GainType::user: return "user";
   }
   return "";
@@ -427,6 +430,7 @@ bool FromMjcf(std::string_view text, GainType& out) {
   if (text == "affine") { out = GainType::affine; return true; }
   if (text == "muscle") { out = GainType::muscle; return true; }
   if (text == "dcmotor") { out = GainType::dcmotor; return true; }
+  if (text == "so3") { out = GainType::so3; return true; }
   if (text == "user") { out = GainType::user; return true; }
   return false;
 }
@@ -660,6 +664,20 @@ bool FromMjcf(std::string_view text, RayData& out) {
   if (text == "point") { out = RayData::point; return true; }
   if (text == "normal") { out = RayData::normal; return true; }
   if (text == "depth") { out = RayData::depth; return true; }
+  return false;
+}
+
+std::string_view ToMjcf(SO3Input value) {
+  switch (value) {
+    case SO3Input::expmap: return "expmap";
+    case SO3Input::quat: return "quat";
+  }
+  return "";
+}
+
+bool FromMjcf(std::string_view text, SO3Input& out) {
+  if (text == "expmap") { out = SO3Input::expmap; return true; }
+  if (text == "quat") { out = SO3Input::quat; return true; }
   return false;
 }
 

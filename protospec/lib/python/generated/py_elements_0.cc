@@ -57,6 +57,7 @@ void RegisterElements0(pybind11::module_& m) {
     OptField(c, "refsite", &ActuatorGeneral::refsite);
     OptField(c, "body", &ActuatorGeneral::body);
     OptField(c, "actdim", &ActuatorGeneral::actdim);
+    OptField(c, "input", &ActuatorGeneral::input);
     OptField(c, "dyntype", &ActuatorGeneral::dyntype);
     OptField(c, "gaintype", &ActuatorGeneral::gaintype);
     OptField(c, "biastype", &ActuatorGeneral::biastype);
@@ -358,6 +359,7 @@ void RegisterElements0(pybind11::module_& m) {
     OptField(c, "margin", &CompositeGeom::margin);
     OptField(c, "gap", &CompositeGeom::gap);
     OptField(c, "surfacevel", &CompositeGeom::surfacevel);
+    OptField(c, "adhesion", &CompositeGeom::adhesion);
     Augment(c);
   }
   { pyb::class_<CompositeJoint> c(m, "CompositeJoint");

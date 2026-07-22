@@ -4,6 +4,14 @@
 namespace ps::py {
 
 void RegisterElements4(pybind11::module_& m) {
+  { pyb::class_<PluginDef> c(m, "PluginDef");
+    c.def(pyb::init<>());
+    InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor
+    ElementBase(c);
+    OptField(c, "plugin", &PluginDef::plugin);
+    ChildList(c, "pluginInstances", &PluginDef::pluginInstances);
+    Augment(c);
+  }
   { pyb::class_<PluginInstance> c(m, "PluginInstance");
     c.def(pyb::init<>());
     InitKwargs(c);  // ps.Elem(name=..., field=...) keyword ctor

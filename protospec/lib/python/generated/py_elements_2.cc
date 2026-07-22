@@ -322,6 +322,7 @@ void RegisterElements2(pybind11::module_& m) {
     OptField(c, "margin", &Geom::margin);
     OptField(c, "gap", &Geom::gap);
     OptField(c, "surfacevel", &Geom::surfacevel);
+    OptField(c, "adhesion", &Geom::adhesion);
     OptField(c, "hfield", &Geom::hfield);
     OptField(c, "mesh", &Geom::mesh);
     OptField(c, "fitscale", &Geom::fitscale);
