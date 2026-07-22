@@ -1,0 +1,3963 @@
+{
+  "source": {
+    "file": "src/xml/xml_native_reader.cc",
+    "mujoco_version": "3.10.1"
+  },
+  "elements": {
+    "name": "mujoco",
+    "typecode": "!",
+    "attributes": [
+      "model"
+    ],
+    "children": [
+      {
+        "name": "compiler",
+        "typecode": "*",
+        "attributes": [
+          "autolimits",
+          "boundmass",
+          "boundinertia",
+          "settotalmass",
+          "balanceinertia",
+          "strippath",
+          "coordinate",
+          "angle",
+          "fitaabb",
+          "eulerseq",
+          "meshdir",
+          "texturedir",
+          "discardvisual",
+          "usethread",
+          "fusestatic",
+          "inertiafromgeom",
+          "inertiagrouprange",
+          "saveinertial",
+          "assetdir",
+          "alignfree",
+          "conflict"
+        ],
+        "children": [
+          {
+            "name": "lengthrange",
+            "typecode": "?",
+            "attributes": [
+              "mode",
+              "useexisting",
+              "uselimit",
+              "accel",
+              "maxforce",
+              "timeconst",
+              "timestep",
+              "inttotal",
+              "interval",
+              "tolrange"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "option",
+        "typecode": "*",
+        "attributes": [
+          "timestep",
+          "impratio",
+          "tolerance",
+          "ls_tolerance",
+          "noslip_tolerance",
+          "ccd_tolerance",
+          "sleep_tolerance",
+          "gravity",
+          "wind",
+          "magnetic",
+          "density",
+          "viscosity",
+          "o_margin",
+          "o_solref",
+          "o_solimp",
+          "o_friction",
+          "integrator",
+          "cone",
+          "jacobian",
+          "solver",
+          "iterations",
+          "ls_iterations",
+          "noslip_iterations",
+          "ccd_iterations",
+          "sdf_iterations",
+          "sdf_initpoints",
+          "actuatorgroupdisable"
+        ],
+        "children": [
+          {
+            "name": "flag",
+            "typecode": "?",
+            "attributes": [
+              "constraint",
+              "equality",
+              "frictionloss",
+              "limit",
+              "contact",
+              "spring",
+              "damper",
+              "gravity",
+              "clampctrl",
+              "warmstart",
+              "filterparent",
+              "actuation",
+              "refsafe",
+              "sensor",
+              "midphase",
+              "eulerdamp",
+              "autoreset",
+              "nativeccd",
+              "island",
+              "override",
+              "energy",
+              "fwdinv",
+              "invdiscrete",
+              "multiccd",
+              "sleep",
+              "diagexact"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "size",
+        "typecode": "*",
+        "attributes": [
+          "memory",
+          "njmax",
+          "nconmax",
+          "nstack",
+          "nuserdata",
+          "nkey",
+          "nuser_body",
+          "nuser_jnt",
+          "nuser_geom",
+          "nuser_site",
+          "nuser_cam",
+          "nuser_tendon",
+          "nuser_actuator",
+          "nuser_sensor"
+        ],
+        "children": []
+      },
+      {
+        "name": "visual",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "global",
+            "typecode": "?",
+            "attributes": [
+              "cameraid",
+              "orthographic",
+              "fovy",
+              "ipd",
+              "azimuth",
+              "elevation",
+              "linewidth",
+              "glow",
+              "offwidth",
+              "offheight",
+              "realtime",
+              "ellipsoidinertia",
+              "bvactive"
+            ],
+            "children": []
+          },
+          {
+            "name": "quality",
+            "typecode": "?",
+            "attributes": [
+              "shadowsize",
+              "offsamples",
+              "numslices",
+              "numstacks",
+              "numquads"
+            ],
+            "children": []
+          },
+          {
+            "name": "headlight",
+            "typecode": "?",
+            "attributes": [
+              "ambient",
+              "diffuse",
+              "specular",
+              "active"
+            ],
+            "children": []
+          },
+          {
+            "name": "map",
+            "typecode": "?",
+            "attributes": [
+              "stiffness",
+              "stiffnessrot",
+              "force",
+              "torque",
+              "alpha",
+              "fogstart",
+              "fogend",
+              "znear",
+              "zfar",
+              "haze",
+              "shadowclip",
+              "shadowscale",
+              "actuatortendon"
+            ],
+            "children": []
+          },
+          {
+            "name": "scale",
+            "typecode": "?",
+            "attributes": [
+              "forcewidth",
+              "contactwidth",
+              "contactheight",
+              "connect",
+              "com",
+              "camera",
+              "light",
+              "selectpoint",
+              "jointlength",
+              "jointwidth",
+              "actuatorlength",
+              "actuatorwidth",
+              "framelength",
+              "framewidth",
+              "constraint",
+              "slidercrank",
+              "frustum"
+            ],
+            "children": []
+          },
+          {
+            "name": "rgba",
+            "typecode": "?",
+            "attributes": [
+              "fog",
+              "haze",
+              "force",
+              "inertia",
+              "joint",
+              "actuator",
+              "actuatornegative",
+              "actuatorpositive",
+              "com",
+              "camera",
+              "light",
+              "selectpoint",
+              "connect",
+              "contactpoint",
+              "contactforce",
+              "contactfriction",
+              "contacttorque",
+              "contactgap",
+              "rangefinder",
+              "constraint",
+              "slidercrank",
+              "crankbroken",
+              "frustum",
+              "bv",
+              "bvactive"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "statistic",
+        "typecode": "*",
+        "attributes": [
+          "meaninertia",
+          "meanmass",
+          "meansize",
+          "extent",
+          "center"
+        ],
+        "children": []
+      },
+      {
+        "name": "default",
+        "typecode": "R",
+        "attributes": [
+          "class"
+        ],
+        "children": [
+          {
+            "name": "mesh",
+            "typecode": "?",
+            "attributes": [
+              "scale",
+              "maxhullvert",
+              "inertia"
+            ],
+            "children": []
+          },
+          {
+            "name": "material",
+            "typecode": "?",
+            "attributes": [
+              "texture",
+              "emission",
+              "specular",
+              "shininess",
+              "reflectance",
+              "metallic",
+              "roughness",
+              "rgba",
+              "texrepeat",
+              "texuniform"
+            ],
+            "children": [
+              {
+                "name": "layer",
+                "typecode": "*",
+                "attributes": [
+                  "texture",
+                  "role"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "joint",
+            "typecode": "?",
+            "attributes": [
+              "type",
+              "group",
+              "pos",
+              "axis",
+              "springdamper",
+              "limited",
+              "actuatorfrclimited",
+              "solreflimit",
+              "solimplimit",
+              "solreffriction",
+              "solimpfriction",
+              "stiffness",
+              "range",
+              "actuatorfrcrange",
+              "actuatorgravcomp",
+              "margin",
+              "ref",
+              "springref",
+              "armature",
+              "damping",
+              "frictionloss",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "geom",
+            "typecode": "?",
+            "attributes": [
+              "type",
+              "pos",
+              "quat",
+              "contype",
+              "conaffinity",
+              "condim",
+              "group",
+              "priority",
+              "size",
+              "material",
+              "friction",
+              "mass",
+              "density",
+              "shellinertia",
+              "solmix",
+              "solref",
+              "solimp",
+              "margin",
+              "gap",
+              "surfacevel",
+              "fromto",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "hfield",
+              "mesh",
+              "fitscale",
+              "rgba",
+              "fluidshape",
+              "fluidcoef",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "site",
+            "typecode": "?",
+            "attributes": [
+              "type",
+              "group",
+              "pos",
+              "quat",
+              "material",
+              "size",
+              "fromto",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "rgba",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "camera",
+            "typecode": "?",
+            "attributes": [
+              "projection",
+              "fovy",
+              "ipd",
+              "resolution",
+              "output",
+              "pos",
+              "quat",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "mode",
+              "focal",
+              "focalpixel",
+              "principal",
+              "principalpixel",
+              "sensorsize",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "light",
+            "typecode": "?",
+            "attributes": [
+              "pos",
+              "dir",
+              "bulbradius",
+              "intensity",
+              "range",
+              "directional",
+              "type",
+              "castshadow",
+              "active",
+              "attenuation",
+              "cutoff",
+              "exponent",
+              "ambient",
+              "diffuse",
+              "specular",
+              "mode"
+            ],
+            "children": []
+          },
+          {
+            "name": "pair",
+            "typecode": "?",
+            "attributes": [
+              "condim",
+              "friction",
+              "solref",
+              "solreffriction",
+              "solimp",
+              "gap",
+              "margin"
+            ],
+            "children": []
+          },
+          {
+            "name": "equality",
+            "typecode": "?",
+            "attributes": [
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendon",
+            "typecode": "?",
+            "attributes": [
+              "group",
+              "limited",
+              "range",
+              "solreflimit",
+              "solimplimit",
+              "solreffriction",
+              "solimpfriction",
+              "frictionloss",
+              "springlength",
+              "width",
+              "material",
+              "margin",
+              "stiffness",
+              "damping",
+              "rgba",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "general",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "actlimited",
+              "ctrlrange",
+              "forcerange",
+              "actrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "actdim",
+              "dyntype",
+              "gaintype",
+              "biastype",
+              "dynprm",
+              "gainprm",
+              "biasprm",
+              "actearly"
+            ],
+            "children": []
+          },
+          {
+            "name": "motor",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay"
+            ],
+            "children": []
+          },
+          {
+            "name": "position",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "inheritrange",
+              "forcerange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "kp",
+              "kv",
+              "dampratio",
+              "timeconst"
+            ],
+            "children": []
+          },
+          {
+            "name": "velocity",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "kv"
+            ],
+            "children": []
+          },
+          {
+            "name": "intvelocity",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "actlimited",
+              "ctrlrange",
+              "forcerange",
+              "actrange",
+              "inheritrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "kp",
+              "kv",
+              "dampratio"
+            ],
+            "children": []
+          },
+          {
+            "name": "damper",
+            "typecode": "?",
+            "attributes": [
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "kv"
+            ],
+            "children": []
+          },
+          {
+            "name": "cylinder",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "timeconst",
+              "area",
+              "diameter",
+              "bias"
+            ],
+            "children": []
+          },
+          {
+            "name": "muscle",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "timeconst",
+              "range",
+              "force",
+              "scale",
+              "lmin",
+              "lmax",
+              "vmax",
+              "fpmax",
+              "fvmax"
+            ],
+            "children": []
+          },
+          {
+            "name": "adhesion",
+            "typecode": "?",
+            "attributes": [
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "gain",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay"
+            ],
+            "children": []
+          },
+          {
+            "name": "dcmotor",
+            "typecode": "?",
+            "attributes": [
+              "ctrllimited",
+              "ctrlrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "motorconst",
+              "resistance",
+              "nominal",
+              "saturation",
+              "inductance",
+              "cogging",
+              "controller",
+              "input",
+              "thermal",
+              "lugre"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "extension",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "plugin",
+            "typecode": "*",
+            "attributes": [
+              "plugin"
+            ],
+            "children": [
+              {
+                "name": "instance",
+                "typecode": "*",
+                "attributes": [
+                  "name"
+                ],
+                "children": [
+                  {
+                    "name": "config",
+                    "typecode": "*",
+                    "attributes": [
+                      "key",
+                      "value"
+                    ],
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "custom",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "numeric",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "size",
+              "data"
+            ],
+            "children": []
+          },
+          {
+            "name": "text",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "data"
+            ],
+            "children": []
+          },
+          {
+            "name": "tuple",
+            "typecode": "*",
+            "attributes": [
+              "name"
+            ],
+            "children": [
+              {
+                "name": "element",
+                "typecode": "*",
+                "attributes": [
+                  "objtype",
+                  "objname",
+                  "prm"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "asset",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "mesh",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "content_type",
+              "file",
+              "vertex",
+              "normal",
+              "texcoord",
+              "face",
+              "refpos",
+              "refquat",
+              "scale",
+              "smoothnormal",
+              "maxhullvert",
+              "inertia",
+              "builtin",
+              "params",
+              "material"
+            ],
+            "children": [
+              {
+                "name": "plugin",
+                "typecode": "*",
+                "attributes": [
+                  "plugin",
+                  "instance"
+                ],
+                "children": [
+                  {
+                    "name": "config",
+                    "typecode": "*",
+                    "attributes": [
+                      "key",
+                      "value"
+                    ],
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "hfield",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "content_type",
+              "file",
+              "nrow",
+              "ncol",
+              "size",
+              "elevation"
+            ],
+            "children": []
+          },
+          {
+            "name": "skin",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "file",
+              "material",
+              "rgba",
+              "inflate",
+              "vertex",
+              "texcoord",
+              "face",
+              "group"
+            ],
+            "children": [
+              {
+                "name": "bone",
+                "typecode": "*",
+                "attributes": [
+                  "body",
+                  "bindpos",
+                  "bindquat",
+                  "vertid",
+                  "vertweight"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "texture",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "type",
+              "colorspace",
+              "content_type",
+              "file",
+              "gridsize",
+              "gridlayout",
+              "fileright",
+              "fileleft",
+              "fileup",
+              "filedown",
+              "filefront",
+              "fileback",
+              "builtin",
+              "rgb1",
+              "rgb2",
+              "mark",
+              "markrgb",
+              "random",
+              "width",
+              "height",
+              "hflip",
+              "vflip",
+              "nchannel"
+            ],
+            "children": []
+          },
+          {
+            "name": "material",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "texture",
+              "texrepeat",
+              "texuniform",
+              "emission",
+              "specular",
+              "shininess",
+              "reflectance",
+              "metallic",
+              "roughness",
+              "rgba"
+            ],
+            "children": [
+              {
+                "name": "layer",
+                "typecode": "*",
+                "attributes": [
+                  "texture",
+                  "role"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "model",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "file",
+              "content_type"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "body",
+        "typecode": "R",
+        "attributes": [
+          "name",
+          "childclass",
+          "pos",
+          "quat",
+          "mocap",
+          "axisangle",
+          "xyaxes",
+          "zaxis",
+          "euler",
+          "gravcomp",
+          "sleep",
+          "simple",
+          "user"
+        ],
+        "children": [
+          {
+            "name": "inertial",
+            "typecode": "?",
+            "attributes": [
+              "pos",
+              "quat",
+              "mass",
+              "diaginertia",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "fullinertia"
+            ],
+            "children": []
+          },
+          {
+            "name": "joint",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "type",
+              "group",
+              "pos",
+              "axis",
+              "springdamper",
+              "limited",
+              "actuatorfrclimited",
+              "solreflimit",
+              "solimplimit",
+              "solreffriction",
+              "solimpfriction",
+              "stiffness",
+              "range",
+              "actuatorfrcrange",
+              "actuatorgravcomp",
+              "margin",
+              "ref",
+              "springref",
+              "armature",
+              "damping",
+              "frictionloss",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "freejoint",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "group",
+              "align"
+            ],
+            "children": []
+          },
+          {
+            "name": "geom",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "type",
+              "contype",
+              "conaffinity",
+              "condim",
+              "group",
+              "priority",
+              "size",
+              "material",
+              "friction",
+              "mass",
+              "density",
+              "shellinertia",
+              "solmix",
+              "solref",
+              "solimp",
+              "margin",
+              "gap",
+              "surfacevel",
+              "fromto",
+              "pos",
+              "quat",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "hfield",
+              "mesh",
+              "fitscale",
+              "rgba",
+              "fluidshape",
+              "fluidcoef",
+              "user"
+            ],
+            "children": [
+              {
+                "name": "plugin",
+                "typecode": "*",
+                "attributes": [
+                  "plugin",
+                  "instance"
+                ],
+                "children": [
+                  {
+                    "name": "config",
+                    "typecode": "*",
+                    "attributes": [
+                      "key",
+                      "value"
+                    ],
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "attach",
+            "typecode": "*",
+            "attributes": [
+              "model",
+              "body",
+              "frame",
+              "prefix"
+            ],
+            "children": []
+          },
+          {
+            "name": "site",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "type",
+              "group",
+              "pos",
+              "quat",
+              "material",
+              "size",
+              "fromto",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "rgba",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "camera",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "projection",
+              "fovy",
+              "ipd",
+              "resolution",
+              "output",
+              "pos",
+              "quat",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "mode",
+              "target",
+              "focal",
+              "focalpixel",
+              "principal",
+              "principalpixel",
+              "sensorsize",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "light",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "directional",
+              "type",
+              "castshadow",
+              "active",
+              "pos",
+              "dir",
+              "bulbradius",
+              "intensity",
+              "range",
+              "attenuation",
+              "cutoff",
+              "exponent",
+              "ambient",
+              "diffuse",
+              "specular",
+              "mode",
+              "target",
+              "texture"
+            ],
+            "children": []
+          },
+          {
+            "name": "plugin",
+            "typecode": "*",
+            "attributes": [
+              "plugin",
+              "instance"
+            ],
+            "children": [
+              {
+                "name": "config",
+                "typecode": "*",
+                "attributes": [
+                  "key",
+                  "value"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "composite",
+            "typecode": "*",
+            "attributes": [
+              "prefix",
+              "type",
+              "count",
+              "offset",
+              "vertex",
+              "initial",
+              "curve",
+              "size",
+              "quat"
+            ],
+            "children": [
+              {
+                "name": "joint",
+                "typecode": "*",
+                "attributes": [
+                  "kind",
+                  "group",
+                  "stiffness",
+                  "damping",
+                  "armature",
+                  "solreffix",
+                  "solimpfix",
+                  "type",
+                  "axis",
+                  "limited",
+                  "range",
+                  "margin",
+                  "solreflimit",
+                  "solimplimit",
+                  "frictionloss",
+                  "solreffriction",
+                  "solimpfriction"
+                ],
+                "children": []
+              },
+              {
+                "name": "skin",
+                "typecode": "?",
+                "attributes": [
+                  "texcoord",
+                  "material",
+                  "group",
+                  "rgba",
+                  "inflate",
+                  "subgrid"
+                ],
+                "children": []
+              },
+              {
+                "name": "geom",
+                "typecode": "?",
+                "attributes": [
+                  "type",
+                  "contype",
+                  "conaffinity",
+                  "condim",
+                  "group",
+                  "priority",
+                  "size",
+                  "material",
+                  "rgba",
+                  "friction",
+                  "mass",
+                  "density",
+                  "solmix",
+                  "solref",
+                  "solimp",
+                  "margin",
+                  "gap",
+                  "surfacevel"
+                ],
+                "children": []
+              },
+              {
+                "name": "site",
+                "typecode": "?",
+                "attributes": [
+                  "group",
+                  "size",
+                  "material",
+                  "rgba"
+                ],
+                "children": []
+              },
+              {
+                "name": "plugin",
+                "typecode": "*",
+                "attributes": [
+                  "plugin",
+                  "instance"
+                ],
+                "children": [
+                  {
+                    "name": "config",
+                    "typecode": "*",
+                    "attributes": [
+                      "key",
+                      "value"
+                    ],
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "flexcomp",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "type",
+              "group",
+              "dim",
+              "dof",
+              "count",
+              "cellcount",
+              "spacing",
+              "radius",
+              "rigid",
+              "mass",
+              "inertiabox",
+              "scale",
+              "file",
+              "point",
+              "element",
+              "texcoord",
+              "material",
+              "rgba",
+              "flatskin",
+              "pos",
+              "quat",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "euler",
+              "origin"
+            ],
+            "children": [
+              {
+                "name": "edge",
+                "typecode": "?",
+                "attributes": [
+                  "equality",
+                  "solref",
+                  "solimp",
+                  "stiffness",
+                  "damping"
+                ],
+                "children": []
+              },
+              {
+                "name": "elasticity",
+                "typecode": "?",
+                "attributes": [
+                  "young",
+                  "poisson",
+                  "damping",
+                  "thickness",
+                  "elastic2d"
+                ],
+                "children": []
+              },
+              {
+                "name": "contact",
+                "typecode": "?",
+                "attributes": [
+                  "contype",
+                  "conaffinity",
+                  "condim",
+                  "priority",
+                  "friction",
+                  "solmix",
+                  "solref",
+                  "solimp",
+                  "margin",
+                  "gap",
+                  "internal",
+                  "selfcollide",
+                  "activelayers",
+                  "passive"
+                ],
+                "children": []
+              },
+              {
+                "name": "pin",
+                "typecode": "*",
+                "attributes": [
+                  "id",
+                  "range",
+                  "grid",
+                  "gridrange"
+                ],
+                "children": []
+              },
+              {
+                "name": "plugin",
+                "typecode": "*",
+                "attributes": [
+                  "plugin",
+                  "instance"
+                ],
+                "children": [
+                  {
+                    "name": "config",
+                    "typecode": "*",
+                    "attributes": [
+                      "key",
+                      "value"
+                    ],
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "deformable",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "flex",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "group",
+              "dim",
+              "radius",
+              "material",
+              "rgba",
+              "flatskin",
+              "body",
+              "vertex",
+              "element",
+              "texcoord",
+              "elemtexcoord",
+              "node",
+              "cellcount",
+              "dof"
+            ],
+            "children": [
+              {
+                "name": "contact",
+                "typecode": "?",
+                "attributes": [
+                  "contype",
+                  "conaffinity",
+                  "condim",
+                  "priority",
+                  "friction",
+                  "solmix",
+                  "solref",
+                  "solimp",
+                  "margin",
+                  "gap",
+                  "internal",
+                  "selfcollide",
+                  "activelayers",
+                  "passive"
+                ],
+                "children": []
+              },
+              {
+                "name": "edge",
+                "typecode": "?",
+                "attributes": [
+                  "stiffness",
+                  "damping"
+                ],
+                "children": []
+              },
+              {
+                "name": "elasticity",
+                "typecode": "?",
+                "attributes": [
+                  "young",
+                  "poisson",
+                  "damping",
+                  "thickness",
+                  "elastic2d"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "skin",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "file",
+              "material",
+              "rgba",
+              "inflate",
+              "vertex",
+              "texcoord",
+              "face",
+              "group"
+            ],
+            "children": [
+              {
+                "name": "bone",
+                "typecode": "*",
+                "attributes": [
+                  "body",
+                  "bindpos",
+                  "bindquat",
+                  "vertid",
+                  "vertweight"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "contact",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "pair",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "geom1",
+              "geom2",
+              "condim",
+              "friction",
+              "solref",
+              "solreffriction",
+              "solimp",
+              "gap",
+              "margin"
+            ],
+            "children": []
+          },
+          {
+            "name": "exclude",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "body1",
+              "body2"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "equality",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "connect",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "body1",
+              "body2",
+              "anchor",
+              "site1",
+              "site2",
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          },
+          {
+            "name": "weld",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "body1",
+              "body2",
+              "relpose",
+              "anchor",
+              "site1",
+              "site2",
+              "active",
+              "solref",
+              "solimp",
+              "torquescale"
+            ],
+            "children": []
+          },
+          {
+            "name": "joint",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "joint1",
+              "joint2",
+              "polycoef",
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendon",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "tendon1",
+              "tendon2",
+              "polycoef",
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          },
+          {
+            "name": "flex",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "flex",
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          },
+          {
+            "name": "flexvert",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "flex",
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          },
+          {
+            "name": "flexstrain",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "flex",
+              "cell",
+              "active",
+              "solref",
+              "solimp"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "tendon",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "spatial",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "limited",
+              "actuatorfrclimited",
+              "range",
+              "actuatorfrcrange",
+              "solreflimit",
+              "solimplimit",
+              "solreffriction",
+              "solimpfriction",
+              "frictionloss",
+              "springlength",
+              "width",
+              "material",
+              "margin",
+              "stiffness",
+              "damping",
+              "armature",
+              "rgba",
+              "user"
+            ],
+            "children": [
+              {
+                "name": "site",
+                "typecode": "*",
+                "attributes": [
+                  "site"
+                ],
+                "children": []
+              },
+              {
+                "name": "geom",
+                "typecode": "*",
+                "attributes": [
+                  "geom",
+                  "sidesite"
+                ],
+                "children": []
+              },
+              {
+                "name": "pulley",
+                "typecode": "*",
+                "attributes": [
+                  "divisor"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "fixed",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "limited",
+              "actuatorfrclimited",
+              "range",
+              "actuatorfrcrange",
+              "solreflimit",
+              "solimplimit",
+              "solreffriction",
+              "solimpfriction",
+              "frictionloss",
+              "springlength",
+              "margin",
+              "stiffness",
+              "damping",
+              "armature",
+              "user"
+            ],
+            "children": [
+              {
+                "name": "joint",
+                "typecode": "*",
+                "attributes": [
+                  "joint",
+                  "coef"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "actuator",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "general",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "actlimited",
+              "ctrlrange",
+              "forcerange",
+              "actrange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "body",
+              "actdim",
+              "dyntype",
+              "gaintype",
+              "biastype",
+              "dynprm",
+              "gainprm",
+              "biasprm",
+              "actearly"
+            ],
+            "children": []
+          },
+          {
+            "name": "motor",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite"
+            ],
+            "children": []
+          },
+          {
+            "name": "position",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "inheritrange",
+              "forcerange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "kp",
+              "kv",
+              "dampratio",
+              "timeconst"
+            ],
+            "children": []
+          },
+          {
+            "name": "velocity",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "kv"
+            ],
+            "children": []
+          },
+          {
+            "name": "intvelocity",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "actlimited",
+              "ctrlrange",
+              "forcerange",
+              "actrange",
+              "inheritrange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "kp",
+              "kv",
+              "dampratio"
+            ],
+            "children": []
+          },
+          {
+            "name": "damper",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "kv"
+            ],
+            "children": []
+          },
+          {
+            "name": "cylinder",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "timeconst",
+              "area",
+              "diameter",
+              "bias"
+            ],
+            "children": []
+          },
+          {
+            "name": "muscle",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "timeconst",
+              "tausmooth",
+              "range",
+              "force",
+              "scale",
+              "lmin",
+              "lmax",
+              "vmax",
+              "fpmax",
+              "fvmax"
+            ],
+            "children": []
+          },
+          {
+            "name": "adhesion",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "user",
+              "body",
+              "gain"
+            ],
+            "children": []
+          },
+          {
+            "name": "dcmotor",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "ctrlrange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "user",
+              "joint",
+              "jointinparent",
+              "tendon",
+              "slidersite",
+              "cranksite",
+              "site",
+              "refsite",
+              "motorconst",
+              "resistance",
+              "nominal",
+              "saturation",
+              "inductance",
+              "cogging",
+              "controller",
+              "thermal",
+              "lugre",
+              "input"
+            ],
+            "children": []
+          },
+          {
+            "name": "plugin",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "plugin",
+              "instance",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "ctrllimited",
+              "forcelimited",
+              "actlimited",
+              "ctrlrange",
+              "forcerange",
+              "actrange",
+              "lengthrange",
+              "gear",
+              "damping",
+              "armature",
+              "cranklength",
+              "joint",
+              "jointinparent",
+              "site",
+              "actdim",
+              "dyntype",
+              "dynprm",
+              "tendon",
+              "cranksite",
+              "slidersite",
+              "user",
+              "actearly"
+            ],
+            "children": [
+              {
+                "name": "config",
+                "typecode": "*",
+                "attributes": [
+                  "key",
+                  "value"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "sensor",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "touch",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "accelerometer",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "velocimeter",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "gyro",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "force",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "torque",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "magnetometer",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "camprojection",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "camera",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "rangefinder",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "camera",
+              "data",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "jointpos",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "jointvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendonpos",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "tendon",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendonvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "tendon",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "actuatorpos",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "actuator",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "actuatorvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "actuator",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "actuatorfrc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "actuator",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "jointactuatorfrc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendonactuatorfrc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "tendon",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "ballquat",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "ballangvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "jointlimitpos",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "jointlimitvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "jointlimitfrc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "joint",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendonlimitpos",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "tendon",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendonlimitvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "tendon",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tendonlimitfrc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "tendon",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "framepos",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "framequat",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "framexaxis",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "frameyaxis",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "framezaxis",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "framelinvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "frameangvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "framelinacc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "frameangacc",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "subtreecom",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "body",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "subtreelinvel",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "body",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "subtreeangmom",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "body",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "insidesite",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "site",
+              "objtype",
+              "objname",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "distance",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "geom1",
+              "geom2",
+              "body1",
+              "body2",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "normal",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "geom1",
+              "geom2",
+              "body1",
+              "body2",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "fromto",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "geom1",
+              "geom2",
+              "body1",
+              "body2",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "contact",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "geom1",
+              "geom2",
+              "body1",
+              "body2",
+              "subtree1",
+              "subtree2",
+              "site",
+              "num",
+              "data",
+              "reduce",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "e_potential",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "e_kinetic",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "clock",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "tactile",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "geom",
+              "mesh",
+              "nsample",
+              "interp",
+              "delay",
+              "interval",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "user",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "objtype",
+              "objname",
+              "datatype",
+              "needstage",
+              "dim",
+              "cutoff",
+              "noise",
+              "user"
+            ],
+            "children": []
+          },
+          {
+            "name": "plugin",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "plugin",
+              "instance",
+              "cutoff",
+              "objtype",
+              "objname",
+              "reftype",
+              "refname",
+              "user"
+            ],
+            "children": [
+              {
+                "name": "config",
+                "typecode": "*",
+                "attributes": [
+                  "key",
+                  "value"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "keyframe",
+        "typecode": "*",
+        "attributes": [],
+        "children": [
+          {
+            "name": "key",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "time",
+              "qpos",
+              "qvel",
+              "act",
+              "mpos",
+              "mquat",
+              "ctrl"
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "keyword_maps": {
+    "coordinate_map": [
+      {
+        "key": "local",
+        "value": "0"
+      },
+      {
+        "key": "global",
+        "value": "1"
+      }
+    ],
+    "angle_map": [
+      {
+        "key": "radian",
+        "value": "0"
+      },
+      {
+        "key": "degree",
+        "value": "1"
+      }
+    ],
+    "bool_map": [
+      {
+        "key": "false",
+        "value": "0"
+      },
+      {
+        "key": "true",
+        "value": "1"
+      }
+    ],
+    "fluid_map": [
+      {
+        "key": "none",
+        "value": "0"
+      },
+      {
+        "key": "ellipsoid",
+        "value": "1"
+      }
+    ],
+    "enable_map": [
+      {
+        "key": "disable",
+        "value": "0"
+      },
+      {
+        "key": "enable",
+        "value": "1"
+      }
+    ],
+    "TFAuto_map": [
+      {
+        "key": "false",
+        "value": "0"
+      },
+      {
+        "key": "true",
+        "value": "1"
+      },
+      {
+        "key": "auto",
+        "value": "2"
+      }
+    ],
+    "FAuto_map": [
+      {
+        "key": "false",
+        "value": "0"
+      },
+      {
+        "key": "auto",
+        "value": "1"
+      }
+    ],
+    "bodysleep_map": [
+      {
+        "key": "auto",
+        "value": "mjSLEEP_AUTO"
+      },
+      {
+        "key": "never",
+        "value": "mjSLEEP_NEVER"
+      },
+      {
+        "key": "allowed",
+        "value": "mjSLEEP_ALLOWED"
+      },
+      {
+        "key": "init",
+        "value": "mjSLEEP_INIT"
+      }
+    ],
+    "joint_map": [
+      {
+        "key": "free",
+        "value": "mjJNT_FREE"
+      },
+      {
+        "key": "ball",
+        "value": "mjJNT_BALL"
+      },
+      {
+        "key": "slide",
+        "value": "mjJNT_SLIDE"
+      },
+      {
+        "key": "hinge",
+        "value": "mjJNT_HINGE"
+      }
+    ],
+    "geom_map": [
+      {
+        "key": "plane",
+        "value": "mjGEOM_PLANE"
+      },
+      {
+        "key": "hfield",
+        "value": "mjGEOM_HFIELD"
+      },
+      {
+        "key": "sphere",
+        "value": "mjGEOM_SPHERE"
+      },
+      {
+        "key": "capsule",
+        "value": "mjGEOM_CAPSULE"
+      },
+      {
+        "key": "ellipsoid",
+        "value": "mjGEOM_ELLIPSOID"
+      },
+      {
+        "key": "cylinder",
+        "value": "mjGEOM_CYLINDER"
+      },
+      {
+        "key": "box",
+        "value": "mjGEOM_BOX"
+      },
+      {
+        "key": "mesh",
+        "value": "mjGEOM_MESH"
+      },
+      {
+        "key": "sdf",
+        "value": "mjGEOM_SDF"
+      }
+    ],
+    "projection_map": [
+      {
+        "key": "perspective",
+        "value": "mjPROJ_PERSPECTIVE"
+      },
+      {
+        "key": "orthographic",
+        "value": "mjPROJ_ORTHOGRAPHIC"
+      }
+    ],
+    "camlight_map": [
+      {
+        "key": "fixed",
+        "value": "mjCAMLIGHT_FIXED"
+      },
+      {
+        "key": "track",
+        "value": "mjCAMLIGHT_TRACK"
+      },
+      {
+        "key": "trackcom",
+        "value": "mjCAMLIGHT_TRACKCOM"
+      },
+      {
+        "key": "targetbody",
+        "value": "mjCAMLIGHT_TARGETBODY"
+      },
+      {
+        "key": "targetbodycom",
+        "value": "mjCAMLIGHT_TARGETBODYCOM"
+      }
+    ],
+    "lighttype_map": [
+      {
+        "key": "spot",
+        "value": "mjLIGHT_SPOT"
+      },
+      {
+        "key": "directional",
+        "value": "mjLIGHT_DIRECTIONAL"
+      },
+      {
+        "key": "point",
+        "value": "mjLIGHT_POINT"
+      },
+      {
+        "key": "image",
+        "value": "mjLIGHT_IMAGE"
+      }
+    ],
+    "texrole_map": [
+      {
+        "key": "rgb",
+        "value": "mjTEXROLE_RGB"
+      },
+      {
+        "key": "occlusion",
+        "value": "mjTEXROLE_OCCLUSION"
+      },
+      {
+        "key": "roughness",
+        "value": "mjTEXROLE_ROUGHNESS"
+      },
+      {
+        "key": "metallic",
+        "value": "mjTEXROLE_METALLIC"
+      },
+      {
+        "key": "normal",
+        "value": "mjTEXROLE_NORMAL"
+      },
+      {
+        "key": "opacity",
+        "value": "mjTEXROLE_OPACITY"
+      },
+      {
+        "key": "emissive",
+        "value": "mjTEXROLE_EMISSIVE"
+      },
+      {
+        "key": "rgba",
+        "value": "mjTEXROLE_RGBA"
+      },
+      {
+        "key": "orm",
+        "value": "mjTEXROLE_ORM"
+      }
+    ],
+    "integrator_map": [
+      {
+        "key": "Euler",
+        "value": "mjINT_EULER"
+      },
+      {
+        "key": "RK4",
+        "value": "mjINT_RK4"
+      },
+      {
+        "key": "implicit",
+        "value": "mjINT_IMPLICIT"
+      },
+      {
+        "key": "implicitfast",
+        "value": "mjINT_IMPLICITFAST"
+      }
+    ],
+    "cone_map": [
+      {
+        "key": "pyramidal",
+        "value": "mjCONE_PYRAMIDAL"
+      },
+      {
+        "key": "elliptic",
+        "value": "mjCONE_ELLIPTIC"
+      }
+    ],
+    "jac_map": [
+      {
+        "key": "dense",
+        "value": "mjJAC_DENSE"
+      },
+      {
+        "key": "sparse",
+        "value": "mjJAC_SPARSE"
+      },
+      {
+        "key": "auto",
+        "value": "mjJAC_AUTO"
+      }
+    ],
+    "solver_map": [
+      {
+        "key": "PGS",
+        "value": "mjSOL_PGS"
+      },
+      {
+        "key": "CG",
+        "value": "mjSOL_CG"
+      },
+      {
+        "key": "Newton",
+        "value": "mjSOL_NEWTON"
+      }
+    ],
+    "equality_map": [
+      {
+        "key": "connect",
+        "value": "mjEQ_CONNECT"
+      },
+      {
+        "key": "weld",
+        "value": "mjEQ_WELD"
+      },
+      {
+        "key": "joint",
+        "value": "mjEQ_JOINT"
+      },
+      {
+        "key": "tendon",
+        "value": "mjEQ_TENDON"
+      },
+      {
+        "key": "flex",
+        "value": "mjEQ_FLEX"
+      },
+      {
+        "key": "flexvert",
+        "value": "mjEQ_FLEXVERT"
+      },
+      {
+        "key": "flexstrain",
+        "value": "mjEQ_FLEXSTRAIN"
+      },
+      {
+        "key": "distance",
+        "value": "mjEQ_DISTANCE"
+      }
+    ],
+    "texture_map": [
+      {
+        "key": "2d",
+        "value": "mjTEXTURE_2D"
+      },
+      {
+        "key": "cube",
+        "value": "mjTEXTURE_CUBE"
+      },
+      {
+        "key": "skybox",
+        "value": "mjTEXTURE_SKYBOX"
+      }
+    ],
+    "colorspace_map": [
+      {
+        "key": "auto",
+        "value": "mjCOLORSPACE_AUTO"
+      },
+      {
+        "key": "linear",
+        "value": "mjCOLORSPACE_LINEAR"
+      },
+      {
+        "key": "sRGB",
+        "value": "mjCOLORSPACE_SRGB"
+      }
+    ],
+    "builtin_map": [
+      {
+        "key": "none",
+        "value": "mjBUILTIN_NONE"
+      },
+      {
+        "key": "gradient",
+        "value": "mjBUILTIN_GRADIENT"
+      },
+      {
+        "key": "checker",
+        "value": "mjBUILTIN_CHECKER"
+      },
+      {
+        "key": "flat",
+        "value": "mjBUILTIN_FLAT"
+      }
+    ],
+    "mark_map": [
+      {
+        "key": "none",
+        "value": "mjMARK_NONE"
+      },
+      {
+        "key": "edge",
+        "value": "mjMARK_EDGE"
+      },
+      {
+        "key": "cross",
+        "value": "mjMARK_CROSS"
+      },
+      {
+        "key": "random",
+        "value": "mjMARK_RANDOM"
+      }
+    ],
+    "dyn_map": [
+      {
+        "key": "none",
+        "value": "mjDYN_NONE"
+      },
+      {
+        "key": "integrator",
+        "value": "mjDYN_INTEGRATOR"
+      },
+      {
+        "key": "filter",
+        "value": "mjDYN_FILTER"
+      },
+      {
+        "key": "filterexact",
+        "value": "mjDYN_FILTEREXACT"
+      },
+      {
+        "key": "muscle",
+        "value": "mjDYN_MUSCLE"
+      },
+      {
+        "key": "dcmotor",
+        "value": "mjDYN_DCMOTOR"
+      },
+      {
+        "key": "user",
+        "value": "mjDYN_USER"
+      }
+    ],
+    "dcmotorinput_map": [
+      {
+        "key": "voltage",
+        "value": "0"
+      },
+      {
+        "key": "position",
+        "value": "1"
+      },
+      {
+        "key": "velocity",
+        "value": "2"
+      }
+    ],
+    "gain_map": [
+      {
+        "key": "fixed",
+        "value": "mjGAIN_FIXED"
+      },
+      {
+        "key": "affine",
+        "value": "mjGAIN_AFFINE"
+      },
+      {
+        "key": "muscle",
+        "value": "mjGAIN_MUSCLE"
+      },
+      {
+        "key": "dcmotor",
+        "value": "mjGAIN_DCMOTOR"
+      },
+      {
+        "key": "user",
+        "value": "mjGAIN_USER"
+      }
+    ],
+    "bias_map": [
+      {
+        "key": "none",
+        "value": "mjBIAS_NONE"
+      },
+      {
+        "key": "affine",
+        "value": "mjBIAS_AFFINE"
+      },
+      {
+        "key": "muscle",
+        "value": "mjBIAS_MUSCLE"
+      },
+      {
+        "key": "dcmotor",
+        "value": "mjBIAS_DCMOTOR"
+      },
+      {
+        "key": "user",
+        "value": "mjBIAS_USER"
+      }
+    ],
+    "interp_map": [
+      {
+        "key": "zoh",
+        "value": "0"
+      },
+      {
+        "key": "linear",
+        "value": "1"
+      },
+      {
+        "key": "cubic",
+        "value": "2"
+      }
+    ],
+    "stage_map": [
+      {
+        "key": "none",
+        "value": "mjSTAGE_NONE"
+      },
+      {
+        "key": "pos",
+        "value": "mjSTAGE_POS"
+      },
+      {
+        "key": "vel",
+        "value": "mjSTAGE_VEL"
+      },
+      {
+        "key": "acc",
+        "value": "mjSTAGE_ACC"
+      }
+    ],
+    "datatype_map": [
+      {
+        "key": "real",
+        "value": "mjDATATYPE_REAL"
+      },
+      {
+        "key": "positive",
+        "value": "mjDATATYPE_POSITIVE"
+      },
+      {
+        "key": "axis",
+        "value": "mjDATATYPE_AXIS"
+      },
+      {
+        "key": "quaternion",
+        "value": "mjDATATYPE_QUATERNION"
+      }
+    ],
+    "condata_map": [
+      {
+        "key": "found",
+        "value": "mjCONDATA_FOUND"
+      },
+      {
+        "key": "force",
+        "value": "mjCONDATA_FORCE"
+      },
+      {
+        "key": "torque",
+        "value": "mjCONDATA_TORQUE"
+      },
+      {
+        "key": "dist",
+        "value": "mjCONDATA_DIST"
+      },
+      {
+        "key": "pos",
+        "value": "mjCONDATA_POS"
+      },
+      {
+        "key": "normal",
+        "value": "mjCONDATA_NORMAL"
+      },
+      {
+        "key": "tangent",
+        "value": "mjCONDATA_TANGENT"
+      }
+    ],
+    "raydata_map": [
+      {
+        "key": "dist",
+        "value": "mjRAYDATA_DIST"
+      },
+      {
+        "key": "dir",
+        "value": "mjRAYDATA_DIR"
+      },
+      {
+        "key": "origin",
+        "value": "mjRAYDATA_ORIGIN"
+      },
+      {
+        "key": "point",
+        "value": "mjRAYDATA_POINT"
+      },
+      {
+        "key": "normal",
+        "value": "mjRAYDATA_NORMAL"
+      },
+      {
+        "key": "depth",
+        "value": "mjRAYDATA_DEPTH"
+      }
+    ],
+    "camout_map": [
+      {
+        "key": "rgb",
+        "value": "mjCAMOUT_RGB"
+      },
+      {
+        "key": "depth",
+        "value": "mjCAMOUT_DEPTH"
+      },
+      {
+        "key": "distance",
+        "value": "mjCAMOUT_DIST"
+      },
+      {
+        "key": "normal",
+        "value": "mjCAMOUT_NORMAL"
+      },
+      {
+        "key": "segmentation",
+        "value": "mjCAMOUT_SEG"
+      }
+    ],
+    "reduce_map": [
+      {
+        "key": "none",
+        "value": "0"
+      },
+      {
+        "key": "mindist",
+        "value": "1"
+      },
+      {
+        "key": "maxforce",
+        "value": "2"
+      },
+      {
+        "key": "netforce",
+        "value": "3"
+      }
+    ],
+    "conflict_map": [
+      {
+        "key": "warning",
+        "value": "mjCONFLICT_WARNING"
+      },
+      {
+        "key": "merge",
+        "value": "mjCONFLICT_MERGE"
+      },
+      {
+        "key": "error",
+        "value": "mjCONFLICT_ERROR"
+      }
+    ],
+    "lrmode_map": [
+      {
+        "key": "none",
+        "value": "mjLRMODE_NONE"
+      },
+      {
+        "key": "muscle",
+        "value": "mjLRMODE_MUSCLE"
+      },
+      {
+        "key": "muscleuser",
+        "value": "mjLRMODE_MUSCLEUSER"
+      },
+      {
+        "key": "all",
+        "value": "mjLRMODE_ALL"
+      }
+    ],
+    "comp_map": [
+      {
+        "key": "particle",
+        "value": "mjCOMPTYPE_PARTICLE"
+      },
+      {
+        "key": "grid",
+        "value": "mjCOMPTYPE_GRID"
+      },
+      {
+        "key": "rope",
+        "value": "mjCOMPTYPE_ROPE"
+      },
+      {
+        "key": "loop",
+        "value": "mjCOMPTYPE_LOOP"
+      },
+      {
+        "key": "cable",
+        "value": "mjCOMPTYPE_CABLE"
+      },
+      {
+        "key": "cloth",
+        "value": "mjCOMPTYPE_CLOTH"
+      }
+    ],
+    "jkind_map": [
+      {
+        "key": "main",
+        "value": "mjCOMPKIND_JOINT"
+      }
+    ],
+    "shape_map": [
+      {
+        "key": "s",
+        "value": "mjCOMPSHAPE_LINE"
+      },
+      {
+        "key": "cos(s)",
+        "value": "mjCOMPSHAPE_COS"
+      },
+      {
+        "key": "sin(s)",
+        "value": "mjCOMPSHAPE_SIN"
+      },
+      {
+        "key": "0",
+        "value": "mjCOMPSHAPE_ZERO"
+      }
+    ],
+    "meshtype_map": [
+      {
+        "key": "false",
+        "value": "mjINERTIA_VOLUME"
+      },
+      {
+        "key": "true",
+        "value": "mjINERTIA_SHELL"
+      }
+    ],
+    "meshinertia_map": [
+      {
+        "key": "convex",
+        "value": "mjMESH_INERTIA_CONVEX"
+      },
+      {
+        "key": "legacy",
+        "value": "mjMESH_INERTIA_LEGACY"
+      },
+      {
+        "key": "exact",
+        "value": "mjMESH_INERTIA_EXACT"
+      },
+      {
+        "key": "shell",
+        "value": "mjMESH_INERTIA_SHELL"
+      }
+    ],
+    "meshbuiltin_map": [
+      {
+        "key": "none",
+        "value": "mjMESH_BUILTIN_NONE"
+      },
+      {
+        "key": "sphere",
+        "value": "mjMESH_BUILTIN_SPHERE"
+      },
+      {
+        "key": "hemisphere",
+        "value": "mjMESH_BUILTIN_HEMISPHERE"
+      },
+      {
+        "key": "cone",
+        "value": "mjMESH_BUILTIN_CONE"
+      },
+      {
+        "key": "supertorus",
+        "value": "mjMESH_BUILTIN_SUPERTORUS"
+      },
+      {
+        "key": "supersphere",
+        "value": "mjMESH_BUILTIN_SUPERSPHERE"
+      },
+      {
+        "key": "wedge",
+        "value": "mjMESH_BUILTIN_WEDGE"
+      },
+      {
+        "key": "plate",
+        "value": "mjMESH_BUILTIN_PLATE"
+      }
+    ],
+    "fcomp_map": [
+      {
+        "key": "grid",
+        "value": "mjFCOMPTYPE_GRID"
+      },
+      {
+        "key": "box",
+        "value": "mjFCOMPTYPE_BOX"
+      },
+      {
+        "key": "cylinder",
+        "value": "mjFCOMPTYPE_CYLINDER"
+      },
+      {
+        "key": "ellipsoid",
+        "value": "mjFCOMPTYPE_ELLIPSOID"
+      },
+      {
+        "key": "square",
+        "value": "mjFCOMPTYPE_SQUARE"
+      },
+      {
+        "key": "disc",
+        "value": "mjFCOMPTYPE_DISC"
+      },
+      {
+        "key": "circle",
+        "value": "mjFCOMPTYPE_CIRCLE"
+      },
+      {
+        "key": "mesh",
+        "value": "mjFCOMPTYPE_MESH"
+      },
+      {
+        "key": "gmsh",
+        "value": "mjFCOMPTYPE_GMSH"
+      },
+      {
+        "key": "direct",
+        "value": "mjFCOMPTYPE_DIRECT"
+      }
+    ],
+    "fdof_map": [
+      {
+        "key": "full",
+        "value": "mjFCOMPDOF_FULL"
+      },
+      {
+        "key": "radial",
+        "value": "mjFCOMPDOF_RADIAL"
+      },
+      {
+        "key": "trilinear",
+        "value": "mjFCOMPDOF_TRILINEAR"
+      },
+      {
+        "key": "quadratic",
+        "value": "mjFCOMPDOF_QUADRATIC"
+      },
+      {
+        "key": "2d",
+        "value": "mjFCOMPDOF_2D"
+      }
+    ],
+    "flexself_map": [
+      {
+        "key": "none",
+        "value": "mjFLEXSELF_NONE"
+      },
+      {
+        "key": "narrow",
+        "value": "mjFLEXSELF_NARROW"
+      },
+      {
+        "key": "bvh",
+        "value": "mjFLEXSELF_BVH"
+      },
+      {
+        "key": "sap",
+        "value": "mjFLEXSELF_SAP"
+      },
+      {
+        "key": "auto",
+        "value": "mjFLEXSELF_AUTO"
+      }
+    ],
+    "elastic2d_map": [
+      {
+        "key": "none",
+        "value": "0"
+      },
+      {
+        "key": "bend",
+        "value": "1"
+      },
+      {
+        "key": "stretch",
+        "value": "2"
+      },
+      {
+        "key": "both",
+        "value": "3"
+      }
+    ],
+    "flexeq_map": [
+      {
+        "key": "false",
+        "value": "0"
+      },
+      {
+        "key": "true",
+        "value": "1"
+      },
+      {
+        "key": "vert",
+        "value": "2"
+      },
+      {
+        "key": "strain",
+        "value": "3"
+      }
+    ]
+  },
+  "special_cases": {
+    "body_row_aliases": {
+      "schema_row": "body",
+      "aliases": [
+        "worldbody",
+        "frame",
+        "replicate"
+      ],
+      "comment": "worldbody/frame/replicate are not their own schema rows; mjXSchema::NameMatch (src/xml/xml_util.cc:486-498) validates them against the 'body' row (worldbody only at level 1)."
+    }
+  }
+}
