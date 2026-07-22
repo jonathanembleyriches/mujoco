@@ -109,6 +109,29 @@ over MuJoCo's own model corpus (last verified against main at 3.11.0,
 2026-07-22). The one named exception is performance, not correctness: the
 O(n²) `mjs_setName` rename cost on large fully-named models.
 
+## Generating the native reader's schema table
+
+MuJoCo's native XML reader validates MJCF against a schema table —
+`std::vector<const char*> MJCF[]` in `src/xml/xml_native_reader.cc`, rows of
+`{element, occurrence, attr...}` with `{"<"}`/`{">"}` nesting markers, consumed
+by `mjXSchema`. `protospec_gen.emit_native` generates that entire table (and its
+row count `nMJCF_GENERATED`) from `schema/mujoco.spec` into
+`src/xml/xml_native_schema.inc`, which the reader `#include`s in place of the
+hand-maintained table — so the grammar the reader enforces is derived from the
+IDL rather than curated by hand. The emitter owns the structural mapping the IDL
+models differently (union spellings, `body`/`default` recursion, `frame`/
+`replicate` aliasing, and the `<default>`-template attribute projection), while
+the schema stays the single source of attribute/occurrence content.
+`tests/test_native_schema_table.py` parses both the generated `.inc` and the
+original hand table (recovered from git) and asserts element-tree + occurrence +
+attribute-set equality; the `ps_path_diff` differential suite then proves the
+swapped reader compiles a model corpus byte-identically to the original.
+
+```sh
+uv run python -m protospec_gen.emit_native --write   # regenerate the .inc
+uv run python -m protospec_gen.emit_native --check    # byte-gate (CI)
+```
+
 ## Building and testing
 
 Everything runs from this `protospec/` directory. Python tooling uses

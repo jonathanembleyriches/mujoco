@@ -1,7 +1,7 @@
 {
   "source": {
     "file": "src/xml/xml_native_reader.cc",
-    "mujoco_version": "3.10.1"
+    "mujoco_version": "3.11.0"
   },
   "elements": {
     "name": "mujoco",
@@ -304,7 +304,8 @@
             "name": "material",
             "typecode": "?",
             "attributes": [
-              "texture",
+              "texrepeat",
+              "texuniform",
               "emission",
               "specular",
               "shininess",
@@ -312,8 +313,7 @@
               "metallic",
               "roughness",
               "rgba",
-              "texrepeat",
-              "texuniform"
+              "texture"
             ],
             "children": [
               {
@@ -360,9 +360,13 @@
             "name": "geom",
             "typecode": "?",
             "attributes": [
-              "type",
               "pos",
               "quat",
+              "euler",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "type",
               "contype",
               "conaffinity",
               "condim",
@@ -380,18 +384,15 @@
               "margin",
               "gap",
               "surfacevel",
-              "fromto",
-              "axisangle",
-              "xyaxes",
-              "zaxis",
-              "euler",
+              "adhesion",
               "hfield",
               "mesh",
               "fitscale",
               "rgba",
               "fluidshape",
               "fluidcoef",
-              "user"
+              "user",
+              "fromto"
             ],
             "children": []
           },
@@ -399,19 +400,19 @@
             "name": "site",
             "typecode": "?",
             "attributes": [
-              "type",
-              "group",
               "pos",
               "quat",
-              "material",
-              "size",
-              "fromto",
+              "euler",
               "axisangle",
               "xyaxes",
               "zaxis",
-              "euler",
+              "type",
+              "group",
+              "material",
+              "size",
               "rgba",
-              "user"
+              "user",
+              "fromto"
             ],
             "children": []
           },
@@ -419,24 +420,24 @@
             "name": "camera",
             "typecode": "?",
             "attributes": [
-              "projection",
-              "fovy",
-              "ipd",
-              "resolution",
-              "output",
               "pos",
               "quat",
+              "euler",
               "axisangle",
               "xyaxes",
               "zaxis",
-              "euler",
+              "projection",
+              "ipd",
+              "resolution",
+              "output",
               "mode",
-              "focal",
               "focalpixel",
               "principal",
               "principalpixel",
               "sensorsize",
-              "user"
+              "user",
+              "fovy",
+              "focal"
             ],
             "children": []
           },
@@ -444,15 +445,15 @@
             "name": "light",
             "typecode": "?",
             "attributes": [
+              "type",
+              "directional",
+              "castshadow",
+              "active",
               "pos",
               "dir",
               "bulbradius",
               "intensity",
               "range",
-              "directional",
-              "type",
-              "castshadow",
-              "active",
               "attenuation",
               "cutoff",
               "exponent",
@@ -473,7 +474,8 @@
               "solreffriction",
               "solimp",
               "gap",
-              "margin"
+              "margin",
+              "adhesion"
             ],
             "children": []
           },
@@ -514,6 +516,10 @@
             "name": "general",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "actlimited",
@@ -525,11 +531,8 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "actdim",
+              "input",
               "dyntype",
               "gaintype",
               "biastype",
@@ -544,6 +547,10 @@
             "name": "motor",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "ctrlrange",
@@ -552,11 +559,7 @@
               "damping",
               "armature",
               "cranklength",
-              "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay"
+              "user"
             ],
             "children": []
           },
@@ -564,6 +567,10 @@
             "name": "position",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "ctrlrange",
@@ -574,10 +581,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "kp",
               "kv",
               "dampratio",
@@ -589,6 +592,10 @@
             "name": "velocity",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "ctrlrange",
@@ -598,10 +605,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "kv"
             ],
             "children": []
@@ -610,6 +613,10 @@
             "name": "intvelocity",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "actlimited",
@@ -622,10 +629,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "kp",
               "kv",
               "dampratio"
@@ -636,6 +639,10 @@
             "name": "damper",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "forcelimited",
               "ctrlrange",
               "forcerange",
@@ -644,10 +651,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "kv"
             ],
             "children": []
@@ -656,6 +659,10 @@
             "name": "cylinder",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "ctrlrange",
@@ -665,10 +672,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "timeconst",
               "area",
               "diameter",
@@ -680,6 +683,10 @@
             "name": "muscle",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "forcelimited",
               "ctrlrange",
@@ -689,10 +696,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "timeconst",
               "range",
               "force",
@@ -709,15 +712,15 @@
             "name": "adhesion",
             "typecode": "?",
             "attributes": [
-              "forcelimited",
-              "ctrlrange",
-              "forcerange",
-              "gain",
-              "user",
               "group",
               "nsample",
               "interp",
-              "delay"
+              "delay",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "user",
+              "gain"
             ],
             "children": []
           },
@@ -725,6 +728,10 @@
             "name": "dcmotor",
             "typecode": "?",
             "attributes": [
+              "group",
+              "nsample",
+              "interp",
+              "delay",
               "ctrllimited",
               "ctrlrange",
               "gear",
@@ -732,10 +739,6 @@
               "armature",
               "cranklength",
               "user",
-              "group",
-              "nsample",
-              "interp",
-              "delay",
               "motorconst",
               "resistance",
               "nominal",
@@ -743,9 +746,9 @@
               "inductance",
               "cogging",
               "controller",
-              "input",
               "thermal",
-              "lugre"
+              "lugre",
+              "input"
             ],
             "children": []
           }
@@ -795,8 +798,8 @@
             "typecode": "*",
             "attributes": [
               "name",
-              "size",
-              "data"
+              "data",
+              "size"
             ],
             "children": []
           },
@@ -930,7 +933,6 @@
               "type",
               "colorspace",
               "content_type",
-              "file",
               "gridsize",
               "gridlayout",
               "fileright",
@@ -939,7 +941,6 @@
               "filedown",
               "filefront",
               "fileback",
-              "builtin",
               "rgb1",
               "rgb2",
               "mark",
@@ -949,7 +950,9 @@
               "height",
               "hflip",
               "vflip",
-              "nchannel"
+              "nchannel",
+              "builtin",
+              "file"
             ],
             "children": []
           },
@@ -959,7 +962,6 @@
             "attributes": [
               "name",
               "class",
-              "texture",
               "texrepeat",
               "texuniform",
               "emission",
@@ -968,7 +970,8 @@
               "reflectance",
               "metallic",
               "roughness",
-              "rgba"
+              "rgba",
+              "texture"
             ],
             "children": [
               {
@@ -998,15 +1001,15 @@
         "name": "body",
         "typecode": "R",
         "attributes": [
-          "name",
-          "childclass",
           "pos",
           "quat",
-          "mocap",
+          "euler",
           "axisangle",
           "xyaxes",
           "zaxis",
-          "euler",
+          "name",
+          "childclass",
+          "mocap",
           "gravcomp",
           "sleep",
           "simple",
@@ -1018,16 +1021,78 @@
             "typecode": "?",
             "attributes": [
               "pos",
-              "quat",
               "mass",
-              "diaginertia",
+              "quat",
+              "euler",
               "axisangle",
               "xyaxes",
               "zaxis",
-              "euler",
+              "diaginertia",
               "fullinertia"
             ],
             "children": []
+          },
+          {
+            "name": "geom",
+            "typecode": "*",
+            "attributes": [
+              "pos",
+              "quat",
+              "euler",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
+              "name",
+              "class",
+              "type",
+              "contype",
+              "conaffinity",
+              "condim",
+              "group",
+              "priority",
+              "size",
+              "material",
+              "friction",
+              "mass",
+              "density",
+              "shellinertia",
+              "solmix",
+              "solref",
+              "solimp",
+              "margin",
+              "gap",
+              "surfacevel",
+              "adhesion",
+              "hfield",
+              "mesh",
+              "fitscale",
+              "rgba",
+              "fluidshape",
+              "fluidcoef",
+              "user",
+              "fromto"
+            ],
+            "children": [
+              {
+                "name": "plugin",
+                "typecode": "*",
+                "attributes": [
+                  "plugin",
+                  "instance"
+                ],
+                "children": [
+                  {
+                    "name": "config",
+                    "typecode": "*",
+                    "attributes": [
+                      "key",
+                      "value"
+                    ],
+                    "children": []
+                  }
+                ]
+              }
+            ]
           },
           {
             "name": "joint",
@@ -1071,96 +1136,24 @@
             "children": []
           },
           {
-            "name": "geom",
-            "typecode": "*",
-            "attributes": [
-              "name",
-              "class",
-              "type",
-              "contype",
-              "conaffinity",
-              "condim",
-              "group",
-              "priority",
-              "size",
-              "material",
-              "friction",
-              "mass",
-              "density",
-              "shellinertia",
-              "solmix",
-              "solref",
-              "solimp",
-              "margin",
-              "gap",
-              "surfacevel",
-              "fromto",
-              "pos",
-              "quat",
-              "axisangle",
-              "xyaxes",
-              "zaxis",
-              "euler",
-              "hfield",
-              "mesh",
-              "fitscale",
-              "rgba",
-              "fluidshape",
-              "fluidcoef",
-              "user"
-            ],
-            "children": [
-              {
-                "name": "plugin",
-                "typecode": "*",
-                "attributes": [
-                  "plugin",
-                  "instance"
-                ],
-                "children": [
-                  {
-                    "name": "config",
-                    "typecode": "*",
-                    "attributes": [
-                      "key",
-                      "value"
-                    ],
-                    "children": []
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "name": "attach",
-            "typecode": "*",
-            "attributes": [
-              "model",
-              "body",
-              "frame",
-              "prefix"
-            ],
-            "children": []
-          },
-          {
             "name": "site",
             "typecode": "*",
             "attributes": [
+              "pos",
+              "quat",
+              "euler",
+              "axisangle",
+              "xyaxes",
+              "zaxis",
               "name",
               "class",
               "type",
               "group",
-              "pos",
-              "quat",
               "material",
               "size",
-              "fromto",
-              "axisangle",
-              "xyaxes",
-              "zaxis",
-              "euler",
               "rgba",
-              "user"
+              "user",
+              "fromto"
             ],
             "children": []
           },
@@ -1168,27 +1161,27 @@
             "name": "camera",
             "typecode": "*",
             "attributes": [
-              "name",
-              "class",
-              "projection",
-              "fovy",
-              "ipd",
-              "resolution",
-              "output",
               "pos",
               "quat",
+              "euler",
               "axisangle",
               "xyaxes",
               "zaxis",
-              "euler",
+              "name",
+              "class",
+              "projection",
+              "ipd",
+              "resolution",
+              "output",
               "mode",
               "target",
-              "focal",
               "focalpixel",
               "principal",
               "principalpixel",
               "sensorsize",
-              "user"
+              "user",
+              "fovy",
+              "focal"
             ],
             "children": []
           },
@@ -1198,8 +1191,8 @@
             "attributes": [
               "name",
               "class",
-              "directional",
               "type",
+              "directional",
               "castshadow",
               "active",
               "pos",
@@ -1311,7 +1304,8 @@
                   "solimp",
                   "margin",
                   "gap",
-                  "surfacevel"
+                  "surfacevel",
+                  "adhesion"
                 ],
                 "children": []
               },
@@ -1373,10 +1367,10 @@
               "flatskin",
               "pos",
               "quat",
+              "euler",
               "axisangle",
               "xyaxes",
               "zaxis",
-              "euler",
               "origin"
             ],
             "children": [
@@ -1456,6 +1450,17 @@
                 ]
               }
             ]
+          },
+          {
+            "name": "attach",
+            "typecode": "*",
+            "attributes": [
+              "model",
+              "body",
+              "frame",
+              "prefix"
+            ],
+            "children": []
           }
         ]
       },
@@ -1579,7 +1584,8 @@
               "solreffriction",
               "solimp",
               "gap",
-              "margin"
+              "margin",
+              "adhesion"
             ],
             "children": []
           },
@@ -1840,6 +1846,7 @@
               "refsite",
               "body",
               "actdim",
+              "input",
               "dyntype",
               "gaintype",
               "biastype",
@@ -1979,6 +1986,30 @@
               "kp",
               "kv",
               "dampratio"
+            ],
+            "children": []
+          },
+          {
+            "name": "orientation",
+            "typecode": "*",
+            "attributes": [
+              "name",
+              "class",
+              "group",
+              "nsample",
+              "interp",
+              "delay",
+              "forcelimited",
+              "ctrlrange",
+              "forcerange",
+              "user",
+              "joint",
+              "site",
+              "refsite",
+              "kp",
+              "kv",
+              "dampratio",
+              "input"
             ],
             "children": []
           },
@@ -3510,8 +3541,22 @@
         "value": "mjGAIN_DCMOTOR"
       },
       {
+        "key": "so3",
+        "value": "mjGAIN_SO3"
+      },
+      {
         "key": "user",
         "value": "mjGAIN_USER"
+      }
+    ],
+    "input_map": [
+      {
+        "key": "expmap",
+        "value": "mjCHART_EXPMAP"
+      },
+      {
+        "key": "quat",
+        "value": "mjCHART_QUAT"
       }
     ],
     "bias_map": [
@@ -3530,6 +3575,10 @@
       {
         "key": "dcmotor",
         "value": "mjBIAS_DCMOTOR"
+      },
+      {
+        "key": "so3",
+        "value": "mjBIAS_SO3"
       },
       {
         "key": "user",
