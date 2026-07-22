@@ -10,16 +10,19 @@ Ground truth is two snapshots:
   * ``schema/mujoco.spec`` (the ProtoSpec side), parsed via ``protospec_gen.idl``;
   * ``snapshots/mjspec_fields.json`` (the mjSpec side, extracted from mjspec.h).
 
-Each element is either MAPPED (in ``ELEMENT_STRUCT``) or whole-element WAIVED (in
-``ELEMENT_WAIVERS``); every element must be in exactly one. For a mapped element
-every schema field is disposed as exactly one of: a special handler (``name`` ->
-``mjs_setName``; a ``variant`` field -> a hand helper in ``compile/mjs_convert.h``),
-an EXACT name match to a kind-compatible mjs field, an ALIAS (``GLOBAL_ALIAS`` /
-``ELEM_ALIAS``) to a renamed kind-compatible mjs field, or a WAIVER (a rule, or an
-explicit ``FIELD_WAIVERS`` entry) with a one-line reason. Any field that is none of
-these fails generation with a named-field error -- that failure IS the maintenance
-contract (Task 3). The hand tables are orphan-checked: an alias/waiver naming a
-schema field or mjs field that no longer exists also fails generation.
+Each element is either MAPPED (binds an mjsStruct) or whole-element WAIVED (in
+``ELEMENT_WAIVERS``); every element must be in exactly one -- the mapped set is the
+complement of the waiver partition. A mapped element's struct is the schema binding
+``element X (mjs=mjsY)`` or the ``mjs<Name>`` identity (protospec_gen.binding). For
+a mapped element every schema field is disposed as exactly one of: a special handler
+(``name`` -> ``mjs_setName``; a ``variant`` field -> a hand helper in
+``compile/mjs_convert.h``), an EXACT name match to a kind-compatible mjs field, an
+ALIAS -- the field's ``mjs=`` binding annotation -- to a renamed kind-compatible mjs
+field, or a WAIVER (a rule, or an explicit ``FIELD_WAIVERS`` entry) with a one-line
+reason. Any field that is none of these fails generation with a named-field error --
+that failure IS the maintenance contract (Task 3). The ``mjs=`` binding facts, being
+inline on the field/element they describe, cannot be orphaned; the retained hand
+tables (``FIELD_WAIVERS`` / ``VARIANT_HELPERS``) are still orphan-checked.
 
 Output (``lib/generated/mjs_binding.{h,cc}``) MAY include ``<mujoco/mjspec.h>``:
 unlike the other generated files it is compiled only by the MuJoCo-linked compile
@@ -46,6 +49,7 @@ from __future__ import annotations
 import json
 import os
 
+from . import binding
 from .emit import ident
 from .idl import parse_spec
 
@@ -69,69 +73,20 @@ class MjsCoverageError(Exception):
 # --------------------------------------------------------------------------- #
 # Element -> mjs struct map (MAPPED elements).                                 #
 # --------------------------------------------------------------------------- #
-ELEMENT_STRUCT = {
-    "Body": "mjsBody",
-    "Inertial": "mjsBody",          # folds into the body's i-frame fields
-    "Frame": "mjsFrame",
-    "Joint": "mjsJoint",
-    "FreeJoint": "mjsJoint",        # type=free set by the builder
-    "Geom": "mjsGeom",
-    "Site": "mjsSite",
-    "Camera": "mjsCamera",
-    "Light": "mjsLight",
-    "Mesh": "mjsMesh",
-    "Hfield": "mjsHField",
-    "Skin": "mjsSkin",
-    "Texture": "mjsTexture",
-    "Material": "mjsMaterial",
-    "Pair": "mjsPair",
-    "Exclude": "mjsExclude",
-    "Connect": "mjsEquality",
-    "Weld": "mjsEquality",
-    "EqualityJoint": "mjsEquality",
-    "EqualityTendon": "mjsEquality",
-    "EqualityFlex": "mjsEquality",
-    "Flexvert": "mjsEquality",
-    "Flexstrain": "mjsEquality",
-    "EqualityDefault": "mjsEquality",
-    "Spatial": "mjsTendon",
-    "Fixed": "mjsTendon",
-    "TendonDefault": "mjsTendon",
-    "Numeric": "mjsNumeric",
-    "Text": "mjsText",
-    "Tuple": "mjsTuple",
-    "Key": "mjsKey",
-    "Flex": "mjsFlex",
-    "Compiler": "mjsCompiler",
-    "ActuatorGeneral": "mjsActuator",
-    "Motor": "mjsActuator",
-    "Position": "mjsActuator",
-    "Velocity": "mjsActuator",
-    "IntVelocity": "mjsActuator",
-    "Orientation": "mjsActuator",
-    "Damper": "mjsActuator",
-    "Cylinder": "mjsActuator",
-    "Muscle": "mjsActuator",
-    "Adhesion": "mjsActuator",
-    "DcMotor": "mjsActuator",
-    "ActuatorPlugin": "mjsActuator",
-}
-# Every SensorAny member maps to the single mjsSensor struct (its objtype/type
-# are set by the Wave 2 builder from the sensor kind; the shared tail maps here).
-_SENSORS = [
-    "Touch", "Accelerometer", "Velocimeter", "Gyro", "Force", "Torque",
-    "Magnetometer", "Camprojection", "Rangefinder", "Jointpos", "Jointvel",
-    "Tendonpos", "Tendonvel", "Actuatorpos", "Actuatorvel", "Actuatorfrc",
-    "Jointactuatorfrc", "Tendonactuatorfrc", "Ballquat", "Ballangvel",
-    "Jointlimitpos", "Jointlimitvel", "Jointlimitfrc", "Tendonlimitpos",
-    "Tendonlimitvel", "Tendonlimitfrc", "Framepos", "Framequat", "Framexaxis",
-    "Frameyaxis", "Framezaxis", "Framelinvel", "Frameangvel", "Framelinacc",
-    "Frameangacc", "Subtreecom", "Subtreelinvel", "Subtreeangmom", "Insidesite",
-    "Distance", "Normal", "Fromto", "SensorContact", "EPotential", "EKinetic",
-    "Clock", "Tactile", "SensorUser", "SensorPlugin",
-]
-for _s in _SENSORS:
-    ELEMENT_STRUCT[_s] = "mjsSensor"
+# The element->mjsStruct join now lives in the schema: an element whose struct is
+# `mjs<Name>` is identity (unannotated); any other struct is an explicit
+# `element X (mjs=mjsY) { ... }` binding annotation (binding.element_struct). The
+# MAPPED set is the complement of the retained ELEMENT_WAIVERS partition below --
+# every element is in exactly one, enforced in _element_dispositions.
+
+
+def _mapped_structs(schema):
+    """{element-name -> mjsStruct} for every non-waived (mapped) element."""
+    return {
+        e["name"]: binding.element_struct(e)
+        for e in schema["elements"]
+        if e["name"] not in ELEMENT_WAIVERS
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -200,53 +155,12 @@ ELEMENT_WAIVERS = {
 
 
 # --------------------------------------------------------------------------- #
-# Alias tables (schema field -> mjs field).                                    #
+# Field -> mjs field renames now live in the schema.                          #
 # --------------------------------------------------------------------------- #
-# GLOBAL_ALIAS applies to any mapped element whose target struct owns the mjs
-# field (e.g. every element's `user` -> `userdata`); it is skipped where the
-# struct has no such field.
-GLOBAL_ALIAS = {
-    "user": "userdata",
-    "actuatorfrclimited": "actfrclimited",
-    "actuatorfrcrange": "actfrcrange",
-    "solreflimit": "solref_limit",
-    "solimplimit": "solimp_limit",
-    "solreffriction": "solref_friction",
-    "solimpfriction": "solimp_friction",
-}
-
-# ELEM_ALIAS is (element, field) -> mjs field for element-specific renames.
-ELEM_ALIAS = {
-    ("Frame", "dclass"): "childclass",
-    ("Inertial", "pos"): "ipos",   # inertial-frame position folds into mjsBody.ipos
-    ("Inertial", "diaginertia"): "inertia",
-    ("Joint", "actuatorgravcomp"): "actgravcomp",
-    ("Geom", "hfield"): "hfieldname",
-    ("Geom", "mesh"): "meshname",
-    ("Geom", "fluidcoef"): "fluid_coefs",
-    ("Camera", "target"): "targetbody",
-    ("Camera", "focal"): "focal_length",
-    ("Camera", "focalpixel"): "focal_pixel",
-    ("Camera", "principal"): "principal_length",
-    ("Camera", "principalpixel"): "principal_pixel",
-    ("Camera", "sensorsize"): "sensor_size",
-    ("Camera", "projection"): "proj",
-    ("Light", "target"): "targetbody",
-    ("Mesh", "vertex"): "uservert",
-    ("Mesh", "normal"): "usernormal",
-    ("Mesh", "texcoord"): "usertexcoord",
-    ("Mesh", "face"): "userface",
-    ("Pair", "geom1"): "geomname1",
-    ("Pair", "geom2"): "geomname2",
-    ("Exclude", "body1"): "bodyname1",
-    ("Exclude", "body2"): "bodyname2",
-    ("Flex", "body"): "vertbody",
-    ("Flex", "node"): "nodebody",
-    ("Flex", "vertex"): "vert",
-    ("Flex", "element"): "elem",
-    ("Hfield", "elevation"): "userdata",
-    ("Skin", "vertex"): "vert",
-}
+# A non-identity attribute->mjs-field join is a `mjs=` binding annotation on the
+# field (was ELEM_ALIAS for element-specific renames + GLOBAL_ALIAS for the
+# cross-element rules like `user`->`userdata`). classify_field reads it via
+# binding.field_mjs; a field with no annotation binds to the same-named mjs field.
 
 
 # --------------------------------------------------------------------------- #
@@ -260,73 +174,15 @@ VARIANT_HELPERS = {
 
 
 # --------------------------------------------------------------------------- #
-# Enum -> mjt value tables. Each ProtoSpec member maps to the mjt constant of   #
-# the mjs field's ctype (verified against mjspec.h/mjtype.h). Members with no    #
-# mjt counterpart are simply omitted (never authored through the shim).         #
+# Enum -> mjt ToMjt tables now live in the schema.                            #
 # --------------------------------------------------------------------------- #
-ENUM_MJT = {
-    "GeomType": ("mjtGeom", {
-        "plane": "mjGEOM_PLANE", "hfield": "mjGEOM_HFIELD", "sphere": "mjGEOM_SPHERE",
-        "capsule": "mjGEOM_CAPSULE", "ellipsoid": "mjGEOM_ELLIPSOID",
-        "cylinder": "mjGEOM_CYLINDER", "box": "mjGEOM_BOX", "mesh": "mjGEOM_MESH",
-        "sdf": "mjGEOM_SDF"}),
-    "JointType": ("mjtJoint", {
-        "free": "mjJNT_FREE", "ball": "mjJNT_BALL", "slide": "mjJNT_SLIDE",
-        "hinge": "mjJNT_HINGE"}),
-    "TriState": ("mjtLimited", {
-        "false_": "mjLIMITED_FALSE", "true_": "mjLIMITED_TRUE",
-        "auto": "mjLIMITED_AUTO"}),
-    "Conflict": ("mjtConflict", {
-        "warning": "mjCONFLICT_WARNING", "merge": "mjCONFLICT_MERGE",
-        "error": "mjCONFLICT_ERROR"}),
-    # `simple` is a raw mjtByte flag whose XML surface uses FAuto_map
-    # (false=0, auto=1); no dedicated mjt enum exists for it.
-    "SimpleMode": ("mjtByte", {"false_": "0", "auto": "1"}),
-    "InertiaFromGeom": ("mjtInertiaFromGeom", {
-        "false_": "mjINERTIAFROMGEOM_FALSE", "true_": "mjINERTIAFROMGEOM_TRUE",
-        "auto": "mjINERTIAFROMGEOM_AUTO"}),
-    "MeshInertia": ("mjtMeshInertia", {
-        "convex": "mjMESH_INERTIA_CONVEX", "exact": "mjMESH_INERTIA_EXACT",
-        "legacy": "mjMESH_INERTIA_LEGACY", "shell": "mjMESH_INERTIA_SHELL"}),
-    "BodySleep": ("mjtSleepPolicy", {
-        "auto": "mjSLEEP_AUTO", "never": "mjSLEEP_NEVER",
-        "allowed": "mjSLEEP_ALLOWED", "init": "mjSLEEP_INIT"}),
-    "CamLightMode": ("mjtCamLight", {
-        "fixed": "mjCAMLIGHT_FIXED", "track": "mjCAMLIGHT_TRACK",
-        "trackcom": "mjCAMLIGHT_TRACKCOM", "targetbody": "mjCAMLIGHT_TARGETBODY",
-        "targetbodycom": "mjCAMLIGHT_TARGETBODYCOM"}),
-    "CameraProjection": ("mjtProjection", {
-        "perspective": "mjPROJ_PERSPECTIVE", "orthographic": "mjPROJ_ORTHOGRAPHIC"}),
-    "LightType": ("mjtLightType", {
-        "spot": "mjLIGHT_SPOT", "directional": "mjLIGHT_DIRECTIONAL",
-        "point": "mjLIGHT_POINT", "image": "mjLIGHT_IMAGE"}),
-    "TextureType": ("mjtTexture", {
-        "twod": "mjTEXTURE_2D", "cube": "mjTEXTURE_CUBE", "skybox": "mjTEXTURE_SKYBOX"}),
-    "ColorSpace": ("mjtColorSpace", {
-        "auto": "mjCOLORSPACE_AUTO", "linear": "mjCOLORSPACE_LINEAR",
-        "sRGB": "mjCOLORSPACE_SRGB"}),
-    "TextureMark": ("mjtMark", {
-        "none": "mjMARK_NONE", "edge": "mjMARK_EDGE", "cross": "mjMARK_CROSS",
-        "random": "mjMARK_RANDOM"}),
-    "DynType": ("mjtDyn", {
-        "none": "mjDYN_NONE", "integrator": "mjDYN_INTEGRATOR",
-        "filter": "mjDYN_FILTER", "filterexact": "mjDYN_FILTEREXACT",
-        "muscle": "mjDYN_MUSCLE", "dcmotor": "mjDYN_DCMOTOR", "user": "mjDYN_USER"}),
-    "GainType": ("mjtGain", {
-        "fixed": "mjGAIN_FIXED", "affine": "mjGAIN_AFFINE", "muscle": "mjGAIN_MUSCLE",
-        "dcmotor": "mjGAIN_DCMOTOR", "user": "mjGAIN_USER"}),
-    "BiasType": ("mjtBias", {
-        "none": "mjBIAS_NONE", "affine": "mjBIAS_AFFINE", "muscle": "mjBIAS_MUSCLE",
-        "dcmotor": "mjBIAS_DCMOTOR", "user": "mjBIAS_USER"}),
-    "DataType": ("mjtDataType", {
-        "real": "mjDATATYPE_REAL", "positive": "mjDATATYPE_POSITIVE",
-        "axis": "mjDATATYPE_AXIS", "quaternion": "mjDATATYPE_QUATERNION"}),
-    "NeedStage": ("mjtStage", {
-        "none": "mjSTAGE_NONE", "pos": "mjSTAGE_POS", "vel": "mjSTAGE_VEL",
-        "acc": "mjSTAGE_ACC"}),
-    # interp is a raw int order field (0=ZOH, 1=linear, 2=cubic), not an mjt enum.
-    "InterpType": ("int", {"zoh": "0", "linear": "1", "cubic": "2"}),
-}
+# An enum authored to mjSpec carries `ctype=<mjt*|int>`; each of its members maps
+# to a C constant given by that member's `mjs_c=` (an override, or the sole source
+# for an enum with no reader map) or, failing that, its reader `c=` value (75 of
+# the joins are byte-identical to the keyword column and reuse it). A member
+# flagged `no_mjs` is reader-only and excluded from the switch (the SO3 gain/bias
+# members). emit_binding_cc reads the ordered (member, constant) pairs via
+# binding.tomjt_members; compatible() gates enum-scalar writes on ctype presence.
 
 
 # --------------------------------------------------------------------------- #
@@ -409,63 +265,15 @@ def _fields_of(struct):
 
 
 # --------------------------------------------------------------------------- #
-# Kind classification + compatibility.                                         #
+# Kind classification + compatibility (owned by protospec_gen.binding).        #
 # --------------------------------------------------------------------------- #
-def ps_shape(t):
-    """The ProtoSpec storage shape of a field type."""
-    k = t["kind"]
-    if k == "variant":
-        return "variant"
-    if k == "ref":
-        return "ref_list" if t.get("arity") is not None else "ref"
-    if k == "named":  # enum
-        return "enum_set" if t.get("arity") is not None else "enum_scalar"
-    # prim
-    arity = t.get("arity")
-    if t["prim"] == "string" and arity is None:
-        return "string"
-    if arity is None:
-        return "scalar"
-    return {"fixed": "fixed", "range": "range", "unbounded": "vec"}[arity["kind"]]
-
-
-_VEC_KIND = {"double": "double_vec", "float": "float_vec", "int32": "int_vec",
-             "uint64": "int_vec"}
-
-
-def compatible(t, m):
-    """True if a ProtoSpec field type `t` may be written into mjs field `m`
-    (auto or alias). Kind is checked so a name collision with an unrelated mjs
-    field (e.g. the identity `element` pointer, or an mjsFlex `node` handle of a
-    different kind) is rejected -- it falls through to an explicit table."""
-    shape = ps_shape(t)
-    mk = m["kind"]
-    if shape == "scalar":
-        return mk == "scalar"
-    if shape == "enum_scalar":
-        return mk == "scalar" and t["name"] in ENUM_MJT
-    if shape == "string":
-        return mk == "string"
-    if shape == "ref":
-        return mk == "string"
-    if shape == "ref_list":
-        return mk == "string_vec"
-    if shape == "fixed":
-        return mk == "fixed_array" and m["array"]["value"] == t["arity"]["size"]
-    if shape == "range":
-        return mk == "fixed_array" and t["arity"]["max"] <= m["array"]["value"]
-    if shape == "vec":
-        if mk == _VEC_KIND.get(t["prim"]):
-            return True
-        # A double source may downcast into a float handle (mesh vertex/normal).
-        return t["prim"] == "double" and mk == "float_vec"
-    return False  # enum_set, variant
+ps_shape = binding.ps_shape
 
 
 # --------------------------------------------------------------------------- #
 # Per-field disposition.                                                        #
 # --------------------------------------------------------------------------- #
-def classify_field(elem_name, struct_fields, f, used):
+def classify_field(elem_name, struct, struct_fields, f, used, ctype_enums):
     """Return one of:
         ("name",)                      -- element name via mjs_setName
         ("variant", helper)            -- variant field via a hand helper
@@ -473,7 +281,9 @@ def classify_field(elem_name, struct_fields, f, used):
         ("alias", mjs_field)
         ("waive", reason)
     or raise MjsCoverageError if the field is unaccounted. `used` accumulates the
-    hand-table keys actually consumed, for orphan detection."""
+    hand-table keys actually consumed, for orphan detection. `struct` is the
+    element's mjsStruct (from the schema binding); `ctype_enums` names the enums
+    authored to mjSpec (gate for enum-scalar writes)."""
     name = f["name"]
     t = f["type"]
     key = (elem_name, name)
@@ -493,23 +303,18 @@ def classify_field(elem_name, struct_fields, f, used):
         used.add(("fwaive", key))
         return ("waive", FIELD_WAIVERS[key])
 
-    if key in ELEM_ALIAS:
-        mjs_name = ELEM_ALIAS[key]
+    # Explicit `mjs=` rename annotation (was ELEM_ALIAS / GLOBAL_ALIAS): bind to
+    # the named mjs field, kind-checked.
+    mjs_name = binding.field_mjs(f)
+    if mjs_name is not None:
         m = struct_fields.get(mjs_name)
         if m is None:
             raise MjsCoverageError(
-                f"ELEM_ALIAS[{key}] -> {mjs_name!r}: no such mjs field")
-        if not compatible(t, m):
+                f"{elem_name}.{name}: mjs={mjs_name!r}: no such field of {struct}")
+        if not binding.compatible(t, m, ctype_enums):
             raise MjsCoverageError(
-                f"ELEM_ALIAS[{key}] -> {mjs_name!r}: kind-incompatible")
-        used.add(("ealias", key))
+                f"{elem_name}.{name}: mjs={mjs_name!r}: kind-incompatible")
         return ("alias", m)
-
-    if name in GLOBAL_ALIAS and GLOBAL_ALIAS[name] in struct_fields:
-        m = struct_fields[GLOBAL_ALIAS[name]]
-        if compatible(t, m):
-            used.add(("galias", name))
-            return ("alias", m)
 
     # Rule waiver: a default-class reference is bound at mjs_add*(def) time.
     if name == "dclass" and t["kind"] == "ref":
@@ -517,11 +322,11 @@ def classify_field(elem_name, struct_fields, f, used):
 
     # Exact name match, kind-checked.
     m = struct_fields.get(name)
-    if m is not None and m["name"] != "element" and compatible(t, m):
+    if m is not None and m["name"] != "element" and binding.compatible(t, m, ctype_enums):
         return ("exact", m)
 
     # Rule waivers for the N:1 families, by field shape.
-    if elem_name in _SENSORS or ELEMENT_STRUCT.get(elem_name) == "mjsSensor":
+    if struct == "mjsSensor":
         if t["kind"] == "ref":
             return ("waive", "sensor object -> mjsSensor.objname/refname by Wave 2 "
                              "(objtype derived from sensor kind)")
@@ -530,11 +335,11 @@ def classify_field(elem_name, struct_fields, f, used):
                              "mjtObj by Wave 2")
         if name in ("data", "num", "reduce", "dim"):
             return ("waive", "sensor-kind parameter -> mjsSensor.intprm/dim by Wave 2")
-    if ELEMENT_STRUCT.get(elem_name) == "mjsActuator":
+    if struct == "mjsActuator":
         if t["kind"] == "ref":
             return ("waive", "transmission target -> mjsActuator.target/trntype "
                              "by Wave 2 (from the authored transmission field)")
-    if ELEMENT_STRUCT.get(elem_name) == "mjsEquality":
+    if struct == "mjsEquality":
         if t["kind"] == "ref" or name in ("anchor", "relpose", "polycoef", "cell",
                                           "torquescale"):
             return ("waive", "equality endpoints/data packed into "
@@ -542,7 +347,7 @@ def classify_field(elem_name, struct_fields, f, used):
 
     raise MjsCoverageError(
         f"{elem_name}.{name}: no mapping, alias, or waiver (mjs struct "
-        f"{ELEMENT_STRUCT.get(elem_name)!r} has no field {name!r})")
+        f"{struct!r} has no field {name!r})")
 
 
 # --------------------------------------------------------------------------- #
@@ -550,45 +355,43 @@ def classify_field(elem_name, struct_fields, f, used):
 # --------------------------------------------------------------------------- #
 def _element_dispositions(schema, mjs):
     """Classify every field of every element; raise on any gap or orphan.
-    Returns {element_name: [(field, disposition), ...]} for mapped elements."""
+    Returns {element_name: (struct, [(field, disposition), ...])} for mapped
+    elements."""
     struct_by = {s["name"]: s for s in mjs["structs"]}
     elem_by = {e["name"]: e for e in schema["elements"]}
+    mapped = _mapped_structs(schema)  # {name -> mjsStruct}, non-waived elements
+    ctype_enums = binding.ctype_enum_names(schema)
 
+    # Every element is mapped XOR waived (partition invariant).
     for name in elem_by:
-        mapped = name in ELEMENT_STRUCT
-        waived = name in ELEMENT_WAIVERS
-        if mapped and waived:
+        if (name in mapped) == (name in ELEMENT_WAIVERS):
+            if name in ELEMENT_WAIVERS:
+                raise MjsCoverageError(
+                    f"element {name!r} is both mapped (binds an mjsStruct) and "
+                    "whole-element-waived (ELEMENT_WAIVERS)")
             raise MjsCoverageError(
-                f"element {name!r} is both mapped and whole-element-waived")
-        if not mapped and not waived:
-            raise MjsCoverageError(
-                f"element {name!r} is neither mapped (ELEMENT_STRUCT) nor waived "
-                "(ELEMENT_WAIVERS)")
+                f"element {name!r} is neither mapped nor waived (ELEMENT_WAIVERS)")
 
-    # Orphan: every mapped/waived element name must be a real schema element.
-    for name in list(ELEMENT_STRUCT) + list(ELEMENT_WAIVERS):
+    # Orphan: every waiver names a real element; every bound struct exists.
+    for name in ELEMENT_WAIVERS:
         if name not in elem_by:
             raise MjsCoverageError(
-                f"table names element {name!r} that no longer exists in the schema")
-    for name, struct in ELEMENT_STRUCT.items():
+                f"ELEMENT_WAIVERS names element {name!r} that no longer exists")
+    for name, struct in mapped.items():
         if struct not in struct_by:
             raise MjsCoverageError(
-                f"ELEMENT_STRUCT[{name!r}] -> {struct!r}: no such mjs struct")
+                f"element {name!r} binds mjs struct {struct!r}: no such struct")
 
     dispositions = {}
     used = set()
-    for name, struct in ELEMENT_STRUCT.items():
+    for name, struct in mapped.items():
         sf = _fields_of(struct_by[struct])
         rows = []
         for f in elem_by[name]["fields"]:
-            rows.append((f, classify_field(name, sf, f, used)))
-        dispositions[name] = rows
+            rows.append((f, classify_field(name, struct, sf, f, used, ctype_enums)))
+        dispositions[name] = (struct, rows)
 
-    # Orphan: every hand-table entry must have been consumed.
-    for key in ELEM_ALIAS:
-        if ("ealias", key) not in used:
-            raise MjsCoverageError(
-                f"ELEM_ALIAS entry {key} is dead (field/element gone)")
+    # Orphan: every retained hand-table entry must have been consumed.
     for key in FIELD_WAIVERS:
         if ("fwaive", key) not in used:
             raise MjsCoverageError(
@@ -597,10 +400,6 @@ def _element_dispositions(schema, mjs):
         if ("variant", key) not in used:
             raise MjsCoverageError(
                 f"VARIANT_HELPERS entry {key} is dead (field/element gone)")
-    for name in GLOBAL_ALIAS:
-        if ("galias", name) not in used:
-            raise MjsCoverageError(
-                f"GLOBAL_ALIAS entry {name!r} is dead (never applied)")
     return dispositions
 
 
@@ -682,7 +481,7 @@ def emit_binding_h(dispositions):
     w("namespace ps::mjcf {")
     w("")
     for name in sorted(dispositions):
-        struct = ELEMENT_STRUCT[name]
+        struct = dispositions[name][0]
         w(f"void ApplyMjs(const {name}& e, {struct}* out);")
     w("")
     w("}  // namespace ps::mjcf")
@@ -691,7 +490,7 @@ def emit_binding_h(dispositions):
     return "\n".join(o) + "\n"
 
 
-def emit_binding_cc(dispositions):
+def emit_binding_cc(dispositions, enum_by):
     o = []
     w = o.append
     w(BANNER)
@@ -705,13 +504,15 @@ def emit_binding_cc(dispositions):
     w("namespace {")
     w("")
 
-    # ToMjt overloads, one per enum actually used.
+    # ToMjt overloads, one per enum actually used. Each enum's ordered (member,
+    # constant) pairs come from its schema ctype/(c=)/(mjs_c=)/(no_mjs) annotations.
     used_enums = _enums_in_use(dispositions)
+    enum_values = binding.load_enum_values()
     for enum in sorted(used_enums):
-        ctype, members = ENUM_MJT[enum]
+        members = binding.tomjt_members(enum_by[enum], enum_values)
         w(f"int ToMjt({enum} v) {{")
         w("  switch (v) {")
-        for member, const in members.items():
+        for member, const in members:
             w(f"    case {enum}::{ident(member)}: return {const};")
         w("    default: return 0;")
         w("  }")
@@ -721,9 +522,9 @@ def emit_binding_cc(dispositions):
     w("")
 
     for name in sorted(dispositions):
-        struct = ELEMENT_STRUCT[name]
+        struct, rows = dispositions[name]
         w(f"void ApplyMjs(const {name}& e, {struct}* out) {{")
-        for f, disp in dispositions[name]:
+        for f, disp in rows:
             _emit_field(w, f, disp)
         w("  (void)e;")
         w("  (void)out;")
@@ -736,7 +537,7 @@ def emit_binding_cc(dispositions):
 
 def _enums_in_use(dispositions):
     enums = set()
-    for rows in dispositions.values():
+    for _struct, rows in dispositions.values():
         for f, disp in rows:
             if disp[0] in ("exact", "alias") and ps_shape(f["type"]) == "enum_scalar":
                 enums.add(f["type"]["name"])
@@ -759,10 +560,14 @@ def generate_files(schema=None, mjs=None):
     """Return {filename: content} for the generated mjs binding files. Raises
     MjsCoverageError on any coverage gap or orphaned table entry."""
     schema, mjs = _load(schema, mjs)
+    structs = {s["name"]: {f["name"]: f for f in s["fields"]} for s in mjs["structs"]}
+    binding.validate(schema, waivers=frozenset(ELEMENT_WAIVERS), filename=SCHEMA,
+                     structs=structs)
     dispositions = _element_dispositions(schema, mjs)
+    enum_by = {e["name"]: e for e in schema["enums"]}
     return {
         "mjs_binding.h": emit_binding_h(dispositions),
-        "mjs_binding.cc": emit_binding_cc(dispositions),
+        "mjs_binding.cc": emit_binding_cc(dispositions, enum_by),
     }
 
 
@@ -772,13 +577,13 @@ def stats(schema=None, mjs=None):
     schema, mjs = _load(schema, mjs)
     dispositions = _element_dispositions(schema, mjs)
     per = {}
-    for name, rows in dispositions.items():
+    for name, (_struct, rows) in dispositions.items():
         c = {"exact": 0, "alias": 0, "waive": 0, "name": 0, "variant": 0}
         for _f, disp in rows:
             c[disp[0]] += 1
         per[name] = c
     return {
-        "mapped_elements": len(ELEMENT_STRUCT),
+        "mapped_elements": len(dispositions),
         "waived_elements": len(ELEMENT_WAIVERS),
         "per_element": per,
     }

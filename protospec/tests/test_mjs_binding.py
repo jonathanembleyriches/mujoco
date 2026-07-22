@@ -8,6 +8,7 @@ import copy
 import pytest
 
 from protospec_gen import emit_mjs
+from protospec_gen.idl import SchemaError
 
 
 def _data():
@@ -24,10 +25,18 @@ def test_generation_succeeds():
 
 
 def test_every_element_is_mapped_or_waived():
-    schema, _ = _data()
+    schema, mjs = _data()
     names = {e["name"] for e in schema["elements"]}
-    covered = set(emit_mjs.ELEMENT_STRUCT) | set(emit_mjs.ELEMENT_WAIVERS)
-    assert names == covered, names ^ covered
+    # Mapped = complement of the retained waiver partition; the element->struct
+    # join itself lives in the schema (binding.element_struct).
+    mapped = set(emit_mjs._mapped_structs(schema))
+    waived = set(emit_mjs.ELEMENT_WAIVERS)
+    assert mapped.isdisjoint(waived)
+    assert names == mapped | waived, names ^ (mapped | waived)
+    # Every mapped element resolves to a real mjs struct.
+    struct_names = {s["name"] for s in mjs["structs"]}
+    for name, struct in emit_mjs._mapped_structs(schema).items():
+        assert struct in struct_names, (name, struct)
 
 
 def test_stats_shape():
@@ -54,18 +63,26 @@ def test_unmapped_field_fires_gate():
         emit_mjs.generate_files(schema=schema, mjs=mjs)
 
 
-def test_orphan_alias_fires_gate(monkeypatch):
-    # An alias keyed on a schema field that does not exist is never consumed.
-    monkeypatch.setitem(emit_mjs.ELEM_ALIAS, ("Geom", "ghostfield"), "pos")
-    with pytest.raises(emit_mjs.MjsCoverageError, match=r"dead"):
-        emit_mjs.generate_files()
+def test_bad_mjs_annotation_target_fires_gate():
+    # A field's `mjs=` binding annotation naming a non-existent mjs field fails
+    # loudly (was ELEM_ALIAS/GLOBAL_ALIAS orphan detection; now the inline
+    # annotation is validated against the mjsStruct inventory with a schema line).
+    schema, mjs = _data()
+    geom = next(e for e in schema["elements"] if e["name"] == "Geom")
+    f = next(x for x in geom["fields"] if x["name"] == "hfield")
+    f["annotations"]["mjs"] = "no_such_mjs_field"
+    with pytest.raises(SchemaError, match=r"not a field of mjsGeom"):
+        emit_mjs.generate_files(schema=schema, mjs=mjs)
 
 
-def test_orphan_alias_bad_target_fires_gate(monkeypatch):
-    # An alias whose mjs target field does not exist on the struct.
-    monkeypatch.setitem(emit_mjs.ELEM_ALIAS, ("Geom", "hfield"), "no_such_mjs_field")
-    with pytest.raises(emit_mjs.MjsCoverageError, match=r"no such mjs field"):
-        emit_mjs.generate_files()
+def test_kind_incompatible_mjs_annotation_fires_gate():
+    # A `mjs=` binding to a real but kind-incompatible mjs field fails loudly.
+    schema, mjs = _data()
+    geom = next(e for e in schema["elements"] if e["name"] == "Geom")
+    f = next(x for x in geom["fields"] if x["name"] == "pos")  # double[3]
+    f.setdefault("annotations", {})["mjs"] = "mass"  # scalar double -> incompatible
+    with pytest.raises(SchemaError, match=r"kind-incompatible"):
+        emit_mjs.generate_files(schema=schema, mjs=mjs)
 
 
 def test_orphan_waiver_fires_gate(monkeypatch):

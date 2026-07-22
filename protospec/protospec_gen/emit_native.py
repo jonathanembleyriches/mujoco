@@ -46,6 +46,7 @@ import os
 import sys
 from collections import namedtuple
 
+from . import binding
 from .idl import parse_spec
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -115,26 +116,27 @@ _ELEMENT_INPUT_ALIASES = {"Material": ["texture"]}
 # Keyword-map generation (xml_native_keywords.inc).
 #
 # The reader carries ~48 ``const mjMap NAME[...] = {{"kw", VALUE}, ...}`` keyword
-# tables. The keyword *spellings* and their *order* are schema facts (they are the
-# ``value`` of an IDL enum's members); the VALUE column is a MuJoCo-side C constant
-# (``mjGAIN_FIXED``) or a bare integer that the IDL does not model. Following the
-# prior wave's rule -- "the schema owns content, the emitter owns the MuJoCo-side
-# mapping" -- the C value column and the C array-size tokens live here, in an
-# explicit table, extracted once from the hand-written reader. Each row is:
+# tables. BOTH columns are now schema facts: the keyword *spellings* and their
+# *order* are an IDL enum's members' ``value``; the VALUE column -- a MuJoCo-side C
+# constant (``mjGAIN_FIXED``) or a bare integer -- is each member's ``(c=)`` binding
+# annotation (protospec_gen.binding.keyword_values), cross-checked against
+# snapshots/mjmodel_enums.json. The emitter table below owns only the C spellings
+# the IDL genuinely does not model -- the map's variable name and its ``[...]``
+# array bound. Each row is:
 #
-#   MapBind(map_name, enum_name, size_token, sz_const_expr_or_None, [value, ...])
+#   MapBind(map_name, enum_name, size_token, sz_const_expr_or_None)
 #
 # where ``size_token`` is the ``[...]`` array bound the reader uses (a literal, an
-# ``mjN*`` macro, or a ``NAME_sz`` symbol), ``sz_const_expr`` is the value of the
+# ``mjN*`` macro, or a ``NAME_sz`` symbol) and ``sz_const_expr`` is the value of the
 # ``const int NAME_sz = <expr>;`` line the reader emits before the map (None when
-# the reader used a literal/macro bound directly, so no such line is emitted), and
-# the value list is positionally aligned with the enum's members.
+# the reader used a literal/macro bound directly, so no such line is emitted).
 #
-# generate_keywords() derives every keyword from the IDL enum and asserts, per map,
-# that the enum's member-value list has the same length as this value column; the
-# equivalence test (tests/test_native_keyword_maps.py) then proves the generated
-# {keyword, value} pairs equal the git-recovered hand tables. A schema enum that
-# gains/loses a member, or is reordered, therefore fails loudly here at emit time.
+# generate_keywords() reads each keyword's spelling AND its (c=) value from the IDL
+# enum; the equivalence test (tests/test_native_keyword_maps.py) proves the
+# generated {keyword, value} pairs equal the git-recovered hand tables. A schema
+# enum that gains/loses a member, is reordered, or drops a (c=) annotation fails
+# loudly here at emit time (and the constant is validated to exist / belong to the
+# enum's declared ctype).
 #
 # Some reader maps have no backing IDL enum because their keywords are type-system
 # spellings, not enum members: bool_map / enable_map (boolean on/off with two
@@ -152,7 +154,14 @@ _ELEMENT_INPUT_ALIASES = {"Material": ["texture"]}
 # is quarantined and promoting them to schema enums would ripple through the other
 # generators for no behavioral gain).
 
-MapBind = namedtuple("MapBind", "map enum size sz_expr values")
+# A reader keyword map's C-side spellings: the map's variable name, its enum
+# backing (schema/mujoco.spec), the ``[...]`` array-bound token, and the value of
+# the ``const int NAME_sz = <expr>;`` line the reader emits before the map (None
+# when it used a literal/macro bound directly). The VALUE COLUMN -- the C constant
+# each keyword maps to -- is NO LONGER here: it is the ``(c=)`` annotation on each
+# member of the backing enum (protospec_gen.binding.keyword_values). This table now
+# owns only the C spellings the IDL does not model (the map symbol and its bound).
+MapBind = namedtuple("MapBind", "map enum size sz_expr")
 
 # Primitive-backed maps: no IDL enum, the (keyword, value) column is emitter-owned
 # because the schema models these as boolean / tri-state primitives.
@@ -167,48 +176,52 @@ PRIMITIVE_MAPS = [
                 [('false', 'mjINERTIA_VOLUME'), ('true', 'mjINERTIA_SHELL')]),
 ]
 
+# Map-name / size lookup for the shared primitive keyword maps a `cmap=`-annotated
+# enum's attributes bind through (was ENUM_PRIM_MAP's size column).
+_PRIM_MAP_SIZE = {pb.map: pb.size for pb in PRIMITIVE_MAPS}
+
 KEYWORD_MAPS = [
-    MapBind('coordinate_map', 'Coordinate', '2', None, ['0', '1']),
-    MapBind('angle_map', 'AngleUnit', '2', None, ['0', '1']),
-    MapBind('fluid_map', 'FluidShape', '2', None, ['0', '1']),
-    MapBind('FAuto_map', 'SimpleMode', '2', None, ['0', '1']),
-    MapBind('bodysleep_map', 'BodySleep', 'bodysleep_sz', '4', ['mjSLEEP_AUTO', 'mjSLEEP_NEVER', 'mjSLEEP_ALLOWED', 'mjSLEEP_INIT']),
-    MapBind('joint_map', 'JointType', 'joint_sz', '4', ['mjJNT_FREE', 'mjJNT_BALL', 'mjJNT_SLIDE', 'mjJNT_HINGE']),
-    MapBind('geom_map', 'GeomType', 'mjNGEOMTYPES', None, ['mjGEOM_PLANE', 'mjGEOM_HFIELD', 'mjGEOM_SPHERE', 'mjGEOM_CAPSULE', 'mjGEOM_ELLIPSOID', 'mjGEOM_CYLINDER', 'mjGEOM_BOX', 'mjGEOM_MESH', 'mjGEOM_SDF']),
-    MapBind('projection_map', 'CameraProjection', 'projection_sz', '2', ['mjPROJ_PERSPECTIVE', 'mjPROJ_ORTHOGRAPHIC']),
-    MapBind('camlight_map', 'CamLightMode', 'camlight_sz', '5', ['mjCAMLIGHT_FIXED', 'mjCAMLIGHT_TRACK', 'mjCAMLIGHT_TRACKCOM', 'mjCAMLIGHT_TARGETBODY', 'mjCAMLIGHT_TARGETBODYCOM']),
-    MapBind('lighttype_map', 'LightType', 'lighttype_sz', '4', ['mjLIGHT_SPOT', 'mjLIGHT_DIRECTIONAL', 'mjLIGHT_POINT', 'mjLIGHT_IMAGE']),
-    MapBind('texrole_map', 'TexRole', 'texrole_sz', 'mjNTEXROLE - 1', ['mjTEXROLE_RGB', 'mjTEXROLE_OCCLUSION', 'mjTEXROLE_ROUGHNESS', 'mjTEXROLE_METALLIC', 'mjTEXROLE_NORMAL', 'mjTEXROLE_OPACITY', 'mjTEXROLE_EMISSIVE', 'mjTEXROLE_RGBA', 'mjTEXROLE_ORM']),
-    MapBind('integrator_map', 'Integrator', 'integrator_sz', '4', ['mjINT_EULER', 'mjINT_RK4', 'mjINT_IMPLICIT', 'mjINT_IMPLICITFAST']),
-    MapBind('cone_map', 'Cone', 'cone_sz', '2', ['mjCONE_PYRAMIDAL', 'mjCONE_ELLIPTIC']),
-    MapBind('jac_map', 'JacobianType', 'jac_sz', '3', ['mjJAC_DENSE', 'mjJAC_SPARSE', 'mjJAC_AUTO']),
-    MapBind('solver_map', 'SolverType', 'solver_sz', '3', ['mjSOL_PGS', 'mjSOL_CG', 'mjSOL_NEWTON']),
-    MapBind('texture_map', 'TextureType', 'texture_sz', '3', ['mjTEXTURE_2D', 'mjTEXTURE_CUBE', 'mjTEXTURE_SKYBOX']),
-    MapBind('colorspace_map', 'ColorSpace', 'colorspace_sz', '3', ['mjCOLORSPACE_AUTO', 'mjCOLORSPACE_LINEAR', 'mjCOLORSPACE_SRGB']),
-    MapBind('builtin_map', 'TextureBuiltin', 'builtin_sz', '4', ['mjBUILTIN_NONE', 'mjBUILTIN_GRADIENT', 'mjBUILTIN_CHECKER', 'mjBUILTIN_FLAT']),
-    MapBind('mark_map', 'TextureMark', 'mark_sz', '4', ['mjMARK_NONE', 'mjMARK_EDGE', 'mjMARK_CROSS', 'mjMARK_RANDOM']),
-    MapBind('dyn_map', 'DynType', 'dyn_sz', '7', ['mjDYN_NONE', 'mjDYN_INTEGRATOR', 'mjDYN_FILTER', 'mjDYN_FILTEREXACT', 'mjDYN_MUSCLE', 'mjDYN_DCMOTOR', 'mjDYN_USER']),
-    MapBind('dcmotorinput_map', 'DcMotorInput', 'dcmotorinput_sz', '3', ['0', '1', '2']),
-    MapBind('gain_map', 'GainType', 'gain_sz', '6', ['mjGAIN_FIXED', 'mjGAIN_AFFINE', 'mjGAIN_MUSCLE', 'mjGAIN_DCMOTOR', 'mjGAIN_SO3', 'mjGAIN_USER']),
-    MapBind('input_map', 'SO3Input', 'input_sz', '2', ['mjCHART_EXPMAP', 'mjCHART_QUAT']),
-    MapBind('bias_map', 'BiasType', 'bias_sz', '6', ['mjBIAS_NONE', 'mjBIAS_AFFINE', 'mjBIAS_MUSCLE', 'mjBIAS_DCMOTOR', 'mjBIAS_SO3', 'mjBIAS_USER']),
-    MapBind('interp_map', 'InterpType', 'interp_sz', '3', ['0', '1', '2']),
-    MapBind('stage_map', 'NeedStage', 'stage_sz', '4', ['mjSTAGE_NONE', 'mjSTAGE_POS', 'mjSTAGE_VEL', 'mjSTAGE_ACC']),
-    MapBind('datatype_map', 'DataType', 'datatype_sz', '4', ['mjDATATYPE_REAL', 'mjDATATYPE_POSITIVE', 'mjDATATYPE_AXIS', 'mjDATATYPE_QUATERNION']),
-    MapBind('condata_map', 'ContactData', 'mjNCONDATA', None, ['mjCONDATA_FOUND', 'mjCONDATA_FORCE', 'mjCONDATA_TORQUE', 'mjCONDATA_DIST', 'mjCONDATA_POS', 'mjCONDATA_NORMAL', 'mjCONDATA_TANGENT']),
-    MapBind('raydata_map', 'RayData', 'mjNRAYDATA', None, ['mjRAYDATA_DIST', 'mjRAYDATA_DIR', 'mjRAYDATA_ORIGIN', 'mjRAYDATA_POINT', 'mjRAYDATA_NORMAL', 'mjRAYDATA_DEPTH']),
-    MapBind('camout_map', 'CameraOutput', 'mjNCAMOUT', 'mjNCAMOUT', ['mjCAMOUT_RGB', 'mjCAMOUT_DEPTH', 'mjCAMOUT_DIST', 'mjCAMOUT_NORMAL', 'mjCAMOUT_SEG']),
-    MapBind('reduce_map', 'ContactReduce', 'reduce_sz', '4', ['0', '1', '2', '3']),
-    MapBind('conflict_map', 'Conflict', 'conflict_sz', '3', ['mjCONFLICT_WARNING', 'mjCONFLICT_MERGE', 'mjCONFLICT_ERROR']),
-    MapBind('lrmode_map', 'LRMode', 'lrmode_sz', '4', ['mjLRMODE_NONE', 'mjLRMODE_MUSCLE', 'mjLRMODE_MUSCLEUSER', 'mjLRMODE_ALL']),
-    MapBind('comp_map', 'CompositeType', 'mjNCOMPTYPES', None, ['mjCOMPTYPE_PARTICLE', 'mjCOMPTYPE_GRID', 'mjCOMPTYPE_ROPE', 'mjCOMPTYPE_LOOP', 'mjCOMPTYPE_CABLE', 'mjCOMPTYPE_CLOTH']),
-    MapBind('meshinertia_map', 'MeshInertia', '4', None, ['mjMESH_INERTIA_CONVEX', 'mjMESH_INERTIA_LEGACY', 'mjMESH_INERTIA_EXACT', 'mjMESH_INERTIA_SHELL']),
-    MapBind('meshbuiltin_map', 'MeshBuiltin', 'meshbuiltin_sz', '8', ['mjMESH_BUILTIN_NONE', 'mjMESH_BUILTIN_SPHERE', 'mjMESH_BUILTIN_HEMISPHERE', 'mjMESH_BUILTIN_CONE', 'mjMESH_BUILTIN_SUPERTORUS', 'mjMESH_BUILTIN_SUPERSPHERE', 'mjMESH_BUILTIN_WEDGE', 'mjMESH_BUILTIN_PLATE']),
-    MapBind('fcomp_map', 'FlexcompType', 'mjNFCOMPTYPES', None, ['mjFCOMPTYPE_GRID', 'mjFCOMPTYPE_BOX', 'mjFCOMPTYPE_CYLINDER', 'mjFCOMPTYPE_ELLIPSOID', 'mjFCOMPTYPE_SQUARE', 'mjFCOMPTYPE_DISC', 'mjFCOMPTYPE_CIRCLE', 'mjFCOMPTYPE_MESH', 'mjFCOMPTYPE_GMSH', 'mjFCOMPTYPE_DIRECT']),
-    MapBind('fdof_map', 'FlexDof', 'mjNFCOMPDOFS', None, ['mjFCOMPDOF_FULL', 'mjFCOMPDOF_RADIAL', 'mjFCOMPDOF_TRILINEAR', 'mjFCOMPDOF_QUADRATIC', 'mjFCOMPDOF_2D']),
-    MapBind('flexself_map', 'FlexSelfCollide', '5', None, ['mjFLEXSELF_NONE', 'mjFLEXSELF_NARROW', 'mjFLEXSELF_BVH', 'mjFLEXSELF_SAP', 'mjFLEXSELF_AUTO']),
-    MapBind('elastic2d_map', 'Elastic2D', '5', None, ['0', '1', '2', '3']),
-    MapBind('flexeq_map', 'FlexEquality', '4', None, ['0', '1', '2', '3']),
+    MapBind('coordinate_map', 'Coordinate', '2', None),
+    MapBind('angle_map', 'AngleUnit', '2', None),
+    MapBind('fluid_map', 'FluidShape', '2', None),
+    MapBind('FAuto_map', 'SimpleMode', '2', None),
+    MapBind('bodysleep_map', 'BodySleep', 'bodysleep_sz', '4'),
+    MapBind('joint_map', 'JointType', 'joint_sz', '4'),
+    MapBind('geom_map', 'GeomType', 'mjNGEOMTYPES', None),
+    MapBind('projection_map', 'CameraProjection', 'projection_sz', '2'),
+    MapBind('camlight_map', 'CamLightMode', 'camlight_sz', '5'),
+    MapBind('lighttype_map', 'LightType', 'lighttype_sz', '4'),
+    MapBind('texrole_map', 'TexRole', 'texrole_sz', 'mjNTEXROLE - 1'),
+    MapBind('integrator_map', 'Integrator', 'integrator_sz', '4'),
+    MapBind('cone_map', 'Cone', 'cone_sz', '2'),
+    MapBind('jac_map', 'JacobianType', 'jac_sz', '3'),
+    MapBind('solver_map', 'SolverType', 'solver_sz', '3'),
+    MapBind('texture_map', 'TextureType', 'texture_sz', '3'),
+    MapBind('colorspace_map', 'ColorSpace', 'colorspace_sz', '3'),
+    MapBind('builtin_map', 'TextureBuiltin', 'builtin_sz', '4'),
+    MapBind('mark_map', 'TextureMark', 'mark_sz', '4'),
+    MapBind('dyn_map', 'DynType', 'dyn_sz', '7'),
+    MapBind('dcmotorinput_map', 'DcMotorInput', 'dcmotorinput_sz', '3'),
+    MapBind('gain_map', 'GainType', 'gain_sz', '6'),
+    MapBind('input_map', 'SO3Input', 'input_sz', '2'),
+    MapBind('bias_map', 'BiasType', 'bias_sz', '6'),
+    MapBind('interp_map', 'InterpType', 'interp_sz', '3'),
+    MapBind('stage_map', 'NeedStage', 'stage_sz', '4'),
+    MapBind('datatype_map', 'DataType', 'datatype_sz', '4'),
+    MapBind('condata_map', 'ContactData', 'mjNCONDATA', None),
+    MapBind('raydata_map', 'RayData', 'mjNRAYDATA', None),
+    MapBind('camout_map', 'CameraOutput', 'mjNCAMOUT', 'mjNCAMOUT'),
+    MapBind('reduce_map', 'ContactReduce', 'reduce_sz', '4'),
+    MapBind('conflict_map', 'Conflict', 'conflict_sz', '3'),
+    MapBind('lrmode_map', 'LRMode', 'lrmode_sz', '4'),
+    MapBind('comp_map', 'CompositeType', 'mjNCOMPTYPES', None),
+    MapBind('meshinertia_map', 'MeshInertia', '4', None),
+    MapBind('meshbuiltin_map', 'MeshBuiltin', 'meshbuiltin_sz', '8'),
+    MapBind('fcomp_map', 'FlexcompType', 'mjNFCOMPTYPES', None),
+    MapBind('fdof_map', 'FlexDof', 'mjNFCOMPDOFS', None),
+    MapBind('flexself_map', 'FlexSelfCollide', '5', None),
+    MapBind('elastic2d_map', 'Elastic2D', '5', None),
+    MapBind('flexeq_map', 'FlexEquality', '4', None),
 ]
 
 KEYWORD_HEADER = (
@@ -482,21 +495,6 @@ ATTR_ELEMENTS = [
     AttrElem("Hfield", "mjsHField", ("file", "size")),
 ]
 
-# Schema enums whose reader keyword map is a shared primitive/hand map, not their
-# own KEYWORD_MAPS entry (so the enum path can still emit a kBindEnum row).
-ENUM_PRIM_MAP = {
-    "TriState": ("TFAuto_map", "3"),  # limited/actuatorfrclimited/align tri-state
-}
-
-# (element, xml) fields the reader reads leniently (exact=false) against the
-# fixed/scalar -> exact-true default. The handful of fixed/scalar reads the reader
-# accepts a short prefix of. (armature is scalar, so exact is behaviorally moot,
-# but listed to keep the generated flag faithful to the hand read.)
-LENIENT_EXACT_FALSE = {
-    ("Geom", "surfacevel"),
-    ("ActuatorGeneral", "armature"),
-}
-
 _FIELDS_JSON = os.path.join(ROOT, "snapshots", "mjspec_fields.json")
 
 ATTRBIND_HEADER = (
@@ -524,15 +522,12 @@ def _attr_binds():
     doc = parse_spec(SCHEMA).to_json()
     elems = {e["name"]: e for e in doc["elements"]}
     enum_to_map = {b.enum: b for b in KEYWORD_MAPS}
+    enums = {e["name"]: e for e in doc["enums"]}
 
     with open(_FIELDS_JSON, encoding="utf-8") as fh:
         fields_doc = _json.load(fh)
     structs = {s["name"]: {f["name"]: f for f in s["fields"]}
                for s in fields_doc["structs"]}
-
-    # Imported lazily so emit_native stays importable without the mjSpec shim on
-    # the path; both modules live in this package.
-    from . import emit_mjs
 
     def field_xml(f):
         return f.get("annotations", {}).get("xml", f["name"])
@@ -566,16 +561,9 @@ def _attr_binds():
                 continue
 
             # --- resolve destination mjs field ---
-            # Element-specific alias wins; then an exact same-name mjs field (a
-            # GLOBAL_ALIAS like solreffriction->solref_friction is joint/tendon
-            # specific and must not shadow mjsPair.solreffriction); then the
-            # global alias.
-            mjs_name = emit_mjs.ELEM_ALIAS.get((ae.elem, f["name"]))
-            if mjs_name is None:
-                if f["name"] in mjs:
-                    mjs_name = f["name"]
-                else:
-                    mjs_name = emit_mjs.GLOBAL_ALIAS.get(f["name"], f["name"])
+            # An explicit `mjs=` binding annotation renames the destination field
+            # (was ELEM_ALIAS / GLOBAL_ALIAS); otherwise it is the same name.
+            mjs_name = binding.field_mjs(f) or f["name"]
             if mjs_name not in mjs:
                 raise KeyError(
                     f"{ae.elem}.{xml}: mjs field {mjs_name!r} not in {ae.struct}")
@@ -589,10 +577,10 @@ def _attr_binds():
             # --- classify kind / length / exact ---
             if arity is None:
                 length = 1
-                exact = (ae.elem, xml) not in LENIENT_EXACT_FALSE
+                exact = not binding.field_lenient(f)
             elif arity["kind"] == "fixed":
                 length = arity["size"]
-                exact = (ae.elem, xml) not in LENIENT_EXACT_FALSE
+                exact = not binding.field_lenient(f)
             elif arity["kind"] == "range":
                 length, exact = arity["max"], False
             else:
@@ -602,10 +590,13 @@ def _attr_binds():
             if kind == "named":  # enum
                 enum = t["name"]
                 b = enum_to_map.get(enum)
+                cmap = binding.enum_cmap(enums.get(enum, {}))
                 if b is not None:
                     bmap, bmapsz = b.map, b.size
-                elif enum in ENUM_PRIM_MAP:
-                    bmap, bmapsz = ENUM_PRIM_MAP[enum]
+                elif cmap is not None:
+                    # A shared primitive keyword map (was ENUM_PRIM_MAP); the map
+                    # size comes from PRIMITIVE_MAPS by name.
+                    bmap, bmapsz = cmap, _PRIM_MAP_SIZE[cmap]
                 else:
                     raise KeyError(
                         f"{ae.elem}.{xml}: enum {enum!r} has no keyword map")
@@ -655,6 +646,7 @@ def generate_keywords(schema_path: str = SCHEMA) -> str:
     """Emit xml_native_keywords.inc: the schema-backed mjMap keyword tables."""
     doc = parse_spec(schema_path).to_json()
     enums = {e["name"]: e for e in doc["enums"]}
+    binding.validate_enum_bindings(doc, binding.load_enum_index(), binding._ctx(schema_path))
 
     out: list[str] = [KEYWORD_HEADER.rstrip("\n"), "", "// clang-format off"]
     for b in KEYWORD_MAPS:
@@ -662,11 +654,13 @@ def generate_keywords(schema_path: str = SCHEMA) -> str:
         if enum is None:
             raise KeyError(f"{b.map}: schema enum {b.enum!r} not found")
         keys = [m["value"] for m in enum["members"]]
-        if len(keys) != len(b.values):
+        # The value column is now each member's (c=) binding annotation, in order.
+        values = binding.keyword_values(enum)
+        if any(v is None for v in values):
+            missing = [m["name"] for m, v in zip(enum["members"], values) if v is None]
             raise ValueError(
-                f"{b.map}: schema enum {b.enum!r} has {len(keys)} members but the "
-                f"value column has {len(b.values)} -- schema drift; update "
-                f"KEYWORD_MAPS in emit_native.py"
+                f"{b.map}: schema enum {b.enum!r} member(s) {missing} lack a (c=) "
+                "binding annotation for the reader keyword value column"
             )
         out.append("")
         out.append(f"// {b.enum} -> {b.map}")
@@ -677,7 +671,7 @@ def generate_keywords(schema_path: str = SCHEMA) -> str:
         keylits = [f'"{k}"' for k in keys]
         width = max(len(k) for k in keylits)
         out.append(f"const mjMap {b.map}[{b.size}] = {{")
-        for k, v in zip(keylits, b.values):
+        for k, v in zip(keylits, values):
             out.append(f"  {{{(k + ',').ljust(width + 1)} {v}}},")
         out.append("};")
 
