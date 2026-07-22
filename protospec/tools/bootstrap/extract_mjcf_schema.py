@@ -261,15 +261,43 @@ def _build_element(rows: list[Row]) -> Element:
     return element
 
 
+# The MJCF table's array bound is either the hand-maintained ``nMJCF`` or the
+# emitter's generated ``nMJCF_GENERATED`` (once the table moved into
+# xml_native_schema.inc); accept either.
+_MJCF_HEADER = r"std::vector<const char\*>\s+MJCF\s*\[\s*nMJCF(?:_GENERATED)?\s*\]\s*="
+
+
 def parse_schema_tree(source: str) -> Element:
-    """Parse the ``MJCF[nMJCF]`` table into a nested element tree."""
-    block, base_line = _extract_block(
-        source, r"std::vector<const char\*>\s+MJCF\s*\[\s*nMJCF\s*\]\s*="
-    )
+    """Parse the ``MJCF[...]`` table into a nested element tree."""
+    block, base_line = _extract_block(source, _MJCF_HEADER)
     rows = _parse_rows(block, base_line)
     if not rows:
         raise SchemaParseError("MJCF table is empty")
     return _build_element(rows)
+
+
+# The reader either defines the MJCF table inline or pulls it from a generated
+# include (protospec_gen.emit_native). This names that include so the extractor
+# can follow it transparently and keep working across the reader-table refactor.
+_SCHEMA_INCLUDE = "xml_native_schema.inc"
+
+
+def _schema_source(reader: Path, reader_source: str) -> str:
+    """Return the text that carries the MJCF table: the reader itself if the
+    table is inline, otherwise the generated include it pulls in."""
+    if re.search(_MJCF_HEADER, reader_source):
+        return reader_source
+    if f'#include "{_SCHEMA_INCLUDE}"' in reader_source:
+        inc = reader.parent / _SCHEMA_INCLUDE
+        if not inc.exists():
+            raise SchemaParseError(
+                f"reader includes {_SCHEMA_INCLUDE} but {inc} is missing"
+            )
+        return inc.read_text(encoding="utf-8")
+    raise SchemaParseError(
+        "could not locate the MJCF table inline or via "
+        f'#include "{_SCHEMA_INCLUDE}"'
+    )
 
 
 _MAP_HEADER = re.compile(r"const\s+mjMap\s+(?P<name>\w+)\s*\[[^\]]*\]\s*=\s*")
@@ -341,7 +369,8 @@ def run_sanity_checks(tree: Element, maps: dict[str, list[dict[str, str]]]) -> N
 def build_snapshot(mujoco_src: Path) -> dict:
     reader = mujoco_src / "src" / "xml" / "xml_native_reader.cc"
     source = reader.read_text(encoding="utf-8")
-    tree = parse_schema_tree(source)
+    tree = parse_schema_tree(_schema_source(reader, source))
+    # Keyword maps always live in the reader .cc, never the generated include.
     maps = parse_keyword_maps(source)
     run_sanity_checks(tree, maps)
     return {
