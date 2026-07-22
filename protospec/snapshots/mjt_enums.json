@@ -1,0 +1,2701 @@
+{
+  "source": {
+    "files": [
+      "mjtype.h",
+      "mjspec.h",
+      "mjmodel.h"
+    ]
+  },
+  "enums": {
+    "mjtDisableBit": [
+      {
+        "name": "mjDSBL_CONSTRAINT",
+        "value": 1
+      },
+      {
+        "name": "mjDSBL_EQUALITY",
+        "value": 2
+      },
+      {
+        "name": "mjDSBL_FRICTIONLOSS",
+        "value": 4
+      },
+      {
+        "name": "mjDSBL_LIMIT",
+        "value": 8
+      },
+      {
+        "name": "mjDSBL_CONTACT",
+        "value": 16
+      },
+      {
+        "name": "mjDSBL_SPRING",
+        "value": 32
+      },
+      {
+        "name": "mjDSBL_DAMPER",
+        "value": 64
+      },
+      {
+        "name": "mjDSBL_GRAVITY",
+        "value": 128
+      },
+      {
+        "name": "mjDSBL_CLAMPCTRL",
+        "value": 256
+      },
+      {
+        "name": "mjDSBL_WARMSTART",
+        "value": 512
+      },
+      {
+        "name": "mjDSBL_FILTERPARENT",
+        "value": 1024
+      },
+      {
+        "name": "mjDSBL_ACTUATION",
+        "value": 2048
+      },
+      {
+        "name": "mjDSBL_REFSAFE",
+        "value": 4096
+      },
+      {
+        "name": "mjDSBL_SENSOR",
+        "value": 8192
+      },
+      {
+        "name": "mjDSBL_MIDPHASE",
+        "value": 16384
+      },
+      {
+        "name": "mjDSBL_EULERDAMP",
+        "value": 32768
+      },
+      {
+        "name": "mjDSBL_AUTORESET",
+        "value": 65536
+      },
+      {
+        "name": "mjDSBL_NATIVECCD",
+        "value": 131072
+      },
+      {
+        "name": "mjDSBL_ISLAND",
+        "value": 262144
+      },
+      {
+        "name": "mjDSBL_MULTICCD",
+        "value": 524288
+      },
+      {
+        "name": "mjNDISABLE",
+        "value": 20
+      }
+    ],
+    "mjtEnableBit": [
+      {
+        "name": "mjENBL_OVERRIDE",
+        "value": 1
+      },
+      {
+        "name": "mjENBL_ENERGY",
+        "value": 2
+      },
+      {
+        "name": "mjENBL_FWDINV",
+        "value": 4
+      },
+      {
+        "name": "mjENBL_INVDISCRETE",
+        "value": 8
+      },
+      {
+        "name": "mjENBL_SLEEP",
+        "value": 16
+      },
+      {
+        "name": "mjENBL_DIAGEXACT",
+        "value": 32
+      },
+      {
+        "name": "mjNENABLE",
+        "value": 6
+      }
+    ],
+    "mjtJoint": [
+      {
+        "name": "mjJNT_FREE",
+        "value": 0
+      },
+      {
+        "name": "mjJNT_BALL",
+        "value": 1
+      },
+      {
+        "name": "mjJNT_SLIDE",
+        "value": 2
+      },
+      {
+        "name": "mjJNT_HINGE",
+        "value": 3
+      }
+    ],
+    "mjtGeom": [
+      {
+        "name": "mjGEOM_PLANE",
+        "value": 0
+      },
+      {
+        "name": "mjGEOM_HFIELD",
+        "value": 1
+      },
+      {
+        "name": "mjGEOM_SPHERE",
+        "value": 2
+      },
+      {
+        "name": "mjGEOM_CAPSULE",
+        "value": 3
+      },
+      {
+        "name": "mjGEOM_ELLIPSOID",
+        "value": 4
+      },
+      {
+        "name": "mjGEOM_CYLINDER",
+        "value": 5
+      },
+      {
+        "name": "mjGEOM_BOX",
+        "value": 6
+      },
+      {
+        "name": "mjGEOM_MESH",
+        "value": 7
+      },
+      {
+        "name": "mjGEOM_SDF",
+        "value": 8
+      },
+      {
+        "name": "mjNGEOMTYPES",
+        "value": 9
+      },
+      {
+        "name": "mjGEOM_ARROW",
+        "value": 100
+      },
+      {
+        "name": "mjGEOM_ARROW1",
+        "value": 101
+      },
+      {
+        "name": "mjGEOM_ARROW2",
+        "value": 102
+      },
+      {
+        "name": "mjGEOM_LINE",
+        "value": 103
+      },
+      {
+        "name": "mjGEOM_LINEBOX",
+        "value": 104
+      },
+      {
+        "name": "mjGEOM_FLEX",
+        "value": 105
+      },
+      {
+        "name": "mjGEOM_SKIN",
+        "value": 106
+      },
+      {
+        "name": "mjGEOM_LABEL",
+        "value": 107
+      },
+      {
+        "name": "mjGEOM_TRIANGLE",
+        "value": 108
+      },
+      {
+        "name": "mjGEOM_NONE",
+        "value": 1001
+      }
+    ],
+    "mjtProjection": [
+      {
+        "name": "mjPROJ_PERSPECTIVE",
+        "value": 0
+      },
+      {
+        "name": "mjPROJ_ORTHOGRAPHIC",
+        "value": 1
+      }
+    ],
+    "mjtCamLight": [
+      {
+        "name": "mjCAMLIGHT_FIXED",
+        "value": 0
+      },
+      {
+        "name": "mjCAMLIGHT_TRACK",
+        "value": 1
+      },
+      {
+        "name": "mjCAMLIGHT_TRACKCOM",
+        "value": 2
+      },
+      {
+        "name": "mjCAMLIGHT_TARGETBODY",
+        "value": 3
+      },
+      {
+        "name": "mjCAMLIGHT_TARGETBODYCOM",
+        "value": 4
+      }
+    ],
+    "mjtLightType": [
+      {
+        "name": "mjLIGHT_SPOT",
+        "value": 0
+      },
+      {
+        "name": "mjLIGHT_DIRECTIONAL",
+        "value": 1
+      },
+      {
+        "name": "mjLIGHT_POINT",
+        "value": 2
+      },
+      {
+        "name": "mjLIGHT_IMAGE",
+        "value": 3
+      }
+    ],
+    "mjtTexture": [
+      {
+        "name": "mjTEXTURE_2D",
+        "value": 0
+      },
+      {
+        "name": "mjTEXTURE_CUBE",
+        "value": 1
+      },
+      {
+        "name": "mjTEXTURE_SKYBOX",
+        "value": 2
+      }
+    ],
+    "mjtTextureRole": [
+      {
+        "name": "mjTEXROLE_USER",
+        "value": 0
+      },
+      {
+        "name": "mjTEXROLE_RGB",
+        "value": 1
+      },
+      {
+        "name": "mjTEXROLE_OCCLUSION",
+        "value": 2
+      },
+      {
+        "name": "mjTEXROLE_ROUGHNESS",
+        "value": 3
+      },
+      {
+        "name": "mjTEXROLE_METALLIC",
+        "value": 4
+      },
+      {
+        "name": "mjTEXROLE_NORMAL",
+        "value": 5
+      },
+      {
+        "name": "mjTEXROLE_OPACITY",
+        "value": 6
+      },
+      {
+        "name": "mjTEXROLE_EMISSIVE",
+        "value": 7
+      },
+      {
+        "name": "mjTEXROLE_RGBA",
+        "value": 8
+      },
+      {
+        "name": "mjTEXROLE_ORM",
+        "value": 9
+      },
+      {
+        "name": "mjNTEXROLE",
+        "value": 10
+      }
+    ],
+    "mjtColorSpace": [
+      {
+        "name": "mjCOLORSPACE_AUTO",
+        "value": 0
+      },
+      {
+        "name": "mjCOLORSPACE_LINEAR",
+        "value": 1
+      },
+      {
+        "name": "mjCOLORSPACE_SRGB",
+        "value": 2
+      }
+    ],
+    "mjtIntegrator": [
+      {
+        "name": "mjINT_EULER",
+        "value": 0
+      },
+      {
+        "name": "mjINT_RK4",
+        "value": 1
+      },
+      {
+        "name": "mjINT_IMPLICIT",
+        "value": 2
+      },
+      {
+        "name": "mjINT_IMPLICITFAST",
+        "value": 3
+      }
+    ],
+    "mjtCone": [
+      {
+        "name": "mjCONE_PYRAMIDAL",
+        "value": 0
+      },
+      {
+        "name": "mjCONE_ELLIPTIC",
+        "value": 1
+      }
+    ],
+    "mjtJacobian": [
+      {
+        "name": "mjJAC_DENSE",
+        "value": 0
+      },
+      {
+        "name": "mjJAC_SPARSE",
+        "value": 1
+      },
+      {
+        "name": "mjJAC_AUTO",
+        "value": 2
+      }
+    ],
+    "mjtSolver": [
+      {
+        "name": "mjSOL_PGS",
+        "value": 0
+      },
+      {
+        "name": "mjSOL_CG",
+        "value": 1
+      },
+      {
+        "name": "mjSOL_NEWTON",
+        "value": 2
+      }
+    ],
+    "mjtEq": [
+      {
+        "name": "mjEQ_CONNECT",
+        "value": 0
+      },
+      {
+        "name": "mjEQ_WELD",
+        "value": 1
+      },
+      {
+        "name": "mjEQ_JOINT",
+        "value": 2
+      },
+      {
+        "name": "mjEQ_TENDON",
+        "value": 3
+      },
+      {
+        "name": "mjEQ_FLEX",
+        "value": 4
+      },
+      {
+        "name": "mjEQ_FLEXVERT",
+        "value": 5
+      },
+      {
+        "name": "mjEQ_FLEXSTRAIN",
+        "value": 6
+      },
+      {
+        "name": "mjEQ_DISTANCE",
+        "value": 7
+      }
+    ],
+    "mjtWrap": [
+      {
+        "name": "mjWRAP_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjWRAP_JOINT",
+        "value": 1
+      },
+      {
+        "name": "mjWRAP_PULLEY",
+        "value": 2
+      },
+      {
+        "name": "mjWRAP_SITE",
+        "value": 3
+      },
+      {
+        "name": "mjWRAP_SPHERE",
+        "value": 4
+      },
+      {
+        "name": "mjWRAP_CYLINDER",
+        "value": 5
+      }
+    ],
+    "mjtTrn": [
+      {
+        "name": "mjTRN_JOINT",
+        "value": 0
+      },
+      {
+        "name": "mjTRN_JOINTINPARENT",
+        "value": 1
+      },
+      {
+        "name": "mjTRN_SLIDERCRANK",
+        "value": 2
+      },
+      {
+        "name": "mjTRN_TENDON",
+        "value": 3
+      },
+      {
+        "name": "mjTRN_SITE",
+        "value": 4
+      },
+      {
+        "name": "mjTRN_BODY",
+        "value": 5
+      },
+      {
+        "name": "mjTRN_SO3",
+        "value": 6
+      },
+      {
+        "name": "mjTRN_UNDEFINED",
+        "value": 1000
+      }
+    ],
+    "mjtDyn": [
+      {
+        "name": "mjDYN_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjDYN_INTEGRATOR",
+        "value": 1
+      },
+      {
+        "name": "mjDYN_FILTER",
+        "value": 2
+      },
+      {
+        "name": "mjDYN_FILTEREXACT",
+        "value": 3
+      },
+      {
+        "name": "mjDYN_MUSCLE",
+        "value": 4
+      },
+      {
+        "name": "mjDYN_DCMOTOR",
+        "value": 5
+      },
+      {
+        "name": "mjDYN_USER",
+        "value": 6
+      }
+    ],
+    "mjtGain": [
+      {
+        "name": "mjGAIN_FIXED",
+        "value": 0
+      },
+      {
+        "name": "mjGAIN_AFFINE",
+        "value": 1
+      },
+      {
+        "name": "mjGAIN_MUSCLE",
+        "value": 2
+      },
+      {
+        "name": "mjGAIN_DCMOTOR",
+        "value": 3
+      },
+      {
+        "name": "mjGAIN_SO3",
+        "value": 4
+      },
+      {
+        "name": "mjGAIN_USER",
+        "value": 5
+      }
+    ],
+    "mjtBias": [
+      {
+        "name": "mjBIAS_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjBIAS_AFFINE",
+        "value": 1
+      },
+      {
+        "name": "mjBIAS_MUSCLE",
+        "value": 2
+      },
+      {
+        "name": "mjBIAS_DCMOTOR",
+        "value": 3
+      },
+      {
+        "name": "mjBIAS_SO3",
+        "value": 4
+      },
+      {
+        "name": "mjBIAS_USER",
+        "value": 5
+      }
+    ],
+    "mjtCtrlChart": [
+      {
+        "name": "mjCHART_EXPMAP",
+        "value": 1
+      },
+      {
+        "name": "mjCHART_QUAT",
+        "value": 2
+      }
+    ],
+    "mjtObj": [
+      {
+        "name": "mjOBJ_UNKNOWN",
+        "value": 0
+      },
+      {
+        "name": "mjOBJ_BODY",
+        "value": 1
+      },
+      {
+        "name": "mjOBJ_XBODY",
+        "value": 2
+      },
+      {
+        "name": "mjOBJ_JOINT",
+        "value": 3
+      },
+      {
+        "name": "mjOBJ_DOF",
+        "value": 4
+      },
+      {
+        "name": "mjOBJ_GEOM",
+        "value": 5
+      },
+      {
+        "name": "mjOBJ_SITE",
+        "value": 6
+      },
+      {
+        "name": "mjOBJ_CAMERA",
+        "value": 7
+      },
+      {
+        "name": "mjOBJ_LIGHT",
+        "value": 8
+      },
+      {
+        "name": "mjOBJ_FLEX",
+        "value": 9
+      },
+      {
+        "name": "mjOBJ_MESH",
+        "value": 10
+      },
+      {
+        "name": "mjOBJ_SKIN",
+        "value": 11
+      },
+      {
+        "name": "mjOBJ_HFIELD",
+        "value": 12
+      },
+      {
+        "name": "mjOBJ_TEXTURE",
+        "value": 13
+      },
+      {
+        "name": "mjOBJ_MATERIAL",
+        "value": 14
+      },
+      {
+        "name": "mjOBJ_PAIR",
+        "value": 15
+      },
+      {
+        "name": "mjOBJ_EXCLUDE",
+        "value": 16
+      },
+      {
+        "name": "mjOBJ_EQUALITY",
+        "value": 17
+      },
+      {
+        "name": "mjOBJ_TENDON",
+        "value": 18
+      },
+      {
+        "name": "mjOBJ_ACTUATOR",
+        "value": 19
+      },
+      {
+        "name": "mjOBJ_SENSOR",
+        "value": 20
+      },
+      {
+        "name": "mjOBJ_NUMERIC",
+        "value": 21
+      },
+      {
+        "name": "mjOBJ_TEXT",
+        "value": 22
+      },
+      {
+        "name": "mjOBJ_TUPLE",
+        "value": 23
+      },
+      {
+        "name": "mjOBJ_KEY",
+        "value": 24
+      },
+      {
+        "name": "mjOBJ_PLUGIN",
+        "value": 25
+      },
+      {
+        "name": "mjNOBJECT",
+        "value": 26
+      },
+      {
+        "name": "mjOBJ_FRAME",
+        "value": 100
+      },
+      {
+        "name": "mjOBJ_DEFAULT",
+        "value": 101
+      },
+      {
+        "name": "mjOBJ_MODEL",
+        "value": 102
+      }
+    ],
+    "mjtSensor": [
+      {
+        "name": "mjSENS_TOUCH",
+        "value": 0
+      },
+      {
+        "name": "mjSENS_ACCELEROMETER",
+        "value": 1
+      },
+      {
+        "name": "mjSENS_VELOCIMETER",
+        "value": 2
+      },
+      {
+        "name": "mjSENS_GYRO",
+        "value": 3
+      },
+      {
+        "name": "mjSENS_FORCE",
+        "value": 4
+      },
+      {
+        "name": "mjSENS_TORQUE",
+        "value": 5
+      },
+      {
+        "name": "mjSENS_MAGNETOMETER",
+        "value": 6
+      },
+      {
+        "name": "mjSENS_RANGEFINDER",
+        "value": 7
+      },
+      {
+        "name": "mjSENS_CAMPROJECTION",
+        "value": 8
+      },
+      {
+        "name": "mjSENS_JOINTPOS",
+        "value": 9
+      },
+      {
+        "name": "mjSENS_JOINTVEL",
+        "value": 10
+      },
+      {
+        "name": "mjSENS_TENDONPOS",
+        "value": 11
+      },
+      {
+        "name": "mjSENS_TENDONVEL",
+        "value": 12
+      },
+      {
+        "name": "mjSENS_ACTUATORPOS",
+        "value": 13
+      },
+      {
+        "name": "mjSENS_ACTUATORVEL",
+        "value": 14
+      },
+      {
+        "name": "mjSENS_ACTUATORFRC",
+        "value": 15
+      },
+      {
+        "name": "mjSENS_JOINTACTFRC",
+        "value": 16
+      },
+      {
+        "name": "mjSENS_TENDONACTFRC",
+        "value": 17
+      },
+      {
+        "name": "mjSENS_BALLQUAT",
+        "value": 18
+      },
+      {
+        "name": "mjSENS_BALLANGVEL",
+        "value": 19
+      },
+      {
+        "name": "mjSENS_JOINTLIMITPOS",
+        "value": 20
+      },
+      {
+        "name": "mjSENS_JOINTLIMITVEL",
+        "value": 21
+      },
+      {
+        "name": "mjSENS_JOINTLIMITFRC",
+        "value": 22
+      },
+      {
+        "name": "mjSENS_TENDONLIMITPOS",
+        "value": 23
+      },
+      {
+        "name": "mjSENS_TENDONLIMITVEL",
+        "value": 24
+      },
+      {
+        "name": "mjSENS_TENDONLIMITFRC",
+        "value": 25
+      },
+      {
+        "name": "mjSENS_FRAMEPOS",
+        "value": 26
+      },
+      {
+        "name": "mjSENS_FRAMEQUAT",
+        "value": 27
+      },
+      {
+        "name": "mjSENS_FRAMEXAXIS",
+        "value": 28
+      },
+      {
+        "name": "mjSENS_FRAMEYAXIS",
+        "value": 29
+      },
+      {
+        "name": "mjSENS_FRAMEZAXIS",
+        "value": 30
+      },
+      {
+        "name": "mjSENS_FRAMELINVEL",
+        "value": 31
+      },
+      {
+        "name": "mjSENS_FRAMEANGVEL",
+        "value": 32
+      },
+      {
+        "name": "mjSENS_FRAMELINACC",
+        "value": 33
+      },
+      {
+        "name": "mjSENS_FRAMEANGACC",
+        "value": 34
+      },
+      {
+        "name": "mjSENS_SUBTREECOM",
+        "value": 35
+      },
+      {
+        "name": "mjSENS_SUBTREELINVEL",
+        "value": 36
+      },
+      {
+        "name": "mjSENS_SUBTREEANGMOM",
+        "value": 37
+      },
+      {
+        "name": "mjSENS_INSIDESITE",
+        "value": 38
+      },
+      {
+        "name": "mjSENS_GEOMDIST",
+        "value": 39
+      },
+      {
+        "name": "mjSENS_GEOMNORMAL",
+        "value": 40
+      },
+      {
+        "name": "mjSENS_GEOMFROMTO",
+        "value": 41
+      },
+      {
+        "name": "mjSENS_CONTACT",
+        "value": 42
+      },
+      {
+        "name": "mjSENS_E_POTENTIAL",
+        "value": 43
+      },
+      {
+        "name": "mjSENS_E_KINETIC",
+        "value": 44
+      },
+      {
+        "name": "mjSENS_CLOCK",
+        "value": 45
+      },
+      {
+        "name": "mjSENS_TACTILE",
+        "value": 46
+      },
+      {
+        "name": "mjSENS_PLUGIN",
+        "value": 47
+      },
+      {
+        "name": "mjSENS_USER",
+        "value": 48
+      }
+    ],
+    "mjtStage": [
+      {
+        "name": "mjSTAGE_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjSTAGE_POS",
+        "value": 1
+      },
+      {
+        "name": "mjSTAGE_VEL",
+        "value": 2
+      },
+      {
+        "name": "mjSTAGE_ACC",
+        "value": 3
+      }
+    ],
+    "mjtDataType": [
+      {
+        "name": "mjDATATYPE_REAL",
+        "value": 0
+      },
+      {
+        "name": "mjDATATYPE_POSITIVE",
+        "value": 1
+      },
+      {
+        "name": "mjDATATYPE_AXIS",
+        "value": 2
+      },
+      {
+        "name": "mjDATATYPE_QUATERNION",
+        "value": 3
+      }
+    ],
+    "mjtConDataField": [
+      {
+        "name": "mjCONDATA_FOUND",
+        "value": 0
+      },
+      {
+        "name": "mjCONDATA_FORCE",
+        "value": 1
+      },
+      {
+        "name": "mjCONDATA_TORQUE",
+        "value": 2
+      },
+      {
+        "name": "mjCONDATA_DIST",
+        "value": 3
+      },
+      {
+        "name": "mjCONDATA_POS",
+        "value": 4
+      },
+      {
+        "name": "mjCONDATA_NORMAL",
+        "value": 5
+      },
+      {
+        "name": "mjCONDATA_TANGENT",
+        "value": 6
+      },
+      {
+        "name": "mjNCONDATA",
+        "value": 7
+      }
+    ],
+    "mjtRayDataField": [
+      {
+        "name": "mjRAYDATA_DIST",
+        "value": 0
+      },
+      {
+        "name": "mjRAYDATA_DIR",
+        "value": 1
+      },
+      {
+        "name": "mjRAYDATA_ORIGIN",
+        "value": 2
+      },
+      {
+        "name": "mjRAYDATA_POINT",
+        "value": 3
+      },
+      {
+        "name": "mjRAYDATA_NORMAL",
+        "value": 4
+      },
+      {
+        "name": "mjRAYDATA_DEPTH",
+        "value": 5
+      },
+      {
+        "name": "mjNRAYDATA",
+        "value": 6
+      }
+    ],
+    "mjtCamOutBit": [
+      {
+        "name": "mjCAMOUT_RGB",
+        "value": 1
+      },
+      {
+        "name": "mjCAMOUT_DEPTH",
+        "value": 2
+      },
+      {
+        "name": "mjCAMOUT_DIST",
+        "value": 4
+      },
+      {
+        "name": "mjCAMOUT_NORMAL",
+        "value": 8
+      },
+      {
+        "name": "mjCAMOUT_SEG",
+        "value": 16
+      },
+      {
+        "name": "mjNCAMOUT",
+        "value": 5
+      }
+    ],
+    "mjtSameFrame": [
+      {
+        "name": "mjSAMEFRAME_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjSAMEFRAME_BODY",
+        "value": 1
+      },
+      {
+        "name": "mjSAMEFRAME_INERTIA",
+        "value": 2
+      },
+      {
+        "name": "mjSAMEFRAME_BODYROT",
+        "value": 3
+      },
+      {
+        "name": "mjSAMEFRAME_INERTIAROT",
+        "value": 4
+      }
+    ],
+    "mjtSleepPolicy": [
+      {
+        "name": "mjSLEEP_AUTO",
+        "value": 0
+      },
+      {
+        "name": "mjSLEEP_AUTO_NEVER",
+        "value": 1
+      },
+      {
+        "name": "mjSLEEP_AUTO_ALLOWED",
+        "value": 2
+      },
+      {
+        "name": "mjSLEEP_NEVER",
+        "value": 3
+      },
+      {
+        "name": "mjSLEEP_ALLOWED",
+        "value": 4
+      },
+      {
+        "name": "mjSLEEP_INIT",
+        "value": 5
+      }
+    ],
+    "mjtLRMode": [
+      {
+        "name": "mjLRMODE_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjLRMODE_MUSCLE",
+        "value": 1
+      },
+      {
+        "name": "mjLRMODE_MUSCLEUSER",
+        "value": 2
+      },
+      {
+        "name": "mjLRMODE_ALL",
+        "value": 3
+      }
+    ],
+    "mjtFlexSelf": [
+      {
+        "name": "mjFLEXSELF_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjFLEXSELF_NARROW",
+        "value": 1
+      },
+      {
+        "name": "mjFLEXSELF_BVH",
+        "value": 2
+      },
+      {
+        "name": "mjFLEXSELF_SAP",
+        "value": 3
+      },
+      {
+        "name": "mjFLEXSELF_AUTO",
+        "value": 4
+      }
+    ],
+    "mjtSDFType": [
+      {
+        "name": "mjSDFTYPE_SINGLE",
+        "value": 0
+      },
+      {
+        "name": "mjSDFTYPE_INTERSECTION",
+        "value": 1
+      },
+      {
+        "name": "mjSDFTYPE_MIDSURFACE",
+        "value": 2
+      },
+      {
+        "name": "mjSDFTYPE_COLLISION",
+        "value": 3
+      }
+    ],
+    "mjtState": [
+      {
+        "name": "mjSTATE_TIME",
+        "value": 1
+      },
+      {
+        "name": "mjSTATE_QPOS",
+        "value": 2
+      },
+      {
+        "name": "mjSTATE_QVEL",
+        "value": 4
+      },
+      {
+        "name": "mjSTATE_ACT",
+        "value": 8
+      },
+      {
+        "name": "mjSTATE_HISTORY",
+        "value": 16
+      },
+      {
+        "name": "mjSTATE_WARMSTART",
+        "value": 32
+      },
+      {
+        "name": "mjSTATE_CTRL",
+        "value": 64
+      },
+      {
+        "name": "mjSTATE_QFRC_APPLIED",
+        "value": 128
+      },
+      {
+        "name": "mjSTATE_XFRC_APPLIED",
+        "value": 256
+      },
+      {
+        "name": "mjSTATE_EQ_ACTIVE",
+        "value": 512
+      },
+      {
+        "name": "mjSTATE_MOCAP_POS",
+        "value": 1024
+      },
+      {
+        "name": "mjSTATE_MOCAP_QUAT",
+        "value": 2048
+      },
+      {
+        "name": "mjSTATE_USERDATA",
+        "value": 4096
+      },
+      {
+        "name": "mjSTATE_PLUGIN",
+        "value": 8192
+      },
+      {
+        "name": "mjNSTATE",
+        "value": 14
+      },
+      {
+        "name": "mjSTATE_PHYSICS",
+        "value": 15
+      },
+      {
+        "name": "mjSTATE_FULLPHYSICS",
+        "value": 16
+      },
+      {
+        "name": "mjSTATE_USER",
+        "value": 17
+      },
+      {
+        "name": "mjSTATE_USERDATA",
+        "value": 18
+      },
+      {
+        "name": "mjSTATE_INTEGRATION",
+        "value": 19
+      }
+    ],
+    "mjtConstraint": [
+      {
+        "name": "mjCNSTR_EQUALITY",
+        "value": 0
+      },
+      {
+        "name": "mjCNSTR_FRICTION_DOF",
+        "value": 1
+      },
+      {
+        "name": "mjCNSTR_FRICTION_TENDON",
+        "value": 2
+      },
+      {
+        "name": "mjCNSTR_LIMIT_JOINT",
+        "value": 3
+      },
+      {
+        "name": "mjCNSTR_LIMIT_TENDON",
+        "value": 4
+      },
+      {
+        "name": "mjCNSTR_CONTACT_FRICTIONLESS",
+        "value": 5
+      },
+      {
+        "name": "mjCNSTR_CONTACT_PYRAMIDAL",
+        "value": 6
+      },
+      {
+        "name": "mjCNSTR_CONTACT_ELLIPTIC",
+        "value": 7
+      }
+    ],
+    "mjtConstraintState": [
+      {
+        "name": "mjCNSTRSTATE_SATISFIED",
+        "value": 0
+      },
+      {
+        "name": "mjCNSTRSTATE_QUADRATIC",
+        "value": 1
+      },
+      {
+        "name": "mjCNSTRSTATE_LINEARNEG",
+        "value": 2
+      },
+      {
+        "name": "mjCNSTRSTATE_LINEARPOS",
+        "value": 3
+      },
+      {
+        "name": "mjCNSTRSTATE_CONE",
+        "value": 4
+      }
+    ],
+    "mjtWarning": [
+      {
+        "name": "mjWARN_INERTIA",
+        "value": 0
+      },
+      {
+        "name": "mjWARN_CONTACTFULL",
+        "value": 1
+      },
+      {
+        "name": "mjWARN_CNSTRFULL",
+        "value": 2
+      },
+      {
+        "name": "mjWARN_BADQPOS",
+        "value": 3
+      },
+      {
+        "name": "mjWARN_BADQVEL",
+        "value": 4
+      },
+      {
+        "name": "mjWARN_BADQACC",
+        "value": 5
+      },
+      {
+        "name": "mjWARN_BADCTRL",
+        "value": 6
+      },
+      {
+        "name": "mjNWARNING",
+        "value": 7
+      }
+    ],
+    "mjtTimer": [
+      {
+        "name": "mjTIMER_STEP",
+        "value": 0
+      },
+      {
+        "name": "mjTIMER_FORWARD",
+        "value": 1
+      },
+      {
+        "name": "mjTIMER_INVERSE",
+        "value": 2
+      },
+      {
+        "name": "mjTIMER_POSITION",
+        "value": 3
+      },
+      {
+        "name": "mjTIMER_VELOCITY",
+        "value": 4
+      },
+      {
+        "name": "mjTIMER_ACTUATION",
+        "value": 5
+      },
+      {
+        "name": "mjTIMER_CONSTRAINT",
+        "value": 6
+      },
+      {
+        "name": "mjTIMER_ADVANCE",
+        "value": 7
+      },
+      {
+        "name": "mjTIMER_POS_KINEMATICS",
+        "value": 8
+      },
+      {
+        "name": "mjTIMER_POS_INERTIA",
+        "value": 9
+      },
+      {
+        "name": "mjTIMER_POS_COLLISION",
+        "value": 10
+      },
+      {
+        "name": "mjTIMER_POS_MAKE",
+        "value": 11
+      },
+      {
+        "name": "mjTIMER_POS_PROJECT",
+        "value": 12
+      },
+      {
+        "name": "mjTIMER_COL_BROAD",
+        "value": 13
+      },
+      {
+        "name": "mjTIMER_COL_NARROW",
+        "value": 14
+      },
+      {
+        "name": "mjNTIMER",
+        "value": 15
+      }
+    ],
+    "mjtSleepState": [
+      {
+        "name": "mjS_STATIC",
+        "value": -1
+      },
+      {
+        "name": "mjS_ASLEEP",
+        "value": 0
+      },
+      {
+        "name": "mjS_AWAKE",
+        "value": 1
+      }
+    ],
+    "mjtLogLevel": [
+      {
+        "name": "mjLOG_DEBUG",
+        "value": 0
+      },
+      {
+        "name": "mjLOG_INFO",
+        "value": 1
+      },
+      {
+        "name": "mjLOG_WARNING",
+        "value": 2
+      },
+      {
+        "name": "mjLOG_ERROR",
+        "value": 3
+      }
+    ],
+    "mjtLogTopic": [
+      {
+        "name": "mjTOPIC_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjTOPIC_TIME_STP",
+        "value": 1
+      },
+      {
+        "name": "mjTOPIC_TIME_CMP",
+        "value": 2
+      },
+      {
+        "name": "mjTOPIC_SLEEP",
+        "value": 3
+      },
+      {
+        "name": "mjNTOPIC",
+        "value": 3
+      }
+    ],
+    "mjtGeomInertia": [
+      {
+        "name": "mjINERTIA_VOLUME",
+        "value": 0
+      },
+      {
+        "name": "mjINERTIA_SHELL",
+        "value": 1
+      }
+    ],
+    "mjtMeshInertia": [
+      {
+        "name": "mjMESH_INERTIA_CONVEX",
+        "value": 0
+      },
+      {
+        "name": "mjMESH_INERTIA_EXACT",
+        "value": 1
+      },
+      {
+        "name": "mjMESH_INERTIA_LEGACY",
+        "value": 2
+      },
+      {
+        "name": "mjMESH_INERTIA_SHELL",
+        "value": 3
+      }
+    ],
+    "mjtMeshBuiltin": [
+      {
+        "name": "mjMESH_BUILTIN_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjMESH_BUILTIN_SPHERE",
+        "value": 1
+      },
+      {
+        "name": "mjMESH_BUILTIN_HEMISPHERE",
+        "value": 2
+      },
+      {
+        "name": "mjMESH_BUILTIN_CONE",
+        "value": 3
+      },
+      {
+        "name": "mjMESH_BUILTIN_SUPERSPHERE",
+        "value": 4
+      },
+      {
+        "name": "mjMESH_BUILTIN_SUPERTORUS",
+        "value": 5
+      },
+      {
+        "name": "mjMESH_BUILTIN_WEDGE",
+        "value": 6
+      },
+      {
+        "name": "mjMESH_BUILTIN_PLATE",
+        "value": 7
+      }
+    ],
+    "mjtBuiltin": [
+      {
+        "name": "mjBUILTIN_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjBUILTIN_GRADIENT",
+        "value": 1
+      },
+      {
+        "name": "mjBUILTIN_CHECKER",
+        "value": 2
+      },
+      {
+        "name": "mjBUILTIN_FLAT",
+        "value": 3
+      }
+    ],
+    "mjtMark": [
+      {
+        "name": "mjMARK_NONE",
+        "value": 0
+      },
+      {
+        "name": "mjMARK_EDGE",
+        "value": 1
+      },
+      {
+        "name": "mjMARK_CROSS",
+        "value": 2
+      },
+      {
+        "name": "mjMARK_RANDOM",
+        "value": 3
+      }
+    ],
+    "mjtLimited": [
+      {
+        "name": "mjLIMITED_FALSE",
+        "value": 0
+      },
+      {
+        "name": "mjLIMITED_TRUE",
+        "value": 1
+      },
+      {
+        "name": "mjLIMITED_AUTO",
+        "value": 2
+      }
+    ],
+    "mjtAlignFree": [
+      {
+        "name": "mjALIGNFREE_FALSE",
+        "value": 0
+      },
+      {
+        "name": "mjALIGNFREE_TRUE",
+        "value": 1
+      },
+      {
+        "name": "mjALIGNFREE_AUTO",
+        "value": 2
+      }
+    ],
+    "mjtInertiaFromGeom": [
+      {
+        "name": "mjINERTIAFROMGEOM_FALSE",
+        "value": 0
+      },
+      {
+        "name": "mjINERTIAFROMGEOM_TRUE",
+        "value": 1
+      },
+      {
+        "name": "mjINERTIAFROMGEOM_AUTO",
+        "value": 2
+      }
+    ],
+    "mjtOrientation": [
+      {
+        "name": "mjORIENTATION_QUAT",
+        "value": 0
+      },
+      {
+        "name": "mjORIENTATION_AXISANGLE",
+        "value": 1
+      },
+      {
+        "name": "mjORIENTATION_XYAXES",
+        "value": 2
+      },
+      {
+        "name": "mjORIENTATION_ZAXIS",
+        "value": 3
+      },
+      {
+        "name": "mjORIENTATION_EULER",
+        "value": 4
+      }
+    ],
+    "mjtConflict": [
+      {
+        "name": "mjCONFLICT_WARNING",
+        "value": 0
+      },
+      {
+        "name": "mjCONFLICT_MERGE",
+        "value": 1
+      },
+      {
+        "name": "mjCONFLICT_ERROR",
+        "value": 2
+      }
+    ],
+    "mjtCTimer": [
+      {
+        "name": "mjCTIMER_TOTAL",
+        "value": 0
+      },
+      {
+        "name": "mjCTIMER_ASSETS",
+        "value": 1
+      },
+      {
+        "name": "mjCTIMER_TEXTURE",
+        "value": 2
+      },
+      {
+        "name": "mjCTIMER_MESH_LOAD",
+        "value": 3
+      },
+      {
+        "name": "mjCTIMER_MESH_HULL",
+        "value": 4
+      },
+      {
+        "name": "mjCTIMER_MESH_POLYGON",
+        "value": 5
+      },
+      {
+        "name": "mjCTIMER_MESH_INERTIA",
+        "value": 6
+      },
+      {
+        "name": "mjCTIMER_MESH_BVH",
+        "value": 7
+      },
+      {
+        "name": "mjCTIMER_MESH_OCTREE",
+        "value": 8
+      },
+      {
+        "name": "mjNCTIMER",
+        "value": 9
+      }
+    ]
+  },
+  "prefixes": {
+    "mjtDisableBit": "mj",
+    "mjtEnableBit": "mj",
+    "mjtJoint": "mjJNT_",
+    "mjtGeom": "mj",
+    "mjtProjection": "mjPROJ_",
+    "mjtCamLight": "mjCAMLIGHT_",
+    "mjtLightType": "mjLIGHT_",
+    "mjtTexture": "mjTEXTURE_",
+    "mjtTextureRole": "mj",
+    "mjtColorSpace": "mjCOLORSPACE_",
+    "mjtIntegrator": "mjINT_",
+    "mjtCone": "mjCONE_",
+    "mjtJacobian": "mjJAC_",
+    "mjtSolver": "mjSOL_",
+    "mjtEq": "mjEQ_",
+    "mjtWrap": "mjWRAP_",
+    "mjtTrn": "mjTRN_",
+    "mjtDyn": "mjDYN_",
+    "mjtGain": "mjGAIN_",
+    "mjtBias": "mjBIAS_",
+    "mjtCtrlChart": "mjCHART_",
+    "mjtObj": "mj",
+    "mjtSensor": "mjSENS_",
+    "mjtStage": "mjSTAGE_",
+    "mjtDataType": "mjDATATYPE_",
+    "mjtConDataField": "mj",
+    "mjtRayDataField": "mj",
+    "mjtCamOutBit": "mj",
+    "mjtSameFrame": "mjSAMEFRAME_",
+    "mjtSleepPolicy": "mjSLEEP_",
+    "mjtLRMode": "mjLRMODE_",
+    "mjtFlexSelf": "mjFLEXSELF_",
+    "mjtSDFType": "mjSDFTYPE_",
+    "mjtState": "mj",
+    "mjtConstraint": "mjCNSTR_",
+    "mjtConstraintState": "mjCNSTRSTATE_",
+    "mjtWarning": "mj",
+    "mjtTimer": "mj",
+    "mjtSleepState": "mjS_",
+    "mjtLogLevel": "mjLOG_",
+    "mjtLogTopic": "mj",
+    "mjtGeomInertia": "mjINERTIA_",
+    "mjtMeshInertia": "mjMESH_INERTIA_",
+    "mjtMeshBuiltin": "mjMESH_BUILTIN_",
+    "mjtBuiltin": "mjBUILTIN_",
+    "mjtMark": "mjMARK_",
+    "mjtLimited": "mjLIMITED_",
+    "mjtAlignFree": "mjALIGNFREE_",
+    "mjtInertiaFromGeom": "mjINERTIAFROMGEOM_",
+    "mjtOrientation": "mjORIENTATION_",
+    "mjtConflict": "mjCONFLICT_",
+    "mjtCTimer": "mj"
+  },
+  "derivability": {
+    "convention": "constant == prefix + UPPER(alnum(keyword))",
+    "ordinal_maps": [
+      "coordinate_map",
+      "angle_map",
+      "fluid_map",
+      "FAuto_map",
+      "dcmotorinput_map",
+      "interp_map",
+      "reduce_map",
+      "elastic2d_map",
+      "flexeq_map",
+      "bool_map",
+      "enable_map",
+      "TFAuto_map"
+    ],
+    "exceptions": [
+      "mjCAMOUT_DIST",
+      "mjCAMOUT_SEG",
+      "mjINERTIA_SHELL",
+      "mjINERTIA_VOLUME"
+    ],
+    "rows": [
+      {
+        "map": "bodysleep_map",
+        "enum": "mjtSleepPolicy",
+        "keyword": "auto",
+        "constant": "mjSLEEP_AUTO",
+        "regular": true
+      },
+      {
+        "map": "bodysleep_map",
+        "enum": "mjtSleepPolicy",
+        "keyword": "never",
+        "constant": "mjSLEEP_NEVER",
+        "regular": true
+      },
+      {
+        "map": "bodysleep_map",
+        "enum": "mjtSleepPolicy",
+        "keyword": "allowed",
+        "constant": "mjSLEEP_ALLOWED",
+        "regular": true
+      },
+      {
+        "map": "bodysleep_map",
+        "enum": "mjtSleepPolicy",
+        "keyword": "init",
+        "constant": "mjSLEEP_INIT",
+        "regular": true
+      },
+      {
+        "map": "joint_map",
+        "enum": "mjtJoint",
+        "keyword": "free",
+        "constant": "mjJNT_FREE",
+        "regular": true
+      },
+      {
+        "map": "joint_map",
+        "enum": "mjtJoint",
+        "keyword": "ball",
+        "constant": "mjJNT_BALL",
+        "regular": true
+      },
+      {
+        "map": "joint_map",
+        "enum": "mjtJoint",
+        "keyword": "slide",
+        "constant": "mjJNT_SLIDE",
+        "regular": true
+      },
+      {
+        "map": "joint_map",
+        "enum": "mjtJoint",
+        "keyword": "hinge",
+        "constant": "mjJNT_HINGE",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "plane",
+        "constant": "mjGEOM_PLANE",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "hfield",
+        "constant": "mjGEOM_HFIELD",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "sphere",
+        "constant": "mjGEOM_SPHERE",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "capsule",
+        "constant": "mjGEOM_CAPSULE",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "ellipsoid",
+        "constant": "mjGEOM_ELLIPSOID",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "cylinder",
+        "constant": "mjGEOM_CYLINDER",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "box",
+        "constant": "mjGEOM_BOX",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "mesh",
+        "constant": "mjGEOM_MESH",
+        "regular": true
+      },
+      {
+        "map": "geom_map",
+        "enum": "mjtGeom",
+        "keyword": "sdf",
+        "constant": "mjGEOM_SDF",
+        "regular": true
+      },
+      {
+        "map": "projection_map",
+        "enum": "mjtProjection",
+        "keyword": "perspective",
+        "constant": "mjPROJ_PERSPECTIVE",
+        "regular": true
+      },
+      {
+        "map": "projection_map",
+        "enum": "mjtProjection",
+        "keyword": "orthographic",
+        "constant": "mjPROJ_ORTHOGRAPHIC",
+        "regular": true
+      },
+      {
+        "map": "camlight_map",
+        "enum": "mjtCamLight",
+        "keyword": "fixed",
+        "constant": "mjCAMLIGHT_FIXED",
+        "regular": true
+      },
+      {
+        "map": "camlight_map",
+        "enum": "mjtCamLight",
+        "keyword": "track",
+        "constant": "mjCAMLIGHT_TRACK",
+        "regular": true
+      },
+      {
+        "map": "camlight_map",
+        "enum": "mjtCamLight",
+        "keyword": "trackcom",
+        "constant": "mjCAMLIGHT_TRACKCOM",
+        "regular": true
+      },
+      {
+        "map": "camlight_map",
+        "enum": "mjtCamLight",
+        "keyword": "targetbody",
+        "constant": "mjCAMLIGHT_TARGETBODY",
+        "regular": true
+      },
+      {
+        "map": "camlight_map",
+        "enum": "mjtCamLight",
+        "keyword": "targetbodycom",
+        "constant": "mjCAMLIGHT_TARGETBODYCOM",
+        "regular": true
+      },
+      {
+        "map": "lighttype_map",
+        "enum": "mjtLightType",
+        "keyword": "spot",
+        "constant": "mjLIGHT_SPOT",
+        "regular": true
+      },
+      {
+        "map": "lighttype_map",
+        "enum": "mjtLightType",
+        "keyword": "directional",
+        "constant": "mjLIGHT_DIRECTIONAL",
+        "regular": true
+      },
+      {
+        "map": "lighttype_map",
+        "enum": "mjtLightType",
+        "keyword": "point",
+        "constant": "mjLIGHT_POINT",
+        "regular": true
+      },
+      {
+        "map": "lighttype_map",
+        "enum": "mjtLightType",
+        "keyword": "image",
+        "constant": "mjLIGHT_IMAGE",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "rgb",
+        "constant": "mjTEXROLE_RGB",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "occlusion",
+        "constant": "mjTEXROLE_OCCLUSION",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "roughness",
+        "constant": "mjTEXROLE_ROUGHNESS",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "metallic",
+        "constant": "mjTEXROLE_METALLIC",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "normal",
+        "constant": "mjTEXROLE_NORMAL",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "opacity",
+        "constant": "mjTEXROLE_OPACITY",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "emissive",
+        "constant": "mjTEXROLE_EMISSIVE",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "rgba",
+        "constant": "mjTEXROLE_RGBA",
+        "regular": true
+      },
+      {
+        "map": "texrole_map",
+        "enum": "mjtTextureRole",
+        "keyword": "orm",
+        "constant": "mjTEXROLE_ORM",
+        "regular": true
+      },
+      {
+        "map": "integrator_map",
+        "enum": "mjtIntegrator",
+        "keyword": "Euler",
+        "constant": "mjINT_EULER",
+        "regular": true
+      },
+      {
+        "map": "integrator_map",
+        "enum": "mjtIntegrator",
+        "keyword": "RK4",
+        "constant": "mjINT_RK4",
+        "regular": true
+      },
+      {
+        "map": "integrator_map",
+        "enum": "mjtIntegrator",
+        "keyword": "implicit",
+        "constant": "mjINT_IMPLICIT",
+        "regular": true
+      },
+      {
+        "map": "integrator_map",
+        "enum": "mjtIntegrator",
+        "keyword": "implicitfast",
+        "constant": "mjINT_IMPLICITFAST",
+        "regular": true
+      },
+      {
+        "map": "cone_map",
+        "enum": "mjtCone",
+        "keyword": "pyramidal",
+        "constant": "mjCONE_PYRAMIDAL",
+        "regular": true
+      },
+      {
+        "map": "cone_map",
+        "enum": "mjtCone",
+        "keyword": "elliptic",
+        "constant": "mjCONE_ELLIPTIC",
+        "regular": true
+      },
+      {
+        "map": "jac_map",
+        "enum": "mjtJacobian",
+        "keyword": "dense",
+        "constant": "mjJAC_DENSE",
+        "regular": true
+      },
+      {
+        "map": "jac_map",
+        "enum": "mjtJacobian",
+        "keyword": "sparse",
+        "constant": "mjJAC_SPARSE",
+        "regular": true
+      },
+      {
+        "map": "jac_map",
+        "enum": "mjtJacobian",
+        "keyword": "auto",
+        "constant": "mjJAC_AUTO",
+        "regular": true
+      },
+      {
+        "map": "solver_map",
+        "enum": "mjtSolver",
+        "keyword": "PGS",
+        "constant": "mjSOL_PGS",
+        "regular": true
+      },
+      {
+        "map": "solver_map",
+        "enum": "mjtSolver",
+        "keyword": "CG",
+        "constant": "mjSOL_CG",
+        "regular": true
+      },
+      {
+        "map": "solver_map",
+        "enum": "mjtSolver",
+        "keyword": "Newton",
+        "constant": "mjSOL_NEWTON",
+        "regular": true
+      },
+      {
+        "map": "texture_map",
+        "enum": "mjtTexture",
+        "keyword": "2d",
+        "constant": "mjTEXTURE_2D",
+        "regular": true
+      },
+      {
+        "map": "texture_map",
+        "enum": "mjtTexture",
+        "keyword": "cube",
+        "constant": "mjTEXTURE_CUBE",
+        "regular": true
+      },
+      {
+        "map": "texture_map",
+        "enum": "mjtTexture",
+        "keyword": "skybox",
+        "constant": "mjTEXTURE_SKYBOX",
+        "regular": true
+      },
+      {
+        "map": "colorspace_map",
+        "enum": "mjtColorSpace",
+        "keyword": "auto",
+        "constant": "mjCOLORSPACE_AUTO",
+        "regular": true
+      },
+      {
+        "map": "colorspace_map",
+        "enum": "mjtColorSpace",
+        "keyword": "linear",
+        "constant": "mjCOLORSPACE_LINEAR",
+        "regular": true
+      },
+      {
+        "map": "colorspace_map",
+        "enum": "mjtColorSpace",
+        "keyword": "sRGB",
+        "constant": "mjCOLORSPACE_SRGB",
+        "regular": true
+      },
+      {
+        "map": "builtin_map",
+        "enum": "mjtBuiltin",
+        "keyword": "none",
+        "constant": "mjBUILTIN_NONE",
+        "regular": true
+      },
+      {
+        "map": "builtin_map",
+        "enum": "mjtBuiltin",
+        "keyword": "gradient",
+        "constant": "mjBUILTIN_GRADIENT",
+        "regular": true
+      },
+      {
+        "map": "builtin_map",
+        "enum": "mjtBuiltin",
+        "keyword": "checker",
+        "constant": "mjBUILTIN_CHECKER",
+        "regular": true
+      },
+      {
+        "map": "builtin_map",
+        "enum": "mjtBuiltin",
+        "keyword": "flat",
+        "constant": "mjBUILTIN_FLAT",
+        "regular": true
+      },
+      {
+        "map": "mark_map",
+        "enum": "mjtMark",
+        "keyword": "none",
+        "constant": "mjMARK_NONE",
+        "regular": true
+      },
+      {
+        "map": "mark_map",
+        "enum": "mjtMark",
+        "keyword": "edge",
+        "constant": "mjMARK_EDGE",
+        "regular": true
+      },
+      {
+        "map": "mark_map",
+        "enum": "mjtMark",
+        "keyword": "cross",
+        "constant": "mjMARK_CROSS",
+        "regular": true
+      },
+      {
+        "map": "mark_map",
+        "enum": "mjtMark",
+        "keyword": "random",
+        "constant": "mjMARK_RANDOM",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "none",
+        "constant": "mjDYN_NONE",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "integrator",
+        "constant": "mjDYN_INTEGRATOR",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "filter",
+        "constant": "mjDYN_FILTER",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "filterexact",
+        "constant": "mjDYN_FILTEREXACT",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "muscle",
+        "constant": "mjDYN_MUSCLE",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "dcmotor",
+        "constant": "mjDYN_DCMOTOR",
+        "regular": true
+      },
+      {
+        "map": "dyn_map",
+        "enum": "mjtDyn",
+        "keyword": "user",
+        "constant": "mjDYN_USER",
+        "regular": true
+      },
+      {
+        "map": "gain_map",
+        "enum": "mjtGain",
+        "keyword": "fixed",
+        "constant": "mjGAIN_FIXED",
+        "regular": true
+      },
+      {
+        "map": "gain_map",
+        "enum": "mjtGain",
+        "keyword": "affine",
+        "constant": "mjGAIN_AFFINE",
+        "regular": true
+      },
+      {
+        "map": "gain_map",
+        "enum": "mjtGain",
+        "keyword": "muscle",
+        "constant": "mjGAIN_MUSCLE",
+        "regular": true
+      },
+      {
+        "map": "gain_map",
+        "enum": "mjtGain",
+        "keyword": "dcmotor",
+        "constant": "mjGAIN_DCMOTOR",
+        "regular": true
+      },
+      {
+        "map": "gain_map",
+        "enum": "mjtGain",
+        "keyword": "so3",
+        "constant": "mjGAIN_SO3",
+        "regular": true
+      },
+      {
+        "map": "gain_map",
+        "enum": "mjtGain",
+        "keyword": "user",
+        "constant": "mjGAIN_USER",
+        "regular": true
+      },
+      {
+        "map": "input_map",
+        "enum": "mjtCtrlChart",
+        "keyword": "expmap",
+        "constant": "mjCHART_EXPMAP",
+        "regular": true
+      },
+      {
+        "map": "input_map",
+        "enum": "mjtCtrlChart",
+        "keyword": "quat",
+        "constant": "mjCHART_QUAT",
+        "regular": true
+      },
+      {
+        "map": "bias_map",
+        "enum": "mjtBias",
+        "keyword": "none",
+        "constant": "mjBIAS_NONE",
+        "regular": true
+      },
+      {
+        "map": "bias_map",
+        "enum": "mjtBias",
+        "keyword": "affine",
+        "constant": "mjBIAS_AFFINE",
+        "regular": true
+      },
+      {
+        "map": "bias_map",
+        "enum": "mjtBias",
+        "keyword": "muscle",
+        "constant": "mjBIAS_MUSCLE",
+        "regular": true
+      },
+      {
+        "map": "bias_map",
+        "enum": "mjtBias",
+        "keyword": "dcmotor",
+        "constant": "mjBIAS_DCMOTOR",
+        "regular": true
+      },
+      {
+        "map": "bias_map",
+        "enum": "mjtBias",
+        "keyword": "so3",
+        "constant": "mjBIAS_SO3",
+        "regular": true
+      },
+      {
+        "map": "bias_map",
+        "enum": "mjtBias",
+        "keyword": "user",
+        "constant": "mjBIAS_USER",
+        "regular": true
+      },
+      {
+        "map": "stage_map",
+        "enum": "mjtStage",
+        "keyword": "none",
+        "constant": "mjSTAGE_NONE",
+        "regular": true
+      },
+      {
+        "map": "stage_map",
+        "enum": "mjtStage",
+        "keyword": "pos",
+        "constant": "mjSTAGE_POS",
+        "regular": true
+      },
+      {
+        "map": "stage_map",
+        "enum": "mjtStage",
+        "keyword": "vel",
+        "constant": "mjSTAGE_VEL",
+        "regular": true
+      },
+      {
+        "map": "stage_map",
+        "enum": "mjtStage",
+        "keyword": "acc",
+        "constant": "mjSTAGE_ACC",
+        "regular": true
+      },
+      {
+        "map": "datatype_map",
+        "enum": "mjtDataType",
+        "keyword": "real",
+        "constant": "mjDATATYPE_REAL",
+        "regular": true
+      },
+      {
+        "map": "datatype_map",
+        "enum": "mjtDataType",
+        "keyword": "positive",
+        "constant": "mjDATATYPE_POSITIVE",
+        "regular": true
+      },
+      {
+        "map": "datatype_map",
+        "enum": "mjtDataType",
+        "keyword": "axis",
+        "constant": "mjDATATYPE_AXIS",
+        "regular": true
+      },
+      {
+        "map": "datatype_map",
+        "enum": "mjtDataType",
+        "keyword": "quaternion",
+        "constant": "mjDATATYPE_QUATERNION",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "found",
+        "constant": "mjCONDATA_FOUND",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "force",
+        "constant": "mjCONDATA_FORCE",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "torque",
+        "constant": "mjCONDATA_TORQUE",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "dist",
+        "constant": "mjCONDATA_DIST",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "pos",
+        "constant": "mjCONDATA_POS",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "normal",
+        "constant": "mjCONDATA_NORMAL",
+        "regular": true
+      },
+      {
+        "map": "condata_map",
+        "enum": "mjtConDataField",
+        "keyword": "tangent",
+        "constant": "mjCONDATA_TANGENT",
+        "regular": true
+      },
+      {
+        "map": "raydata_map",
+        "enum": "mjtRayDataField",
+        "keyword": "dist",
+        "constant": "mjRAYDATA_DIST",
+        "regular": true
+      },
+      {
+        "map": "raydata_map",
+        "enum": "mjtRayDataField",
+        "keyword": "dir",
+        "constant": "mjRAYDATA_DIR",
+        "regular": true
+      },
+      {
+        "map": "raydata_map",
+        "enum": "mjtRayDataField",
+        "keyword": "origin",
+        "constant": "mjRAYDATA_ORIGIN",
+        "regular": true
+      },
+      {
+        "map": "raydata_map",
+        "enum": "mjtRayDataField",
+        "keyword": "point",
+        "constant": "mjRAYDATA_POINT",
+        "regular": true
+      },
+      {
+        "map": "raydata_map",
+        "enum": "mjtRayDataField",
+        "keyword": "normal",
+        "constant": "mjRAYDATA_NORMAL",
+        "regular": true
+      },
+      {
+        "map": "raydata_map",
+        "enum": "mjtRayDataField",
+        "keyword": "depth",
+        "constant": "mjRAYDATA_DEPTH",
+        "regular": true
+      },
+      {
+        "map": "camout_map",
+        "enum": "mjtCamOutBit",
+        "keyword": "rgb",
+        "constant": "mjCAMOUT_RGB",
+        "regular": true
+      },
+      {
+        "map": "camout_map",
+        "enum": "mjtCamOutBit",
+        "keyword": "depth",
+        "constant": "mjCAMOUT_DEPTH",
+        "regular": true
+      },
+      {
+        "map": "camout_map",
+        "enum": "mjtCamOutBit",
+        "keyword": "distance",
+        "constant": "mjCAMOUT_DIST",
+        "regular": false
+      },
+      {
+        "map": "camout_map",
+        "enum": "mjtCamOutBit",
+        "keyword": "normal",
+        "constant": "mjCAMOUT_NORMAL",
+        "regular": true
+      },
+      {
+        "map": "camout_map",
+        "enum": "mjtCamOutBit",
+        "keyword": "segmentation",
+        "constant": "mjCAMOUT_SEG",
+        "regular": false
+      },
+      {
+        "map": "conflict_map",
+        "enum": "mjtConflict",
+        "keyword": "warning",
+        "constant": "mjCONFLICT_WARNING",
+        "regular": true
+      },
+      {
+        "map": "conflict_map",
+        "enum": "mjtConflict",
+        "keyword": "merge",
+        "constant": "mjCONFLICT_MERGE",
+        "regular": true
+      },
+      {
+        "map": "conflict_map",
+        "enum": "mjtConflict",
+        "keyword": "error",
+        "constant": "mjCONFLICT_ERROR",
+        "regular": true
+      },
+      {
+        "map": "lrmode_map",
+        "enum": "mjtLRMode",
+        "keyword": "none",
+        "constant": "mjLRMODE_NONE",
+        "regular": true
+      },
+      {
+        "map": "lrmode_map",
+        "enum": "mjtLRMode",
+        "keyword": "muscle",
+        "constant": "mjLRMODE_MUSCLE",
+        "regular": true
+      },
+      {
+        "map": "lrmode_map",
+        "enum": "mjtLRMode",
+        "keyword": "muscleuser",
+        "constant": "mjLRMODE_MUSCLEUSER",
+        "regular": true
+      },
+      {
+        "map": "lrmode_map",
+        "enum": "mjtLRMode",
+        "keyword": "all",
+        "constant": "mjLRMODE_ALL",
+        "regular": true
+      },
+      {
+        "map": "comp_map",
+        "enum": null,
+        "regular": null
+      },
+      {
+        "map": "meshinertia_map",
+        "enum": "mjtMeshInertia",
+        "keyword": "convex",
+        "constant": "mjMESH_INERTIA_CONVEX",
+        "regular": true
+      },
+      {
+        "map": "meshinertia_map",
+        "enum": "mjtMeshInertia",
+        "keyword": "legacy",
+        "constant": "mjMESH_INERTIA_LEGACY",
+        "regular": true
+      },
+      {
+        "map": "meshinertia_map",
+        "enum": "mjtMeshInertia",
+        "keyword": "exact",
+        "constant": "mjMESH_INERTIA_EXACT",
+        "regular": true
+      },
+      {
+        "map": "meshinertia_map",
+        "enum": "mjtMeshInertia",
+        "keyword": "shell",
+        "constant": "mjMESH_INERTIA_SHELL",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "none",
+        "constant": "mjMESH_BUILTIN_NONE",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "sphere",
+        "constant": "mjMESH_BUILTIN_SPHERE",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "hemisphere",
+        "constant": "mjMESH_BUILTIN_HEMISPHERE",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "cone",
+        "constant": "mjMESH_BUILTIN_CONE",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "supertorus",
+        "constant": "mjMESH_BUILTIN_SUPERTORUS",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "supersphere",
+        "constant": "mjMESH_BUILTIN_SUPERSPHERE",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "wedge",
+        "constant": "mjMESH_BUILTIN_WEDGE",
+        "regular": true
+      },
+      {
+        "map": "meshbuiltin_map",
+        "enum": "mjtMeshBuiltin",
+        "keyword": "plate",
+        "constant": "mjMESH_BUILTIN_PLATE",
+        "regular": true
+      },
+      {
+        "map": "fcomp_map",
+        "enum": null,
+        "regular": null
+      },
+      {
+        "map": "fdof_map",
+        "enum": null,
+        "regular": null
+      },
+      {
+        "map": "flexself_map",
+        "enum": "mjtFlexSelf",
+        "keyword": "none",
+        "constant": "mjFLEXSELF_NONE",
+        "regular": true
+      },
+      {
+        "map": "flexself_map",
+        "enum": "mjtFlexSelf",
+        "keyword": "narrow",
+        "constant": "mjFLEXSELF_NARROW",
+        "regular": true
+      },
+      {
+        "map": "flexself_map",
+        "enum": "mjtFlexSelf",
+        "keyword": "bvh",
+        "constant": "mjFLEXSELF_BVH",
+        "regular": true
+      },
+      {
+        "map": "flexself_map",
+        "enum": "mjtFlexSelf",
+        "keyword": "sap",
+        "constant": "mjFLEXSELF_SAP",
+        "regular": true
+      },
+      {
+        "map": "flexself_map",
+        "enum": "mjtFlexSelf",
+        "keyword": "auto",
+        "constant": "mjFLEXSELF_AUTO",
+        "regular": true
+      },
+      {
+        "map": "meshtype_map",
+        "enum": "mjtGeomInertia",
+        "keyword": "false",
+        "constant": "mjINERTIA_VOLUME",
+        "regular": false
+      },
+      {
+        "map": "meshtype_map",
+        "enum": "mjtGeomInertia",
+        "keyword": "true",
+        "constant": "mjINERTIA_SHELL",
+        "regular": false
+      }
+    ]
+  }
+}
