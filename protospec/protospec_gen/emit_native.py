@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections import namedtuple
 
 from .idl import parse_spec
 
@@ -53,6 +54,7 @@ SCHEMA = os.path.join(ROOT, "schema", "mujoco.spec")
 # src/xml/ lives at the vendored-MuJoCo checkout root (protospec/'s parent).
 MUJOCO_ROOT = os.path.dirname(ROOT)
 OUT_PATH = os.path.join(MUJOCO_ROOT, "src", "xml", "xml_native_schema.inc")
+KEYWORD_OUT_PATH = os.path.join(MUJOCO_ROOT, "src", "xml", "xml_native_keywords.inc")
 
 HEADER = (
     "// Generated from protospec/schema/mujoco.spec by protospec_gen.emit_native"
@@ -106,6 +108,99 @@ _DEFAULT_KEEP_CHILDREN = frozenset({"Material"})
 # into a child list rather than a field (material texture -> a <layer> entry).
 # Mirrors emit.ELEMENT_INPUT_ALIASES (kept in step; the two encode the same fold).
 _ELEMENT_INPUT_ALIASES = {"Material": ["texture"]}
+
+
+# ---------------------------------------------------------------------------
+# Keyword-map generation (xml_native_keywords.inc).
+#
+# The reader carries ~48 ``const mjMap NAME[...] = {{"kw", VALUE}, ...}`` keyword
+# tables. The keyword *spellings* and their *order* are schema facts (they are the
+# ``value`` of an IDL enum's members); the VALUE column is a MuJoCo-side C constant
+# (``mjGAIN_FIXED``) or a bare integer that the IDL does not model. Following the
+# prior wave's rule -- "the schema owns content, the emitter owns the MuJoCo-side
+# mapping" -- the C value column and the C array-size tokens live here, in an
+# explicit table, extracted once from the hand-written reader. Each row is:
+#
+#   MapBind(map_name, enum_name, size_token, sz_const_expr_or_None, [value, ...])
+#
+# where ``size_token`` is the ``[...]`` array bound the reader uses (a literal, an
+# ``mjN*`` macro, or a ``NAME_sz`` symbol), ``sz_const_expr`` is the value of the
+# ``const int NAME_sz = <expr>;`` line the reader emits before the map (None when
+# the reader used a literal/macro bound directly, so no such line is emitted), and
+# the value list is positionally aligned with the enum's members.
+#
+# generate_keywords() derives every keyword from the IDL enum and asserts, per map,
+# that the enum's member-value list has the same length as this value column; the
+# equivalence test (tests/test_native_keyword_maps.py) then proves the generated
+# {keyword, value} pairs equal the git-recovered hand tables. A schema enum that
+# gains/loses a member, or is reordered, therefore fails loudly here at emit time.
+#
+# Maps deliberately left hand-written (not schema-backed 1:1) -- see the test and
+# report: bool_map / enable_map (generic on/off, no enum), TFAuto_map (generic
+# tri-state reused across many attrs; two enums -- TriState, InertiaFromGeom --
+# share its exact spelling, so it is not uniquely derivable), equality_map
+# (equality is a union of child elements, not an enum), jkind_map / shape_map
+# (composite keyword sets, no enum), meshtype_map (bool-spelled false/true mapped
+# to inertia constants, no enum).
+
+MapBind = namedtuple("MapBind", "map enum size sz_expr values")
+
+KEYWORD_MAPS = [
+    MapBind('coordinate_map', 'Coordinate', '2', None, ['0', '1']),
+    MapBind('angle_map', 'AngleUnit', '2', None, ['0', '1']),
+    MapBind('fluid_map', 'FluidShape', '2', None, ['0', '1']),
+    MapBind('FAuto_map', 'SimpleMode', '2', None, ['0', '1']),
+    MapBind('bodysleep_map', 'BodySleep', 'bodysleep_sz', '4', ['mjSLEEP_AUTO', 'mjSLEEP_NEVER', 'mjSLEEP_ALLOWED', 'mjSLEEP_INIT']),
+    MapBind('joint_map', 'JointType', 'joint_sz', '4', ['mjJNT_FREE', 'mjJNT_BALL', 'mjJNT_SLIDE', 'mjJNT_HINGE']),
+    MapBind('geom_map', 'GeomType', 'mjNGEOMTYPES', None, ['mjGEOM_PLANE', 'mjGEOM_HFIELD', 'mjGEOM_SPHERE', 'mjGEOM_CAPSULE', 'mjGEOM_ELLIPSOID', 'mjGEOM_CYLINDER', 'mjGEOM_BOX', 'mjGEOM_MESH', 'mjGEOM_SDF']),
+    MapBind('projection_map', 'CameraProjection', 'projection_sz', '2', ['mjPROJ_PERSPECTIVE', 'mjPROJ_ORTHOGRAPHIC']),
+    MapBind('camlight_map', 'CamLightMode', 'camlight_sz', '5', ['mjCAMLIGHT_FIXED', 'mjCAMLIGHT_TRACK', 'mjCAMLIGHT_TRACKCOM', 'mjCAMLIGHT_TARGETBODY', 'mjCAMLIGHT_TARGETBODYCOM']),
+    MapBind('lighttype_map', 'LightType', 'lighttype_sz', '4', ['mjLIGHT_SPOT', 'mjLIGHT_DIRECTIONAL', 'mjLIGHT_POINT', 'mjLIGHT_IMAGE']),
+    MapBind('texrole_map', 'TexRole', 'texrole_sz', 'mjNTEXROLE - 1', ['mjTEXROLE_RGB', 'mjTEXROLE_OCCLUSION', 'mjTEXROLE_ROUGHNESS', 'mjTEXROLE_METALLIC', 'mjTEXROLE_NORMAL', 'mjTEXROLE_OPACITY', 'mjTEXROLE_EMISSIVE', 'mjTEXROLE_RGBA', 'mjTEXROLE_ORM']),
+    MapBind('integrator_map', 'Integrator', 'integrator_sz', '4', ['mjINT_EULER', 'mjINT_RK4', 'mjINT_IMPLICIT', 'mjINT_IMPLICITFAST']),
+    MapBind('cone_map', 'Cone', 'cone_sz', '2', ['mjCONE_PYRAMIDAL', 'mjCONE_ELLIPTIC']),
+    MapBind('jac_map', 'JacobianType', 'jac_sz', '3', ['mjJAC_DENSE', 'mjJAC_SPARSE', 'mjJAC_AUTO']),
+    MapBind('solver_map', 'SolverType', 'solver_sz', '3', ['mjSOL_PGS', 'mjSOL_CG', 'mjSOL_NEWTON']),
+    MapBind('texture_map', 'TextureType', 'texture_sz', '3', ['mjTEXTURE_2D', 'mjTEXTURE_CUBE', 'mjTEXTURE_SKYBOX']),
+    MapBind('colorspace_map', 'ColorSpace', 'colorspace_sz', '3', ['mjCOLORSPACE_AUTO', 'mjCOLORSPACE_LINEAR', 'mjCOLORSPACE_SRGB']),
+    MapBind('builtin_map', 'TextureBuiltin', 'builtin_sz', '4', ['mjBUILTIN_NONE', 'mjBUILTIN_GRADIENT', 'mjBUILTIN_CHECKER', 'mjBUILTIN_FLAT']),
+    MapBind('mark_map', 'TextureMark', 'mark_sz', '4', ['mjMARK_NONE', 'mjMARK_EDGE', 'mjMARK_CROSS', 'mjMARK_RANDOM']),
+    MapBind('dyn_map', 'DynType', 'dyn_sz', '7', ['mjDYN_NONE', 'mjDYN_INTEGRATOR', 'mjDYN_FILTER', 'mjDYN_FILTEREXACT', 'mjDYN_MUSCLE', 'mjDYN_DCMOTOR', 'mjDYN_USER']),
+    MapBind('dcmotorinput_map', 'DcMotorInput', 'dcmotorinput_sz', '3', ['0', '1', '2']),
+    MapBind('gain_map', 'GainType', 'gain_sz', '6', ['mjGAIN_FIXED', 'mjGAIN_AFFINE', 'mjGAIN_MUSCLE', 'mjGAIN_DCMOTOR', 'mjGAIN_SO3', 'mjGAIN_USER']),
+    MapBind('input_map', 'SO3Input', 'input_sz', '2', ['mjCHART_EXPMAP', 'mjCHART_QUAT']),
+    MapBind('bias_map', 'BiasType', 'bias_sz', '6', ['mjBIAS_NONE', 'mjBIAS_AFFINE', 'mjBIAS_MUSCLE', 'mjBIAS_DCMOTOR', 'mjBIAS_SO3', 'mjBIAS_USER']),
+    MapBind('interp_map', 'InterpType', 'interp_sz', '3', ['0', '1', '2']),
+    MapBind('stage_map', 'NeedStage', 'stage_sz', '4', ['mjSTAGE_NONE', 'mjSTAGE_POS', 'mjSTAGE_VEL', 'mjSTAGE_ACC']),
+    MapBind('datatype_map', 'DataType', 'datatype_sz', '4', ['mjDATATYPE_REAL', 'mjDATATYPE_POSITIVE', 'mjDATATYPE_AXIS', 'mjDATATYPE_QUATERNION']),
+    MapBind('condata_map', 'ContactData', 'mjNCONDATA', None, ['mjCONDATA_FOUND', 'mjCONDATA_FORCE', 'mjCONDATA_TORQUE', 'mjCONDATA_DIST', 'mjCONDATA_POS', 'mjCONDATA_NORMAL', 'mjCONDATA_TANGENT']),
+    MapBind('raydata_map', 'RayData', 'mjNRAYDATA', None, ['mjRAYDATA_DIST', 'mjRAYDATA_DIR', 'mjRAYDATA_ORIGIN', 'mjRAYDATA_POINT', 'mjRAYDATA_NORMAL', 'mjRAYDATA_DEPTH']),
+    MapBind('camout_map', 'CameraOutput', 'mjNCAMOUT', 'mjNCAMOUT', ['mjCAMOUT_RGB', 'mjCAMOUT_DEPTH', 'mjCAMOUT_DIST', 'mjCAMOUT_NORMAL', 'mjCAMOUT_SEG']),
+    MapBind('reduce_map', 'ContactReduce', 'reduce_sz', '4', ['0', '1', '2', '3']),
+    MapBind('conflict_map', 'Conflict', 'conflict_sz', '3', ['mjCONFLICT_WARNING', 'mjCONFLICT_MERGE', 'mjCONFLICT_ERROR']),
+    MapBind('lrmode_map', 'LRMode', 'lrmode_sz', '4', ['mjLRMODE_NONE', 'mjLRMODE_MUSCLE', 'mjLRMODE_MUSCLEUSER', 'mjLRMODE_ALL']),
+    MapBind('comp_map', 'CompositeType', 'mjNCOMPTYPES', None, ['mjCOMPTYPE_PARTICLE', 'mjCOMPTYPE_GRID', 'mjCOMPTYPE_ROPE', 'mjCOMPTYPE_LOOP', 'mjCOMPTYPE_CABLE', 'mjCOMPTYPE_CLOTH']),
+    MapBind('meshinertia_map', 'MeshInertia', '4', None, ['mjMESH_INERTIA_CONVEX', 'mjMESH_INERTIA_LEGACY', 'mjMESH_INERTIA_EXACT', 'mjMESH_INERTIA_SHELL']),
+    MapBind('meshbuiltin_map', 'MeshBuiltin', 'meshbuiltin_sz', '8', ['mjMESH_BUILTIN_NONE', 'mjMESH_BUILTIN_SPHERE', 'mjMESH_BUILTIN_HEMISPHERE', 'mjMESH_BUILTIN_CONE', 'mjMESH_BUILTIN_SUPERTORUS', 'mjMESH_BUILTIN_SUPERSPHERE', 'mjMESH_BUILTIN_WEDGE', 'mjMESH_BUILTIN_PLATE']),
+    MapBind('fcomp_map', 'FlexcompType', 'mjNFCOMPTYPES', None, ['mjFCOMPTYPE_GRID', 'mjFCOMPTYPE_BOX', 'mjFCOMPTYPE_CYLINDER', 'mjFCOMPTYPE_ELLIPSOID', 'mjFCOMPTYPE_SQUARE', 'mjFCOMPTYPE_DISC', 'mjFCOMPTYPE_CIRCLE', 'mjFCOMPTYPE_MESH', 'mjFCOMPTYPE_GMSH', 'mjFCOMPTYPE_DIRECT']),
+    MapBind('fdof_map', 'FlexDof', 'mjNFCOMPDOFS', None, ['mjFCOMPDOF_FULL', 'mjFCOMPDOF_RADIAL', 'mjFCOMPDOF_TRILINEAR', 'mjFCOMPDOF_QUADRATIC', 'mjFCOMPDOF_2D']),
+    MapBind('flexself_map', 'FlexSelfCollide', '5', None, ['mjFLEXSELF_NONE', 'mjFLEXSELF_NARROW', 'mjFLEXSELF_BVH', 'mjFLEXSELF_SAP', 'mjFLEXSELF_AUTO']),
+    MapBind('elastic2d_map', 'Elastic2D', '5', None, ['0', '1', '2', '3']),
+    MapBind('flexeq_map', 'FlexEquality', '4', None, ['0', '1', '2', '3']),
+]
+
+KEYWORD_HEADER = (
+    "// Generated from protospec/schema/mujoco.spec by protospec_gen.emit_native"
+    " -- do not edit.\n"
+    "//\n"
+    "// The reader's schema-backed `const mjMap NAME[]` keyword tables. Each map's\n"
+    "// keyword spellings and order are an IDL enum's member values; the value\n"
+    "// column (C constants / integers) and array-size tokens are the MuJoCo-side\n"
+    "// mapping the emitter owns (KEYWORD_MAPS in emit_native.py). Maps that are not\n"
+    "// schema-backed 1:1 (bool_map, enable_map, TFAuto_map, equality_map,\n"
+    "// jkind_map, shape_map, meshtype_map) stay hand-written in xml_native_reader.cc.\n"
+    "// Regenerate with: uv run python -m protospec_gen.emit_native --write\n"
+)
 
 
 class Schema:
@@ -282,39 +377,84 @@ def generate(schema_path: str = SCHEMA) -> str:
     return "\n".join(out) + "\n"
 
 
+def generate_keywords(schema_path: str = SCHEMA) -> str:
+    """Emit xml_native_keywords.inc: the schema-backed mjMap keyword tables."""
+    doc = parse_spec(schema_path).to_json()
+    enums = {e["name"]: e for e in doc["enums"]}
+
+    out: list[str] = [KEYWORD_HEADER.rstrip("\n"), "", "// clang-format off"]
+    for b in KEYWORD_MAPS:
+        enum = enums.get(b.enum)
+        if enum is None:
+            raise KeyError(f"{b.map}: schema enum {b.enum!r} not found")
+        keys = [m["value"] for m in enum["members"]]
+        if len(keys) != len(b.values):
+            raise ValueError(
+                f"{b.map}: schema enum {b.enum!r} has {len(keys)} members but the "
+                f"value column has {len(b.values)} -- schema drift; update "
+                f"KEYWORD_MAPS in emit_native.py"
+            )
+        out.append("")
+        out.append(f"// {b.enum} -> {b.map}")
+        if b.sz_expr is not None:
+            # The reader's size-constant symbol follows the map name: NAME_map -> NAME_sz.
+            sz_name = b.map[:-len("_map")] + "_sz" if b.map.endswith("_map") else b.map + "_sz"
+            out.append(f"const int {sz_name} = {b.sz_expr};")
+        keylits = [f'"{k}"' for k in keys]
+        width = max(len(k) for k in keylits)
+        out.append(f"const mjMap {b.map}[{b.size}] = {{")
+        for k, v in zip(keylits, b.values):
+            out.append(f"  {{{(k + ',').ljust(width + 1)} {v}}},")
+        out.append("};")
+    out.append("// clang-format on")
+    return "\n".join(out) + "\n"
+
+
+# (path, generator, out-of-date message, summary-line builder) for every emitted
+# include -- --write regenerates all, --check byte-verifies all.
+def _targets():
+    return [
+        (OUT_PATH, generate,
+         "xml_native_schema.inc is out of date",
+         lambda c: f"{c.split('#define nMJCF_GENERATED ', 1)[1].splitlines()[0]} rows"),
+        (KEYWORD_OUT_PATH, generate_keywords,
+         "xml_native_keywords.inc is out of date",
+         lambda c: f"{len(KEYWORD_MAPS)} maps"),
+    ]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--check", action="store_true",
-                   help="verify the checked-in .inc is up to date; do not write")
+                   help="verify the checked-in .inc files are up to date; do not write")
     g.add_argument("--write", action="store_true",
-                   help="regenerate the .inc (default)")
-    ap.add_argument("--out", default=OUT_PATH, help="destination .inc path")
+                   help="regenerate the .inc files (default)")
     args = ap.parse_args(argv)
 
-    content = generate()
-
-    if args.check:
-        if not os.path.exists(args.out):
-            sys.stderr.write(f"missing generated file: {args.out}\n")
-            return 1
-        with open(args.out, "r", encoding="utf-8", newline="") as fh:
-            current = fh.read().replace("\r\n", "\n")
-        if current != content:
-            sys.stderr.write(
-                "xml_native_schema.inc is out of date; re-run "
-                "`python -m protospec_gen.emit_native --write`\n"
-            )
-            return 1
-        n = content.split("#define nMJCF_GENERATED ", 1)[1].split("\n", 1)[0]
-        print(f"{args.out} is up to date ({n} rows)")
-        return 0
-
-    with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(content)
-    n = content.split("#define nMJCF_GENERATED ", 1)[1].split("\n", 1)[0]
-    print(f"wrote {args.out} ({n} rows)")
-    return 0
+    rc = 0
+    for path, gen, stale_msg, summary in _targets():
+        content = gen()
+        if args.check:
+            if not os.path.exists(path):
+                sys.stderr.write(f"missing generated file: {path}\n")
+                rc = 1
+                continue
+            with open(path, "r", encoding="utf-8", newline="") as fh:
+                current = fh.read().replace("\r\n", "\n")
+            if current != content:
+                sys.stderr.write(
+                    f"{stale_msg}; re-run "
+                    "`python -m protospec_gen.emit_native --write`\n"
+                )
+                rc = 1
+                continue
+            print(f"{path} is up to date ({summary(content)})")
+        else:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(content)
+            print(f"wrote {path} ({summary(content)})")
+    return rc
 
 
 if __name__ == "__main__":

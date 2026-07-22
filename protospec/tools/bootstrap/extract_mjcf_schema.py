@@ -281,6 +281,12 @@ def parse_schema_tree(source: str) -> Element:
 # can follow it transparently and keep working across the reader-table refactor.
 _SCHEMA_INCLUDE = "xml_native_schema.inc"
 
+# The schema-backed keyword maps were likewise lifted into a generated include
+# (protospec_gen.emit_native, KEYWORD_MAPS); the reader keeps only the maps that
+# are not schema-backed 1:1. The extractor gathers maps from the reader plus this
+# include so the snapshot still carries the full set across that refactor.
+_KEYWORDS_INCLUDE = "xml_native_keywords.inc"
+
 
 def _schema_source(reader: Path, reader_source: str) -> str:
     """Return the text that carries the MJCF table: the reader itself if the
@@ -302,6 +308,20 @@ def _schema_source(reader: Path, reader_source: str) -> str:
 
 _MAP_HEADER = re.compile(r"const\s+mjMap\s+(?P<name>\w+)\s*\[[^\]]*\]\s*=\s*")
 _MAP_ENTRY = re.compile(r'\{\s*"((?:[^"\\]|\\.)*)"\s*,\s*([^},]+?)\s*,?\s*\}')
+
+
+def _keyword_sources(reader: Path, reader_source: str) -> list[str]:
+    """Return every source text carrying keyword maps: the reader, plus the
+    generated keywords include when the reader pulls it in."""
+    sources = [reader_source]
+    if f'#include "{_KEYWORDS_INCLUDE}"' in reader_source:
+        inc = reader.parent / _KEYWORDS_INCLUDE
+        if not inc.exists():
+            raise SchemaParseError(
+                f"reader includes {_KEYWORDS_INCLUDE} but {inc} is missing"
+            )
+        sources.append(inc.read_text(encoding="utf-8"))
+    return sources
 
 
 def parse_keyword_maps(source: str) -> dict[str, list[dict[str, str]]]:
@@ -370,8 +390,13 @@ def build_snapshot(mujoco_src: Path) -> dict:
     reader = mujoco_src / "src" / "xml" / "xml_native_reader.cc"
     source = reader.read_text(encoding="utf-8")
     tree = parse_schema_tree(_schema_source(reader, source))
-    # Keyword maps always live in the reader .cc, never the generated include.
-    maps = parse_keyword_maps(source)
+    # Keyword maps live in the reader .cc plus the generated keywords include.
+    maps: dict[str, list[dict[str, str]]] = {}
+    for text in _keyword_sources(reader, source):
+        for name, entries in parse_keyword_maps(text).items():
+            if name in maps:
+                raise SchemaParseError(f"duplicate keyword map {name!r}")
+            maps[name] = entries
     run_sanity_checks(tree, maps)
     return {
         "source": {

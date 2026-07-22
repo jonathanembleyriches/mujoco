@@ -3089,26 +3089,6 @@
     ]
   },
   "keyword_maps": {
-    "coordinate_map": [
-      {
-        "key": "local",
-        "value": "0"
-      },
-      {
-        "key": "global",
-        "value": "1"
-      }
-    ],
-    "angle_map": [
-      {
-        "key": "radian",
-        "value": "0"
-      },
-      {
-        "key": "degree",
-        "value": "1"
-      }
-    ],
     "bool_map": [
       {
         "key": "false",
@@ -3116,16 +3096,6 @@
       },
       {
         "key": "true",
-        "value": "1"
-      }
-    ],
-    "fluid_map": [
-      {
-        "key": "none",
-        "value": "0"
-      },
-      {
-        "key": "ellipsoid",
         "value": "1"
       }
     ],
@@ -3151,6 +3121,104 @@
       {
         "key": "auto",
         "value": "2"
+      }
+    ],
+    "equality_map": [
+      {
+        "key": "connect",
+        "value": "mjEQ_CONNECT"
+      },
+      {
+        "key": "weld",
+        "value": "mjEQ_WELD"
+      },
+      {
+        "key": "joint",
+        "value": "mjEQ_JOINT"
+      },
+      {
+        "key": "tendon",
+        "value": "mjEQ_TENDON"
+      },
+      {
+        "key": "flex",
+        "value": "mjEQ_FLEX"
+      },
+      {
+        "key": "flexvert",
+        "value": "mjEQ_FLEXVERT"
+      },
+      {
+        "key": "flexstrain",
+        "value": "mjEQ_FLEXSTRAIN"
+      },
+      {
+        "key": "distance",
+        "value": "mjEQ_DISTANCE"
+      }
+    ],
+    "jkind_map": [
+      {
+        "key": "main",
+        "value": "mjCOMPKIND_JOINT"
+      }
+    ],
+    "shape_map": [
+      {
+        "key": "s",
+        "value": "mjCOMPSHAPE_LINE"
+      },
+      {
+        "key": "cos(s)",
+        "value": "mjCOMPSHAPE_COS"
+      },
+      {
+        "key": "sin(s)",
+        "value": "mjCOMPSHAPE_SIN"
+      },
+      {
+        "key": "0",
+        "value": "mjCOMPSHAPE_ZERO"
+      }
+    ],
+    "meshtype_map": [
+      {
+        "key": "false",
+        "value": "mjINERTIA_VOLUME"
+      },
+      {
+        "key": "true",
+        "value": "mjINERTIA_SHELL"
+      }
+    ],
+    "coordinate_map": [
+      {
+        "key": "local",
+        "value": "0"
+      },
+      {
+        "key": "global",
+        "value": "1"
+      }
+    ],
+    "angle_map": [
+      {
+        "key": "radian",
+        "value": "0"
+      },
+      {
+        "key": "degree",
+        "value": "1"
+      }
+    ],
+    "fluid_map": [
+      {
+        "key": "none",
+        "value": "0"
+      },
+      {
+        "key": "ellipsoid",
+        "value": "1"
       }
     ],
     "FAuto_map": [
@@ -3379,40 +3447,6 @@
       {
         "key": "Newton",
         "value": "mjSOL_NEWTON"
-      }
-    ],
-    "equality_map": [
-      {
-        "key": "connect",
-        "value": "mjEQ_CONNECT"
-      },
-      {
-        "key": "weld",
-        "value": "mjEQ_WELD"
-      },
-      {
-        "key": "joint",
-        "value": "mjEQ_JOINT"
-      },
-      {
-        "key": "tendon",
-        "value": "mjEQ_TENDON"
-      },
-      {
-        "key": "flex",
-        "value": "mjEQ_FLEX"
-      },
-      {
-        "key": "flexvert",
-        "value": "mjEQ_FLEXVERT"
-      },
-      {
-        "key": "flexstrain",
-        "value": "mjEQ_FLEXSTRAIN"
-      },
-      {
-        "key": "distance",
-        "value": "mjEQ_DISTANCE"
       }
     ],
     "texture_map": [
@@ -3787,40 +3821,6 @@
       {
         "key": "cloth",
         "value": "mjCOMPTYPE_CLOTH"
-      }
-    ],
-    "jkind_map": [
-      {
-        "key": "main",
-        "value": "mjCOMPKIND_JOINT"
-      }
-    ],
-    "shape_map": [
-      {
-        "key": "s",
-        "value": "mjCOMPSHAPE_LINE"
-      },
-      {
-        "key": "cos(s)",
-        "value": "mjCOMPSHAPE_COS"
-      },
-      {
-        "key": "sin(s)",
-        "value": "mjCOMPSHAPE_SIN"
-      },
-      {
-        "key": "0",
-        "value": "mjCOMPSHAPE_ZERO"
-      }
-    ],
-    "meshtype_map": [
-      {
-        "key": "false",
-        "value": "mjINERTIA_VOLUME"
-      },
-      {
-        "key": "true",
-        "value": "mjINERTIA_SHELL"
       }
     ],
     "meshinertia_map": [
