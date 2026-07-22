@@ -256,7 +256,7 @@ static void TestReflection() {
   CHECK(d.name == "Geom");
   CHECK(d.xml == "geom");
   CHECK(d.field_count == reflect::kFieldCount_Geom);
-  CHECK(d.field_count == 29);
+  CHECK(d.field_count == 30);
 
   // Every descriptor slot is populated and enumerable without the struct type.
   std::unordered_set<std::string> names;
